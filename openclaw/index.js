@@ -5,9 +5,9 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const REQUIRED_ENV_KEYS = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
-const OPTIONAL_ENV_KEYS = ["SETTLD_PAID_TOOLS_BASE_URL", "SETTLD_PAID_TOOLS_AGENT_PASSPORT"];
-const MCP_SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "mcp", "settld-mcp-server.mjs");
+const REQUIRED_ENV_KEYS = ["NOOTERRA_BASE_URL", "NOOTERRA_TENANT_ID", "NOOTERRA_API_KEY"];
+const OPTIONAL_ENV_KEYS = ["NOOTERRA_PAID_TOOLS_BASE_URL", "NOOTERRA_PAID_TOOLS_AGENT_PASSPORT"];
+const MCP_SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "mcp", "nooterra-mcp-server.mjs");
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -18,16 +18,16 @@ function pickString(value) {
   return value.trim();
 }
 
-function parseSettldServerConfig(mcpConfig) {
+function parseNooterraServerConfig(mcpConfig) {
   if (!isObject(mcpConfig)) return null;
-  if (isObject(mcpConfig.mcpServers) && isObject(mcpConfig.mcpServers.settld)) {
-    return mcpConfig.mcpServers.settld;
+  if (isObject(mcpConfig.mcpServers) && isObject(mcpConfig.mcpServers.nooterra)) {
+    return mcpConfig.mcpServers.nooterra;
   }
-  if (pickString(mcpConfig.name) === "settld") return mcpConfig;
+  if (pickString(mcpConfig.name) === "nooterra") return mcpConfig;
   return null;
 }
 
-function parseSettldEnvFromServer(server) {
+function parseNooterraEnvFromServer(server) {
   if (!isObject(server) || !isObject(server.env)) return {};
   const env = {};
   for (const key of [...REQUIRED_ENV_KEYS, ...OPTIONAL_ENV_KEYS]) {
@@ -50,22 +50,22 @@ function defaultMcpConfigPathCandidates() {
   ].filter(Boolean);
 }
 
-async function readSettldEnvFromMcpConfig(mcpConfigPath) {
+async function readNooterraEnvFromMcpConfig(mcpConfigPath) {
   const raw = await fs.readFile(mcpConfigPath, "utf8");
   const parsed = JSON.parse(raw);
-  const server = parseSettldServerConfig(parsed);
-  return parseSettldEnvFromServer(server);
+  const server = parseNooterraServerConfig(parsed);
+  return parseNooterraEnvFromServer(server);
 }
 
-async function resolveSettldEnv(pluginConfig = {}) {
+async function resolveNooterraEnv(pluginConfig = {}) {
   const env = {};
 
   const fromPluginConfig = {
-    SETTLD_BASE_URL: pickString(pluginConfig.baseUrl),
-    SETTLD_TENANT_ID: pickString(pluginConfig.tenantId),
-    SETTLD_API_KEY: pickString(pluginConfig.apiKey),
-    SETTLD_PAID_TOOLS_BASE_URL: pickString(pluginConfig.paidToolsBaseUrl),
-    SETTLD_PAID_TOOLS_AGENT_PASSPORT: pickString(pluginConfig.paidToolsAgentPassport)
+    NOOTERRA_BASE_URL: pickString(pluginConfig.baseUrl),
+    NOOTERRA_TENANT_ID: pickString(pluginConfig.tenantId),
+    NOOTERRA_API_KEY: pickString(pluginConfig.apiKey),
+    NOOTERRA_PAID_TOOLS_BASE_URL: pickString(pluginConfig.paidToolsBaseUrl),
+    NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: pickString(pluginConfig.paidToolsAgentPassport)
   };
   for (const [key, value] of Object.entries(fromPluginConfig)) {
     if (value) env[key] = value;
@@ -90,7 +90,7 @@ async function resolveSettldEnv(pluginConfig = {}) {
     if (seen.has(resolved)) continue;
     seen.add(resolved);
     try {
-      const fromFile = await readSettldEnvFromMcpConfig(resolved);
+      const fromFile = await readNooterraEnvFromMcpConfig(resolved);
       for (const [key, value] of Object.entries(fromFile)) {
         if (value && !env[key]) env[key] = value;
       }
@@ -152,7 +152,7 @@ function rpcWrite(stdin, payload) {
   stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
-async function callSettldMcpTool({ toolName, toolArgs, env, timeoutMs = 30_000 }) {
+async function callNooterraMcpTool({ toolName, toolArgs, env, timeoutMs = 30_000 }) {
   const child = spawn(process.execPath, [MCP_SCRIPT_PATH], {
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"]
@@ -173,7 +173,7 @@ async function callSettldMcpTool({ toolName, toolArgs, env, timeoutMs = 30_000 }
     method: "initialize",
     params: {
       protocolVersion: "2024-11-05",
-      clientInfo: { name: "openclaw-settld-plugin", version: "1" },
+      clientInfo: { name: "openclaw-nooterra-plugin", version: "1" },
       capabilities: {}
     }
   });
@@ -204,8 +204,8 @@ function buildMissingEnvMessage(env) {
   const missing = REQUIRED_ENV_KEYS.filter((key) => !pickString(env[key]));
   if (missing.length === 0) return "";
   return [
-    `Missing Settld runtime env: ${missing.join(", ")}`,
-    "Run: npx -y settld@latest setup",
+    `Missing Nooterra runtime env: ${missing.join(", ")}`,
+    "Run: npx -y nooterra@latest setup",
     "Select host=openclaw in quick mode, then retry."
   ].join(" ");
 }
@@ -234,31 +234,31 @@ function buildToolResult(payload, details = {}) {
 
 export default function register(api) {
   api.registerTool({
-    name: "settld_about",
-    label: "Settld About",
-    description: "Check Settld runtime connectivity and capability info.",
+    name: "nooterra_about",
+    label: "Nooterra About",
+    description: "Check Nooterra runtime connectivity and capability info.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {}
     },
     async execute() {
-      const env = await resolveSettldEnv(api.pluginConfig ?? {});
+      const env = await resolveNooterraEnv(api.pluginConfig ?? {});
       const missingMessage = buildMissingEnvMessage(env);
       if (missingMessage) throw new Error(missingMessage);
-      const result = await callSettldMcpTool({
-        toolName: "settld.about",
+      const result = await callNooterraMcpTool({
+        toolName: "nooterra.about",
         toolArgs: {},
         env
       });
-      return buildToolResult(result, { tool: "settld.about" });
+      return buildToolResult(result, { tool: "nooterra.about" });
     }
   });
 
   api.registerTool({
-    name: "settld_call",
-    label: "Settld Tool Call",
-    description: "Call any Settld MCP tool by name with JSON arguments.",
+    name: "nooterra_call",
+    label: "Nooterra Tool Call",
+    description: "Call any Nooterra MCP tool by name with JSON arguments.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -266,7 +266,7 @@ export default function register(api) {
       properties: {
         tool: {
           type: "string",
-          description: "Settld MCP tool name, for example settld.weather_current_paid."
+          description: "Nooterra MCP tool name, for example nooterra.weather_current_paid."
         },
         arguments: {
           type: "object",
@@ -282,14 +282,14 @@ export default function register(api) {
     async execute(_id, params = {}) {
       const toolName = pickString(params.tool);
       if (!toolName) throw new Error("tool is required");
-      if (!toolName.startsWith("settld.")) {
-        throw new Error("tool must start with settld.");
+      if (!toolName.startsWith("nooterra.")) {
+        throw new Error("tool must start with nooterra.");
       }
       const toolArgs = normalizeToolArguments(params);
-      const env = await resolveSettldEnv(api.pluginConfig ?? {});
+      const env = await resolveNooterraEnv(api.pluginConfig ?? {});
       const missingMessage = buildMissingEnvMessage(env);
       if (missingMessage) throw new Error(missingMessage);
-      const result = await callSettldMcpTool({
+      const result = await callNooterraMcpTool({
         toolName,
         toolArgs,
         env
@@ -300,8 +300,8 @@ export default function register(api) {
 }
 
 export {
-  parseSettldServerConfig,
-  parseSettldEnvFromServer,
-  resolveSettldEnv,
+  parseNooterraServerConfig,
+  parseNooterraEnvFromServer,
+  resolveNooterraEnv,
   normalizeToolArguments
 };

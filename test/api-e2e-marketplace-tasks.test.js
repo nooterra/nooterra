@@ -1655,6 +1655,130 @@ test("API e2e: policy can require manual settlement review and resolve", async (
   assert.equal(closedTask?.settlementDecisionReason, "manual policy override");
 });
 
+test("API e2e: metering/pricing policy evidence mismatch fails closed with deterministic reason codes", async () => {
+  const api = createApi();
+  await registerAgent(api, "agt_market_mpe_poster");
+  await registerAgent(api, "agt_market_mpe_bidder");
+  await registerAgent(api, "agt_market_mpe_operator");
+  await creditWallet(api, {
+    agentId: "agt_market_mpe_poster",
+    amountCents: 9000,
+    idempotencyKey: "wallet_credit_market_mpe_poster_1"
+  });
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_mpe_rfq_create_1" },
+    body: {
+      rfqId: "rfq_mpe_1",
+      title: "Metering/pricing evidence policy",
+      capability: "translate",
+      posterAgentId: "agt_market_mpe_poster",
+      budgetCents: 2600,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const pricingMatrixHash = "1".repeat(64);
+  const meteringReportHash = "2".repeat(64);
+  const invoiceClaimHash = "3".repeat(64);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mpe_1/bids",
+    headers: { "x-idempotency-key": "market_mpe_bid_create_1" },
+    body: {
+      bidId: "bid_mpe_1",
+      bidderAgentId: "agt_market_mpe_bidder",
+      amountCents: 2100,
+      currency: "USD",
+      verificationMethod: {
+        mode: "deterministic",
+        meteringPricingEvidence: {
+          pricingMatrixHash,
+          meteringReportHash: "f".repeat(64)
+        }
+      },
+      policy: {
+        mode: "automatic",
+        rules: {
+          requireDeterministicVerification: true,
+          autoReleaseOnGreen: true,
+          autoReleaseOnAmber: false,
+          autoReleaseOnRed: false,
+          meteringPricingEvidence: {
+            required: true,
+            pricingMatrixHash,
+            meteringReportHash,
+            invoiceClaimHash
+          }
+        }
+      }
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mpe_1/accept",
+    headers: { "x-idempotency-key": "market_mpe_accept_1" },
+    body: {
+      bidId: "bid_mpe_1",
+      acceptedByAgentId: "agt_market_mpe_operator"
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = accept.json?.run?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/agents/agt_market_mpe_bidder/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "market_mpe_complete_1"
+    },
+    body: {
+      type: "RUN_COMPLETED",
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(completed.statusCode, 201);
+  assert.equal(completed.json?.settlement?.status, "locked");
+  assert.equal(completed.json?.settlement?.decisionStatus, "manual_review_required");
+
+  const replayA = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/policy-replay`
+  });
+  assert.equal(replayA.statusCode, 200);
+  assert.deepEqual(replayA.json?.replay?.decision?.reasonCodes ?? [], [
+    "metering_pricing_invoice_claim_hash_missing",
+    "metering_pricing_metering_report_hash_mismatch"
+  ]);
+  assert.equal(replayA.json?.replay?.decision?.shouldAutoResolve, false);
+
+  const replayB = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/policy-replay`
+  });
+  assert.equal(replayB.statusCode, 200);
+  assert.deepEqual(replayB.json?.replay?.decision ?? null, replayA.json?.replay?.decision ?? null);
+
+  const replayEvaluate = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`
+  });
+  assert.equal(replayEvaluate.statusCode, 200);
+  assert.equal(replayEvaluate.json?.comparisons?.matchesStoredDecision, true);
+  assert.equal(replayEvaluate.json?.comparisons?.policyDecisionMatchesStored, true);
+});
+
 test("API e2e: deterministic verifier plugin sets settlement decision verifierRef and replay matches", async () => {
   const api = createApi();
   await registerAgent(api, "agt_market_det_plugin_poster");
@@ -1748,7 +1872,7 @@ test("API e2e: deterministic verifier plugin sets settlement decision verifierRe
   assert.ok(decisionRecord);
   assert.equal(decisionRecord?.schemaVersion, "SettlementDecisionRecord.v2");
   assert.equal(decisionRecord?.verifierRef?.modality, "deterministic");
-  assert.equal(decisionRecord?.verifierRef?.verifierId, "settld.deterministic.latency-threshold");
+  assert.equal(decisionRecord?.verifierRef?.verifierId, "nooterra.deterministic.latency-threshold");
   assert.match(String(decisionRecord?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
 
   const replayEvaluate = await request(api, {
@@ -1761,7 +1885,7 @@ test("API e2e: deterministic verifier plugin sets settlement decision verifierRe
   assert.equal(replayEvaluate.json?.comparisons?.decisionRecordReplayCriticalMatchesStored, true);
   assert.equal(replayEvaluate.json?.comparisons?.verifierRefMatchesStored, true);
   assert.equal(replayEvaluate.json?.verifierRef?.modality, "deterministic");
-  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "settld.deterministic.latency-threshold");
+  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "nooterra.deterministic.latency-threshold");
   assert.match(String(replayEvaluate.json?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(replayEvaluate.json?.verifierExecution?.pluginMatched, true);
 });
@@ -1857,7 +1981,7 @@ test("API e2e: deterministic schema-check verifier plugin can force refunded aut
   assert.ok(decisionRecord);
   assert.equal(decisionRecord?.schemaVersion, "SettlementDecisionRecord.v2");
   assert.equal(decisionRecord?.verifierRef?.modality, "deterministic");
-  assert.equal(decisionRecord?.verifierRef?.verifierId, "settld.deterministic.schema-check");
+  assert.equal(decisionRecord?.verifierRef?.verifierId, "nooterra.deterministic.schema-check");
   assert.match(String(decisionRecord?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
 
   const replayEvaluate = await request(api, {
@@ -1870,7 +1994,7 @@ test("API e2e: deterministic schema-check verifier plugin can force refunded aut
   assert.equal(replayEvaluate.json?.comparisons?.decisionRecordReplayCriticalMatchesStored, true);
   assert.equal(replayEvaluate.json?.comparisons?.verifierRefMatchesStored, true);
   assert.equal(replayEvaluate.json?.verifierRef?.modality, "deterministic");
-  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "settld.deterministic.schema-check");
+  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "nooterra.deterministic.schema-check");
   assert.match(String(replayEvaluate.json?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(replayEvaluate.json?.verifierExecution?.pluginMatched, true);
   assert.deepEqual(replayEvaluate.json?.verifierExecution?.reasonCodes ?? [], ["verifier_plugin_schema_check_failed"]);
@@ -2245,7 +2369,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
       policyVersion: 3,
       verificationMethod: {
         mode: "deterministic",
-        source: "verifier://settld-verify"
+        source: "verifier://nooterra-verify"
       },
       policy: {
         mode: "automatic",
@@ -3116,6 +3240,338 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
     agreementRead.json?.acceptanceSignatureVerification?.actingOnBehalfOf?.principalAgentId,
     "agt_market_sig_del_operator"
   );
+});
+
+test("API e2e: signed marketplace agreement acceptance fails closed on rotated signer lifecycle", async () => {
+  const api = createApi();
+  await registerAgent(api, "agt_market_sig_rotate_poster");
+  await registerAgent(api, "agt_market_sig_rotate_bidder");
+  const operatorKeypair = createEd25519Keypair();
+  const operatorRegistration = await registerAgent(api, "agt_market_sig_rotate_operator", {
+    publicKeyPem: operatorKeypair.publicKeyPem
+  });
+  await creditWallet(api, {
+    agentId: "agt_market_sig_rotate_poster",
+    amountCents: 9000,
+    idempotencyKey: "wallet_credit_market_sig_rotate_poster_1"
+  });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: operatorRegistration.keyId,
+      publicKeyPem: operatorKeypair.publicKeyPem,
+      purpose: "operator",
+      status: "active",
+      description: "marketplace agreement acceptance rotate lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const createTask1 = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_sig_rotate_rfq_create_1" },
+    body: {
+      rfqId: "rfq_sig_rotate_1",
+      title: "Signed rotate lifecycle task 1",
+      capability: "translate",
+      posterAgentId: "agt_market_sig_rotate_poster",
+      budgetCents: 3000,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask1.statusCode, 201);
+
+  const bid1 = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_rotate_1/bids",
+    headers: { "x-idempotency-key": "market_sig_rotate_bid_create_1" },
+    body: {
+      bidId: "bid_sig_rotate_1",
+      bidderAgentId: "agt_market_sig_rotate_bidder",
+      amountCents: 1500,
+      currency: "USD",
+      etaSeconds: 600
+    }
+  });
+  assert.equal(bid1.statusCode, 201);
+
+  const runId1 = "run_market_sig_rotate_1";
+  const signedAt = "2026-03-06T12:00:00.000Z";
+  const proposals1 = normalizeForCanonicalJson(bid1.json?.bid?.negotiation?.proposals ?? [], { path: "$" });
+  const latestProposal1 = proposals1[proposals1.length - 1];
+  const acceptanceCore1 = normalizeForCanonicalJson(
+    {
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_sig_rotate_1_bid_sig_rotate_1",
+      tenantId: createTask1.json?.rfq?.tenantId,
+      rfqId: "rfq_sig_rotate_1",
+      runId: runId1,
+      bidId: "bid_sig_rotate_1",
+      acceptedByAgentId: "agt_market_sig_rotate_operator",
+      acceptedProposalId: latestProposal1?.proposalId ?? null,
+      acceptedRevision: Number.isSafeInteger(Number(latestProposal1?.revision)) ? Number(latestProposal1.revision) : null,
+      acceptedProposalHash: latestProposal1?.proposalHash ?? null,
+      offerChainHash: sha256Hex(canonicalJsonStringify(proposals1)),
+      proposalCount: proposals1.length,
+      actingOnBehalfOfPrincipalAgentId: null,
+      actingOnBehalfOfDelegateAgentId: null,
+      actingOnBehalfOfChainHash: null
+    },
+    { path: "$" }
+  );
+  const acceptanceHash1 = sha256Hex(canonicalJsonStringify(acceptanceCore1));
+  const signature1 = signHashHexEd25519(acceptanceHash1, operatorKeypair.privateKeyPem);
+  const accept1 = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_rotate_1/accept",
+    headers: { "x-idempotency-key": "market_sig_rotate_accept_valid_1" },
+    body: {
+      bidId: "bid_sig_rotate_1",
+      runId: runId1,
+      acceptedByAgentId: "agt_market_sig_rotate_operator",
+      acceptanceSignature: {
+        signerAgentId: "agt_market_sig_rotate_operator",
+        signerKeyId: operatorRegistration.keyId,
+        signedAt,
+        signature: signature1
+      }
+    }
+  });
+  assert.equal(accept1.statusCode, 200, accept1.body);
+
+  const rotated = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(operatorRegistration.keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(rotated.statusCode, 200, rotated.body);
+  assert.equal(rotated.json?.signerKey?.status, "rotated");
+
+  const agreementReadAfterRotate = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId1)}/agreement`
+  });
+  assert.equal(agreementReadAfterRotate.statusCode, 200, agreementReadAfterRotate.body);
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.present, true);
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.valid, false);
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.reason, "acceptance_signature_signer_key_invalid");
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.signerStatus, "rotated");
+
+  const createTask2 = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_sig_rotate_rfq_create_2" },
+    body: {
+      rfqId: "rfq_sig_rotate_2",
+      title: "Signed rotate lifecycle task 2",
+      capability: "translate",
+      posterAgentId: "agt_market_sig_rotate_poster",
+      budgetCents: 3000,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask2.statusCode, 201);
+
+  const bid2 = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_rotate_2/bids",
+    headers: { "x-idempotency-key": "market_sig_rotate_bid_create_2" },
+    body: {
+      bidId: "bid_sig_rotate_2",
+      bidderAgentId: "agt_market_sig_rotate_bidder",
+      amountCents: 1400,
+      currency: "USD",
+      etaSeconds: 600
+    }
+  });
+  assert.equal(bid2.statusCode, 201);
+
+  const runId2 = "run_market_sig_rotate_2";
+  const proposals2 = normalizeForCanonicalJson(bid2.json?.bid?.negotiation?.proposals ?? [], { path: "$" });
+  const latestProposal2 = proposals2[proposals2.length - 1];
+  const acceptanceCore2 = normalizeForCanonicalJson(
+    {
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_sig_rotate_2_bid_sig_rotate_2",
+      tenantId: createTask2.json?.rfq?.tenantId,
+      rfqId: "rfq_sig_rotate_2",
+      runId: runId2,
+      bidId: "bid_sig_rotate_2",
+      acceptedByAgentId: "agt_market_sig_rotate_operator",
+      acceptedProposalId: latestProposal2?.proposalId ?? null,
+      acceptedRevision: Number.isSafeInteger(Number(latestProposal2?.revision)) ? Number(latestProposal2.revision) : null,
+      acceptedProposalHash: latestProposal2?.proposalHash ?? null,
+      offerChainHash: sha256Hex(canonicalJsonStringify(proposals2)),
+      proposalCount: proposals2.length,
+      actingOnBehalfOfPrincipalAgentId: null,
+      actingOnBehalfOfDelegateAgentId: null,
+      actingOnBehalfOfChainHash: null
+    },
+    { path: "$" }
+  );
+  const acceptanceHash2 = sha256Hex(canonicalJsonStringify(acceptanceCore2));
+  const signature2 = signHashHexEd25519(acceptanceHash2, operatorKeypair.privateKeyPem);
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_rotate_2/accept",
+    headers: { "x-idempotency-key": "market_sig_rotate_accept_blocked_2" },
+    body: {
+      bidId: "bid_sig_rotate_2",
+      runId: runId2,
+      acceptedByAgentId: "agt_market_sig_rotate_operator",
+      acceptanceSignature: {
+        signerAgentId: "agt_market_sig_rotate_operator",
+        signerKeyId: operatorRegistration.keyId,
+        signedAt,
+        signature: signature2
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 400, blocked.body);
+  assert.equal(blocked.json?.error, "invalid acceptance signature");
+  assert.equal(blocked.json?.code, "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+});
+
+test("API e2e: delegated acceptance fails closed when delegation signer key is rotated", async () => {
+  const api = createApi();
+  await registerAgent(api, "agt_market_sig_del_rotate_poster");
+  await registerAgent(api, "agt_market_sig_del_rotate_bidder");
+  const operatorKeypair = createEd25519Keypair();
+  const delegateKeypair = createEd25519Keypair();
+  const operatorRegistration = await registerAgent(api, "agt_market_sig_del_rotate_operator", {
+    publicKeyPem: operatorKeypair.publicKeyPem
+  });
+  const delegateRegistration = await registerAgent(api, "agt_market_sig_del_rotate_delegate", {
+    publicKeyPem: delegateKeypair.publicKeyPem
+  });
+  await creditWallet(api, {
+    agentId: "agt_market_sig_del_rotate_poster",
+    amountCents: 6000,
+    idempotencyKey: "wallet_credit_market_sig_del_rotate_poster_1"
+  });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: operatorRegistration.keyId,
+      publicKeyPem: operatorKeypair.publicKeyPem,
+      purpose: "operator",
+      status: "active",
+      description: "marketplace delegation signer rotate lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const rotated = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(operatorRegistration.keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(rotated.statusCode, 200, rotated.body);
+  assert.equal(rotated.json?.signerKey?.status, "rotated");
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_sig_del_rotate_rfq_create_1" },
+    body: {
+      rfqId: "rfq_sig_del_rotate_1",
+      title: "Delegated rotate lifecycle task",
+      capability: "translate",
+      posterAgentId: "agt_market_sig_del_rotate_poster",
+      budgetCents: 2200,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_del_rotate_1/bids",
+    headers: { "x-idempotency-key": "market_sig_del_rotate_bid_create_1" },
+    body: {
+      bidId: "bid_sig_del_rotate_1",
+      bidderAgentId: "agt_market_sig_del_rotate_bidder",
+      amountCents: 1400,
+      currency: "USD",
+      etaSeconds: 600
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const proposals = normalizeForCanonicalJson(bid.json?.bid?.negotiation?.proposals ?? [], { path: "$" });
+  const latestProposal = proposals[proposals.length - 1];
+  const runId = "run_market_sig_del_rotate_1";
+  const signedAt = "2026-03-06T12:00:00.000Z";
+  const delegationLink = buildDelegationLink({
+    tenantId: createTask.json?.rfq?.tenantId,
+    delegationId: "dlg_sig_del_rotate_1",
+    principalAgentId: "agt_market_sig_del_rotate_operator",
+    delegateAgentId: "agt_market_sig_del_rotate_delegate",
+    scope: "marketplace.agreement.accept",
+    issuedAt: "2026-03-01T00:00:00.000Z",
+    expiresAt: "2026-03-10T00:00:00.000Z",
+    signerKeyId: operatorRegistration.keyId,
+    signerPrivateKeyPem: operatorKeypair.privateKeyPem
+  });
+  const actingOnBehalfOf = buildActingOnBehalfOf({
+    principalAgentId: "agt_market_sig_del_rotate_operator",
+    delegateAgentId: "agt_market_sig_del_rotate_delegate",
+    delegationChain: [delegationLink]
+  });
+  const acceptanceCore = normalizeForCanonicalJson(
+    {
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_sig_del_rotate_1_bid_sig_del_rotate_1",
+      tenantId: createTask.json?.rfq?.tenantId,
+      rfqId: "rfq_sig_del_rotate_1",
+      runId,
+      bidId: "bid_sig_del_rotate_1",
+      acceptedByAgentId: "agt_market_sig_del_rotate_operator",
+      acceptedProposalId: latestProposal?.proposalId ?? null,
+      acceptedRevision: Number.isSafeInteger(Number(latestProposal?.revision)) ? Number(latestProposal.revision) : null,
+      acceptedProposalHash: latestProposal?.proposalHash ?? null,
+      offerChainHash: sha256Hex(canonicalJsonStringify(proposals)),
+      proposalCount: proposals.length,
+      actingOnBehalfOfPrincipalAgentId: "agt_market_sig_del_rotate_operator",
+      actingOnBehalfOfDelegateAgentId: "agt_market_sig_del_rotate_delegate",
+      actingOnBehalfOfChainHash: actingOnBehalfOf.chainHash
+    },
+    { path: "$" }
+  );
+  const acceptanceHash = sha256Hex(canonicalJsonStringify(acceptanceCore));
+  const signature = signHashHexEd25519(acceptanceHash, delegateKeypair.privateKeyPem);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_sig_del_rotate_1/accept",
+    headers: { "x-idempotency-key": "market_sig_del_rotate_accept_blocked_1" },
+    body: {
+      bidId: "bid_sig_del_rotate_1",
+      runId,
+      acceptedByAgentId: "agt_market_sig_del_rotate_operator",
+      acceptanceSignature: {
+        signerAgentId: "agt_market_sig_del_rotate_delegate",
+        signerKeyId: delegateRegistration.keyId,
+        signedAt,
+        actingOnBehalfOf,
+        signature
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 400, blocked.body);
+  assert.equal(blocked.json?.error, "invalid acceptance signature");
+  assert.equal(blocked.json?.code, "ACCEPTANCE_SIGNATURE_DELEGATION_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.fieldPath, "acceptanceSignature.actingOnBehalfOf.delegationChain[0]");
 });
 
 test("API e2e: ops delegation traces and emergency revoke disable delegated acceptance", async () => {

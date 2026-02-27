@@ -13,9 +13,9 @@ A capability must satisfy all three checks:
 Required commands (or equivalent CI jobs):
 
 ```sh
-./bin/settld.js conformance kernel --ops-token tok_ops
-./bin/settld.js closepack export --agreement-hash <sha256> --out /tmp/<agreementHash>.zip --ops-token tok_ops
-./bin/settld.js closepack verify /tmp/<agreementHash>.zip
+./bin/nooterra.js conformance kernel --ops-token tok_ops
+./bin/nooterra.js closepack export --agreement-hash <sha256> --out /tmp/<agreementHash>.zip --ops-token tok_ops
+./bin/nooterra.js closepack verify /tmp/<agreementHash>.zip
 ```
 
 ## Listing Contract

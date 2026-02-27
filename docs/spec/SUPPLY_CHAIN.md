@@ -1,6 +1,6 @@
 # Supply chain: releases
 
-This doc describes what Settld release authenticity *does* and *does not* guarantee.
+This doc describes what Nooterra release authenticity *does* and *does not* guarantee.
 
 ## Threat model (release channel)
 

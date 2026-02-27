@@ -191,6 +191,125 @@ function deriveBeforeSnapshots({ adjustment, payerAfter, payeeAfter }) {
   };
 }
 
+const KNOWN_RECONCILIATION_MISMATCH_CLASSES = new Set([
+  "unsupported_adjustment_kind",
+  "invalid_adjustment_amount",
+  "currency_mismatch",
+  "negative_derived_balance"
+]);
+
+function normalizeCurrencyCode(value) {
+  const text = normalizeOptionalString(value);
+  return text ? text.toUpperCase() : null;
+}
+
+function buildReconciliationCloseReport({ adjustment, payerAfter, payeeAfter, derived }) {
+  const adjustmentKind = normalizeOptionalString(adjustment?.kind)?.toLowerCase() ?? null;
+  const externalMismatchClass = normalizeOptionalString(adjustment?.mismatchClass);
+  const adjustmentCurrency = normalizeCurrencyCode(adjustment?.currency);
+  const payerCurrency = normalizeCurrencyCode(payerAfter?.currency);
+  const payeeCurrency = normalizeCurrencyCode(payeeAfter?.currency);
+  const currencyCandidates = [adjustmentCurrency, payerCurrency, payeeCurrency].filter(Boolean);
+  const distinctCurrencies = [...new Set(currencyCandidates)].sort((a, b) => a.localeCompare(b));
+  const walletFields = [
+    { id: "payer_before_available_cents", value: derived?.payerBefore?.availableCents },
+    { id: "payer_before_escrow_locked_cents", value: derived?.payerBefore?.escrowLockedCents },
+    { id: "payer_after_available_cents", value: payerAfter?.availableCents },
+    { id: "payer_after_escrow_locked_cents", value: payerAfter?.escrowLockedCents },
+    { id: "payee_before_available_cents", value: derived?.payeeBefore?.availableCents },
+    { id: "payee_before_escrow_locked_cents", value: derived?.payeeBefore?.escrowLockedCents },
+    { id: "payee_after_available_cents", value: payeeAfter?.availableCents },
+    { id: "payee_after_escrow_locked_cents", value: payeeAfter?.escrowLockedCents }
+  ];
+  const negativeBalanceFields = walletFields.filter((row) => Number.isSafeInteger(row.value) && row.value < 0).map((row) => row.id);
+  const checks = [
+    {
+      id: "adjustment_kind_supported",
+      ok: derived?.derivationMode === "holdback_release" || derived?.derivationMode === "holdback_refund",
+      mismatchClass: "unsupported_adjustment_kind",
+      actual: derived?.derivationMode ?? "unknown",
+      expected: "holdback_release|holdback_refund",
+      comparator: "in"
+    },
+    {
+      id: "adjustment_amount_non_negative",
+      ok: Number.isSafeInteger(derived?.amountCents) && derived.amountCents >= 0,
+      mismatchClass: "invalid_adjustment_amount",
+      actual: derived?.amountCents ?? null,
+      expected: ">= 0",
+      comparator: ">="
+    },
+    {
+      id: "wallet_currencies_aligned",
+      ok: distinctCurrencies.length === 1 && adjustmentCurrency !== null && payerCurrency !== null && payeeCurrency !== null,
+      mismatchClass: "currency_mismatch",
+      actual: distinctCurrencies,
+      expected: ["single_currency"],
+      comparator: "="
+    },
+    {
+      id: "derived_balances_non_negative",
+      ok: negativeBalanceFields.length === 0,
+      mismatchClass: "negative_derived_balance",
+      actual: negativeBalanceFields,
+      expected: [],
+      comparator: "="
+    },
+    {
+      id: "external_mismatch_class_supported",
+      ok: externalMismatchClass === null || KNOWN_RECONCILIATION_MISMATCH_CLASSES.has(externalMismatchClass),
+      mismatchClass: externalMismatchClass ?? null,
+      actual: externalMismatchClass,
+      expected: "null|known_class",
+      comparator: "in"
+    }
+  ];
+  const mismatchClasses = checks
+    .filter((check) => check.ok !== true)
+    .map((check) => check.mismatchClass)
+    .filter((value) => typeof value === "string" && value.trim() !== "");
+  const unresolvedMismatchClasses = [...new Set(mismatchClasses.filter((value) => !KNOWN_RECONCILIATION_MISMATCH_CLASSES.has(value)))].sort(
+    (a, b) => a.localeCompare(b)
+  );
+  checks.push({
+    id: "mismatch_classes_resolved",
+    ok: unresolvedMismatchClasses.length === 0,
+    mismatchClass: "unresolved_mismatch_class",
+    actual: unresolvedMismatchClasses,
+    expected: [],
+    comparator: "="
+  });
+  const blockingIssues = checks
+    .filter((check) => check.ok !== true)
+    .map((check) => ({
+      schemaVersion: "DisputeFinanceReconciliationBlockingIssue.v1",
+      id: `check:${check.id}`,
+      checkId: check.id,
+      mismatchClass: check.mismatchClass ?? null,
+      details: {
+        comparator: check.comparator,
+        expected: check.expected,
+        actual: check.actual,
+        adjustmentKind
+      }
+    }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  const requiredChecks = checks.length;
+  const passedChecks = checks.filter((check) => check.ok === true).length;
+  const failedChecks = requiredChecks - passedChecks;
+  return {
+    checks,
+    blockingIssues,
+    verdict: {
+      ok: failedChecks === 0,
+      status: failedChecks === 0 ? "pass" : "fail",
+      requiredChecks,
+      passedChecks,
+      failedChecks
+    }
+  };
+}
+
 async function main() {
   let args;
   try {
@@ -244,6 +363,7 @@ async function main() {
   const payerAfter = walletSnapshot(payerWalletOut?.wallet ?? null);
   const payeeAfter = walletSnapshot(payeeWalletOut?.wallet ?? null);
   const derived = deriveBeforeSnapshots({ adjustment, payerAfter, payeeAfter });
+  const closeReport = buildReconciliationCloseReport({ adjustment, payerAfter, payeeAfter, derived });
 
   const packetCore = normalizeForCanonicalJson(
     {
@@ -262,7 +382,10 @@ async function main() {
           before: derived.payeeBefore,
           after: payeeAfter
         }
-      }
+      },
+      checks: closeReport.checks,
+      blockingIssues: closeReport.blockingIssues,
+      verdict: closeReport.verdict
     },
     { path: "$" }
   );
@@ -304,6 +427,7 @@ async function main() {
   }
   // eslint-disable-next-line no-console
   console.log(JSON.stringify(packet, null, 2));
+  if (packet.verdict?.ok !== true) process.exitCode = 1;
 }
 
 main().catch((err) => {

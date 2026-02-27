@@ -74,7 +74,7 @@ export async function createBackupRestoreApiClient({
   async function request({ method, path, headers = {}, body } = {}) {
     const reqHeaders = {
       "x-proxy-tenant-id": tenantId,
-      "x-settld-protocol": protocol,
+      "x-nooterra-protocol": protocol,
       ...(headers ?? {})
     };
     if (body !== undefined) reqHeaders["content-type"] = "application/json";

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "SettldSprintBoard.v1",
+  "schemaVersion": "NooterraSprintBoard.v1",
   "generatedAt": "2026-02-07",
   "sourceBacklog": "planning/jira/self-serve-icp-v1-backlog.json",
   "boardId": "SELF_SERVE_ICP_V1_SPRINT0",

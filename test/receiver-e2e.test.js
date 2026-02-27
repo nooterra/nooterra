@@ -293,7 +293,7 @@ test("receiver e2e: happy path (deliver -> verify -> store -> ack)", { skip: !RU
       PROXY_AUTOTICK_INTERVAL_MS: "100",
       PROXY_AUTOTICK_MAX_MESSAGES: "200",
       PROXY_EXPORT_DESTINATIONS: JSON.stringify({
-        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/settld`, secret }]
+        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/nooterra`, secret }]
       })
     }
   });
@@ -313,7 +313,7 @@ test("receiver e2e: happy path (deliver -> verify -> store -> ack)", { skip: !RU
       RECEIVER_S3_ENDPOINT: "http://127.0.0.1:9000",
       RECEIVER_S3_REGION: "us-east-1",
       RECEIVER_S3_BUCKET: "proxy-artifacts",
-      RECEIVER_S3_PREFIX: "settld/",
+      RECEIVER_S3_PREFIX: "nooterra/",
       RECEIVER_S3_FORCE_PATH_STYLE: "1",
       RECEIVER_S3_ACCESS_KEY_ID: "proxy",
       RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret",
@@ -342,7 +342,7 @@ test("receiver e2e: happy path (deliver -> verify -> store -> ack)", { skip: !RU
     return list[0];
   });
 
-  const artifactKey = `settld/artifacts/${deliveries.artifactType}/${deliveries.artifactHash}.json`;
+  const artifactKey = `nooterra/artifacts/${deliveries.artifactType}/${deliveries.artifactHash}.json`;
   const stored = await getStoredArtifactFromMinio({ key: artifactKey, accessKeyId: "proxy", secretAccessKey: "proxysecret" });
   assert.equal(stored.status, 200);
   assert.equal(verifyArtifactHash(stored.json).ok, true);
@@ -385,7 +385,7 @@ test("receiver e2e: retry (timeout once) -> dedupe -> single store", { skip: !RU
       PROXY_AUTOTICK_MAX_MESSAGES: "200",
       PROXY_DELIVERY_HTTP_TIMEOUT_MS: "200",
       PROXY_EXPORT_DESTINATIONS: JSON.stringify({
-        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/settld`, secret }]
+        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/nooterra`, secret }]
       })
     }
   });
@@ -405,7 +405,7 @@ test("receiver e2e: retry (timeout once) -> dedupe -> single store", { skip: !RU
       RECEIVER_S3_ENDPOINT: "http://127.0.0.1:9000",
       RECEIVER_S3_REGION: "us-east-1",
       RECEIVER_S3_BUCKET: "proxy-artifacts",
-      RECEIVER_S3_PREFIX: "settld/",
+      RECEIVER_S3_PREFIX: "nooterra/",
       RECEIVER_S3_FORCE_PATH_STYLE: "1",
       RECEIVER_S3_ACCESS_KEY_ID: "proxy",
       RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret",
@@ -479,7 +479,7 @@ test("receiver e2e: tamper -> 422 -> no store, no ACK", { skip: !RUN }, async ()
       PROXY_AUTOTICK_INTERVAL_MS: "100",
       PROXY_AUTOTICK_MAX_MESSAGES: "200",
       PROXY_EXPORT_DESTINATIONS: JSON.stringify({
-        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/settld`, secret }]
+        [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/nooterra`, secret }]
       })
     }
   });
@@ -499,7 +499,7 @@ test("receiver e2e: tamper -> 422 -> no store, no ACK", { skip: !RUN }, async ()
       RECEIVER_S3_ENDPOINT: "http://127.0.0.1:9000",
       RECEIVER_S3_REGION: "us-east-1",
       RECEIVER_S3_BUCKET: "proxy-artifacts",
-      RECEIVER_S3_PREFIX: "settld/",
+      RECEIVER_S3_PREFIX: "nooterra/",
       RECEIVER_S3_FORCE_PATH_STYLE: "1",
       RECEIVER_S3_ACCESS_KEY_ID: "proxy",
       RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret",
@@ -529,7 +529,7 @@ test("receiver e2e: tamper -> 422 -> no store, no ACK", { skip: !RUN }, async ()
   });
 
   const tamperedHash = "a".repeat(64);
-  const artifactKey = `settld/artifacts/${delivery.artifactType}/${delivery.artifactHash}.json`;
+  const artifactKey = `nooterra/artifacts/${delivery.artifactType}/${delivery.artifactHash}.json`;
   const stored = await getStoredArtifactFromMinio({ key: artifactKey, accessKeyId: "proxy", secretAccessKey: "proxysecret" });
   assert.equal(stored.status, 200);
   const tampered = { ...stored.json, artifactHash: tamperedHash };
@@ -541,7 +541,7 @@ test("receiver e2e: tamper -> 422 -> no store, no ACK", { skip: !RUN }, async ()
   const res = await httpJson({
     baseUrl: `http://127.0.0.1:${receiverPort}`,
     method: "POST",
-    path: "/deliveries/settld",
+    path: "/deliveries/nooterra",
     headers: {
       "x-proxy-dedupe-key": dedupeKey,
       "x-proxy-delivery-id": "999999",
@@ -553,7 +553,7 @@ test("receiver e2e: tamper -> 422 -> no store, no ACK", { skip: !RUN }, async ()
   });
   assert.equal(res.status, 422);
 
-  const key = `settld/artifacts/${delivery.artifactType}/${tamperedHash}.json`;
+  const key = `nooterra/artifacts/${delivery.artifactType}/${tamperedHash}.json`;
   const head = await headMinioObject({ key, accessKeyId: "proxy", secretAccessKey: "proxysecret" });
   assert.equal(head.status, 404);
 
@@ -589,7 +589,7 @@ test("receiver e2e: ACK outage -> store succeeds -> ACK retries until success", 
     PROXY_AUTOTICK_INTERVAL_MS: "100",
     PROXY_AUTOTICK_MAX_MESSAGES: "200",
     PROXY_EXPORT_DESTINATIONS: JSON.stringify({
-      [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/settld`, secret }]
+      [tenantId]: [{ destinationId, kind: "webhook", url: `http://127.0.0.1:${receiverPort}/deliveries/nooterra`, secret }]
     })
   };
 
@@ -609,7 +609,7 @@ test("receiver e2e: ACK outage -> store succeeds -> ACK retries until success", 
       RECEIVER_S3_ENDPOINT: "http://127.0.0.1:9000",
       RECEIVER_S3_REGION: "us-east-1",
       RECEIVER_S3_BUCKET: "proxy-artifacts",
-      RECEIVER_S3_PREFIX: "settld/",
+      RECEIVER_S3_PREFIX: "nooterra/",
       RECEIVER_S3_FORCE_PATH_STYLE: "1",
       RECEIVER_S3_ACCESS_KEY_ID: "proxy",
       RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret",
@@ -625,7 +625,7 @@ test("receiver e2e: ACK outage -> store succeeds -> ACK retries until success", 
   const auth = await createApiKey({ apiBase, tenantId, opsToken });
   await runJobLifecycle({ apiBase, authHeader: auth.bearer, tenantId });
 
-  // Wait until Settld marks it delivered (receiver already stored).
+  // Wait until Nooterra marks it delivered (receiver already stored).
   await waitFor(async () => {
     const r = await httpJson({
       baseUrl: apiBase,
@@ -640,7 +640,7 @@ test("receiver e2e: ACK outage -> store succeeds -> ACK retries until success", 
     return true;
   });
 
-  // Kill Settld before ACK worker starts; ACK will fail then retry.
+  // Kill Nooterra before ACK worker starts; ACK will fail then retry.
   await stopProc(apiProc);
   await sleep(4000);
 

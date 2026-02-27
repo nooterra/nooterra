@@ -7,7 +7,7 @@ import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { createCircleReserveAdapter } from "../src/core/circle-reserve-adapter.js";
 import { hmacSignArtifact } from "../src/core/artifacts.js";
-import { computeSettldPayTokenSha256, parseSettldPayTokenV1, verifySettldPayTokenV1 } from "../src/core/settld-pay-token.js";
+import { computeNooterraPayTokenSha256, parseNooterraPayTokenV1, verifyNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -44,7 +44,7 @@ async function upsertX402WalletPolicy(api, { policy, idempotencyKey }) {
     path: "/ops/x402/wallet-policies",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { policy }
   });
@@ -57,7 +57,7 @@ async function putX402ZkVerificationKey(api, { verificationKey, idempotencyKey }
     path: "/x402/zk/verification-keys",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { verificationKey }
   });
@@ -100,9 +100,29 @@ async function windDownX402Agent(api, { agentId, reasonCode = "X402_AGENT_WIND_D
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/wind-down`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { reasonCode }
+  });
+  return response;
+}
+
+async function setX402AgentLifecycle(
+  api,
+  { agentId, status, reasonCode = null, reasonMessage = null, idempotencyKey }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
   });
   return response;
 }
@@ -284,7 +304,7 @@ test("API e2e: wallet assignment resolver auto-populates missing passport metada
     path: `/agents/${encodeURIComponent(agentId)}/passport`,
     headers: {
       "x-idempotency-key": "x402_wallet_assignment_issue_passport_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       agentPassport: buildProtocolAgentPassport({
@@ -305,7 +325,7 @@ test("API e2e: wallet assignment resolver auto-populates missing passport metada
   const resolveAssignment = await request(api, {
     method: "POST",
     path: "/x402/wallet-assignment/resolve",
-    headers: { "x-settld-protocol": "1.0" },
+    headers: { "x-nooterra-protocol": "1.0" },
     body: {
       profileRef: sponsorRef,
       riskClass: "financial",
@@ -632,7 +652,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/authorize-payment",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_authz_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { gateId: "gate_proto_ctx_missing_1" }
   });
@@ -653,7 +673,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/escalations/esc_proto_ctx_missing_1/resolve",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_escalation_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { action: "approve" }
   });
@@ -674,7 +694,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/agents/agt_proto_ctx_missing_1/wind-down",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_winddown_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { reasonCode: "X402_AGENT_WIND_DOWN_MANUAL" }
   });
@@ -718,7 +738,7 @@ test("API e2e: high-risk x402 financial routes require finance_write scope", asy
     headers: {
       "x-proxy-ops-token": "tok_ops_only",
       "x-idempotency-key": "x402_scope_guard_escalation_ops_only_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { action: "approve" }
   });
@@ -774,11 +794,11 @@ test("API e2e: x402 authorize-payment is idempotent and token verifies via keyse
 
   const keysetRes = await request(api, {
     method: "GET",
-    path: "/.well-known/settld-keys.json",
+    path: "/.well-known/nooterra-keys.json",
     auth: "none"
   });
   assert.equal(keysetRes.statusCode, 200, keysetRes.body);
-  const verified = verifySettldPayTokenV1({
+  const verified = verifyNooterraPayTokenV1({
     token: auth1.json?.token,
     keyset: keysetRes.json,
     expectedAudience: payeeAgentId,
@@ -1433,6 +1453,251 @@ test("API e2e: x402 authorize-payment is blocked when gate payer is manually fro
   assert.equal(authz.json?.code, "X402_AGENT_FROZEN");
 });
 
+test("API e2e: x402 gate create is blocked when payer agent lifecycle is provisioned", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_provisioned_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_provisioned_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_auth_provisioned_1" });
+
+  const lifecycle = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "provisioned",
+    reasonCode: "AGENT_WAITING_ACTIVATION",
+    idempotencyKey: "x402_lifecycle_provisioned_1"
+  });
+  assert.equal(lifecycle.statusCode, 200, lifecycle.body);
+  assert.equal(lifecycle.json?.lifecycle?.status, "provisioned");
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_provisioned_1" },
+    body: {
+      gateId: "gate_auth_provisioned_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 409, created.body);
+  assert.equal(created.json?.code, "X402_AGENT_NOT_ACTIVE");
+});
+
+test("API e2e: x402 gate create is blocked with 429 when payer agent lifecycle is throttled", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_throttled_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_throttled_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_auth_throttled_1" });
+
+  const lifecycle = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "x402_lifecycle_throttled_1"
+  });
+  assert.equal(lifecycle.statusCode, 200, lifecycle.body);
+  assert.equal(lifecycle.json?.lifecycle?.status, "throttled");
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_throttled_1" },
+    body: {
+      gateId: "gate_auth_throttled_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 429, created.body);
+  assert.equal(created.json?.code, "X402_AGENT_THROTTLED");
+});
+
+test("API e2e: x402 agent lifecycle transition from decommissioned to active fails closed", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_lifecycle_transition_blocked_1" });
+
+  const decommissioned = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "decommissioned",
+    reasonCode: "AGENT_RETIRED",
+    idempotencyKey: "x402_lifecycle_decommissioned_1"
+  });
+  assert.equal(decommissioned.statusCode, 200, decommissioned.body);
+  assert.equal(decommissioned.json?.lifecycle?.status, "decommissioned");
+
+  const blocked = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "x402_lifecycle_decommissioned_to_active_1"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AGENT_LIFECYCLE_TRANSITION_BLOCKED");
+});
+
+test("API e2e: x402 agent lifecycle get returns implicit active when unset", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_lifecycle_get_default_1" });
+
+  const response = await request(api, {
+    method: "GET",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.agentId, agentId);
+  assert.equal(response.json?.lifecycle?.status, "active");
+});
+
+test("API e2e: agreement delegation create fails closed when delegator or delegatee lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegatorAgentId = await registerAgent(api, { agentId: "agt_agreement_delegation_lifecycle_delegator_1" });
+  const delegateeAgentId = await registerAgent(api, { agentId: "agt_agreement_delegation_lifecycle_delegatee_1" });
+  const parentAgreementHash = sha256Hex("agreement_lifecycle_parent_1");
+  const childAgreementHash = sha256Hex("agreement_lifecycle_child_1");
+
+  const suspendDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_POLICY_SUSPENDED",
+    idempotencyKey: "agreement_delegation_lifecycle_suspend_delegator_1"
+  });
+  assert.equal(suspendDelegator.statusCode, 200, suspendDelegator.body);
+  assert.equal(suspendDelegator.json?.lifecycle?.status, "suspended");
+
+  const blockedDelegator = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": "agreement_delegation_lifecycle_block_delegator_1" },
+    body: {
+      delegationId: "dlg_agreement_lifecycle_block_delegator_1",
+      childAgreementHash,
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents: 500,
+      currency: "USD",
+      delegationDepth: 0,
+      maxDelegationDepth: 1
+    }
+  });
+  assert.equal(blockedDelegator.statusCode, 410, blockedDelegator.body);
+  assert.equal(blockedDelegator.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedDelegator.json?.details?.role, "delegator");
+  assert.equal(blockedDelegator.json?.details?.operation, "agreement_delegation.issue");
+
+  const reactivateDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "agreement_delegation_lifecycle_reactivate_delegator_1"
+  });
+  assert.equal(reactivateDelegator.statusCode, 200, reactivateDelegator.body);
+  assert.equal(reactivateDelegator.json?.lifecycle?.status, "active");
+
+  const throttleDelegatee = await setX402AgentLifecycle(api, {
+    agentId: delegateeAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "agreement_delegation_lifecycle_throttle_delegatee_1"
+  });
+  assert.equal(throttleDelegatee.statusCode, 200, throttleDelegatee.body);
+  assert.equal(throttleDelegatee.json?.lifecycle?.status, "throttled");
+
+  const blockedDelegatee = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": "agreement_delegation_lifecycle_block_delegatee_1" },
+    body: {
+      delegationId: "dlg_agreement_lifecycle_block_delegatee_1",
+      childAgreementHash: sha256Hex("agreement_lifecycle_child_2"),
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents: 500,
+      currency: "USD",
+      delegationDepth: 0,
+      maxDelegationDepth: 1
+    }
+  });
+  assert.equal(blockedDelegatee.statusCode, 429, blockedDelegatee.body);
+  assert.equal(blockedDelegatee.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(blockedDelegatee.json?.details?.role, "delegatee");
+  assert.equal(blockedDelegatee.json?.details?.operation, "agreement_delegation.issue");
+});
+
+test("API e2e: x402 gate quote is blocked when payer or payee lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_quote_lifecycle_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_quote_lifecycle_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_quote_lifecycle_1" });
+
+  const gateId = "gate_x402_quote_lifecycle_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_quote_lifecycle_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      toolId: "mock_weather"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const suspendPayer = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_POLICY_SUSPENDED",
+    idempotencyKey: "x402_quote_lifecycle_suspend_payer_1"
+  });
+  assert.equal(suspendPayer.statusCode, 200, suspendPayer.body);
+  assert.equal(suspendPayer.json?.lifecycle?.status, "suspended");
+
+  const blockedPayer = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_lifecycle_block_payer_1" },
+    body: { gateId }
+  });
+  assert.equal(blockedPayer.statusCode, 410, blockedPayer.body);
+  assert.equal(blockedPayer.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedPayer.json?.details?.role, "payer");
+
+  const reactivatePayer = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "x402_quote_lifecycle_reactivate_payer_1"
+  });
+  assert.equal(reactivatePayer.statusCode, 200, reactivatePayer.body);
+  assert.equal(reactivatePayer.json?.lifecycle?.status, "active");
+
+  const throttlePayee = await setX402AgentLifecycle(api, {
+    agentId: payeeAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "x402_quote_lifecycle_throttle_payee_1"
+  });
+  assert.equal(throttlePayee.statusCode, 200, throttlePayee.body);
+  assert.equal(throttlePayee.json?.lifecycle?.status, "throttled");
+
+  const blockedPayee = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_lifecycle_block_payee_1" },
+    body: { gateId }
+  });
+  assert.equal(blockedPayee.statusCode, 429, blockedPayee.body);
+  assert.equal(blockedPayee.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(blockedPayee.json?.details?.role, "payee");
+});
+
 test("API e2e: strict request binding mints request-bound token and reuses reserve", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -1464,7 +1729,7 @@ test("API e2e: strict request binding mints request-bound token and reuses reser
     body: { gateId, requestBindingMode: "strict", requestBindingSha256: requestBindingShaA }
   });
   assert.equal(authA.statusCode, 200, authA.body);
-  const payloadA = parseSettldPayTokenV1(authA.json?.token).payload;
+  const payloadA = parseNooterraPayTokenV1(authA.json?.token).payload;
   assert.equal(payloadA.requestBindingMode, "strict");
   assert.equal(payloadA.requestBindingSha256, requestBindingShaA);
 
@@ -1488,7 +1753,7 @@ test("API e2e: strict request binding mints request-bound token and reuses reser
   assert.equal(authB.statusCode, 200, authB.body);
   assert.notEqual(authB.json?.token, authA.json?.token);
   assert.equal(authB.json?.reserve?.reserveId, authA.json?.reserve?.reserveId);
-  const payloadB = parseSettldPayTokenV1(authB.json?.token).payload;
+  const payloadB = parseNooterraPayTokenV1(authB.json?.token).payload;
   assert.equal(payloadB.requestBindingMode, "strict");
   assert.equal(payloadB.requestBindingSha256, requestBindingShaB);
 });
@@ -1593,7 +1858,7 @@ test("API e2e: quote-bound authorization carries spend claims into settlement bi
     }
   });
   assert.equal(authorizedWithDecision.statusCode, 200, authorizedWithDecision.body);
-  const payload = parseSettldPayTokenV1(authorizedWithDecision.json?.token).payload;
+  const payload = parseNooterraPayTokenV1(authorizedWithDecision.json?.token).payload;
   assert.equal(payload.requestBindingMode, "strict");
   assert.equal(payload.requestBindingSha256, requestBindingSha256);
   assert.equal(payload.quoteId, quoteId);
@@ -1959,7 +2224,7 @@ test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcem
     }
   });
   assert.equal(authAWithDecision.statusCode, 200, authAWithDecision.body);
-  const tokenPayloadA = parseSettldPayTokenV1(authAWithDecision.json?.token).payload;
+  const tokenPayloadA = parseNooterraPayTokenV1(authAWithDecision.json?.token).payload;
   assert.equal(tokenPayloadA.policyVersion, walletPolicy.policyVersion);
   assert.equal(tokenPayloadA.policyFingerprint, createdPolicy.json?.policy?.policyFingerprint);
 
@@ -2116,7 +2381,7 @@ test("API e2e: verify rejects spend authorization policy fingerprint mismatch", 
 
   const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
   assert.ok(storedGate?.authorization?.token?.value);
-  const parsedToken = parseSettldPayTokenV1(storedGate.authorization.token.value);
+  const parsedToken = parseNooterraPayTokenV1(storedGate.authorization.token.value);
   const tamperedEnvelope = {
     ...parsedToken.envelope,
     payload: {
@@ -2132,7 +2397,7 @@ test("API e2e: verify rejects spend authorization policy fingerprint mismatch", 
       token: {
         ...storedGate.authorization.token,
         value: tamperedToken,
-        sha256: computeSettldPayTokenSha256(tamperedToken)
+        sha256: computeNooterraPayTokenSha256(tamperedToken)
       }
     }
   };
@@ -2167,7 +2432,7 @@ test("API e2e: authorize-payment emits escalation and resumes with approved over
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_create_1"
     },
     body: {
@@ -2352,12 +2617,12 @@ test("API e2e: authorize-payment emits escalation and resumes with approved over
   const firstHeaders = firstWebhook?.init?.headers ?? {};
   const firstProxyTs = firstHeaders["x-proxy-timestamp"] ?? firstHeaders["X-Proxy-Timestamp"];
   const firstProxySig = firstHeaders["x-proxy-signature"] ?? firstHeaders["X-Proxy-Signature"];
-  const firstSettldTs = firstHeaders["x-settld-timestamp"] ?? firstHeaders["X-Settld-Timestamp"];
-  const firstSettldSig = firstHeaders["x-settld-signature"] ?? firstHeaders["X-Settld-Signature"];
+  const firstNooterraTs = firstHeaders["x-nooterra-timestamp"] ?? firstHeaders["X-Nooterra-Timestamp"];
+  const firstNooterraSig = firstHeaders["x-nooterra-signature"] ?? firstHeaders["X-Nooterra-Signature"];
   assert.ok(firstProxyTs);
   assert.ok(firstProxySig);
-  assert.equal(firstSettldTs, firstProxyTs);
-  assert.equal(firstSettldSig, firstProxySig);
+  assert.equal(firstNooterraTs, firstProxyTs);
+  assert.equal(firstNooterraSig, firstProxySig);
   const firstBody = JSON.parse(String(firstWebhook?.init?.body ?? "{}"));
   assert.equal(firstBody?.artifactType, "X402EscalationLifecycle.v1");
   assert.equal(firstBody?.eventType, "created");
@@ -2413,7 +2678,7 @@ test("API e2e: x402 webhook endpoint auto-disables after repeated failures", asy
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_create_fail_1"
     },
     body: {
@@ -2563,7 +2828,7 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_rotate_create_1"
     },
     body: {
@@ -2582,7 +2847,7 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
     method: "POST",
     path: `/x402/webhooks/endpoints/${encodeURIComponent(endpointId)}/rotate-secret`,
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_rotate_secret_1"
     },
     body: {
@@ -2732,16 +2997,16 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
 });
 
 test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {
-  const prevSettldEnv = process.env.SETTLD_ENV;
+  const prevNooterraEnv = process.env.NOOTERRA_ENV;
   const prevRequireReserve = process.env.X402_REQUIRE_EXTERNAL_RESERVE;
   const prevReserveMode = process.env.X402_CIRCLE_RESERVE_MODE;
 
-  process.env.SETTLD_ENV = "production";
+  process.env.NOOTERRA_ENV = "production";
   delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
   delete process.env.X402_CIRCLE_RESERVE_MODE;
   t.after(() => {
-    if (prevSettldEnv === undefined) delete process.env.SETTLD_ENV;
-    else process.env.SETTLD_ENV = prevSettldEnv;
+    if (prevNooterraEnv === undefined) delete process.env.NOOTERRA_ENV;
+    else process.env.NOOTERRA_ENV = prevNooterraEnv;
     if (prevRequireReserve === undefined) delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
     else process.env.X402_REQUIRE_EXTERNAL_RESERVE = prevRequireReserve;
     if (prevReserveMode === undefined) delete process.env.X402_CIRCLE_RESERVE_MODE;
@@ -3149,7 +3414,7 @@ test("API e2e: AgentPassport.v1 lineage resolver enforces revoked/expired/depth 
     }
   });
   assert.equal(validAuthorize.statusCode, 200, validAuthorize.body);
-  const validTokenPayload = parseSettldPayTokenV1(validAuthorize.json?.token ?? "").payload;
+  const validTokenPayload = parseNooterraPayTokenV1(validAuthorize.json?.token ?? "").payload;
   assert.equal(validTokenPayload.delegationRef, "dlg_lineage_leaf_1");
   assert.equal(validTokenPayload.rootDelegationRef, "dlg_lineage_root_1");
   assert.equal(validTokenPayload.rootDelegationHash, rootDelegation.delegationHash);

@@ -144,8 +144,8 @@ async function runSmokeTest({ gatewayUrl, holdbackBps, disputeWindowMs }) {
   const paymentRequired = firstHeaders["x-payment-required"];
   if (!paymentRequired) throw new Error("missing x-payment-required header on 402 response");
 
-  const gateId = firstHeaders["x-settld-gate-id"];
-  if (!gateId) throw new Error("missing x-settld-gate-id header on 402 response");
+  const gateId = firstHeaders["x-nooterra-gate-id"];
+  if (!gateId) throw new Error("missing x-nooterra-gate-id header on 402 response");
 
   // Parse amountCents=... out of x-payment-required.
   const m = String(paymentRequired).match(/(?:^|;)\s*amountCents=([0-9]+)\b/);
@@ -156,7 +156,7 @@ async function runSmokeTest({ gatewayUrl, holdbackBps, disputeWindowMs }) {
   const second = await fetch(gatewayUrl, {
     method: "GET",
     headers: {
-      "x-settld-gate-id": gateId,
+      "x-nooterra-gate-id": gateId,
       "x-payment": "paid"
     }
   });
@@ -166,11 +166,11 @@ async function runSmokeTest({ gatewayUrl, holdbackBps, disputeWindowMs }) {
     throw new Error(`expected second request to return 200; got ${second.status}`);
   }
 
-  const settlementStatus = secondHeaders["x-settld-settlement-status"];
-  const releasedAmountCents = Number(secondHeaders["x-settld-released-amount-cents"] ?? "NaN");
-  const refundedAmountCents = Number(secondHeaders["x-settld-refunded-amount-cents"] ?? "NaN");
-  const holdbackStatus = secondHeaders["x-settld-holdback-status"];
-  const holdbackAmountCents = Number(secondHeaders["x-settld-holdback-amount-cents"] ?? "NaN");
+  const settlementStatus = secondHeaders["x-nooterra-settlement-status"];
+  const releasedAmountCents = Number(secondHeaders["x-nooterra-released-amount-cents"] ?? "NaN");
+  const refundedAmountCents = Number(secondHeaders["x-nooterra-refunded-amount-cents"] ?? "NaN");
+  const holdbackStatus = secondHeaders["x-nooterra-holdback-status"];
+  const holdbackAmountCents = Number(secondHeaders["x-nooterra-holdback-amount-cents"] ?? "NaN");
 
   const expectedHoldbackCents = Math.floor((amountCents * holdbackBps) / 10_000);
   const expectedReleasedCents = amountCents - expectedHoldbackCents;
@@ -197,19 +197,19 @@ async function runSmokeTest({ gatewayUrl, holdbackBps, disputeWindowMs }) {
 }
 
 async function main() {
-  const apiPort = readIntEnv("SETTLD_QUICKSTART_API_PORT", 3000);
-  const upstreamPort = readIntEnv("SETTLD_QUICKSTART_UPSTREAM_PORT", 9402);
-  const gatewayPort = readIntEnv("SETTLD_QUICKSTART_GATEWAY_PORT", 8402);
+  const apiPort = readIntEnv("NOOTERRA_QUICKSTART_API_PORT", 3000);
+  const upstreamPort = readIntEnv("NOOTERRA_QUICKSTART_UPSTREAM_PORT", 9402);
+  const gatewayPort = readIntEnv("NOOTERRA_QUICKSTART_GATEWAY_PORT", 8402);
 
-  const opsToken = String(process.env.SETTLD_QUICKSTART_OPS_TOKEN ?? "tok_ops").trim() || "tok_ops";
-  const tenantId = String(process.env.SETTLD_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
+  const opsToken = String(process.env.NOOTERRA_QUICKSTART_OPS_TOKEN ?? "tok_ops").trim() || "tok_ops";
+  const tenantId = String(process.env.NOOTERRA_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
 
   const holdbackBps = readNonNegativeIntEnv("HOLDBACK_BPS", 0);
   if (holdbackBps > 10_000) throw new Error("HOLDBACK_BPS must be within 0..10000");
   const disputeWindowMs = readNonNegativeIntEnv("DISPUTE_WINDOW_MS", 3_600_000);
   const autoFund = readBoolEnv("X402_AUTOFUND", true);
 
-  const keepAlive = readBoolEnv("SETTLD_QUICKSTART_KEEP_ALIVE", true);
+  const keepAlive = readBoolEnv("NOOTERRA_QUICKSTART_KEEP_ALIVE", true);
 
   const apiUrl = new URL(`http://127.0.0.1:${apiPort}`);
   const upstreamUrl = new URL(`http://127.0.0.1:${upstreamPort}`);
@@ -250,7 +250,7 @@ async function main() {
 
   // 2) Mint API key
   const apiKey = await mintApiKey({ apiUrl, opsToken, tenantId });
-  log("quickstart", "SETTLD_API_KEY minted");
+  log("quickstart", "NOOTERRA_API_KEY minted");
 
   // 3) Upstream mock
   const upstream = spawnProc({
@@ -260,18 +260,18 @@ async function main() {
     env: {
       BIND_HOST: "127.0.0.1",
       PORT: String(upstreamPort),
-      SETTLD_PAY_KEYSET_URL: new URL("/.well-known/settld-keys.json", apiUrl).toString()
+      NOOTERRA_PAY_KEYSET_URL: new URL("/.well-known/nooterra-keys.json", apiUrl).toString()
     }
   });
   procs.push(upstream);
   await waitForJson(new URL("/healthz", upstreamUrl).toString(), { name: "upstream /healthz", proc: upstream });
 
   // Provider signature key (for correctness-verification demo).
-  const providerKeyRes = await fetch(new URL("/settld/provider-key", upstreamUrl));
+  const providerKeyRes = await fetch(new URL("/nooterra/provider-key", upstreamUrl));
   const providerKey = providerKeyRes.ok ? await providerKeyRes.json() : null;
   const providerPublicKeyPem = typeof providerKey?.publicKeyPem === "string" ? providerKey.publicKeyPem : null;
   if (!providerPublicKeyPem) {
-    throw new Error("upstream did not expose a provider public key at /settld/provider-key");
+    throw new Error("upstream did not expose a provider public key at /nooterra/provider-key");
   }
 
   // 4) Gateway
@@ -281,8 +281,8 @@ async function main() {
     args: ["services/x402-gateway/src/server.js"],
     env: {
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiUrl.toString(),
-      SETTLD_API_KEY: apiKey,
+      NOOTERRA_API_URL: apiUrl.toString(),
+      NOOTERRA_API_KEY: apiKey,
       UPSTREAM_URL: upstreamUrl.toString(),
       HOLDBACK_BPS: String(holdbackBps),
       DISPUTE_WINDOW_MS: String(disputeWindowMs),
@@ -304,7 +304,7 @@ async function main() {
     headers: {
       authorization: `Bearer ${apiKey}`,
       "x-proxy-tenant-id": tenantId,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     }
   });
   const gateStateText = await gateStateRes.text();

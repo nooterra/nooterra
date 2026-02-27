@@ -5,7 +5,7 @@ import test from "node:test";
 import { parseArgs, runPublicOnboardingGate } from "../scripts/ci/run-public-onboarding-gate.mjs";
 
 test("public onboarding gate parser: supports help mode with no required args", () => {
-  const args = parseArgs(["--help"], {}, "/tmp/settld");
+  const args = parseArgs(["--help"], {}, "/tmp/nooterra");
   assert.equal(args.help, true);
 });
 
@@ -15,23 +15,23 @@ test("public onboarding gate parser: fails closed when base url is not configure
       parseArgs(
         [],
         {
-          SETTLD_TENANT_ID: "tenant_default",
-          SETTLD_ONBOARDING_PROBE_EMAIL: "probe@settld.work"
+          NOOTERRA_TENANT_ID: "tenant_default",
+          NOOTERRA_ONBOARDING_PROBE_EMAIL: "probe@nooterra.work"
         },
-        "/tmp/settld"
+        "/tmp/nooterra"
       ),
     /--base-url is required/i
   );
 });
 
 test("public onboarding gate parser: uses env defaults and supports overrides", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
     ["--base-url", "https://api.override.test/", "--tenant-id", "tenant_override", "--email", "USER@EXAMPLE.COM", "--out", "artifacts/custom/public-onboarding.json"],
     {
-      SETTLD_BASE_URL: "https://api.default.test/",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_ONBOARDING_PROBE_EMAIL: "probe@settld.work"
+      NOOTERRA_BASE_URL: "https://api.default.test/",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_ONBOARDING_PROBE_EMAIL: "probe@nooterra.work"
     },
     cwd
   );
@@ -70,9 +70,9 @@ test("public onboarding gate runner: passes when public auth mode is available a
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_default",
-      email: "probe@settld.work",
+      email: "probe@nooterra.work",
       out: "/tmp/public-onboarding-gate.json"
     },
     { requestJsonFn }
@@ -109,9 +109,9 @@ test("public onboarding gate runner: fails closed when auth mode or otp probe en
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_default",
-      email: "probe@settld.work",
+      email: "probe@nooterra.work",
       out: "/tmp/public-onboarding-gate.json"
     },
     { requestJsonFn }

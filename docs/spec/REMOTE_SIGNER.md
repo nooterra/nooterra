@@ -1,6 +1,6 @@
 # Remote signer (tooling contract)
 
-This document specifies the **RemoteSigner API** used by producer tooling (`settld-produce`) to obtain signatures without storing private keys on disk.
+This document specifies the **RemoteSigner API** used by producer tooling (`nooterra-produce`) to obtain signatures without storing private keys on disk.
 
 This is a tooling/config surface (not a bundle protocol object). Verifiers do not change: they still verify signatures using **public keys** and **trust anchors**.
 
@@ -43,7 +43,7 @@ Producer tools set `purpose` to one of:
 
 ## Security notes
 
-- The `messageBase64` value is **the exact bytes signed**. For Settld bundle objects this is typically `sha256(canonical_json)` represented as raw 32 bytes.
+- The `messageBase64` value is **the exact bytes signed**. For Nooterra bundle objects this is typically `sha256(canonical_json)` represented as raw 32 bytes.
 - Signers should log: `requestId`, `keyId`, `purpose`, and selected `context` fields for auditability.
 - Remote signer endpoints should be protected with authentication/authorization (otherwise they are a signing oracle).
 
@@ -51,7 +51,7 @@ Producer tools set `purpose` to one of:
 
 For HTTP signers, producer tooling can attach a bearer token and custom headers:
 
-- `--signer-auth bearer --signer-token-env SETTLD_SIGNER_TOKEN`
+- `--signer-auth bearer --signer-token-env NOOTERRA_SIGNER_TOKEN`
 - `--signer-auth bearer --signer-token-file /path/to/token.txt`
 - `--signer-header "X-Request-Source: ci"`
 
@@ -63,4 +63,4 @@ Producer tooling also supports invoking a signer as a local process (no HTTP) wh
 
 This mode is designed for CI environments where binding/listening to local sockets may be restricted, and for integrations where the signer itself talks to an HSM/KMS.
 
-Note: some sandboxed CI environments disable piping stdin into child processes. The reference dev signer (`settld-signer-dev`) supports `--request-json-base64 <b64>` to avoid stdin piping in those environments.
+Note: some sandboxed CI environments disable piping stdin into child processes. The reference dev signer (`nooterra-signer-dev`) supports `--request-json-base64 <b64>` to avoid stdin piping in those environments.

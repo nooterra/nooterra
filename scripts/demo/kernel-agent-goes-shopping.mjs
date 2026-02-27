@@ -1,4 +1,4 @@
-import { SettldClient } from "../../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
 import { createEd25519Keypair, sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
@@ -65,16 +65,16 @@ function buildSignedArbitrationVerdictV1({
 }
 
 async function main() {
-  const baseUrl = process.env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000";
-  const tenantId = process.env.SETTLD_TENANT_ID ?? "tenant_default";
-  const apiKey = process.env.SETTLD_API_KEY ?? "";
+  const baseUrl = process.env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000";
+  const tenantId = process.env.NOOTERRA_TENANT_ID ?? "tenant_default";
+  const apiKey = process.env.NOOTERRA_API_KEY ?? "";
 
   if (!apiKey) {
     // eslint-disable-next-line no-console
-    console.error("SETTLD_API_KEY is not set; this demo will only work if API auth is disabled.");
+    console.error("NOOTERRA_API_KEY is not set; this demo will only work if API auth is disabled.");
   }
 
-  const client = new SettldClient({
+  const client = new NooterraClient({
     baseUrl,
     tenantId,
     apiKey: apiKey || undefined

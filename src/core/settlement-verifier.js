@@ -8,23 +8,23 @@ export const SETTLEMENT_VERIFICATION_STATUS = Object.freeze({
 });
 
 export const SETTLEMENT_VERIFIER_SOURCE = Object.freeze({
-  DETERMINISTIC_LATENCY_THRESHOLD_V1: "verifier://settld/deterministic/latency-threshold-v1",
-  DETERMINISTIC_SCHEMA_CHECK_V1: "verifier://settld/deterministic/schema-check-v1",
+  DETERMINISTIC_LATENCY_THRESHOLD_V1: "verifier://nooterra/deterministic/latency-threshold-v1",
+  DETERMINISTIC_SCHEMA_CHECK_V1: "verifier://nooterra/deterministic/schema-check-v1",
   // Deprecated alias retained for backward compatibility with pre-release adopters.
-  DETERMINISTIC_JSONSCHEMA_V1: "verifier://settld/deterministic/jsonschema-v1"
+  DETERMINISTIC_JSONSCHEMA_V1: "verifier://nooterra/deterministic/jsonschema-v1"
 });
 
 const ALLOWED_STATUSES = new Set(Object.values(SETTLEMENT_VERIFICATION_STATUS));
 
 const DEFAULT_VERIFIER_REF = Object.freeze({
-  verifierId: "settld.policy-engine",
+  verifierId: "nooterra.policy-engine",
   verifierVersion: "v1",
   verifierHash: null
 });
 
 const DETERMINISTIC_LATENCY_VERIFIER = Object.freeze({
   source: SETTLEMENT_VERIFIER_SOURCE.DETERMINISTIC_LATENCY_THRESHOLD_V1,
-  verifierId: "settld.deterministic.latency-threshold",
+  verifierId: "nooterra.deterministic.latency-threshold",
   verifierVersion: "v1",
   modality: "deterministic"
 });
@@ -32,7 +32,7 @@ const DETERMINISTIC_LATENCY_VERIFIER = Object.freeze({
 const DETERMINISTIC_SCHEMA_CHECK_VERIFIER = Object.freeze({
   source: SETTLEMENT_VERIFIER_SOURCE.DETERMINISTIC_SCHEMA_CHECK_V1,
   legacySource: SETTLEMENT_VERIFIER_SOURCE.DETERMINISTIC_JSONSCHEMA_V1,
-  verifierId: "settld.deterministic.schema-check",
+  verifierId: "nooterra.deterministic.schema-check",
   verifierVersion: "v1",
   modality: "deterministic"
 });

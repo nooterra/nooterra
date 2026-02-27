@@ -2,10 +2,10 @@
 
 Use **two separate Vercel projects** pointing at the same GitHub repo:
 
-1. `settld-docs` (MkDocs)
-2. `settld-site` (Dashboard website)
+1. `nooterra-docs` (MkDocs)
+2. `nooterra-site` (Dashboard website)
 
-## Project 1: `settld-docs` (MkDocs)
+## Project 1: `nooterra-docs` (MkDocs)
 
 - Root Directory: repo root (`.`)
 - Production Branch: `main`
@@ -17,7 +17,7 @@ Use **two separate Vercel projects** pointing at the same GitHub repo:
 
 Deploy will run when docs-relevant files change (including `mkdocs/docs/**`).
 
-## Project 2: `settld-site` (Website)
+## Project 2: `nooterra-site` (Website)
 
 - Root Directory: `dashboard`
 - Production Branch: `main`

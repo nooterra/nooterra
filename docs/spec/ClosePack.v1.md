@@ -11,7 +11,7 @@ ClosePack is a **bundle kind** with its own `manifest.json`, head attestation, a
 
 ## On-disk layout (v1)
 
-- `settld.json` — header with `type="ClosePack.v1"` and binding inputs (see below).
+- `nooterra.json` — header with `type="ClosePack.v1"` and binding inputs (see below).
 - `manifest.json` — `ClosePackManifest.v1` (commits to all files except `verify/**`).
 - `attestation/bundle_head_attestation.json` — `BundleHeadAttestation.v1` for `kind="ClosePack.v1"`.
 - `verify/verification_report.json` — `VerificationReport.v1` bound to this ClosePack’s `manifestHash` and head attestation.
@@ -29,7 +29,7 @@ ClosePack manifests intentionally exclude `verify/**` (same rationale as other b
 
 ## Binding inputs (ClosePack header)
 
-`settld.json` includes inputs that bind the ClosePack to the embedded Invoice bundle:
+`nooterra.json` includes inputs that bind the ClosePack to the embedded Invoice bundle:
 
 - `invoiceBundle.embeddedPath` (constant path within ClosePack, v1)
 - `invoiceBundle.manifestHash`

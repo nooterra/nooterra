@@ -9,7 +9,9 @@ import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { sha256Hex } from "../src/core/crypto.js";
 import {
   DELEGATION_GRANT_RISK_CLASS,
+  DELEGATION_GRANT_TRUST_REASON_CODE,
   buildDelegationGrantV1,
+  evaluateDelegationGrantTrustV1,
   revokeDelegationGrantV1,
   validateDelegationGrantV1
 } from "../src/core/delegation-grant.js";
@@ -82,7 +84,7 @@ test("delegation grant schema validates constructed fixture", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/DelegationGrant.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/DelegationGrant.v1.schema.json");
   assert.ok(validate);
 
   const grant = buildFixtureGrant();
@@ -108,4 +110,67 @@ test("revokeDelegationGrantV1 marks grant revoked and remains schema-valid", () 
   assert.equal(revoked.revocation?.revocationReasonCode, "POLICY_VIOLATION");
   assert.equal(revoked.grantHash === grant.grantHash, false);
   assert.equal(validateDelegationGrantV1(revoked), true);
+});
+
+test("delegation grant revocation requires explicit reason metadata", () => {
+  assert.throws(
+    () =>
+      buildDelegationGrantV1({
+        ...buildFixtureGrant(),
+        revocation: {
+          revocable: true,
+          revokedAt: "2026-02-24T00:00:00.000Z",
+          revocationReasonCode: null
+        }
+      }),
+    /revocation\.revocationReasonCode is required/
+  );
+});
+
+test("revokeDelegationGrantV1 defaults reason metadata when caller omits reason", () => {
+  const grant = buildFixtureGrant();
+  const revoked = revokeDelegationGrantV1({
+    grant,
+    revokedAt: "2026-02-24T00:00:00.000Z"
+  });
+  assert.equal(revoked.revocation?.revocationReasonCode, "DELEGATION_GRANT_REVOKED_UNSPECIFIED");
+  assert.equal(validateDelegationGrantV1(revoked), true);
+});
+
+test("evaluateDelegationGrantTrustV1 preserves historical reads but blocks unsafe writes", () => {
+  const grant = buildFixtureGrant();
+  const revoked = revokeDelegationGrantV1({
+    grant,
+    revokedAt: "2026-02-24T00:00:00.000Z",
+    revocationReasonCode: "MANUAL_REVOKE"
+  });
+
+  const writeAfterRevoke = evaluateDelegationGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-24T00:00:01.000Z",
+    operation: "write"
+  });
+  assert.equal(writeAfterRevoke.allowed, false);
+  assert.equal(writeAfterRevoke.reasonCode, DELEGATION_GRANT_TRUST_REASON_CODE.REVOKED);
+
+  const readHistorical = evaluateDelegationGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-24T00:00:01.000Z",
+    operation: "read",
+    evidenceAt: "2026-02-23T12:00:00.000Z"
+  });
+  assert.equal(readHistorical.allowed, true);
+  assert.equal(readHistorical.historicalVerificationOnly, true);
+  assert.equal(readHistorical.reasonCode, DELEGATION_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_ALLOWED);
+
+  const readWithoutEvidence = evaluateDelegationGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-24T00:00:01.000Z",
+    operation: "read"
+  });
+  assert.equal(readWithoutEvidence.allowed, false);
+  assert.equal(
+    readWithoutEvidence.reasonCode,
+    DELEGATION_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_EVIDENCE_REQUIRED
+  );
 });

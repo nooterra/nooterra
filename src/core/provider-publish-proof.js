@@ -3,10 +3,10 @@ import { createPublicKey, verify as nodeVerify, sign as nodeSign } from "node:cr
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { checkUrlSafety } from "./url-safety.js";
 import { keyIdFromPublicKeyPem, sha256Hex } from "./crypto.js";
-import { keyMapFromSettldKeyset } from "./settld-keys.js";
+import { keyMapFromNooterraKeyset } from "./nooterra-keys.js";
 
-export const PROVIDER_PUBLISH_PROOF_AUDIENCE = "settld.marketplace.publish";
-export const PROVIDER_PUBLISH_PROOF_TYPE = "settld.marketplace.publish_proof.v1";
+export const PROVIDER_PUBLISH_PROOF_AUDIENCE = "nooterra.marketplace.publish";
+export const PROVIDER_PUBLISH_PROOF_TYPE = "nooterra.marketplace.publish_proof.v1";
 export const PROVIDER_PUBLISH_PROOF_SCHEMA_VERSION = "ProviderPublishProofPayload.v1";
 
 function assertNonEmptyString(value, name) {
@@ -253,7 +253,7 @@ export function verifyProviderPublishProofTokenV1({
       return { ok: false, code: "PROVIDER_PUBLISH_PROOF_IAT_FUTURE", message: "publish proof iat is too far in the future" };
     }
 
-    const keyMap = keyMapFromSettldKeyset(jwks);
+    const keyMap = keyMapFromNooterraKeyset(jwks);
     const keyEntry = keyMap.get(kid) ?? null;
     if (!keyEntry?.publicKeyPem) {
       return { ok: false, code: "PROVIDER_PUBLISH_PROOF_UNKNOWN_KID", message: "publish proof kid not found in jwks", kid };

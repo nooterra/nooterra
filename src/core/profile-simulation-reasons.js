@@ -1,4 +1,4 @@
-export const PROFILE_SIMULATION_REASON_REGISTRY_VERSION = "SettldProfileSimulationReasonRegistry.v1";
+export const PROFILE_SIMULATION_REASON_REGISTRY_VERSION = "NooterraProfileSimulationReasonRegistry.v1";
 
 const REASON_DEFINITIONS = Object.freeze({
   provider_allowlisted: Object.freeze({

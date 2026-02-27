@@ -174,7 +174,7 @@
       "Ticket Key": "STLD-AE402",
       "Epic Key": "STLD-AE4",
       "Summary": "Expose resolver as MCP tool",
-      "Description": "Allow agent runtimes to call Settld resolver directly through MCP surfaces.",
+      "Description": "Allow agent runtimes to call Nooterra resolver directly through MCP surfaces.",
       "Owner": "DevEx + Backend",
       "Estimate": "S",
       "Priority": "High",

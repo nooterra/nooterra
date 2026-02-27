@@ -231,7 +231,7 @@ function normalizeResolvedHostConfig(config, fallbackHost) {
     throw new Error("host config helper must return an object (or URL string)");
   }
   const host = typeof config.host === "string" && config.host.trim() ? config.host.trim() : fallbackHost;
-  const baseUrlCandidate = config.baseUrl ?? config.apiBaseUrl ?? config.settldBaseUrl ?? null;
+  const baseUrlCandidate = config.baseUrl ?? config.apiBaseUrl ?? config.nooterraBaseUrl ?? null;
   const magicLinkCandidate = config.magicLinkBaseUrl ?? config.onboardingBaseUrl ?? config.baseUrl ?? null;
   return {
     host,
@@ -412,12 +412,12 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
       const resolved = await hostHelper.resolveHostConfig({ host: base.host, mode: base.mode });
       base.host = resolved.host || base.host;
       if (!base.baseUrl) {
-        base.baseUrl = await promptLine(rl, "Settld base URL", {
-          defaultValue: resolved.baseUrl ?? process.env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000"
+        base.baseUrl = await promptLine(rl, "Nooterra base URL", {
+          defaultValue: resolved.baseUrl ?? process.env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000"
         });
       }
       if (!base.tenantId) {
-        base.tenantId = await promptLine(rl, "Tenant ID", { defaultValue: process.env.SETTLD_TENANT_ID ?? "tenant_default" });
+        base.tenantId = await promptLine(rl, "Tenant ID", { defaultValue: process.env.NOOTERRA_TENANT_ID ?? "tenant_default" });
       }
 
       if (base.mode === "bootstrap") {
@@ -431,7 +431,7 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
           base.bootstrapScopesRaw = await promptLine(rl, "Bootstrap scopes CSV (optional)", { required: false });
         }
       } else if (!base.apiKey) {
-        base.apiKey = await promptLine(rl, "Settld API key");
+        base.apiKey = await promptLine(rl, "Nooterra API key");
       }
       if (!base.skipProfileApply && !base.profileFile && !base.profileId) {
         const shouldApply = parseYesNo(
@@ -466,11 +466,11 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
     if (!base.baseUrl && resolved.baseUrl) {
       base.baseUrl = resolved.baseUrl;
     }
-    if (!base.baseUrl && process.env.SETTLD_BASE_URL) {
-      base.baseUrl = String(process.env.SETTLD_BASE_URL).trim();
+    if (!base.baseUrl && process.env.NOOTERRA_BASE_URL) {
+      base.baseUrl = String(process.env.NOOTERRA_BASE_URL).trim();
     }
-    if (!base.tenantId && process.env.SETTLD_TENANT_ID) {
-      base.tenantId = String(process.env.SETTLD_TENANT_ID).trim();
+    if (!base.tenantId && process.env.NOOTERRA_TENANT_ID) {
+      base.tenantId = String(process.env.NOOTERRA_TENANT_ID).trim();
     }
     const missing = [];
     if (!base.baseUrl) missing.push("--base-url");
@@ -559,27 +559,27 @@ function pickPassportTarget(profileApplyResult) {
 }
 
 function buildPaidToolsAgentPassport({ env, profileApplyResult = null, profileIdHint = null } = {}) {
-  const existingPassport = parseOptionalPassportObject(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT ?? null);
+  const existingPassport = parseOptionalPassportObject(env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT ?? null);
   const target = pickPassportTarget(profileApplyResult);
 
   const profileRef = normalizeRefToken(target?.policyRef) || normalizeRefToken(profileApplyResult?.profileId) || normalizeRefToken(profileIdHint) || DEFAULT_PROFILE_ID;
-  const sponsorRef = normalizeRefToken(target?.sponsorRef) || normalizeRefToken(env.SETTLD_SPONSOR_REF) || normalizeRefToken(existingPassport?.sponsorRef) || "sponsor_default";
+  const sponsorRef = normalizeRefToken(target?.sponsorRef) || normalizeRefToken(env.NOOTERRA_SPONSOR_REF) || normalizeRefToken(existingPassport?.sponsorRef) || "sponsor_default";
   const sponsorWalletRef =
     normalizeRefToken(target?.sponsorWalletRef) ||
-    normalizeRefToken(env.SETTLD_SPONSOR_WALLET_REF) ||
-    normalizeRefToken(env.SETTLD_RUNTIME_WALLET_REF) ||
+    normalizeRefToken(env.NOOTERRA_SPONSOR_WALLET_REF) ||
+    normalizeRefToken(env.NOOTERRA_RUNTIME_WALLET_REF) ||
     normalizeRefToken(existingPassport?.sponsorWalletRef) ||
     `wallet_${profileRef}`;
-  const policyRef = normalizeRefToken(target?.policyRef) || normalizeRefToken(env.SETTLD_POLICY_REF) || normalizeRefToken(existingPassport?.policyRef) || profileRef;
+  const policyRef = normalizeRefToken(target?.policyRef) || normalizeRefToken(env.NOOTERRA_POLICY_REF) || normalizeRefToken(existingPassport?.policyRef) || profileRef;
   const policyVersion =
     parsePositiveSafeInteger(target?.policyVersion) ||
-    parsePositiveSafeInteger(env.SETTLD_POLICY_VERSION) ||
+    parsePositiveSafeInteger(env.NOOTERRA_POLICY_VERSION) ||
     parsePositiveSafeInteger(existingPassport?.policyVersion) ||
     1;
   const agentKeyId =
-    normalizeRefToken(env.SETTLD_AGENT_KEY_ID) ||
+    normalizeRefToken(env.NOOTERRA_AGENT_KEY_ID) ||
     normalizeRefToken(existingPassport?.agentKeyId) ||
-    parseApiKeyId(env.SETTLD_API_KEY) ||
+    parseApiKeyId(env.NOOTERRA_API_KEY) ||
     "agent_key_default";
   const delegationDepth = parseNonNegativeSafeInteger(existingPassport?.delegationDepth) ?? 0;
 
@@ -639,15 +639,15 @@ async function runCommandCapture({ cmd, args = [], cwd = REPO_ROOT, env = proces
   });
 }
 
-function buildSettldCliArgs(args) {
-  const scriptPath = path.join(REPO_ROOT, "bin", "settld.js");
+function buildNooterraCliArgs(args) {
+  const scriptPath = path.join(REPO_ROOT, "bin", "nooterra.js");
   return [scriptPath, ...args];
 }
 
-async function runSettldCli(args, { env = process.env } = {}) {
+async function runNooterraCli(args, { env = process.env } = {}) {
   return await runCommandCapture({
     cmd: process.execPath,
-    args: buildSettldCliArgs(args),
+    args: buildNooterraCliArgs(args),
     cwd: REPO_ROOT,
     env
   });
@@ -666,9 +666,9 @@ async function runProfileApplyAutomation({
   try {
     if (!selectedProfilePath) {
       selectedProfileId = selectedProfileId || DEFAULT_PROFILE_ID;
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-profile-"));
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-profile-"));
       selectedProfilePath = path.join(tempDir, `${selectedProfileId}.profile.json`);
-      const initResult = await runSettldCli(
+      const initResult = await runNooterraCli(
         ["profile", "init", selectedProfileId, "--out", selectedProfilePath, "--force", "--format", "json"],
         { env: process.env }
       );
@@ -682,16 +682,16 @@ async function runProfileApplyAutomation({
       "apply",
       selectedProfilePath,
       "--base-url",
-      env.SETTLD_BASE_URL,
+      env.NOOTERRA_BASE_URL,
       "--tenant-id",
-      env.SETTLD_TENANT_ID,
+      env.NOOTERRA_TENANT_ID,
       "--api-key",
-      env.SETTLD_API_KEY,
+      env.NOOTERRA_API_KEY,
       "--format",
       "json"
     ];
     if (dryRun) applyArgs.push("--dry-run");
-    const applyResult = await runSettldCli(applyArgs, { env: process.env });
+    const applyResult = await runNooterraCli(applyArgs, { env: process.env });
     if (applyResult.code !== 0) {
       throw new Error(`profile apply failed: ${summarizeText(applyResult.stderr || applyResult.stdout)}`);
     }
@@ -724,7 +724,7 @@ async function runMcpSmokeCheck({ env, timeoutMs = DEFAULT_SMOKE_TIMEOUT_MS, std
   const scriptPath = path.join(REPO_ROOT, "scripts", "mcp", "probe.mjs");
   const result = await runCommandCapture({
     cmd: process.execPath,
-    args: [scriptPath, "--call", "settld.about", "{}"],
+    args: [scriptPath, "--call", "nooterra.about", "{}"],
     cwd: REPO_ROOT,
     env: {
       ...process.env,
@@ -735,7 +735,7 @@ async function runMcpSmokeCheck({ env, timeoutMs = DEFAULT_SMOKE_TIMEOUT_MS, std
   if (result.code !== 0) {
     throw new Error(`mcp smoke failed: ${summarizeText(result.stderr || result.stdout)}`);
   }
-  stdout.write("MCP smoke check passed: settld.about\n");
+  stdout.write("MCP smoke check passed: nooterra.about\n");
   return {
     ran: true,
     ok: true,
@@ -802,17 +802,17 @@ export function extractBootstrapMcpEnv(responseBody) {
   if (!env || typeof env !== "object" || Array.isArray(env)) {
     throw new Error("runtime bootstrap response missing mcp.env object");
   }
-  const required = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
+  const required = ["NOOTERRA_BASE_URL", "NOOTERRA_TENANT_ID", "NOOTERRA_API_KEY"];
   const out = {};
   for (const key of required) {
     const value = typeof env[key] === "string" ? env[key].trim() : "";
     if (!value) throw new Error(`runtime bootstrap response missing ${key}`);
     out[key] = value;
   }
-  const paidToolsBase = typeof env.SETTLD_PAID_TOOLS_BASE_URL === "string" ? env.SETTLD_PAID_TOOLS_BASE_URL.trim() : "";
-  if (paidToolsBase) out.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBase;
-  const paidToolsPassport = normalizeBootstrapPassportEnvValue(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT ?? null);
-  if (paidToolsPassport) out.SETTLD_PAID_TOOLS_AGENT_PASSPORT = paidToolsPassport;
+  const paidToolsBase = typeof env.NOOTERRA_PAID_TOOLS_BASE_URL === "string" ? env.NOOTERRA_PAID_TOOLS_BASE_URL.trim() : "";
+  if (paidToolsBase) out.NOOTERRA_PAID_TOOLS_BASE_URL = paidToolsBase;
+  const paidToolsPassport = normalizeBootstrapPassportEnvValue(env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT ?? null);
+  if (paidToolsPassport) out.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT = paidToolsPassport;
   return out;
 }
 
@@ -820,9 +820,9 @@ function buildManualEnv({ baseUrl, tenantId, apiKey }) {
   const normalizedBaseUrl = normalizeHttpUrl(baseUrl);
   if (!normalizedBaseUrl) throw new Error(`invalid --base-url: ${baseUrl}`);
   return {
-    SETTLD_BASE_URL: normalizedBaseUrl,
-    SETTLD_TENANT_ID: String(tenantId),
-    SETTLD_API_KEY: String(apiKey)
+    NOOTERRA_BASE_URL: normalizedBaseUrl,
+    NOOTERRA_TENANT_ID: String(tenantId),
+    NOOTERRA_API_KEY: String(apiKey)
   };
 }
 
@@ -842,7 +842,7 @@ function printOutput({
   smokeResult = null
 }) {
   const lines = [];
-  lines.push("Settld setup complete.");
+  lines.push("Nooterra setup complete.");
   lines.push(`Mode: ${mode}`);
   lines.push(`Host: ${host}`);
   lines.push(`Host helper: ${helperPath}`);
@@ -868,8 +868,8 @@ function printOutput({
   lines.push("");
   lines.push("Next steps:");
   lines.push("1. Run the export lines in your shell.");
-  lines.push("2. Verify connectivity with: npm run mcp:probe -- --call settld.about '{}'");
-  lines.push("3. Optional policy deploy: settld profile apply <profile.json>");
+  lines.push("2. Verify connectivity with: npm run mcp:probe -- --call nooterra.about '{}'");
+  lines.push("3. Optional policy deploy: nooterra profile apply <profile.json>");
   stdout.write(lines.join("\n") + "\n");
 }
 
@@ -929,7 +929,7 @@ export async function runWizard({
       stdout
     });
   }
-  env.SETTLD_PAID_TOOLS_AGENT_PASSPORT = buildPaidToolsAgentPassport({
+  env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT = buildPaidToolsAgentPassport({
     env,
     profileApplyResult,
     profileIdHint: config.profileId || DEFAULT_PROFILE_ID

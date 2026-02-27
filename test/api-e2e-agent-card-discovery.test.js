@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
+import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js";
+import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -20,6 +23,31 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+async function putAuthKey(api, { scopes = ["ops_write", "finance_write", "audit_read"] } = {}) {
+  const keyId = authKeyId();
+  const secret = authKeySecret();
+  const secretHash = hashAuthKeySecret(secret);
+  const createdAt = typeof api.store.nowIso === "function" ? api.store.nowIso() : new Date().toISOString();
+  if (typeof api.store.putAuthKey === "function") {
+    await api.store.putAuthKey({
+      tenantId: DEFAULT_TENANT_ID,
+      authKey: { keyId, secretHash, scopes, status: "active", createdAt }
+    });
+  } else {
+    if (!(api.store.authKeys instanceof Map)) api.store.authKeys = new Map();
+    api.store.authKeys.set(`${DEFAULT_TENANT_ID}\n${keyId}`, {
+      tenantId: DEFAULT_TENANT_ID,
+      keyId,
+      secretHash,
+      scopes,
+      status: "active",
+      createdAt,
+      updatedAt: createdAt
+    });
+  }
+  return `Bearer ${keyId}.${secret}`;
 }
 
 async function createSettledRun({
@@ -100,6 +128,22 @@ async function openRunDispute({
   assert.equal(opened.statusCode, 200, opened.body);
 }
 
+async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {})
+    }
+  });
+  return response;
+}
+
 test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -151,7 +195,7 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
       capabilities: ["code.generation"],
       visibility: "private",
       host: {
-        runtime: "codex"
+        runtime: "nooterra"
       }
     }
   });
@@ -195,6 +239,168 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   });
   assert.equal(invalidCapability.statusCode, 400, invalidCapability.body);
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: agent-card discovery filters by executionCoordinatorDid", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  await registerAgent(api, { agentId: "agt_coord_alpha_1", capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: "agt_coord_bravo_1", capabilities: ["travel.booking"] });
+
+  const upsertAlpha = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_coord_alpha_1" },
+    body: {
+      agentId: "agt_coord_alpha_1",
+      displayName: "Coordinator Alpha Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      executionCoordinatorDid: "did:nooterra:coord_alpha",
+      host: { runtime: "openclaw" }
+    }
+  });
+  assert.equal(upsertAlpha.statusCode, 201, upsertAlpha.body);
+
+  const upsertBravo = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_coord_bravo_1" },
+    body: {
+      agentId: "agt_coord_bravo_1",
+      displayName: "Coordinator Bravo Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      executionCoordinatorDid: "did:nooterra:coord_bravo",
+      host: { runtime: "openclaw" }
+    }
+  });
+  assert.equal(upsertBravo.statusCode, 201, upsertBravo.body);
+
+  const discovered = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+      "&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.equal(discovered.json?.results?.length, 1);
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, "agt_coord_alpha_1");
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.executionCoordinatorDid, "did:nooterra:coord_alpha");
+
+  const invalid = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&executionCoordinatorDid=coord_alpha"
+  });
+  assert.equal(invalid.statusCode, 400, invalid.body);
+  assert.equal(invalid.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: /agent-cards/discover supports ToolDescriptor.v1 filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_tool_desc_1", capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: "agt_tool_desc_2", capabilities: ["travel.booking"] });
+
+  const upsertAction = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_action_1" },
+    body: {
+      agentId: "agt_tool_desc_1",
+      displayName: "Travel Action Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.book_flight",
+          mcpToolName: "travel_book_flight",
+          riskClass: "action",
+          sideEffecting: true,
+          pricing: { amountCents: 500, currency: "USD", unit: "booking" },
+          requiresEvidenceKinds: ["artifact", "hash"]
+        }
+      ]
+    }
+  });
+  assert.equal(upsertAction.statusCode, 201, upsertAction.body);
+
+  const upsertRead = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_read_1" },
+    body: {
+      agentId: "agt_tool_desc_2",
+      displayName: "Travel Search Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.search_flights",
+          mcpToolName: "travel_search_flights",
+          riskClass: "read",
+          sideEffecting: false,
+          pricing: { amountCents: 75, currency: "USD", unit: "call" },
+          requiresEvidenceKinds: ["artifact"]
+        }
+      ]
+    }
+  });
+  assert.equal(upsertRead.statusCode, 201, upsertRead.body);
+
+  const filteredRead = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&includeReputation=false&toolRiskClass=read&toolSideEffecting=false&toolMaxPriceCents=100&toolRequiresEvidenceKind=artifact"
+  });
+  assert.equal(filteredRead.statusCode, 200, filteredRead.body);
+  assert.equal(filteredRead.json?.results?.length, 1);
+  assert.equal(filteredRead.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_2");
+
+  const filteredAction = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&includeReputation=false&toolId=travel.book_flight"
+  });
+  assert.equal(filteredAction.statusCode, 200, filteredAction.body);
+  assert.equal(filteredAction.json?.results?.length, 1);
+  assert.equal(filteredAction.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_1");
+});
+
+test("API e2e: /agent-cards/discover rejects invalid boolean tool filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_tool_desc_invalid_query_1", capabilities: ["travel.booking"] });
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_invalid_query_upsert_1" },
+    body: {
+      agentId: "agt_tool_desc_invalid_query_1",
+      displayName: "Travel Invalid Query Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const invalidToolSideEffecting = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&toolSideEffecting=maybe"
+  });
+  assert.equal(invalidToolSideEffecting.statusCode, 400, invalidToolSideEffecting.body);
+  assert.equal(invalidToolSideEffecting.json?.code, "SCHEMA_INVALID");
+
+  const invalidIncludeReputation = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&includeReputation=maybe"
+  });
+  assert.equal(invalidIncludeReputation.statusCode, 400, invalidIncludeReputation.body);
+  assert.equal(invalidIncludeReputation.json?.code, "SCHEMA_INVALID");
 });
 
 test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", async () => {
@@ -289,6 +495,599 @@ test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", 
   const tenantIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(tenantIds.has("agt_card_public_a_1"), true);
   assert.equal(tenantIds.has("agt_card_public_b_1"), false);
+});
+
+test("API e2e: /public/agent-cards/discover rejects non-public visibility filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_card_public_guard_1", capabilities: ["travel.booking"] });
+  const listed = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_guard_upsert_1" },
+    body: {
+      agentId: "agt_card_public_guard_1",
+      displayName: "Public Guard",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/guard", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(listed.statusCode, 201, listed.body);
+
+  for (const visibility of ["all", "tenant", "private"]) {
+    const denied = await request(api, {
+      method: "GET",
+      path: `/public/agent-cards/discover?capability=travel.booking&visibility=${encodeURIComponent(visibility)}&status=active`,
+      auth: "none"
+    });
+    assert.equal(denied.statusCode, 400, denied.body);
+    assert.equal(denied.json?.code, "SCHEMA_INVALID");
+  }
+});
+
+test("API e2e: /public/agent-cards/discover excludes quarantined agents", async () => {
+  const store = createStore();
+  const api = createApi({ store, opsToken: "tok_ops" });
+
+  const activeAgentId = "agt_card_public_active_1";
+  const quarantinedAgentId = "agt_card_public_quarantined_1";
+  await registerAgent(api, { agentId: activeAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: quarantinedAgentId, capabilities: ["travel.booking"] });
+
+  const upsertActive = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_active_upsert_1" },
+    body: {
+      agentId: activeAgentId,
+      displayName: "Public Active Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/active", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertActive.statusCode, 201, upsertActive.body);
+
+  const upsertQuarantined = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_quarantined_upsert_1" },
+    body: {
+      agentId: quarantinedAgentId,
+      displayName: "Public Quarantined Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/quarantined", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertQuarantined.statusCode, 201, upsertQuarantined.body);
+
+  await store.appendEmergencyControlEvent({
+    tenantId: "tenant_default",
+    event: {
+      eventId: "evt_agent_card_public_quarantine_1",
+      action: "quarantine",
+      controlType: "quarantine",
+      scope: { type: "agent", id: quarantinedAgentId },
+      reasonCode: "TEST_QUARANTINE",
+      reason: "public discovery exclusion test"
+    }
+  });
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(quarantinedAgentId), false);
+});
+
+test("API e2e: /agent-cards/:agentId/abuse-reports suppresses public discovery at threshold", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicAbuseSuppressionThreshold: 2
+  });
+
+  const subjectAgentId = "agt_card_abuse_subject_1";
+  const controlAgentId = "agt_card_abuse_control_1";
+  const reporterAgentId = "agt_card_abuse_reporter_1";
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: controlAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterAgentId });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Abuse Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const upsertControl = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_control_upsert_1" },
+    body: {
+      agentId: controlAgentId,
+      displayName: "Abuse Control Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-control", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertControl.statusCode, 201, upsertControl.body);
+
+  const firstReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_1" },
+    body: {
+      reportId: "acabr_test_1",
+      reporterAgentId,
+      reasonCode: "MALICIOUS_OUTPUT",
+      severity: 2,
+      notes: "deterministic abuse signal 1",
+      evidenceRefs: ["evidence://abuse/1"]
+    }
+  });
+  assert.equal(firstReport.statusCode, 201, firstReport.body);
+  assert.equal(firstReport.json?.report?.schemaVersion, "AgentCardAbuseReport.v1");
+  assert.equal(firstReport.json?.subjectStatus?.openReportCount, 1);
+  assert.equal(firstReport.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+  const discoveryBeforeSuppression = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discoveryBeforeSuppression.statusCode, 200, discoveryBeforeSuppression.body);
+  const beforeIds = new Set((discoveryBeforeSuppression.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(beforeIds.has(subjectAgentId), true);
+  assert.equal(beforeIds.has(controlAgentId), true);
+
+  const secondReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_2" },
+    body: {
+      reportId: "acabr_test_2",
+      reporterAgentId,
+      reasonCode: "POLICY_EVASION",
+      severity: 3,
+      notes: "deterministic abuse signal 2",
+      evidenceRefs: ["evidence://abuse/2"]
+    }
+  });
+  assert.equal(secondReport.statusCode, 201, secondReport.body);
+  assert.equal(secondReport.json?.subjectStatus?.openReportCount, 2);
+  assert.equal(secondReport.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+  const duplicateReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_duplicate_1" },
+    body: {
+      reportId: "acabr_test_2",
+      reporterAgentId,
+      reasonCode: "SPAM",
+      severity: 1
+    }
+  });
+  assert.equal(duplicateReport.statusCode, 409, duplicateReport.body);
+  assert.equal(duplicateReport.json?.code, "CONFLICT");
+
+  const discoveryAfterSuppression = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discoveryAfterSuppression.statusCode, 200, discoveryAfterSuppression.body);
+  const afterIds = new Set((discoveryAfterSuppression.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(afterIds.has(subjectAgentId), false);
+  assert.equal(afterIds.has(controlAgentId), true);
+
+  const reportList = await request(api, {
+    method: "GET",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports?status=open&limit=10&offset=0`
+  });
+  assert.equal(reportList.statusCode, 200, reportList.body);
+  assert.equal(reportList.json?.subjectAgentId, subjectAgentId);
+  assert.equal(reportList.json?.total, 2);
+  assert.equal(Array.isArray(reportList.json?.reports), true);
+  assert.equal(reportList.json?.reports?.length, 2);
+  assert.equal(reportList.json?.subjectStatus?.publicDiscoverySuppressed, true);
+  assert.equal(reportList.json?.reports?.every((row) => String(row?.status ?? "") === "open"), true);
+});
+
+test("API e2e: abuse report resolution unsuppresses public discovery", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicAbuseSuppressionThreshold: 1
+  });
+
+  const subjectAgentId = "agt_card_abuse_resolve_subject_1";
+  const reporterAgentId = "agt_card_abuse_resolve_reporter_1";
+  const resolverAgentId = "agt_card_abuse_resolve_resolver_1";
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterAgentId });
+  await registerAgent(api, { agentId: resolverAgentId });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Abuse Resolve Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-resolve-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const firstReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_report_1" },
+    body: {
+      reportId: "acabr_resolve_1",
+      reporterAgentId,
+      reasonCode: "MALICIOUS_OUTPUT",
+      severity: 2
+    }
+  });
+  assert.equal(firstReport.statusCode, 201, firstReport.body);
+  assert.equal(firstReport.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+  const blockedBeforeResolve = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(blockedBeforeResolve.statusCode, 200, blockedBeforeResolve.body);
+  const blockedIds = new Set((blockedBeforeResolve.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(blockedIds.has(subjectAgentId), false);
+
+  const missingResolver = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports/acabr_resolve_1/status`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_missing_resolver_1" },
+    body: {
+      status: "resolved"
+    }
+  });
+  assert.equal(missingResolver.statusCode, 400, missingResolver.body);
+  assert.equal(missingResolver.json?.code, "SCHEMA_INVALID");
+
+  const resolved = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports/acabr_resolve_1/status`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_status_1" },
+    body: {
+      status: "resolved",
+      resolvedByAgentId: resolverAgentId,
+      resolutionNotes: "review complete"
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.report?.status, "resolved");
+  assert.equal(resolved.json?.report?.resolvedByAgentId, resolverAgentId);
+  assert.equal(resolved.json?.subjectStatus?.openReportCount, 0);
+  assert.equal(resolved.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+  const allowedAfterResolve = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(allowedAfterResolve.statusCode, 200, allowedAfterResolve.body);
+  const allowedIds = new Set((allowedAfterResolve.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(allowedIds.has(subjectAgentId), true);
+});
+
+test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const activeAgentId = "agt_card_public_lifecycle_active_1";
+  const suspendedAgentId = "agt_card_public_lifecycle_suspended_1";
+  await registerAgent(api, { agentId: activeAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: suspendedAgentId, capabilities: ["travel.booking"] });
+
+  const upsertActive = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_lifecycle_active_upsert_1" },
+    body: {
+      agentId: activeAgentId,
+      displayName: "Lifecycle Active Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/lifecycle-active", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertActive.statusCode, 201, upsertActive.body);
+
+  const upsertSuspended = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_lifecycle_suspended_upsert_1" },
+    body: {
+      agentId: suspendedAgentId,
+      displayName: "Lifecycle Suspended Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/lifecycle-suspended", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSuspended.statusCode, 201, upsertSuspended.body);
+
+  const suspendedLifecycle = await setX402AgentLifecycle(api, {
+    agentId: suspendedAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_COMPLIANCE_HOLD",
+    idempotencyKey: "agent_card_public_lifecycle_suspend_1"
+  });
+  assert.equal(suspendedLifecycle.statusCode, 200, suspendedLifecycle.body);
+  assert.equal(suspendedLifecycle.json?.lifecycle?.status, "suspended");
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(suspendedAgentId), false);
+});
+
+test("API e2e: public agent-card publish rate limit is fail-closed (tenant + agent scopes)", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicPublishWindowSeconds: 300,
+    agentCardPublicPublishMaxPerTenant: 1,
+    agentCardPublicPublishMaxPerAgent: 1
+  });
+
+  const agentA = "agt_card_publish_rate_a";
+  const agentB = "agt_card_publish_rate_b";
+  await registerAgent(api, { agentId: agentA, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: agentB, capabilities: ["travel.booking"] });
+
+  const publishA = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_a_public_1" },
+    body: {
+      agentId: agentA,
+      displayName: "Rate Limited A",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishA.statusCode, 201, publishA.body);
+
+  const publishBBlocked = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_b_public_1" },
+    body: {
+      agentId: agentB,
+      displayName: "Rate Limited B",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishBBlocked.statusCode, 429, publishBBlocked.body);
+  assert.equal(publishBBlocked.json?.code, "AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED");
+  assert.equal(publishBBlocked.json?.details?.scope, "tenant");
+
+  const apiAgentScope = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicPublishWindowSeconds: 300,
+    agentCardPublicPublishMaxPerTenant: 10,
+    agentCardPublicPublishMaxPerAgent: 1
+  });
+  const agentC = "agt_card_publish_rate_c";
+  await registerAgent(apiAgentScope, { agentId: agentC, capabilities: ["travel.booking"] });
+
+  const publishC = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_public_1" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishC.statusCode, 201, publishC.body);
+
+  const toPrivate = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_private_1" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C Private",
+      capabilities: ["travel.booking"],
+      visibility: "private"
+    }
+  });
+  assert.equal(toPrivate.statusCode, 200, toPrivate.body);
+
+  const republishAgentCBlocked = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_public_2" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C Public Again",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(republishAgentCBlocked.statusCode, 429, republishAgentCBlocked.body);
+  assert.equal(republishAgentCBlocked.json?.code, "AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED");
+  assert.equal(republishAgentCBlocked.json?.details?.scope, "agent");
+});
+
+test("API e2e: public agent-card discovery rate limit is fail-closed by requester key", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicDiscoveryWindowSeconds: 300,
+    agentCardPublicDiscoveryMaxPerKey: 1
+  });
+
+  const agentId = "agt_card_public_discovery_rate_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_discovery_rate_upsert_1" },
+    body: {
+      agentId,
+      displayName: "Public Discovery Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/rate-discovery", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const first = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.10" }
+  });
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json?.ok, true);
+
+  const secondBlocked = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.10" }
+  });
+  assert.equal(secondBlocked.statusCode, 429, secondBlocked.body);
+  assert.equal(secondBlocked.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+  assert.equal(secondBlocked.json?.details?.scope, "requester");
+
+  const thirdDifferentRequester = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.11" }
+  });
+  assert.equal(thirdDifferentRequester.statusCode, 200, thirdDifferentRequester.body);
+  assert.equal(thirdDifferentRequester.json?.ok, true);
+});
+
+test("API e2e: public discovery paid bypass config fails closed when toolId is missing", () => {
+  assert.throws(
+    () =>
+      createApi({
+        opsToken: "tok_ops",
+        agentCardPublicDiscoveryPaidBypassEnabled: true
+      }),
+    /PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID/
+  );
+});
+
+test("API e2e: public agent-card discovery paid bypass requires valid API key + matching toolId", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicDiscoveryWindowSeconds: 300,
+    agentCardPublicDiscoveryMaxPerKey: 1,
+    agentCardPublicDiscoveryPaidBypassEnabled: true,
+    agentCardPublicDiscoveryPaidToolId: "travel_book_flight"
+  });
+
+  const agentId = "agt_card_public_discovery_paid_bypass_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+  const listed = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_discovery_paid_bypass_upsert_1" },
+    body: {
+      agentId,
+      displayName: "Public Discovery Paid Bypass Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/paid-bypass", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(listed.statusCode, 201, listed.body);
+
+  const requesterIp = "203.0.113.99";
+  const basePath = "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active";
+
+  const first = await request(api, {
+    method: "GET",
+    path: basePath,
+    auth: "none",
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(first.statusCode, 200, first.body);
+
+  const blockedWithoutBypass = await request(api, {
+    method: "GET",
+    path: basePath,
+    auth: "none",
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(blockedWithoutBypass.statusCode, 429, blockedWithoutBypass.body);
+  assert.equal(blockedWithoutBypass.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const authorization = await putAuthKey(api, { scopes: ["ops_write", "audit_read"] });
+  const bypassed = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel_book_flight`,
+    auth: "none",
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(bypassed.statusCode, 200, bypassed.body);
+  assert.equal(bypassed.json?.ok, true);
+
+  const blockedOnToolMismatch = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel.list_hotels`,
+    auth: "none",
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(blockedOnToolMismatch.statusCode, 429, blockedOnToolMismatch.body);
+  assert.equal(blockedOnToolMismatch.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const blockedWithInvalidApiKey = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel_book_flight`,
+    auth: "none",
+    headers: {
+      authorization: "Bearer sk_test_invalid.invalid_secret",
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(blockedWithInvalidApiKey.statusCode, 429, blockedWithInvalidApiKey.body);
+  assert.equal(blockedWithInvalidApiKey.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
 });
 
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {

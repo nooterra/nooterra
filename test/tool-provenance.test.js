@@ -6,22 +6,22 @@ import { readToolCommitBestEffort as readVerifyCommit } from "../packages/artifa
 
 test("tool commit derivation is consistent across core + verifier (env precedence)", async () => {
   const env = {
-    SETTLD_COMMIT_SHA: "abcdef0123456789",
+    NOOTERRA_COMMIT_SHA: "abcdef0123456789",
     PROXY_BUILD: "1111111",
     GIT_SHA: "2222222",
     GITHUB_SHA: "3333333",
-    SETTLD_VERSION: "1.2.3"
+    NOOTERRA_VERSION: "1.2.3"
   };
   assert.equal(readCoreCommit({ env }), "abcdef0123456789");
   assert.equal(readVerifyCommit({ env }), "abcdef0123456789");
 
-  const env2 = { ...env, SETTLD_COMMIT_SHA: "" };
+  const env2 = { ...env, NOOTERRA_COMMIT_SHA: "" };
   assert.equal(readCoreCommit({ env: env2 }), "1111111");
   assert.equal(readVerifyCommit({ env: env2 }), "1111111");
 });
 
-test("tool version derivation prefers SETTLD_VERSION env when set (core)", async () => {
-  const env = { SETTLD_VERSION: "9.9.9" };
+test("tool version derivation prefers NOOTERRA_VERSION env when set (core)", async () => {
+  const env = { NOOTERRA_VERSION: "9.9.9" };
   assert.equal(readCoreVersion({ env, cwd: process.cwd() }), "9.9.9");
 });
 

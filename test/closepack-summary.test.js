@@ -60,7 +60,7 @@ function makeMockRes() {
 }
 
 test("magic-link: persists ClosePack summary + evaluation downloads", async (t) => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-closepack-summary-test-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-magic-link-closepack-summary-test-"));
   await t.after(async () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
@@ -92,8 +92,8 @@ test("magic-link: persists ClosePack summary + evaluation downloads", async (t) 
   }
 
   const trust = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"), "utf8"));
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-  process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
   const fxCloseDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/closepack/strict-pass");
   const zipClose = await zipDir(fxCloseDir);

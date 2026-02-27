@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchWithSettldAutopay } from "../packages/api-sdk/src/index.js";
+import { fetchWithNooterraAutopay } from "../packages/api-sdk/src/index.js";
 
-test("api-sdk x402 autopay: retries 402 with x-settld-gate-id", async () => {
+test("api-sdk x402 autopay: retries 402 with x-nooterra-gate-id", async () => {
   const calls = [];
   const fetchStub = async (_url, init = {}) => {
     const headers = new Headers(init?.headers ?? {});
@@ -13,7 +13,7 @@ test("api-sdk x402 autopay: retries 402 with x-settld-gate-id", async () => {
         status: 402,
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "x-settld-gate-id": "gate_demo_1"
+          "x-nooterra-gate-id": "gate_demo_1"
         }
       });
     }
@@ -23,10 +23,10 @@ test("api-sdk x402 autopay: retries 402 with x-settld-gate-id", async () => {
     });
   };
 
-  const res = await fetchWithSettldAutopay("https://gateway.settld.local/resource", { method: "GET" }, { fetch: fetchStub });
+  const res = await fetchWithNooterraAutopay("https://gateway.nooterra.local/resource", { method: "GET" }, { fetch: fetchStub });
   assert.equal(res.status, 200);
   assert.equal(calls.length, 2);
-  assert.equal(calls[1]?.headers?.["x-settld-gate-id"], "gate_demo_1");
+  assert.equal(calls[1]?.headers?.["x-nooterra-gate-id"], "gate_demo_1");
 });
 
 test("api-sdk x402 autopay: forwards policy-bearing agentPassport header across attempts", async () => {
@@ -39,7 +39,7 @@ test("api-sdk x402 autopay: forwards policy-bearing agentPassport header across 
         status: 402,
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "x-settld-gate-id": "gate_demo_passport_1"
+          "x-nooterra-gate-id": "gate_demo_passport_1"
         }
       });
     }
@@ -65,23 +65,23 @@ test("api-sdk x402 autopay: forwards policy-bearing agentPassport header across 
     "utf8"
   ).toString("base64url");
 
-  const res = await fetchWithSettldAutopay(
-    "https://gateway.settld.local/resource",
+  const res = await fetchWithNooterraAutopay(
+    "https://gateway.nooterra.local/resource",
     { method: "GET" },
     { fetch: fetchStub, agentPassport }
   );
   assert.equal(res.status, 200);
   assert.equal(calls.length, 2);
-  assert.equal(calls[0]?.headers?.["x-settld-agent-passport"], expectedHeader);
-  assert.equal(calls[1]?.headers?.["x-settld-agent-passport"], expectedHeader);
-  assert.equal(calls[1]?.headers?.["x-settld-gate-id"], "gate_demo_passport_1");
+  assert.equal(calls[0]?.headers?.["x-nooterra-agent-passport"], expectedHeader);
+  assert.equal(calls[1]?.headers?.["x-nooterra-agent-passport"], expectedHeader);
+  assert.equal(calls[1]?.headers?.["x-nooterra-gate-id"], "gate_demo_passport_1");
 });
 
 test("api-sdk x402 autopay: exposes challenge metadata callback", async () => {
   const seen = [];
   const fetchStub = async (_url, init = {}) => {
     const headers = new Headers(init?.headers ?? {});
-    if (headers.get("x-settld-gate-id")) {
+    if (headers.get("x-nooterra-gate-id")) {
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "content-type": "application/json; charset=utf-8" }
@@ -91,15 +91,15 @@ test("api-sdk x402 autopay: exposes challenge metadata callback", async () => {
       status: 402,
       headers: {
         "content-type": "application/json; charset=utf-8",
-        "x-settld-gate-id": "gate_demo_meta_1",
+        "x-nooterra-gate-id": "gate_demo_meta_1",
         "x-payment-required":
           "amountCents=500; currency=USD; providerId=prov_demo; toolId=tool_demo; quoteRequired=1; spendAuthorizationMode=required"
       }
     });
   };
 
-  const res = await fetchWithSettldAutopay(
-    "https://gateway.settld.local/resource",
+  const res = await fetchWithNooterraAutopay(
+    "https://gateway.nooterra.local/resource",
     { method: "GET" },
     {
       fetch: fetchStub,
@@ -127,7 +127,7 @@ test("api-sdk x402 autopay: returns first 402 when gate header is missing", asyn
     });
   };
 
-  const res = await fetchWithSettldAutopay("https://gateway.settld.local/resource", { method: "GET" }, { fetch: fetchStub });
+  const res = await fetchWithNooterraAutopay("https://gateway.nooterra.local/resource", { method: "GET" }, { fetch: fetchStub });
   assert.equal(res.status, 402);
   assert.equal(calls, 1);
 });
@@ -138,17 +138,17 @@ test("api-sdk x402 autopay: throws for non-replayable request body", async () =>
       status: 402,
       headers: {
         "content-type": "application/json; charset=utf-8",
-        "x-settld-gate-id": "gate_demo_2"
+        "x-nooterra-gate-id": "gate_demo_2"
       }
     });
 
   await assert.rejects(
     async () =>
-      await fetchWithSettldAutopay(
-        "https://gateway.settld.local/resource",
+      await fetchWithNooterraAutopay(
+        "https://gateway.nooterra.local/resource",
         { method: "POST", body: new ReadableStream() },
         { fetch: fetchStub }
       ),
-    (err) => err?.code === "SETTLD_AUTOPAY_BODY_NOT_REPLAYABLE"
+    (err) => err?.code === "NOOTERRA_AUTOPAY_BODY_NOT_REPLAYABLE"
   );
 });

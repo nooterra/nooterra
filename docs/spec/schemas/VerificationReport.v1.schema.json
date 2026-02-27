@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/VerificationReport.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/VerificationReport.v1.schema.json",
   "title": "VerificationReport.v1",
   "type": "object",
   "required": ["schemaVersion", "profile", "tool", "warnings", "subject", "reportHash"],
@@ -11,7 +11,7 @@
       "type": "object",
       "required": ["name", "version"],
       "properties": {
-        "name": { "const": "settld" },
+        "name": { "const": "nooterra" },
         "version": { "type": ["string", "null"] },
         "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" }
       }
@@ -59,7 +59,7 @@
         "manifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
       }
     },
-    "timestampProof": { "$ref": "https://settld.local/schemas/TimestampProof.v1.schema.json" },
+    "timestampProof": { "$ref": "https://nooterra.local/schemas/TimestampProof.v1.schema.json" },
     "policy": { "type": ["object", "null"] },
     "subject": {
       "type": "object",

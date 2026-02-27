@@ -1,7 +1,7 @@
 # Release 1 SLOs and Error Budgets
 
 Date baseline: February 7, 2026
-Release target: `Settld Verified Transactions v1` (end of Sprint 4)
+Release target: `Nooterra Verified Transactions` (end of Sprint 4)
 
 ## Scope
 

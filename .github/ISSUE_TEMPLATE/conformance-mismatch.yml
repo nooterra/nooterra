@@ -7,7 +7,7 @@ body:
     id: pack_version
     attributes:
       label: Conformance pack version
-      placeholder: "e.g. conformance v1 (from release v1.0.0-rc.1)"
+      placeholder: "e.g. conformance pack from release 1.0.0-rc.1"
     validations:
       required: true
   - type: textarea
@@ -21,7 +21,7 @@ body:
   - type: textarea
     id: about
     attributes:
-      label: `settld-verify --about --format json`
+      label: `nooterra-verify --about --format json`
       render: json
     validations:
       required: true

@@ -9,8 +9,8 @@ import { verifyX402ExecutionProofV1 } from "../../src/core/zk-verifier.js";
 function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
-  console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
-  console.error("  settld x402 receipt verify --in <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
+  console.error("  nooterra x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
+  console.error("  nooterra x402 receipt verify --in <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
 }
 
 function parseArgs(argv) {

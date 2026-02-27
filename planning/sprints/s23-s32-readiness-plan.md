@@ -6,7 +6,7 @@ This file is the execution bridge from current P0 completion into the next major
 
 ## Current state (repo-backed)
 
-- Hosted baseline evidence passes for API health, scheduler presence, metrics presence, and billing catalog alignment on `api.settld.work`.
+- Hosted baseline evidence passes for API health, scheduler presence, metrics presence, and billing catalog alignment on `api.nooterra.work`.
 - Real-money Stripe paths are implemented and tested in `test/api-e2e-ops-money-rails.test.js`.
 - Release/CI now includes deploy safety smoke and secret hygiene checks.
 - Hosted-baseline backup/restore evidence now passes in both staging and production and is archived.
@@ -56,9 +56,9 @@ Staging/prod hosted baseline with inline backup/restore:
 
 ```bash
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --environment staging \
   --run-backup-restore true \
   --require-backup-restore true \
@@ -73,8 +73,8 @@ npm run ops:hosted-baseline:evidence -- \
 Critical metrics probe:
 
 ```bash
-curl -sS https://api.settld.work/metrics \
+curl -sS https://api.nooterra.work/metrics \
   -H "x-proxy-tenant-id: tenant_default" \
-  -H "x-proxy-ops-token: $SETTLD_STAGING_OPS_TOKEN" \
+  -H "x-proxy-ops-token: $NOOTERRA_STAGING_OPS_TOKEN" \
   | rg 'replay_mismatch_gauge|disputes_over_sla_gauge|arbitration_over_sla_gauge|settlement_holds_over_24h_gauge|worker_outbox_pending_total_gauge|worker_deliveries_pending_total_gauge'
 ```

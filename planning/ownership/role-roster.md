@@ -1,4 +1,4 @@
-# Settld Agentverse Role Roster (Adoption-First Execution)
+# Nooterra Agent Network Role Roster (Adoption-First Execution)
 
 ## Operating model
 

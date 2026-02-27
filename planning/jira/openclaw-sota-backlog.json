@@ -1,7 +1,7 @@
 {
   "meta": {
     "initiative": "OpenClaw State-of-the-Art Onboarding + Wallet-Selectable Trust Layer",
-    "schemaVersion": "SettldJiraBacklog.v2",
+    "schemaVersion": "NooterraJiraBacklog.v2",
     "generatedAt": "2026-02-21",
     "horizonSprints": 6,
     "ticketCount": 70,
@@ -25,7 +25,7 @@
     {
       "Epic Key": "STLD-E3102",
       "Summary": "Build Wallet Abstraction and Provider Adapter Layer",
-      "Description": "Implement wallet-provider abstraction with pluggable adapters so Settld can provision and operate spend/escrow flows across Circle, Privy, and external wallets without changing policy/evidence logic.",
+      "Description": "Implement wallet-provider abstraction with pluggable adapters so Nooterra can provision and operate spend/escrow flows across Circle, Privy, and external wallets without changing policy/evidence logic.",
       "Owner": "Backend Platform",
       "Priority": "Highest",
       "Labels": "wallets,adapters,platform,critical-path"
@@ -147,7 +147,7 @@
       "Ticket Key": "STLD-T3104",
       "Epic Key": "STLD-E3101",
       "Summary": "Implement one-command onboarding orchestrator",
-      "Description": "Ship `settld onboard --host openclaw` orchestration that runs host wiring, wallet setup, policy setup, and smoke verification.",
+      "Description": "Ship `nooterra onboard --host openclaw` orchestration that runs host wiring, wallet setup, policy setup, and smoke verification.",
       "Owner": "DevEx Platform",
       "Estimate": "5d",
       "Priority": "Highest",
@@ -173,7 +173,7 @@
       "Ticket Key": "STLD-T3106",
       "Epic Key": "STLD-E3101",
       "Summary": "Implement onboarding rollback command",
-      "Description": "Provide `settld onboard rollback` to unwind partial setup safely by host, tenant, wallet, and policy components.",
+      "Description": "Provide `nooterra onboard rollback` to unwind partial setup safely by host, tenant, wallet, and policy components.",
       "Owner": "Backend Platform",
       "Estimate": "3d",
       "Priority": "High",
@@ -219,7 +219,7 @@
       "Sprint": "S2",
       "Dependencies": "STLD-T3108",
       "Labels": "wallets,circle,adapter,critical-path",
-      "Acceptance Criteria": "Adapter provisions wallets and performs authorize/settle flow in test harness; provider errors map to normalized Settld codes."
+      "Acceptance Criteria": "Adapter provisions wallets and performs authorize/settle flow in test harness; provider errors map to normalized Nooterra codes."
     },
     {
       "Ticket Key": "STLD-T3110",
@@ -238,7 +238,7 @@
       "Ticket Key": "STLD-T3111",
       "Epic Key": "STLD-E3102",
       "Summary": "Implement external wallet bridge adapter",
-      "Description": "Build external/BYO wallet bridge for delegated authorization and receipt capture when wallets are managed outside Settld.",
+      "Description": "Build external/BYO wallet bridge for delegated authorization and receipt capture when wallets are managed outside Nooterra.",
       "Owner": "Backend Platform",
       "Estimate": "4d",
       "Priority": "High",
@@ -355,7 +355,7 @@
       "Ticket Key": "STLD-T3120",
       "Epic Key": "STLD-E3103",
       "Summary": "Implement policy simulation CLI",
-      "Description": "Provide `settld policy simulate` for dry-run evaluation of planned actions against chosen pack and runtime context.",
+      "Description": "Provide `nooterra policy simulate` for dry-run evaluation of planned actions against chosen pack and runtime context.",
       "Owner": "Backend Platform",
       "Estimate": "3d",
       "Priority": "High",
@@ -394,7 +394,7 @@
       "Ticket Key": "STLD-T3123",
       "Epic Key": "STLD-E3104",
       "Summary": "Define OpenClaw setup integration contract",
-      "Description": "Define command contract between OpenClaw and Settld for non-interactive onboarding invocation and status exchange.",
+      "Description": "Define command contract between OpenClaw and Nooterra for non-interactive onboarding invocation and status exchange.",
       "Owner": "Tech Lead Architecture",
       "Estimate": "2d",
       "Priority": "Highest",
@@ -407,14 +407,14 @@
       "Ticket Key": "STLD-T3124",
       "Epic Key": "STLD-E3104",
       "Summary": "Build OpenClaw setup bridge command",
-      "Description": "Implement `openclaw setup settld` bridge that invokes Settld onboarding with profile-aware defaults.",
+      "Description": "Implement `openclaw setup nooterra` bridge that invokes Nooterra onboarding with profile-aware defaults.",
       "Owner": "DevEx Platform",
       "Estimate": "4d",
       "Priority": "Highest",
       "Sprint": "S2",
       "Dependencies": "STLD-T3123,STLD-T3104",
       "Labels": "openclaw,cli,onboarding,critical-path",
-      "Acceptance Criteria": "OpenClaw command triggers Settld flow and returns readiness summary; command supports interactive and non-interactive modes."
+      "Acceptance Criteria": "OpenClaw command triggers Nooterra flow and returns readiness summary; command supports interactive and non-interactive modes."
     },
     {
       "Ticket Key": "STLD-T3125",
@@ -427,7 +427,7 @@
       "Sprint": "S2",
       "Dependencies": "STLD-T3123,STLD-T3102",
       "Labels": "openclaw,mcp,profiles,critical-path",
-      "Acceptance Criteria": "Installer writes MCP config to active profile path and verifies `settld.about` probe succeeds."
+      "Acceptance Criteria": "Installer writes MCP config to active profile path and verifies `nooterra.about` probe succeeds."
     },
     {
       "Ticket Key": "STLD-T3126",
@@ -459,7 +459,7 @@
       "Ticket Key": "STLD-T3128",
       "Epic Key": "STLD-E3104",
       "Summary": "Implement reconnect and recovery flow",
-      "Description": "Add commands to recover broken Settld-OpenClaw integration without full reset.",
+      "Description": "Add commands to recover broken Nooterra-OpenClaw integration without full reset.",
       "Owner": "DevEx Platform",
       "Estimate": "3d",
       "Priority": "Medium",
@@ -810,7 +810,7 @@
       "Ticket Key": "STLD-T3155",
       "Epic Key": "STLD-E3109",
       "Summary": "Build host certification matrix tests",
-      "Description": "Create automated host certification matrix covering Codex, Claude, Cursor, and OpenClaw onboarding compatibility.",
+      "Description": "Create automated host certification matrix covering Nooterra, Claude, Cursor, and OpenClaw onboarding compatibility.",
       "Owner": "QA Verification",
       "Estimate": "3d",
       "Priority": "Highest",

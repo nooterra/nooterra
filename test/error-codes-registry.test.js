@@ -30,7 +30,7 @@ function extractErrorCodesFromJsSource(source) {
 function extractErrorCodesFromRepo() {
   const repoRoot = process.cwd();
   const srcDir = path.join(repoRoot, "packages", "artifact-verify", "src");
-  const cli = path.join(repoRoot, "packages", "artifact-verify", "bin", "settld-verify.js");
+  const cli = path.join(repoRoot, "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const files = [...walkJs(srcDir), cli];
   const out = new Set();
   for (const fp of files) {

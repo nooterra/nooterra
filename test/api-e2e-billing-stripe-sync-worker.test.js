@@ -30,7 +30,7 @@ function makeStripeSubscriptionUpdatedEvent({
               price: {
                 id: priceId,
                 metadata: {
-                  settldPlan: "growth"
+                  nooterraPlan: "growth"
                 }
               }
             }

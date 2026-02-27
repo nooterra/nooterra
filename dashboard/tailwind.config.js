@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        settld: {
+        nooterra: {
           dark: "#111a23",
           card: "#172430",
           border: "#2b4050",

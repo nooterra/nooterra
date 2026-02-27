@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 
 import { SETTLEMENT_VERIFIER_SOURCE } from "../../../src/core/settlement-verifier.js";
 
-const baseUrl = String(process.env.SETTLD_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
-const tenantId = String(process.env.SETTLD_TENANT_ID || "tenant_default");
-const opsToken = String(process.env.SETTLD_OPS_TOKEN || "tok_ops");
-const protocol = String(process.env.SETTLD_PROTOCOL || "1.0");
+const baseUrl = String(process.env.NOOTERRA_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+const tenantId = String(process.env.NOOTERRA_TENANT_ID || "tenant_default");
+const opsToken = String(process.env.NOOTERRA_OPS_TOKEN || "tok_ops");
+const protocol = String(process.env.NOOTERRA_PROTOCOL || "1.0");
 
 function reqId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`;
@@ -16,7 +16,7 @@ async function requestJson({ method, pathname, body = undefined, idempotencyKey 
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": tenantId,
-    "x-settld-protocol": protocol,
+    "x-nooterra-protocol": protocol,
     "x-proxy-ops-token": opsToken,
     "x-request-id": reqId("det_schema_check_ref")
   };
@@ -162,7 +162,7 @@ async function main() {
   const decisionRecord = settlement?.decisionRecord ?? settlement?.settlement?.decisionTrace?.decisionRecord ?? null;
   assert(decisionRecord, "settlement decisionRecord missing");
   assert.equal(decisionRecord?.verifierRef?.modality, "deterministic");
-  assert.equal(decisionRecord?.verifierRef?.verifierId, "settld.deterministic.schema-check");
+  assert.equal(decisionRecord?.verifierRef?.verifierId, "nooterra.deterministic.schema-check");
   assert.match(String(decisionRecord?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(completed?.settlement?.status, "refunded");
   assert.equal(completed?.settlement?.releasedAmountCents, 0);

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/BundleHeadAttestation.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/BundleHeadAttestation.v1.schema.json",
   "title": "BundleHeadAttestation.v1",
   "type": "object",
   "required": ["schemaVersion", "kind", "tenantId", "scope", "generatedAt", "manifestHash", "heads", "signedAt", "signerKeyId", "attestationHash", "signature"],
@@ -12,7 +12,7 @@
     "generatedAt": { "type": "string" },
     "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "heads": { "type": "object" },
-    "timestampProof": { "$ref": "https://settld.local/schemas/TimestampProof.v1.schema.json" },
+    "timestampProof": { "$ref": "https://nooterra.local/schemas/TimestampProof.v1.schema.json" },
     "signedAt": { "type": "string" },
     "signerKeyId": { "type": "string" },
     "attestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

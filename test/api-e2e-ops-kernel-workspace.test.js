@@ -30,7 +30,7 @@ test("API e2e: ops kernel workspace renders receipt explorer controls", async ()
   assert.match(workspace.body, /id="receiptLinks"/);
   assert.match(workspace.body, /\/x402\/receipts\/\$\{encodeURIComponent\(receiptId\)\}/);
   assert.match(workspace.body, /\/x402\/receipts\?/);
-  assert.match(workspace.body, /x-settld-protocol/);
+  assert.match(workspace.body, /x-nooterra-protocol/);
 
   const workspaceWithQueryAuth = await request(api, {
     method: "GET",

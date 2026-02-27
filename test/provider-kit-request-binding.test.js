@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 
-import { createSettldPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
+import { createNooterraPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import {
-  buildSettldPayPayloadV1,
-  computeSettldPayRequestBindingSha256V1,
-  mintSettldPayTokenV1
-} from "../src/core/settld-pay-token.js";
+  buildNooterraPayPayloadV1,
+  computeNooterraPayRequestBindingSha256V1,
+  mintNooterraPayTokenV1
+} from "../src/core/nooterra-pay-token.js";
 
 async function startServer(handler) {
   const server = http.createServer((req, res) => {
@@ -34,13 +34,13 @@ async function startServer(handler) {
 }
 
 test("provider kit strict request binding rejects changed request body", async (t) => {
-  const settldSigner = createEd25519Keypair();
+  const nooterraSigner = createEd25519Keypair();
   const providerSigner = createEd25519Keypair();
   const providerId = "prov_actions";
   const amountCents = 1200;
   const currency = "USD";
 
-  const handler = createSettldPaidNodeHttpHandler({
+  const handler = createNooterraPaidNodeHttpHandler({
     providerId,
     priceFor: async () => ({
       providerId,
@@ -58,9 +58,9 @@ test("provider kit strict request binding rejects changed request body", async (
     }),
     providerPublicKeyPem: providerSigner.publicKeyPem,
     providerPrivateKeyPem: providerSigner.privateKeyPem,
-    settldPay: {
+    nooterraPay: {
       pinnedOnly: true,
-      pinnedPublicKeyPem: settldSigner.publicKeyPem
+      pinnedPublicKeyPem: nooterraSigner.publicKeyPem
     }
   });
 
@@ -74,15 +74,15 @@ test("provider kit strict request binding rejects changed request body", async (
   const requestUrl = new URL(requestPath, svc.baseUrl);
   const originalBody = JSON.stringify({ to: "alice@example.com", subject: "Hello" });
   const originalBodySha256 = sha256Hex(Buffer.from(originalBody, "utf8"));
-  const requestBindingSha256 = computeSettldPayRequestBindingSha256V1({
+  const requestBindingSha256 = computeNooterraPayRequestBindingSha256V1({
     method: "POST",
     host: requestUrl.host,
     pathWithQuery: `${requestUrl.pathname}${requestUrl.search}`,
     bodySha256: originalBodySha256
   });
 
-  const tokenPayload = buildSettldPayPayloadV1({
-    iss: "settld",
+  const tokenPayload = buildNooterraPayPayloadV1({
+    iss: "nooterra",
     aud: providerId,
     gateId: "gate_strict_1",
     authorizationRef: "auth_gate_strict_1",
@@ -94,24 +94,24 @@ test("provider kit strict request binding rejects changed request body", async (
     iat: nowUnix,
     exp: nowUnix + 300
   });
-  const token = mintSettldPayTokenV1({
+  const token = mintNooterraPayTokenV1({
     payload: tokenPayload,
-    publicKeyPem: settldSigner.publicKeyPem,
-    privateKeyPem: settldSigner.privateKeyPem
+    publicKeyPem: nooterraSigner.publicKeyPem,
+    privateKeyPem: nooterraSigner.privateKeyPem
   }).token;
 
   const okResponse = await fetch(requestUrl, {
     method: "POST",
     headers: {
-      authorization: `SettldPay ${token}`,
+      authorization: `NooterraPay ${token}`,
       "content-type": "application/json; charset=utf-8"
     },
     body: originalBody
   });
   const okBodyText = await okResponse.text();
   assert.equal(okResponse.status, 200, okBodyText);
-  assert.equal(okResponse.headers.get("x-settld-request-binding-mode"), "strict");
-  assert.equal(okResponse.headers.get("x-settld-request-binding-sha256"), requestBindingSha256);
+  assert.equal(okResponse.headers.get("x-nooterra-request-binding-mode"), "strict");
+  assert.equal(okResponse.headers.get("x-nooterra-request-binding-sha256"), requestBindingSha256);
   const okJson = JSON.parse(okBodyText);
   assert.equal(okJson.ok, true);
   assert.equal(okJson.receivedBytes, Buffer.byteLength(originalBody, "utf8"));
@@ -120,23 +120,23 @@ test("provider kit strict request binding rejects changed request body", async (
   const mismatchResponse = await fetch(requestUrl, {
     method: "POST",
     headers: {
-      authorization: `SettldPay ${token}`,
+      authorization: `NooterraPay ${token}`,
       "content-type": "application/json; charset=utf-8"
     },
     body: changedBody
   });
   assert.equal(mismatchResponse.status, 402);
   const mismatchJson = await mismatchResponse.json();
-  assert.equal(mismatchJson?.code, "SETTLD_PAY_REQUEST_BINDING_MISMATCH");
+  assert.equal(mismatchJson?.code, "NOOTERRA_PAY_REQUEST_BINDING_MISMATCH");
 });
 
 test("provider kit required spend authorization rejects missing claims", async (t) => {
-  const settldSigner = createEd25519Keypair();
+  const nooterraSigner = createEd25519Keypair();
   const providerSigner = createEd25519Keypair();
   const providerId = "prov_actions_required";
   const quoteId = "x402quote_required_1";
 
-  const handler = createSettldPaidNodeHttpHandler({
+  const handler = createNooterraPaidNodeHttpHandler({
     providerId,
     priceFor: async () => ({
       providerId,
@@ -153,9 +153,9 @@ test("provider kit required spend authorization rejects missing claims", async (
     }),
     providerPublicKeyPem: providerSigner.publicKeyPem,
     providerPrivateKeyPem: providerSigner.privateKeyPem,
-    settldPay: {
+    nooterraPay: {
       pinnedOnly: true,
-      pinnedPublicKeyPem: settldSigner.publicKeyPem
+      pinnedPublicKeyPem: nooterraSigner.publicKeyPem
     }
   });
 
@@ -166,9 +166,9 @@ test("provider kit required spend authorization rejects missing claims", async (
   const requestUrl = new URL("/actions/send", svc.baseUrl);
   const nowUnix = Math.floor(Date.now() / 1000);
 
-  const incompleteToken = mintSettldPayTokenV1({
-    payload: buildSettldPayPayloadV1({
-      iss: "settld",
+  const incompleteToken = mintNooterraPayTokenV1({
+    payload: buildNooterraPayPayloadV1({
+      iss: "nooterra",
       aud: providerId,
       gateId: "gate_required_1",
       authorizationRef: "auth_gate_required_1",
@@ -179,25 +179,25 @@ test("provider kit required spend authorization rejects missing claims", async (
       iat: nowUnix,
       exp: nowUnix + 300
     }),
-    publicKeyPem: settldSigner.publicKeyPem,
-    privateKeyPem: settldSigner.privateKeyPem
+    publicKeyPem: nooterraSigner.publicKeyPem,
+    privateKeyPem: nooterraSigner.privateKeyPem
   }).token;
 
   const rejected = await fetch(requestUrl, {
     method: "POST",
     headers: {
-      authorization: `SettldPay ${incompleteToken}`,
+      authorization: `NooterraPay ${incompleteToken}`,
       "content-type": "application/json; charset=utf-8"
     },
     body: JSON.stringify({ action: "send" })
   });
   assert.equal(rejected.status, 402);
   const rejectedJson = await rejected.json();
-  assert.equal(rejectedJson.code, "SETTLD_PAY_SPEND_AUTH_REQUIRED");
+  assert.equal(rejectedJson.code, "NOOTERRA_PAY_SPEND_AUTH_REQUIRED");
 
-  const validToken = mintSettldPayTokenV1({
-    payload: buildSettldPayPayloadV1({
-      iss: "settld",
+  const validToken = mintNooterraPayTokenV1({
+    payload: buildNooterraPayPayloadV1({
+      iss: "nooterra",
       aud: providerId,
       gateId: "gate_required_1",
       authorizationRef: "auth_gate_required_1",
@@ -213,14 +213,14 @@ test("provider kit required spend authorization rejects missing claims", async (
       iat: nowUnix,
       exp: nowUnix + 300
     }),
-    publicKeyPem: settldSigner.publicKeyPem,
-    privateKeyPem: settldSigner.privateKeyPem
+    publicKeyPem: nooterraSigner.publicKeyPem,
+    privateKeyPem: nooterraSigner.privateKeyPem
   }).token;
 
   const accepted = await fetch(requestUrl, {
     method: "POST",
     headers: {
-      authorization: `SettldPay ${validToken}`,
+      authorization: `NooterraPay ${validToken}`,
       "content-type": "application/json; charset=utf-8"
     },
     body: JSON.stringify({ action: "send" })

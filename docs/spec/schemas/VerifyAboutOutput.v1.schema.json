@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/VerifyAboutOutput.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/VerifyAboutOutput.v1.schema.json",
   "title": "VerifyAboutOutput.v1",
   "type": "object",
   "additionalProperties": false,
@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "required": ["name", "version", "commit"],
       "properties": {
-        "name": { "const": "settld-verify" },
+        "name": { "const": "nooterra-verify" },
         "version": { "type": ["string", "null"] },
         "commit": { "type": ["string", "null"] }
       }

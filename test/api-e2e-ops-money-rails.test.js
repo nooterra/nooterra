@@ -614,7 +614,7 @@ test("API e2e: production provider event mapping ingests statuses deterministica
             id: "tr_prod_paid_1",
             status: "paid",
             metadata: {
-              settld_operation_id: operationId
+              nooterra_operation_id: operationId
             }
           }
         }
@@ -1310,7 +1310,7 @@ test("API e2e: Stripe production submit executes transfer and transitions operat
   assert.equal(transferCall.formData.get("amount"), "2100");
   assert.equal(transferCall.formData.get("currency"), "usd");
   assert.equal(transferCall.formData.get("destination"), "acct_connect_submit_1");
-  assert.equal(transferCall.formData.get("metadata[settld_operation_id]"), operationId);
+  assert.equal(transferCall.formData.get("metadata[nooterra_operation_id]"), operationId);
 
   const submitReplay = await request(api, {
     method: "POST",

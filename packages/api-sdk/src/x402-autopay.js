@@ -93,8 +93,8 @@ function buildX402ChallengeMetadata(res, { gateHeaderName }) {
   const paymentRequiredRaw = res.headers.get("x-payment-required") ?? res.headers.get("payment-required");
   const paymentRequired = typeof paymentRequiredRaw === "string" && paymentRequiredRaw.trim() !== "" ? paymentRequiredRaw.trim() : null;
   const fields = paymentRequired ? parseChallengeFields(paymentRequired) : null;
-  const quote = parseBase64UrlJson(res.headers.get("x-settld-provider-quote"));
-  const quoteSignature = parseBase64UrlJson(res.headers.get("x-settld-provider-quote-signature"));
+  const quote = parseBase64UrlJson(res.headers.get("x-nooterra-provider-quote"));
+  const quoteSignature = parseBase64UrlJson(res.headers.get("x-nooterra-provider-quote-signature"));
   const quoteRequired = parseBooleanLike(fields?.quoteRequired);
   return {
     gateId,
@@ -156,7 +156,7 @@ function buildRetryInit(init, { gateHeaderName, gateId, agentPassportHeaderName,
   const bodyResult = cloneBodyForRetry(safeInit.body);
   if (!bodyResult.ok) {
     const err = new Error("x402 autopay cannot replay this request body");
-    err.code = "SETTLD_AUTOPAY_BODY_NOT_REPLAYABLE";
+    err.code = "NOOTERRA_AUTOPAY_BODY_NOT_REPLAYABLE";
     throw err;
   }
 
@@ -171,10 +171,10 @@ function buildRetryInit(init, { gateHeaderName, gateId, agentPassportHeaderName,
   };
 }
 
-export async function fetchWithSettldAutopay(url, init = {}, opts = {}) {
+export async function fetchWithNooterraAutopay(url, init = {}, opts = {}) {
   const fetchImpl = assertFetchFunction(opts?.fetch ?? globalThis.fetch);
-  const gateHeaderName = normalizeHeaderName(opts?.gateHeaderName, "x-settld-gate-id");
-  const agentPassportHeaderName = normalizeHeaderName(opts?.agentPassportHeaderName, "x-settld-agent-passport");
+  const gateHeaderName = normalizeHeaderName(opts?.gateHeaderName, "x-nooterra-gate-id");
+  const agentPassportHeaderName = normalizeHeaderName(opts?.agentPassportHeaderName, "x-nooterra-agent-passport");
   const agentPassportHeaderValue = normalizeAgentPassportHeaderValue(opts?.agentPassport ?? null);
   const onChallenge = typeof opts?.onChallenge === "function" ? opts.onChallenge : null;
   const maxAttemptsRaw = Number(opts?.maxAttempts ?? 2);

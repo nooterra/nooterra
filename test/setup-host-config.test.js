@@ -5,37 +5,37 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  applySettldServerConfig,
-  buildSettldMcpServerConfig,
+  applyNooterraServerConfig,
+  buildNooterraMcpServerConfig,
   resolveHostConfigPathCandidatesDetailed,
   runHostConfigSetup
 } from "../scripts/setup/host-config.mjs";
 
 function baseEnv(overrides = {}) {
   return {
-    SETTLD_BASE_URL: "http://127.0.0.1:3000",
-    SETTLD_TENANT_ID: "tenant_default",
-    SETTLD_API_KEY: "sk_test_id.secret",
+    NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+    NOOTERRA_TENANT_ID: "tenant_default",
+    NOOTERRA_API_KEY: "sk_test_id.secret",
     ...overrides
   };
 }
 
 test("path resolution prefers host-specific env override", () => {
   const rows = resolveHostConfigPathCandidatesDetailed({
-    host: "codex",
+    host: "nooterra",
     platform: "linux",
     homeDir: "/home/alice",
     cwd: "/workspace",
     env: {
-      SETTLD_CODEX_MCP_CONFIG_PATH: "configs/codex-mcp.json",
-      CODEX_HOME: "/tmp/custom-codex-home"
+      NOOTERRA_NOOTERRA_MCP_CONFIG_PATH: "configs/nooterra-mcp.json",
+      NOOTERRA_HOME: "/tmp/custom-nooterra-home"
     }
   });
 
   assert.ok(rows.length > 0);
-  assert.equal(rows[0].path, path.resolve("/workspace", "configs/codex-mcp.json"));
-  assert.equal(rows[0].source, "env:SETTLD_CODEX_MCP_CONFIG_PATH");
-  assert.ok(rows.some((row) => row.path === path.join("/tmp/custom-codex-home", "config.json")));
+  assert.equal(rows[0].path, path.resolve("/workspace", "configs/nooterra-mcp.json"));
+  assert.equal(rows[0].source, "env:NOOTERRA_NOOTERRA_MCP_CONFIG_PATH");
+  assert.ok(rows.some((row) => row.path === path.join("/tmp/custom-nooterra-home", "config.json")));
 });
 
 test("path resolution includes platform defaults", () => {
@@ -54,8 +54,8 @@ test("path resolution includes platform defaults", () => {
   assert.ok(rows.some((row) => row.path === path.join("/Users/alice", ".cursor", "mcp.json")));
 });
 
-test("merge updates mcpServers.settld and remains idempotent", () => {
-  const settldServer = buildSettldMcpServerConfig({ env: baseEnv() });
+test("merge updates mcpServers.nooterra and remains idempotent", () => {
+  const nooterraServer = buildNooterraMcpServerConfig({ env: baseEnv() });
   const existing = {
     mcpServers: {
       weather: {
@@ -63,37 +63,37 @@ test("merge updates mcpServers.settld and remains idempotent", () => {
         args: ["weather.js"],
         env: { API_KEY: "abc" }
       },
-      settld: {
+      nooterra: {
         command: "node",
         args: ["old.js"],
-        env: { SETTLD_BASE_URL: "http://old" }
+        env: { NOOTERRA_BASE_URL: "http://old" }
       }
     },
     metadata: { owner: "team-mcp" }
   };
 
-  const first = applySettldServerConfig({
+  const first = applyNooterraServerConfig({
     host: "claude",
     existingConfig: existing,
-    settldServer
+    nooterraServer
   });
-  assert.equal(first.keyPath, "mcpServers.settld");
+  assert.equal(first.keyPath, "mcpServers.nooterra");
   assert.equal(first.changed, true);
   assert.deepEqual(first.config.mcpServers.weather, existing.mcpServers.weather);
   assert.equal(first.config.metadata.owner, "team-mcp");
-  assert.deepEqual(first.config.mcpServers.settld, settldServer);
+  assert.deepEqual(first.config.mcpServers.nooterra, nooterraServer);
 
-  const second = applySettldServerConfig({
+  const second = applyNooterraServerConfig({
     host: "claude",
     existingConfig: first.config,
-    settldServer
+    nooterraServer
   });
   assert.equal(second.changed, false);
   assert.deepEqual(second.config, first.config);
 });
 
 test("openclaw falls back to root host-equivalent shape when no server map exists", () => {
-  const settldServer = buildSettldMcpServerConfig({ env: baseEnv({ SETTLD_PAID_TOOLS_BASE_URL: "http://127.0.0.1:8402" }) });
+  const nooterraServer = buildNooterraMcpServerConfig({ env: baseEnv({ NOOTERRA_PAID_TOOLS_BASE_URL: "http://127.0.0.1:8402" }) });
   const existing = {
     description: "OpenClaw skill MCP server",
     name: "placeholder",
@@ -102,25 +102,25 @@ test("openclaw falls back to root host-equivalent shape when no server map exist
     env: { LEGACY: "1" }
   };
 
-  const merged = applySettldServerConfig({
+  const merged = applyNooterraServerConfig({
     host: "openclaw",
     existingConfig: existing,
-    settldServer
+    nooterraServer
   });
 
   assert.equal(merged.keyPath, "root");
   assert.equal(merged.config.description, existing.description);
-  assert.equal(merged.config.name, "settld");
+  assert.equal(merged.config.name, "nooterra");
   assert.equal(merged.config.command, "npx");
-  assert.deepEqual(merged.config.args, ["-y", "--package", "settld", "settld-mcp"]);
-  assert.equal(merged.config.env.SETTLD_BASE_URL, "http://127.0.0.1:3000");
-  assert.equal(merged.config.env.SETTLD_PAID_TOOLS_BASE_URL, "http://127.0.0.1:8402");
+  assert.deepEqual(merged.config.args, ["-y", "--package", "nooterra", "nooterra-mcp"]);
+  assert.equal(merged.config.env.NOOTERRA_BASE_URL, "http://127.0.0.1:3000");
+  assert.equal(merged.config.env.NOOTERRA_PAID_TOOLS_BASE_URL, "http://127.0.0.1:8402");
 });
 
-test("buildSettldMcpServerConfig includes normalized paid-tools agent passport when provided", () => {
-  const server = buildSettldMcpServerConfig({
+test("buildNooterraMcpServerConfig includes normalized paid-tools agent passport when provided", () => {
+  const server = buildNooterraMcpServerConfig({
     env: baseEnv({
-      SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+      NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
         schemaVersion: "X402AgentPassport.v1",
         sponsorRef: "sponsor_default",
         sponsorWalletRef: "wallet_engineering-spend",
@@ -131,8 +131,8 @@ test("buildSettldMcpServerConfig includes normalized paid-tools agent passport w
       })
     })
   });
-  assert.equal(typeof server.env.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
-  const parsed = JSON.parse(server.env.SETTLD_PAID_TOOLS_AGENT_PASSPORT);
+  assert.equal(typeof server.env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT, "string");
+  const parsed = JSON.parse(server.env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT);
   assert.equal(parsed.schemaVersion, "X402AgentPassport.v1");
   assert.equal(parsed.sponsorRef, "sponsor_default");
   assert.equal(parsed.sponsorWalletRef, "wallet_engineering-spend");
@@ -142,12 +142,12 @@ test("buildSettldMcpServerConfig includes normalized paid-tools agent passport w
   assert.equal(parsed.delegationDepth, 0);
 });
 
-test("buildSettldMcpServerConfig rejects malformed paid-tools passport policy tuple", () => {
+test("buildNooterraMcpServerConfig rejects malformed paid-tools passport policy tuple", () => {
   assert.throws(
     () =>
-      buildSettldMcpServerConfig({
+      buildNooterraMcpServerConfig({
         env: baseEnv({
-          SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+          NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
             schemaVersion: "X402AgentPassport.v1",
             sponsorRef: "sponsor_default",
             agentKeyId: "agent_key_default",
@@ -160,22 +160,22 @@ test("buildSettldMcpServerConfig rejects malformed paid-tools passport policy tu
 });
 
 test("dry-run does not modify config file", async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-host-config-test-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-host-config-test-"));
   try {
-    const configPath = path.join(tempDir, "codex-config.json");
+    const configPath = path.join(tempDir, "nooterra-config.json");
     const initial = {
       mcpServers: {
-        settld: {
+        nooterra: {
           command: "node",
           args: ["legacy.js"],
-          env: { SETTLD_BASE_URL: "http://old" }
+          env: { NOOTERRA_BASE_URL: "http://old" }
         }
       }
     };
     await fs.writeFile(configPath, JSON.stringify(initial, null, 2) + "\n", "utf8");
 
     const summary = await runHostConfigSetup({
-      host: "codex",
+      host: "nooterra",
       configPath,
       dryRun: true,
       env: baseEnv()
@@ -195,7 +195,7 @@ test("dry-run does not modify config file", async () => {
 });
 
 test("runHostConfigSetup writes once and then becomes idempotent", async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-host-config-test-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-host-config-test-"));
   try {
     const configPath = path.join(tempDir, "claude-config.json");
 
@@ -203,8 +203,8 @@ test("runHostConfigSetup writes once and then becomes idempotent", async () => {
       host: "claude",
       configPath,
       env: baseEnv({
-        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work",
-        SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+        NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.tools.nooterra.work",
+        NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
           schemaVersion: "X402AgentPassport.v1",
           sponsorRef: "sponsor_default",
           sponsorWalletRef: "wallet_engineering-spend",
@@ -220,20 +220,20 @@ test("runHostConfigSetup writes once and then becomes idempotent", async () => {
     assert.equal(first.changed, true);
     assert.equal(first.wroteFile, true);
     assert.equal(first.existed, false);
-    assert.equal(first.keyPath, "mcpServers.settld");
+    assert.equal(first.keyPath, "mcpServers.nooterra");
 
     const written = JSON.parse(await fs.readFile(configPath, "utf8"));
-    assert.equal(written.mcpServers?.settld?.command, "npx");
-    assert.deepEqual(written.mcpServers?.settld?.args, ["-y", "--package", "settld", "settld-mcp"]);
-    assert.equal(written.mcpServers?.settld?.env?.SETTLD_API_KEY, "sk_test_id.secret");
-    assert.equal(typeof written.mcpServers?.settld?.env?.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
+    assert.equal(written.mcpServers?.nooterra?.command, "npx");
+    assert.deepEqual(written.mcpServers?.nooterra?.args, ["-y", "--package", "nooterra", "nooterra-mcp"]);
+    assert.equal(written.mcpServers?.nooterra?.env?.NOOTERRA_API_KEY, "sk_test_id.secret");
+    assert.equal(typeof written.mcpServers?.nooterra?.env?.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT, "string");
 
     const second = await runHostConfigSetup({
       host: "claude",
       configPath,
       env: baseEnv({
-        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work",
-        SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+        NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.tools.nooterra.work",
+        NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
           schemaVersion: "X402AgentPassport.v1",
           sponsorRef: "sponsor_default",
           sponsorWalletRef: "wallet_engineering-spend",

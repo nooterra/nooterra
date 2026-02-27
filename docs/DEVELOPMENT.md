@@ -23,7 +23,7 @@ PROXY_OPS_TOKEN=tok_ops npm run dev:api
 Start the full local dev stack (Postgres + MinIO + API + receiver + finance sink):
 
 ```sh
-./bin/settld.js dev up
+./bin/nooterra.js dev up
 ```
 
 Developer helper flow (recommended for local Neon/PG usage):
@@ -86,7 +86,7 @@ Regenerate the OpenAPI spec and ensure no drift:
 
 ```sh
 npm run -s openapi:write
-git diff --exit-code -- openapi/settld.openapi.json
+git diff --exit-code -- openapi/nooterra.openapi.json
 ```
 
 ## Tests
@@ -101,12 +101,12 @@ npm test
 Bundle verification oracle:
 
 ```sh
-./bin/settld.js conformance test
+./bin/nooterra.js conformance test
 ```
 
 Kernel control plane (disputes + holdback):
 
 ```sh
-./bin/settld.js conformance kernel --ops-token tok_ops
+./bin/nooterra.js conformance kernel --ops-token tok_ops
 ```
 

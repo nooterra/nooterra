@@ -7,19 +7,19 @@ Goal: run the full “economic loop” locally and inspect artifacts (holdback, 
 Registry form (recommended once package is published):
 
 ```sh
-npx settld --version
-npx settld dev up
-npx settld conformance kernel --ops-token tok_ops
+npx nooterra --version
+npx nooterra dev up
+npx nooterra conformance kernel --ops-token tok_ops
 ```
 
 Release tarball fallback:
 
-If you downloaded a release asset like `settld-<version>.tgz`, you can run CLI commands without cloning this repo:
+If you downloaded a release asset like `nooterra-<version>.tgz`, you can run CLI commands without cloning this repo:
 
 ```sh
-npx --yes --package ./settld-<version>.tgz settld --version
-npx --yes --package ./settld-<version>.tgz settld dev up
-npx --yes --package ./settld-<version>.tgz settld conformance kernel --ops-token tok_ops
+npx --yes --package ./nooterra-<version>.tgz nooterra --version
+npx --yes --package ./nooterra-<version>.tgz nooterra dev up
+npx --yes --package ./nooterra-<version>.tgz nooterra conformance kernel --ops-token tok_ops
 ```
 
 Use the same pattern for all commands in this doc.
@@ -29,7 +29,7 @@ Use the same pattern for all commands in this doc.
 Recommended (one command):
 
 ```sh
-./bin/settld.js dev up
+./bin/nooterra.js dev up
 ```
 
 Equivalent (manual):
@@ -51,10 +51,10 @@ This will exercise:
 
 - tool-call holdback disputes (freeze maintenance tick, issue verdict, deterministic adjustment)
 - marketplace run replay-evaluate (`/runs/:runId/settlement/replay-evaluate`)
-- deterministic verifier plugin selection (`verifier://settld/deterministic/latency-threshold-v1` or `verifier://settld/deterministic/schema-check-v1`)
+- deterministic verifier plugin selection (`verifier://nooterra/deterministic/latency-threshold-v1` or `verifier://nooterra/deterministic/schema-check-v1`)
 
 ```sh
-./bin/settld.js conformance kernel --ops-token tok_ops --json-out /tmp/settld-kernel-v0-report.json
+./bin/nooterra.js conformance kernel --ops-token tok_ops --json-out /tmp/nooterra-kernel-v0-report.json
 ```
 
 The runner prints `INFO ...` lines with `agreementHash` and `runId`.
@@ -80,13 +80,13 @@ curl -sS "http://127.0.0.1:3000/runs/<runId>/settlement/replay-evaluate" \
 ## Shutdown
 
 ```sh
-./bin/settld.js dev down
+./bin/nooterra.js dev down
 ```
 
 To wipe volumes (fresh DB + buckets):
 
 ```sh
-./bin/settld.js dev down --wipe
+./bin/nooterra.js dev down --wipe
 ```
 
 ## Product Surfaces

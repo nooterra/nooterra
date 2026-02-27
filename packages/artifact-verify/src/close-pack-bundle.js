@@ -621,11 +621,11 @@ export async function verifyClosePackBundleDir({ dir, strict = false, hashConcur
 
   const warnings = [];
   if (!strict) {
-    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
-    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+    const rawTrusted = String(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
   }
 
-  const header = await readJson(path.join(dir, "settld.json"));
+  const header = await readJson(path.join(dir, "nooterra.json"));
   if (header?.type !== CLOSE_PACK_TYPE_V1) return { ok: false, error: "unsupported bundle type", type: header?.type ?? null, warnings };
 
   const manifestWithHash = await readJson(path.join(dir, "manifest.json"));
@@ -651,7 +651,7 @@ export async function verifyClosePackBundleDir({ dir, strict = false, hashConcur
       if (!name) continue;
       present.add(name);
     }
-    const required = ["settld.json", "governance/policy.json", "governance/revocations.json", "evidence/evidence_index.json", "payload/invoice_bundle/settld.json", "payload/invoice_bundle/manifest.json"];
+    const required = ["nooterra.json", "governance/policy.json", "governance/revocations.json", "evidence/evidence_index.json", "payload/invoice_bundle/nooterra.json", "payload/invoice_bundle/manifest.json"];
     const missing = required.filter((n) => !present.has(n));
     if (strict && missing.length) return { ok: false, error: "manifest missing required files", missing, warnings };
   }
@@ -739,7 +739,7 @@ export async function verifyClosePackBundleDir({ dir, strict = false, hashConcur
       return { ok: false, error: "strict requires GovernancePolicy.v2", schemaVersion: governancePolicy.schemaVersion ?? null, warnings };
     }
     trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
-    if (trustedGovernanceRoots.size === 0) return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+    if (trustedGovernanceRoots.size === 0) return { ok: false, error: "strict requires trusted governance root keys", env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
     const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
     if (!sigOk.ok) return { ok: false, error: "governance policy signature invalid", detail: sigOk, warnings };
 

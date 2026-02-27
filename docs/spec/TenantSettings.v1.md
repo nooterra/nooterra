@@ -1,6 +1,6 @@
 # TenantSettings.v1
 
-`TenantSettings.v1` is the **tenant-scoped configuration contract** for Settld Verify Cloud / Magic Link.
+`TenantSettings.v1` is the **tenant-scoped configuration contract** for Nooterra Verify Cloud / Magic Link.
 
 This version is legacy and is superseded by `TenantSettings.v2` (which adds artifact storage controls and archival export sinks).
 
@@ -75,7 +75,7 @@ If an email is not listed in `buyerUserRoles`, it is treated as `viewer`.
 
 `pricingSignerKeysJson` is an optional tenant-scoped trust set for **buyer pricing signer keys**.
 
-It is used to populate `SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON` for hosted verification runs so that
+It is used to populate `NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON` for hosted verification runs so that
 `pricing/pricing_matrix_signatures.json` can be validated in strict mode.
 
 `trustedPricingSignerKeyIds` is an optional allowlist of key IDs. When set and non-empty, Verify Cloud MUST treat only those key IDs as trusted pricing signers (even if additional keys exist in `pricingSignerKeysJson`).

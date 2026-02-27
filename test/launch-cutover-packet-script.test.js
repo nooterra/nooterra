@@ -32,6 +32,7 @@ async function seedPassingInputs(tmpDir) {
   const throughputReportPath = path.join(tmpDir, "artifacts", "throughput", "10x-drill-summary.json");
   const incidentRehearsalReportPath = path.join(tmpDir, "artifacts", "throughput", "10x-incident-rehearsal-summary.json");
   const lighthouseTrackerPath = path.join(tmpDir, "planning", "launch", "lighthouse-production-tracker.json");
+  const nooterraVerifiedCollabReportPath = path.join(tmpDir, "artifacts", "gates", "nooterra-verified-collaboration-gate.json");
 
   await writeJson(gateReportPath, {
     schemaVersion: "GoLiveGateReport.v1",
@@ -50,6 +51,21 @@ async function seedPassingInputs(tmpDir) {
   await writeJson(incidentRehearsalReportPath, {
     schemaVersion: "ThroughputIncidentRehearsalReport.v1",
     verdict: { ok: true }
+  });
+  await writeJson(nooterraVerifiedCollabReportPath, {
+    schemaVersion: "NooterraVerifiedGateReport.v1",
+    level: "collaboration",
+    ok: true,
+    summary: { totalChecks: 12, passedChecks: 12, failedChecks: 0 },
+    checks: [
+      { id: "openclaw_substrate_demo_lineage_verified", ok: true, status: "passed" },
+      { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
+      { id: "ops_agent_substrate_fast_loop_checkpoint_grant_binding", ok: true, status: "passed" },
+      { id: "pg_work_order_metering_durability", ok: true, status: "passed" },
+      { id: "e2e_js_sdk_acs_substrate_smoke", ok: true, status: "passed" },
+      { id: "e2e_python_sdk_acs_substrate_smoke", ok: true, status: "passed" },
+      { id: "e2e_python_sdk_contract_freeze", ok: true, status: "passed" }
+    ]
   });
   await writeJson(lighthouseTrackerPath, {
     schemaVersion: "LighthouseProductionTracker.v1",
@@ -83,7 +99,8 @@ async function seedPassingInputs(tmpDir) {
     gateReportPath,
     throughputReportPath,
     incidentRehearsalReportPath,
-    lighthouseTrackerPath
+    lighthouseTrackerPath,
+    nooterraVerifiedCollabReportPath
   };
 }
 
@@ -93,6 +110,7 @@ function buildEnv(paths, packetPath, overrides = null) {
     THROUGHPUT_REPORT_PATH: paths.throughputReportPath,
     THROUGHPUT_INCIDENT_REHEARSAL_REPORT_PATH: paths.incidentRehearsalReportPath,
     LIGHTHOUSE_TRACKER_PATH: paths.lighthouseTrackerPath,
+    NOOTERRA_VERIFIED_COLLAB_REPORT_PATH: paths.nooterraVerifiedCollabReportPath,
     LAUNCH_CUTOVER_PACKET_PATH: packetPath,
     ...(overrides ?? {})
   };
@@ -104,6 +122,7 @@ function launchCutoverPacketCore(packet) {
     sources: packet?.sources ?? null,
     checks: packet?.checks ?? null,
     gateReference: packet?.gateReference ?? null,
+    requiredCutoverChecks: packet?.requiredCutoverChecks ?? null,
     blockingIssues: packet?.blockingIssues ?? null,
     signing: packet?.signing ?? null,
     verdict: packet?.verdict ?? null
@@ -111,7 +130,7 @@ function launchCutoverPacketCore(packet) {
 }
 
 test("launch cutover packet: checksum is deterministic across repeated runs", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-determinism-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-determinism-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -139,8 +158,64 @@ test("launch cutover packet: checksum is deterministic across repeated runs", as
   assert.deepEqual(packetSecond, packetFirst);
 });
 
+test("launch cutover packet: preserves relative collaboration report source path for portable binding", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-portable-path-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  const env = buildEnv(paths, packetPath, {
+    LAUNCH_CUTOVER_PACKET_NOW: "2026-02-21T18:00:00.000Z",
+    NOOTERRA_VERIFIED_COLLAB_REPORT_PATH: "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  });
+
+  const result = runLaunchCutoverPacket(env);
+  assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, true);
+  assert.equal(packet.sources?.nooterraVerifiedCollaborationGateReportPath, "artifacts/gates/nooterra-verified-collaboration-gate.json");
+});
+
+test("launch cutover packet: includes required cutover check summary with deterministic mappings", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-required-check-summary-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  const env = buildEnv(paths, packetPath, {
+    LAUNCH_CUTOVER_PACKET_NOW: "2026-02-21T18:00:00.000Z"
+  });
+
+  const result = runLaunchCutoverPacket(env);
+  assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  const summary = packet.requiredCutoverChecks;
+  assert.equal(summary?.schemaVersion, "ProductionCutoverRequiredChecksSummary.v1");
+  assert.equal(summary?.sourceReportPath, paths.nooterraVerifiedCollabReportPath);
+  assert.equal(summary?.summary?.requiredChecks, 8);
+  assert.equal(summary?.summary?.passedChecks, 8);
+  assert.equal(summary?.summary?.failedChecks, 0);
+
+  const ids = (summary?.checks ?? []).map((row) => row?.id);
+  assert.deepEqual(ids, [
+    "nooterra_verified_collaboration",
+    "openclaw_substrate_demo_lineage_verified",
+    "openclaw_substrate_demo_transcript_verified",
+    "checkpoint_grant_binding_verified",
+    "work_order_metering_durability_verified",
+    "sdk_acs_smoke_js_verified",
+    "sdk_acs_smoke_py_verified",
+    "sdk_python_contract_freeze_verified"
+  ]);
+  assert.equal(summary.checks.every((row) => row?.ok === true && row?.status === "passed"), true);
+});
+
 test("launch cutover packet: optional signing emits verifiable signature", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-signing-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-signing-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -182,7 +257,7 @@ test("launch cutover packet: optional signing emits verifiable signature", async
 });
 
 test("launch cutover packet: fail-closed when required source input is missing", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-missing-input-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-missing-input-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -203,8 +278,63 @@ test("launch cutover packet: fail-closed when required source input is missing",
   assert.equal(missingGate.details?.code, "file_missing");
 });
 
+test("launch cutover packet: fail-closed when Nooterra Verified collaboration gate report is missing", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-missing-verified-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  await fs.rm(paths.nooterraVerifiedCollabReportPath, { force: true });
+
+  const result = runLaunchCutoverPacket(buildEnv(paths, packetPath));
+  assert.equal(result.status, 1, `expected fail-closed exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  const missingVerified = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "nooterra_verified_collaboration_report_present")
+    : null;
+  assert.ok(missingVerified);
+  assert.equal(missingVerified.details?.code, "file_missing");
+});
+
+test("launch cutover packet: fail-closed when mapped required cutover source check is missing", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-missing-mapped-check-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  await writeJson(paths.nooterraVerifiedCollabReportPath, {
+    schemaVersion: "NooterraVerifiedGateReport.v1",
+    level: "collaboration",
+    ok: true,
+    summary: { totalChecks: 9, passedChecks: 9, failedChecks: 0 },
+    checks: [
+      { id: "openclaw_substrate_demo_lineage_verified", ok: true, status: "passed" },
+      { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
+      { id: "e2e_js_sdk_acs_substrate_smoke", ok: true, status: "passed" }
+    ]
+  });
+
+  const result = runLaunchCutoverPacket(buildEnv(paths, packetPath));
+  assert.equal(result.status, 1, `expected fail-closed exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  const missingMappedCheck = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "required_cutover_check_sdk_python_contract_freeze_verified_passed")
+    : null;
+  assert.ok(missingMappedCheck);
+  assert.equal(missingMappedCheck.details?.failureCode, "source_check_missing");
+  assert.equal(packet.requiredCutoverChecks?.summary?.failedChecks, 4);
+});
+
 test("launch cutover packet: fail-closed when required source verdict is failed", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-source-fail-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-source-fail-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -228,7 +358,7 @@ test("launch cutover packet: fail-closed when required source verdict is failed"
 });
 
 test("launch cutover packet: fail-closed when required source schema drifts", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-schema-fail-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-schema-fail-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -252,7 +382,7 @@ test("launch cutover packet: fail-closed when required source schema drifts", as
 });
 
 test("launch cutover packet: fail-closed when signing key cannot produce a signature", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-signing-invalid-key-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-signing-invalid-key-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -281,7 +411,7 @@ test("launch cutover packet: fail-closed when signing key cannot produce a signa
 });
 
 test("launch cutover packet: fail-closed when signing is requested but incomplete", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-signing-fail-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-signing-fail-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });

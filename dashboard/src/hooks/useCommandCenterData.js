@@ -162,7 +162,7 @@ export default function useCommandCenterData({ scenarioId, paused = false, playb
                 id: `${j.runId}_${s.name}`,
                 at: new Date().toISOString(),
                 type: String(s.name ?? "STEP"),
-                actor: { type: "system", id: "settld" },
+                actor: { type: "system", id: "nooterra" },
                 chainHash: String(s.code ?? "ok"),
                 prevChainHash: null,
                 payload: { statusCode: s.statusCode ?? null, code: s.code ?? null }

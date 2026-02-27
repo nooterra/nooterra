@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createEd25519Keypair } from "../../src/core/crypto.js";
 
@@ -19,9 +19,9 @@ function usage() {
     "  --help         Show help",
     "",
     "required env:",
-    "  SETTLD_BASE_URL",
-    "  SETTLD_TENANT_ID",
-    "  SETTLD_API_KEY"
+    "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_TENANT_ID",
+    "  NOOTERRA_API_KEY"
   ].join("\n");
 }
 
@@ -172,13 +172,17 @@ async function main() {
     return;
   }
 
-  const baseUrl = assertEnv("SETTLD_BASE_URL");
-  const tenantId = assertEnv("SETTLD_TENANT_ID");
-  const apiKey = assertEnv("SETTLD_API_KEY");
+  const baseUrl = assertEnv("NOOTERRA_BASE_URL");
+  const tenantId = assertEnv("NOOTERRA_TENANT_ID");
+  const apiKey = assertEnv("NOOTERRA_API_KEY");
 
   const demoSeed = `${Date.now()}`;
   const principalAgentId = sanitizeId(`agt_openclaw_demo_principal_${demoSeed}`, `agt_openclaw_demo_principal`);
   const workerAgentId = sanitizeId(`agt_openclaw_demo_worker_${demoSeed}`, `agt_openclaw_demo_worker`);
+  const sessionId = sanitizeId(`sess_openclaw_demo_${demoSeed}`, "sess_openclaw_demo");
+  const traceId = sanitizeId(`trace_openclaw_demo_${demoSeed}`, "trace_openclaw_demo");
+  const x402ToolId = "openclaw_substrate_demo";
+  const x402ProviderId = workerAgentId;
   const startedAt = nowIso();
   const transcript = [];
   let child = null;
@@ -201,7 +205,7 @@ async function main() {
       capabilities: ["travel.booking.flights"]
     });
 
-    child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
       cwd: process.cwd(),
       env: { ...process.env },
       stdio: ["pipe", "pipe", "inherit"]
@@ -233,19 +237,27 @@ async function main() {
         response?.result?.isError === true || (parsed && typeof parsed.error === "string" && parsed.error.trim() !== "");
       transcript.push({ step: name, ok: !isToolError, result: parsed });
       if (isToolError) {
-        throw new Error(`${name} failed: ${String(parsed.error ?? "tool returned isError")}`);
+        const errorCode =
+          typeof parsed?.code === "string" && parsed.code.trim() !== "" ? parsed.code.trim() : null;
+        const details =
+          parsed?.details && typeof parsed.details === "object" ? JSON.stringify(parsed.details) : null;
+        throw new Error(
+          `${name} failed: ${String(parsed.error ?? "tool returned isError")}${
+            errorCode ? ` [${errorCode}]` : ""
+          }${details ? ` details=${details}` : ""}`
+        );
       }
       return parsed;
     }
 
-    const about = await tool("settld.about", {});
-    const gateCreate = await tool("settld.x402_gate_create", {
+    const about = await tool("nooterra.about", {});
+    const gateCreate = await tool("nooterra.x402_gate_create", {
       amountCents: 275,
       currency: "USD",
       payerAgentId: principalAgentId,
       payeeAgentId: workerAgentId,
       autoFundPayerCents: 5000,
-      toolId: "openclaw_substrate_demo",
+      toolId: x402ToolId,
       idempotencyKey: `demo_gate_create_${demoSeed}`
     });
     const gateId =
@@ -253,9 +265,9 @@ async function main() {
       gateCreate?.result?.gate?.gateId ??
       gateCreate?.gateId ??
       null;
-    if (!gateId) throw new Error("x402 gate id missing from settld.x402_gate_create");
+    if (!gateId) throw new Error("x402 gate id missing from nooterra.x402_gate_create");
 
-    const gateVerify = await tool("settld.x402_gate_verify", {
+    const gateVerify = await tool("nooterra.x402_gate_verify", {
       gateId,
       ensureAuthorized: true,
       verificationStatus: "green",
@@ -264,7 +276,7 @@ async function main() {
       idempotencyKey: `demo_gate_verify_${demoSeed}`
     });
 
-    const gateGet = await tool("settld.x402_gate_get", { gateId });
+    const gateGet = await tool("nooterra.x402_gate_get", { gateId });
     const x402RunId =
       gateGet?.result?.gate?.runId ??
       gateVerify?.result?.gate?.runId ??
@@ -272,7 +284,7 @@ async function main() {
       null;
     if (!x402RunId) throw new Error("x402 run id missing for work order settlement binding");
 
-    await tool("settld.agent_card_upsert", {
+    await tool("nooterra.agent_card_upsert", {
       agentId: principalAgentId,
       displayName: "OpenClaw Demo Principal",
       capabilities: ["orchestration", "travel.booking"],
@@ -280,7 +292,7 @@ async function main() {
       hostRuntime: "openclaw",
       hostProtocols: ["mcp", "json-rpc"]
     });
-    await tool("settld.agent_card_upsert", {
+    await tool("nooterra.agent_card_upsert", {
       agentId: workerAgentId,
       displayName: "OpenClaw Demo Worker",
       capabilities: ["travel.booking.flights"],
@@ -289,7 +301,26 @@ async function main() {
       hostProtocols: ["mcp", "json-rpc"]
     });
 
-    const delegationGrant = await tool("settld.delegation_grant_issue", {
+    await tool("nooterra.session_create", {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId, workerAgentId],
+      policyRef: "policy://openclaw/substrate-demo/session-default",
+      idempotencyKey: `demo_session_create_${demoSeed}`
+    });
+    await tool("nooterra.session_event_append", {
+      sessionId,
+      eventType: "TASK_REQUESTED",
+      traceId,
+      payload: {
+        taskId: `task_openclaw_demo_${demoSeed}`,
+        requiredCapability: "travel.booking.flights",
+        budgetCents: 27500
+      },
+      idempotencyKey: `demo_session_event_${demoSeed}`
+    });
+
+    const delegationGrant = await tool("nooterra.delegation_grant_issue", {
       grantId: `dgrant_openclaw_demo_${demoSeed}`,
       delegatorAgentId: principalAgentId,
       delegateeAgentId: workerAgentId,
@@ -306,11 +337,65 @@ async function main() {
       delegationGrant?.result?.delegationGrant?.grantId ??
       `dgrant_openclaw_demo_${demoSeed}`;
 
-    const workOrderCreate = await tool("settld.work_order_create", {
+    const taskQuote = await tool("nooterra.task_quote_issue", {
+      quoteId: `tquote_openclaw_demo_${demoSeed}`,
+      buyerAgentId: principalAgentId,
+      sellerAgentId: workerAgentId,
+      requiredCapability: "travel.booking.flights",
+      amountCents: 275,
+      currency: "USD",
+      traceId,
+      idempotencyKey: `demo_task_quote_${demoSeed}`
+    });
+    const quoteId =
+      taskQuote?.taskQuote?.quoteId ??
+      taskQuote?.result?.taskQuote?.quoteId ??
+      `tquote_openclaw_demo_${demoSeed}`;
+    const quoteHash =
+      taskQuote?.taskQuote?.quoteHash ??
+      taskQuote?.result?.taskQuote?.quoteHash ??
+      null;
+    if (!quoteHash) throw new Error("task quote hash missing from nooterra.task_quote_issue");
+
+    const taskOffer = await tool("nooterra.task_offer_issue", {
+      offerId: `toffer_openclaw_demo_${demoSeed}`,
+      buyerAgentId: principalAgentId,
+      sellerAgentId: workerAgentId,
+      quoteId,
+      quoteHash,
+      amountCents: 275,
+      currency: "USD",
+      traceId,
+      idempotencyKey: `demo_task_offer_${demoSeed}`
+    });
+    const offerId =
+      taskOffer?.taskOffer?.offerId ??
+      taskOffer?.result?.taskOffer?.offerId ??
+      `toffer_openclaw_demo_${demoSeed}`;
+
+    const taskAcceptance = await tool("nooterra.task_acceptance_issue", {
+      acceptanceId: `taccept_openclaw_demo_${demoSeed}`,
+      quoteId,
+      offerId,
+      acceptedByAgentId: principalAgentId,
+      traceId,
+      idempotencyKey: `demo_task_acceptance_${demoSeed}`
+    });
+    const acceptanceId =
+      taskAcceptance?.taskAcceptance?.acceptanceId ??
+      taskAcceptance?.result?.taskAcceptance?.acceptanceId ??
+      `taccept_openclaw_demo_${demoSeed}`;
+    const acceptanceHash =
+      taskAcceptance?.taskAcceptance?.acceptanceHash ??
+      taskAcceptance?.result?.taskAcceptance?.acceptanceHash ??
+      null;
+
+    const workOrderCreate = await tool("nooterra.work_order_create", {
       workOrderId: `workord_openclaw_demo_${demoSeed}`,
       principalAgentId,
       subAgentId: workerAgentId,
       requiredCapability: "travel.booking.flights",
+      traceId,
       specification: {
         intent: "book cheapest direct flight under budget",
         budgetCents: 27500,
@@ -318,7 +403,13 @@ async function main() {
       },
       amountCents: 275,
       currency: "USD",
+      x402ToolId,
+      x402ProviderId,
       delegationGrantRef,
+      acceptanceRef: {
+        acceptanceId,
+        ...(acceptanceHash ? { acceptanceHash } : {})
+      },
       idempotencyKey: `demo_workorder_create_${demoSeed}`
     });
     const workOrderId =
@@ -326,13 +417,13 @@ async function main() {
       workOrderCreate?.result?.workOrder?.workOrderId ??
       `workord_openclaw_demo_${demoSeed}`;
 
-    await tool("settld.work_order_accept", {
+    await tool("nooterra.work_order_accept", {
       workOrderId,
       acceptedByAgentId: workerAgentId,
       idempotencyKey: `demo_workorder_accept_${demoSeed}`
     });
 
-    await tool("settld.work_order_progress", {
+    await tool("nooterra.work_order_progress", {
       workOrderId,
       eventType: "progress",
       message: "queried providers and selected itinerary",
@@ -341,7 +432,7 @@ async function main() {
       idempotencyKey: `demo_workorder_progress_${demoSeed}`
     });
 
-    const workOrderComplete = await tool("settld.work_order_complete", {
+    const workOrderComplete = await tool("nooterra.work_order_complete", {
       workOrderId,
       receiptId: `worec_openclaw_demo_${demoSeed}`,
       status: "success",
@@ -352,6 +443,7 @@ async function main() {
         `sha256:${"a".repeat(64)}`,
         `verification://openclaw_demo/${demoSeed}/itinerary_check`
       ],
+      traceId,
       amountCents: 275,
       currency: "USD",
       idempotencyKey: `demo_workorder_complete_${demoSeed}`
@@ -365,7 +457,7 @@ async function main() {
       workOrderComplete?.result?.completionReceipt?.receiptHash ??
       null;
 
-    const workOrderSettle = await tool("settld.work_order_settle", {
+    const workOrderSettle = await tool("nooterra.work_order_settle", {
       workOrderId,
       completionReceiptId,
       completionReceiptHash,
@@ -373,10 +465,111 @@ async function main() {
       x402GateId: gateId,
       x402RunId,
       x402SettlementStatus: "released",
+      traceId,
       idempotencyKey: `demo_workorder_settle_${demoSeed}`
     });
 
-    const discover = await tool("settld.agent_discover", {
+    const auditLineage = await tool("nooterra.audit_lineage_list", {
+      traceId,
+      includeSessionEvents: true,
+      limit: 200,
+      offset: 0,
+      scanLimit: 1000
+    });
+    const lineageObject =
+      auditLineage?.lineage ??
+      auditLineage?.result?.lineage ??
+      null;
+    if (!lineageObject || typeof lineageObject !== "object") {
+      throw new Error("audit lineage response missing lineage payload");
+    }
+    const demoArtifactsDir = path.dirname(args.out);
+    await mkdir(demoArtifactsDir, { recursive: true });
+    const lineageInputPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-${demoSeed}.json`);
+    const lineageVerificationPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-verify-${demoSeed}.json`);
+    await writeFile(lineageInputPath, `${JSON.stringify({ lineage: lineageObject }, null, 2)}\n`, "utf8");
+    const verifyResult = spawnSync(
+      process.execPath,
+      ["scripts/ops/verify-audit-lineage.mjs", "--in", lineageInputPath, "--json-out", lineageVerificationPath],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+    const verifyStdout = String(verifyResult.stdout ?? "").trim();
+    const verifyStderr = String(verifyResult.stderr ?? "").trim();
+    const verifyStatus = Number.isInteger(verifyResult.status) ? verifyResult.status : -1;
+    if (verifyStatus !== 0) {
+      transcript.push({
+        step: "ops.audit_lineage_verify",
+        ok: false,
+        exitCode: verifyStatus,
+        stdout: verifyStdout || null,
+        stderr: verifyStderr || null
+      });
+      throw new Error(
+        `audit lineage verification failed (exit=${verifyStatus})${
+          verifyStderr ? ` stderr=${verifyStderr}` : verifyStdout ? ` stdout=${verifyStdout}` : ""
+        }`
+      );
+    }
+    let lineageVerification = null;
+    try {
+      const verificationRaw = await readFile(lineageVerificationPath, "utf8");
+      lineageVerification = JSON.parse(verificationRaw);
+    } catch (err) {
+      throw new Error(`failed to read lineage verification report: ${err?.message ?? String(err)}`);
+    }
+    transcript.push({
+      step: "ops.audit_lineage_verify",
+      ok: lineageVerification?.ok === true,
+      result: lineageVerification
+    });
+    if (lineageVerification?.ok !== true) {
+      throw new Error(`audit lineage verification report is not ok: ${lineageVerification?.code ?? "UNKNOWN"}`);
+    }
+
+    const sessionReplayPackResult = await tool("nooterra.session_replay_pack_get", { sessionId });
+    const sessionReplayPack =
+      sessionReplayPackResult?.replayPack ??
+      sessionReplayPackResult?.result?.replayPack ??
+      null;
+    if (!sessionReplayPack || typeof sessionReplayPack !== "object") {
+      throw new Error("session replay pack payload missing");
+    }
+    if (sessionReplayPack?.schemaVersion !== "SessionReplayPack.v1") {
+      throw new Error(`unexpected session replay pack schema: ${sessionReplayPack?.schemaVersion ?? "null"}`);
+    }
+
+    const sessionTranscriptResult = await tool("nooterra.session_transcript_get", { sessionId });
+    const sessionTranscript =
+      sessionTranscriptResult?.transcript ??
+      sessionTranscriptResult?.result?.transcript ??
+      null;
+    if (!sessionTranscript || typeof sessionTranscript !== "object") {
+      throw new Error("session transcript payload missing");
+    }
+    if (sessionTranscript?.schemaVersion !== "SessionTranscript.v1") {
+      throw new Error(`unexpected session transcript schema: ${sessionTranscript?.schemaVersion ?? "null"}`);
+    }
+    if (sessionTranscript?.verification?.chainOk !== true) {
+      throw new Error("session transcript verification.chainOk must be true");
+    }
+    if (sessionTranscript?.verification?.provenance?.ok !== true) {
+      throw new Error("session transcript verification.provenance.ok must be true");
+    }
+    if (Number(sessionTranscript?.eventCount ?? -1) !== Number(sessionReplayPack?.eventCount ?? -2)) {
+      throw new Error("session transcript eventCount mismatch vs replay pack");
+    }
+    if (String(sessionTranscript?.headChainHash ?? "") !== String(sessionReplayPack?.headChainHash ?? "")) {
+      throw new Error("session transcript headChainHash mismatch vs replay pack");
+    }
+    if (
+      typeof sessionTranscript?.sessionHash === "string" &&
+      typeof sessionReplayPack?.sessionHash === "string" &&
+      sessionTranscript.sessionHash !== sessionReplayPack.sessionHash
+    ) {
+      throw new Error("session transcript sessionHash mismatch vs replay pack");
+    }
+
+    const discover = await tool("nooterra.agent_discover", {
       capability: "travel.booking.flights",
       includeReputation: true,
       limit: 5
@@ -392,9 +585,17 @@ async function main() {
         x402RunId,
         principalAgentId,
         workerAgentId,
+        sessionId,
+        traceId,
+        quoteId,
+        offerId,
+        acceptanceId,
+        acceptanceHash,
         workOrderId,
         completionReceiptId,
-        delegationGrantRef
+        delegationGrantRef,
+        lineageInputPath,
+        lineageVerificationPath
       },
       summary: {
         aboutOk: Boolean(about?.ok ?? true),
@@ -402,6 +603,27 @@ async function main() {
           workOrderSettle?.workOrder?.settlement?.status ??
           workOrderSettle?.result?.workOrder?.settlement?.status ??
           null,
+        auditLineageHash:
+          auditLineage?.lineage?.lineageHash ??
+          auditLineage?.result?.lineage?.lineageHash ??
+          null,
+        auditLineageTotalRecords:
+          auditLineage?.lineage?.totalRecords ??
+          auditLineage?.lineage?.summary?.totalRecords ??
+          auditLineage?.result?.lineage?.totalRecords ??
+          auditLineage?.result?.lineage?.summary?.totalRecords ??
+          null,
+        auditLineageVerificationOk: lineageVerification?.ok === true,
+        auditLineageVerificationCode: lineageVerification?.code ?? null,
+        sessionReplayPackHash: sessionReplayPack?.packHash ?? null,
+        sessionReplayPackEventCount: sessionReplayPack?.eventCount ?? null,
+        sessionTranscriptHash: sessionTranscript?.transcriptHash ?? null,
+        sessionTranscriptEventCount: sessionTranscript?.eventCount ?? null,
+        sessionTranscriptVerificationOk: sessionTranscript?.verification?.chainOk === true,
+        sessionTranscriptProvenanceVerificationOk: sessionTranscript?.verification?.provenance?.ok === true,
+        workOrderAcceptanceBound:
+          workOrderCreate?.workOrder?.acceptanceBinding?.acceptanceId === acceptanceId ||
+          workOrderCreate?.result?.workOrder?.acceptanceBinding?.acceptanceId === acceptanceId,
         discoveredAgents:
           Array.isArray(discover?.result?.results) ? discover.result.results.length : Array.isArray(discover?.results) ? discover.results.length : null
       },

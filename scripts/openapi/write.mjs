@@ -4,7 +4,7 @@ import path from "node:path";
 import { buildOpenApiSpec } from "../../src/api/openapi.js";
 
 const root = process.cwd();
-const outPath = path.resolve(root, "openapi", "settld.openapi.json");
+const outPath = path.resolve(root, "openapi", "nooterra.openapi.json");
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
 const spec = buildOpenApiSpec();

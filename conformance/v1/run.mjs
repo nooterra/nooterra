@@ -4,14 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
+import { sha256Hex } from "../../src/core/crypto.js";
 import { codesFromCliOutput, diffSets, readJsonFile, spawnCapture, stableStringSet } from "./lib/harness.mjs";
 import { applyMutations } from "./lib/mutations.mjs";
 
 function parseArgs(argv) {
   const out = {
-    bin: "settld-verify",
+    bin: "nooterra-verify",
     nodeBin: null,
     caseId: null,
+    jsonOut: null,
+    certBundleOut: null,
+    strictArtifacts: false,
     list: false,
     keepTemp: false
   };
@@ -30,6 +35,20 @@ function parseArgs(argv) {
     if (a === "--case") {
       out.caseId = String(argv[i + 1] ?? "");
       i += 1;
+      continue;
+    }
+    if (a === "--json-out") {
+      out.jsonOut = String(argv[i + 1] ?? "");
+      i += 1;
+      continue;
+    }
+    if (a === "--cert-bundle-out") {
+      out.certBundleOut = String(argv[i + 1] ?? "");
+      i += 1;
+      continue;
+    }
+    if (a === "--strict-artifacts") {
+      out.strictArtifacts = true;
       continue;
     }
     if (a === "--list") {
@@ -51,7 +70,111 @@ function parseArgs(argv) {
 function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
-  console.error("  node conformance/v1/run.mjs [--bin settld-verify] [--node-bin <path/to/settld-verify.js>] [--case <id>] [--list] [--keep-temp]");
+  console.error(
+    "  node conformance/v1/run.mjs [--bin nooterra-verify] [--node-bin <path/to/nooterra-verify.js>] [--case <id>] [--json-out <path>] [--cert-bundle-out <path>] [--strict-artifacts] [--list] [--keep-temp]"
+  );
+}
+
+async function writeOutputJson(fp, json) {
+  const outPath = path.resolve(process.cwd(), String(fp));
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, JSON.stringify(json, null, 2) + "\n", "utf8");
+  return outPath;
+}
+
+function isObjectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function failClosedArtifactError(code, message, diagnostics = []) {
+  const lines = [`${code}: ${message}`];
+  for (const row of diagnostics) lines.push(`- ${row}`);
+  const err = new Error(lines.join("\n"));
+  err.code = code;
+  return err;
+}
+
+async function readArtifactJsonOrDiagnostic(filePath, label, diagnostics) {
+  let raw = null;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (err) {
+    diagnostics.push(`${label} missing or unreadable at ${filePath} (${err?.message ?? String(err ?? "")})`);
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    diagnostics.push(`${label} is not valid JSON at ${filePath} (${err?.message ?? String(err ?? "")})`);
+    return null;
+  }
+}
+
+async function validateStrictArtifactBindings({ reportPath, certPath }) {
+  const diagnostics = [];
+
+  const report = await readArtifactJsonOrDiagnostic(reportPath, "run report artifact", diagnostics);
+  const cert = await readArtifactJsonOrDiagnostic(certPath, "cert bundle artifact", diagnostics);
+
+  const reportCore = report?.reportCore;
+  const certCore = cert?.certCore;
+  const certReportCore = cert?.certCore?.reportCore;
+
+  if (report && report.schemaVersion !== "ConformanceRunReport.v1") {
+    diagnostics.push(`run report schemaVersion mismatch expected ConformanceRunReport.v1 got ${String(report.schemaVersion ?? "null")}`);
+  }
+  if (!isObjectRecord(reportCore)) {
+    diagnostics.push("run report missing reportCore object");
+  }
+  if (cert && cert.schemaVersion !== "ConformanceCertBundle.v1") {
+    diagnostics.push(`cert bundle schemaVersion mismatch expected ConformanceCertBundle.v1 got ${String(cert.schemaVersion ?? "null")}`);
+  }
+  if (!isObjectRecord(certCore)) {
+    diagnostics.push("cert bundle missing certCore object");
+  }
+  if (isObjectRecord(certCore) && certCore.schemaVersion !== "ConformanceCertBundleCore.v1") {
+    diagnostics.push(`cert core schemaVersion mismatch expected ConformanceCertBundleCore.v1 got ${String(certCore.schemaVersion ?? "null")}`);
+  }
+  if (!isObjectRecord(certReportCore)) {
+    diagnostics.push("cert bundle missing certCore.reportCore object");
+  }
+
+  if (isObjectRecord(reportCore)) {
+    const expectedReportHash = sha256Hex(canonicalJsonStringify(reportCore));
+    if (String(report?.reportHash ?? "") !== expectedReportHash) {
+      diagnostics.push(`run report hash mismatch expected=${expectedReportHash} actual=${String(report?.reportHash ?? "null")}`);
+    }
+  }
+
+  if (isObjectRecord(certCore)) {
+    const expectedCertHash = sha256Hex(canonicalJsonStringify(certCore));
+    if (String(cert?.certHash ?? "") !== expectedCertHash) {
+      diagnostics.push(`cert hash mismatch expected=${expectedCertHash} actual=${String(cert?.certHash ?? "null")}`);
+    }
+  }
+
+  if (isObjectRecord(reportCore) && isObjectRecord(certCore)) {
+    const reportHash = String(report?.reportHash ?? "");
+    if (String(certCore.reportHash ?? "") !== reportHash) {
+      diagnostics.push(`cert/report binding mismatch certCore.reportHash=${String(certCore.reportHash ?? "null")} report.reportHash=${reportHash || "null"}`);
+    }
+  }
+
+  if (isObjectRecord(reportCore) && isObjectRecord(certReportCore)) {
+    const canonicalReportCore = canonicalJsonStringify(reportCore);
+    const canonicalCertReportCore = canonicalJsonStringify(certReportCore);
+    if (canonicalCertReportCore !== canonicalReportCore) {
+      diagnostics.push("cert/report core mismatch certCore.reportCore does not match run reportCore");
+    }
+  }
+
+  if (diagnostics.length > 0) {
+    throw failClosedArtifactError(
+      "CONFORMANCE_STRICT_ARTIFACT_VALIDATION_FAILED",
+      "strict artifact validation failed",
+      diagnostics
+    );
+  }
 }
 
 async function runVerify({ cli, env, kind, strict, failOnWarnings, hashConcurrency, bundleDir }) {
@@ -94,13 +217,31 @@ async function main() {
 
   const selectedCases = opts.caseId ? cases.filter((c) => String(c?.id ?? "") === opts.caseId) : cases;
   if (opts.caseId && selectedCases.length === 0) throw new Error(`case not found: ${opts.caseId}`);
+  if (opts.strictArtifacts) {
+    if (!opts.jsonOut || !opts.certBundleOut) {
+      throw failClosedArtifactError(
+        "CONFORMANCE_STRICT_ARTIFACTS_MISSING_OUTPUT_PATH",
+        "--strict-artifacts requires both --json-out and --cert-bundle-out",
+        [`jsonOut=${String(opts.jsonOut ?? "") || "<missing>"}`, `certBundleOut=${String(opts.certBundleOut ?? "") || "<missing>"}`]
+      );
+    }
+    const reportPath = path.resolve(process.cwd(), opts.jsonOut);
+    const certPath = path.resolve(process.cwd(), opts.certBundleOut);
+    if (reportPath === certPath) {
+      throw failClosedArtifactError(
+        "CONFORMANCE_STRICT_ARTIFACTS_PATH_CONFLICT",
+        "--json-out and --cert-bundle-out must point to different artifact files in strict mode",
+        [`conflictingPath=${reportPath}`]
+      );
+    }
+  }
 
   const trustFp = path.join(packDir, String(casesDoc.trustFile ?? "trust.json"));
   const trust = await readJsonFile(trustFp);
   const baseTrustEnv = {
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
-    SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
   };
 
   const cli = opts.nodeBin
@@ -110,15 +251,25 @@ async function main() {
   let pass = 0;
   let fail = 0;
   let skip = 0;
+  const results = [];
 
   for (const c of selectedCases) {
     const id = String(c?.id ?? "");
+    const kind = String(c?.kind ?? "");
+    const invariantIds = stableStringSet(c?.invariantIds);
     const allowSkip = Boolean(c?.allowSkip);
     const expectedFp = path.join(packDir, String(c?.expectedFile ?? ""));
     const expected = await readJsonFile(expectedFp);
     if (expected?.schemaVersion !== "ConformanceExpected.v1") throw new Error(`case ${id}: unsupported expected schemaVersion: ${expected?.schemaVersion ?? "null"}`);
+    const expectedSlice = {
+      exitCode: expected.exitCode,
+      ok: Boolean(expected.ok),
+      verificationOk: Boolean(expected.verificationOk),
+      errorCodes: stableStringSet(expected.errorCodes),
+      warningCodes: stableStringSet(expected.warningCodes)
+    };
 
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `settld-conformance-v1-${id}-`));
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `nooterra-conformance-v1-${id}-`));
     const bundleDir = path.join(tmpRoot, "bundle");
     try {
       const srcBundle = path.join(packDir, String(c?.bundlePath ?? ""));
@@ -127,6 +278,19 @@ async function main() {
       const mut = await applyMutations({ bundleDir, tmpRoot, mutations: c?.mutations ?? null, allowSkip });
       if (mut.skipped) {
         skip += 1;
+        results.push(
+          normalizeForCanonicalJson(
+            {
+              id,
+              kind,
+              invariantIds,
+              status: "skip",
+              reasonCode: "CONFORMANCE_CASE_SKIPPED",
+              reason: String(mut.reason ?? "mutation skipped")
+            },
+            { path: "$" }
+          )
+        );
         // eslint-disable-next-line no-console
         console.log(`SKIP ${id}: ${mut.reason}`);
         continue;
@@ -153,6 +317,27 @@ async function main() {
         cliJson = JSON.parse(run.stdout);
       } catch (err) {
         fail += 1;
+        results.push(
+          normalizeForCanonicalJson(
+            {
+              id,
+              kind,
+              invariantIds,
+              status: "fail",
+              reasonCode: "CONFORMANCE_INVALID_VERIFY_OUTPUT_JSON",
+              expected: expectedSlice,
+              actual: {
+                exitCode: run.exitCode,
+                ok: false,
+                verificationOk: false,
+                errorCodes: [],
+                warningCodes: []
+              },
+              mismatches: [`stdout is not valid JSON (${err?.message ?? String(err ?? "")})`]
+            },
+            { path: "$" }
+          )
+        );
         // eslint-disable-next-line no-console
         console.error(`FAIL ${id}: stdout is not valid JSON (${err?.message ?? String(err ?? "")})`);
         // eslint-disable-next-line no-console
@@ -162,6 +347,27 @@ async function main() {
 
       if (cliJson?.schemaVersion !== "VerifyCliOutput.v1") {
         fail += 1;
+        results.push(
+          normalizeForCanonicalJson(
+            {
+              id,
+              kind,
+              invariantIds,
+              status: "fail",
+              reasonCode: "CONFORMANCE_UNEXPECTED_VERIFY_SCHEMA_VERSION",
+              expected: expectedSlice,
+              actual: {
+                exitCode: run.exitCode,
+                ok: Boolean(cliJson?.ok),
+                verificationOk: Boolean(cliJson?.verificationOk),
+                errorCodes: [],
+                warningCodes: []
+              },
+              mismatches: [`unexpected VerifyCliOutput schemaVersion: ${cliJson?.schemaVersion ?? "null"}`]
+            },
+            { path: "$" }
+          )
+        );
         // eslint-disable-next-line no-console
         console.error(`FAIL ${id}: unexpected VerifyCliOutput schemaVersion: ${cliJson?.schemaVersion ?? "null"}`);
         continue;
@@ -173,14 +379,6 @@ async function main() {
         verificationOk: Boolean(cliJson.verificationOk),
         errorCodes: codesFromCliOutput(cliJson, "errors"),
         warningCodes: codesFromCliOutput(cliJson, "warnings")
-      };
-
-      const expectedSlice = {
-        exitCode: expected.exitCode,
-        ok: Boolean(expected.ok),
-        verificationOk: Boolean(expected.verificationOk),
-        errorCodes: stableStringSet(expected.errorCodes),
-        warningCodes: stableStringSet(expected.warningCodes)
       };
 
       const diffs = {
@@ -197,6 +395,21 @@ async function main() {
 
       if (mismatches.length) {
         fail += 1;
+        results.push(
+          normalizeForCanonicalJson(
+            {
+              id,
+              kind,
+              invariantIds,
+              status: "fail",
+              reasonCode: "CONFORMANCE_EXPECTATION_MISMATCH",
+              expected: expectedSlice,
+              actual,
+              mismatches
+            },
+            { path: "$" }
+          )
+        );
         // eslint-disable-next-line no-console
         console.error(`FAIL ${id}: ${mismatches.join("; ")}`);
         if (run.stderr.trim()) {
@@ -205,6 +418,19 @@ async function main() {
         }
       } else {
         pass += 1;
+        results.push(
+          normalizeForCanonicalJson(
+            {
+              id,
+              kind,
+              invariantIds,
+              status: "pass",
+              expected: expectedSlice,
+              actual
+            },
+            { path: "$" }
+          )
+        );
         // eslint-disable-next-line no-console
         console.log(`PASS ${id}`);
       }
@@ -219,6 +445,80 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(`\nSummary: pass=${pass} fail=${fail} skip=${skip}`);
+
+  const reportCore = normalizeForCanonicalJson(
+    {
+      schemaVersion: "ConformanceRunReportCore.v1",
+      pack: "conformance/v1",
+      casesSchemaVersion: String(casesDoc?.schemaVersion ?? ""),
+      selectedCaseId: opts.caseId,
+      runner: {
+        mode: opts.nodeBin ? "node" : "bin",
+        bin: opts.nodeBin ? null : opts.bin,
+        nodeBin: opts.nodeBin
+      },
+      summary: {
+        total: selectedCases.length,
+        pass,
+        fail,
+        skip,
+        ok: fail === 0
+      },
+      results
+    },
+    { path: "$" }
+  );
+  const reportHash = sha256Hex(canonicalJsonStringify(reportCore));
+  const report = normalizeForCanonicalJson(
+    {
+      schemaVersion: "ConformanceRunReport.v1",
+      generatedAt: new Date().toISOString(),
+      reportHash,
+      reportCore
+    },
+    { path: "$" }
+  );
+
+  let reportOutPath = null;
+  let certOutPath = null;
+  if (opts.jsonOut) {
+    reportOutPath = await writeOutputJson(opts.jsonOut, report);
+    // eslint-disable-next-line no-console
+    console.log(`wrote ${reportOutPath}`);
+  }
+
+  if (opts.certBundleOut) {
+    const certCore = normalizeForCanonicalJson(
+      {
+        schemaVersion: "ConformanceCertBundleCore.v1",
+        pack: "conformance/v1",
+        reportSchemaVersion: report.schemaVersion,
+        reportHash,
+        reportCore
+      },
+      { path: "$" }
+    );
+    const certHash = sha256Hex(canonicalJsonStringify(certCore));
+    const certBundle = normalizeForCanonicalJson(
+      {
+        schemaVersion: "ConformanceCertBundle.v1",
+        generatedAt: new Date().toISOString(),
+        certHash,
+        certCore
+      },
+      { path: "$" }
+    );
+    certOutPath = await writeOutputJson(opts.certBundleOut, certBundle);
+    // eslint-disable-next-line no-console
+    console.log(`wrote ${certOutPath}`);
+  }
+
+  if (opts.strictArtifacts) {
+    await validateStrictArtifactBindings({ reportPath: reportOutPath, certPath: certOutPath });
+    // eslint-disable-next-line no-console
+    console.log(`validated strict artifacts report=${reportOutPath} cert=${certOutPath}`);
+  }
+
   process.exit(fail === 0 ? 0 : 1);
 }
 

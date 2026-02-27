@@ -1,10 +1,10 @@
-# Settld Documentation
+# Nooterra Documentation
 
-Settld is the enforceable transaction layer for autonomous work.
+Nooterra is the enforceable transaction layer for autonomous work.
 
 If an agent can call a tool but cannot prove **who authorized it**, **what was agreed**, **what happened**, and **why money moved**, you do not have commerce. You have logs.
 
-Settld gives you a canonical economic loop:
+Nooterra gives you a canonical economic loop:
 
 `Agreement -> Hold -> Evidence -> Decision -> Receipt -> Dispute -> Adjustment`
 
@@ -19,7 +19,7 @@ Settld gives you a canonical economic loop:
 ## One-command onboarding
 
 ```bash
-settld setup
+nooterra setup
 ```
 
 Recommended path: choose `quick`, complete OTP login, and let setup run guided funding + paid-call checks.
@@ -28,9 +28,9 @@ Advanced/scripted path is still supported with explicit non-interactive flags.
 
 Then:
 
-1. `npm run mcp:probe -- --call settld.about '{}'`
+1. `npm run mcp:probe -- --call nooterra.about '{}'`
 2. `npm run demo:mcp-paid-exa`
-3. verify first receipt with `settld x402 receipt verify`
+3. verify first receipt with `nooterra x402 receipt verify`
 
 ## Implementation path
 
@@ -61,7 +61,7 @@ Kernel v0 focuses on **paid capability calls** and their enforceable lifecycle:
 
 ## Product boundaries
 
-Settld is the enforcement and verification layer.
+Nooterra is the enforcement and verification layer.
 
 - Transport is external (HTTP, MCP gateway, queues, A2A, etc.)
 - Payment rails are adapters (card/ACH/crypto)

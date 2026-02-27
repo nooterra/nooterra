@@ -69,8 +69,8 @@ async function main() {
   const dir = path.resolve(process.cwd(), args.dir);
   const outPath = args.outPath ? path.resolve(process.cwd(), args.outPath) : path.join(dir, "release_index_v1.json");
 
-  const commit = args.commit || process.env.GITHUB_SHA || process.env.SETTLD_COMMIT_SHA || gitCommit();
-  const epochEnv = process.env.SOURCE_DATE_EPOCH || process.env.SETTLD_RELEASE_EPOCH || null;
+  const commit = args.commit || process.env.GITHUB_SHA || process.env.NOOTERRA_COMMIT_SHA || gitCommit();
+  const epochEnv = process.env.SOURCE_DATE_EPOCH || process.env.NOOTERRA_RELEASE_EPOCH || null;
   const buildEpochSeconds = epochEnv ? Number.parseInt(String(epochEnv), 10) : gitCommitEpochSeconds(commit);
 
   const files = await listFilesFlat(dir);
@@ -95,7 +95,7 @@ async function main() {
     schemaVersion: "ReleaseIndex.v1",
     release: {
       tag: args.tag || process.env.GITHUB_REF_NAME || "unknown",
-      version: args.version || (args.tag ? String(args.tag).replace(/^v/, "") : process.env.SETTLD_VERSION || "unknown")
+      version: args.version || (args.tag ? String(args.tag).replace(/^v/, "") : process.env.NOOTERRA_VERSION || "unknown")
     },
     toolchain: {
       commit: commit ?? null,

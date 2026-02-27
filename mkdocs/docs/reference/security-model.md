@@ -1,6 +1,6 @@
 # Security Model
 
-Settld assumes agent actions are untrusted until policy and evidence checks pass.
+Nooterra assumes agent actions are untrusted until policy and evidence checks pass.
 
 ## Enforcement model
 
@@ -24,5 +24,5 @@ Settld assumes agent actions are untrusted until policy and evidence checks pass
 
 ## Security posture by design
 
-Settld does not rely on "trust me" runtime behavior.
+Nooterra does not rely on "trust me" runtime behavior.
 It produces deterministic artifacts that can be independently checked.

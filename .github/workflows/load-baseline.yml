@@ -29,7 +29,7 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: npm ci
-      - name: Start Settld API (pg mode)
+      - name: Start Nooterra API (pg mode)
         run: |
           set -euo pipefail
           STORE=pg \
@@ -40,7 +40,7 @@ jobs:
           PROXY_OPS_TOKENS="ops_ci:ops_read,ops_write,finance_read,finance_write,audit_read" \
           PORT=3000 \
           node src/api/server.js &
-          echo $! > /tmp/settld_pid
+          echo $! > /tmp/nooterra_pid
       - name: Wait for readiness
         run: |
           set -euo pipefail
@@ -65,5 +65,5 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [[ -f /tmp/settld_pid ]]; then kill "$(cat /tmp/settld_pid)" || true; fi
+          if [[ -f /tmp/nooterra_pid ]]; then kill "$(cat /tmp/nooterra_pid)" || true; fi
 

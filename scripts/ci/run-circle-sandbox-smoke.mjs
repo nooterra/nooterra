@@ -152,7 +152,7 @@ async function main() {
   try {
     assertRequiredEnv();
 
-    const circleMode = readEnv("X402_CIRCLE_RESERVE_MODE", readEnv("SETTLD_DEMO_CIRCLE_MODE", "sandbox"));
+    const circleMode = readEnv("X402_CIRCLE_RESERVE_MODE", readEnv("NOOTERRA_DEMO_CIRCLE_MODE", "sandbox"));
     if (String(circleMode).toLowerCase() !== "sandbox") {
       throw new Error(`expected sandbox mode, got ${circleMode}`);
     }

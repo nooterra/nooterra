@@ -95,7 +95,7 @@ function buildMinimalGovernanceEvents({ tenantId, serverSigner, now }) {
       streamId: "governance",
       type: "SERVER_SIGNER_KEY_REGISTERED",
       at: now,
-      actor: { type: "system", id: "settld-produce" },
+      actor: { type: "system", id: "nooterra-produce" },
       payload: {
         tenantId,
         keyId: serverSigner.keyId,
@@ -118,7 +118,7 @@ function buildMinimalJobEvents({ jobId, now, serverSigner }) {
       streamId: jobId,
       type: "JOB_CREATED",
       at: now,
-      actor: { type: "system", id: "settld-produce" },
+      actor: { type: "system", id: "nooterra-produce" },
       payload: { jobId }
     })
   });
@@ -135,7 +135,7 @@ function buildMinimalMonthEvents({ monthStreamId, tenantId, period, basis, now, 
       streamId: monthStreamId,
       type: "MONTH_CLOSE_REQUESTED",
       at: now,
-      actor: { type: "system", id: "settld-produce" },
+      actor: { type: "system", id: "nooterra-produce" },
       payload: { tenantId, month: period, basis, requestedAt: now }
     })
   });
@@ -1715,14 +1715,14 @@ export async function verifyAfterProduce({ bundleKind, bundleDir, trustJson, str
   if (!trustJson || typeof trustJson !== "object") throw new TypeError("trustJson must be an object");
   const env = {
     ...process.env,
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trustJson.governanceRoots ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trustJson.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trustJson.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trustJson.timeAuthorities ?? {})
   };
   const args = [
     "exec",
     "--silent",
     "--",
-    "settld-verify",
+    "nooterra-verify",
     "--format",
     "json",
     strict ? "--strict" : "--nonstrict",

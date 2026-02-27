@@ -36,10 +36,10 @@ const ONBOARDING_EMAIL_STEPS = Object.freeze([
     stepKey: "welcome",
     label: "Welcome + launch checklist",
     trigger: (profile) => (typeof profile?.createdAt === "string" && profile.createdAt ? profile.createdAt : null),
-    subject: (ctx) => `Welcome to Settld, ${ctx.tenantName}`,
+    subject: (ctx) => `Welcome to Nooterra, ${ctx.tenantName}`,
     text: (ctx) =>
       [
-        `Welcome to Settld, ${ctx.tenantName}.`,
+        `Welcome to Nooterra, ${ctx.tenantName}.`,
         "",
         "Your onboarding workspace is ready.",
         `Open: ${ctx.onboardingUrl}`,
@@ -51,7 +51,7 @@ const ONBOARDING_EMAIL_STEPS = Object.freeze([
         "",
         "If you need examples, use the Python quickstart in docs/QUICKSTART_SDK_PYTHON.md.",
         "",
-        "— Settld"
+        "— Nooterra"
       ].join("\n")
   }),
   Object.freeze({
@@ -72,7 +72,7 @@ const ONBOARDING_EMAIL_STEPS = Object.freeze([
         "",
         "Keep momentum: teams that run live within the same session activate fastest.",
         "",
-        "— Settld"
+        "— Nooterra"
       ].join("\n")
   }),
   Object.freeze({
@@ -92,7 +92,7 @@ const ONBOARDING_EMAIL_STEPS = Object.freeze([
         `Track referral events via onboarding API: POST /v1/tenants/${ctx.tenantId}/onboarding/events`,
         "eventType values: referral_link_shared, referral_signup",
         "",
-        "— Settld"
+        "— Nooterra"
       ].join("\n")
   })
 ]);

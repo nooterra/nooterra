@@ -6,10 +6,10 @@ This is intentional: bundling trust anchors inside the thing being verified woul
 
 ## Release authenticity trust (separate domain)
 
-Settld release authenticity (verifying the tool distribution artifacts themselves) uses a **separate trust domain** from bundle verification.
+Nooterra release authenticity (verifying the tool distribution artifacts themselves) uses a **separate trust domain** from bundle verification.
 
 - Release trust roots live in `trust/release-trust.json` (see `ReleaseTrust.v2.md`).
-- Release verification CLI: `settld-release verify --dir <release-assets-dir> --trust-file trust/release-trust.json --format json`
+- Release verification CLI: `nooterra-release verify --dir <release-assets-dir> --trust-file trust/release-trust.json --format json`
 
 Do not mix release signing keys with bundle/governance signing keys (different purpose, different blast radius).
 
@@ -19,7 +19,7 @@ Do not mix release signing keys with bundle/governance signing keys (different p
 
 Verifier input mechanism:
 
-- `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`
+- `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`
   - JSON object mapping `keyId -> publicKeyPem`
   - required for strict verification
 
@@ -36,15 +36,15 @@ Invoice bundles may include buyer-approved pricing terms via `pricing/pricing_ma
 
 Verifier input mechanism:
 
-- `SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON`
+- `NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON`
   - JSON object mapping `keyId -> publicKeyPem`
   - required to validate buyer pricing signatures in strict mode
 
 Optional restriction:
 
-- `SETTLD_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON`
+- `NOOTERRA_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON`
   - JSON array of allowed `keyId` strings
-  - when set and non-empty, only signatures by these key IDs are treated as trusted (even if additional keys are present in `SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON`)
+  - when set and non-empty, only signatures by these key IDs are treated as trusted (even if additional keys are present in `NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON`)
 
 Do not overload governance roots: pricing signer trust is a separate trust set with a distinct purpose and blast radius.
 
@@ -54,7 +54,7 @@ Buyer approval/hold receipts (`SettlementDecisionReport.v1`) are signed and must
 
 Verifier input mechanism:
 
-- `SETTLD_TRUSTED_SETTLEMENT_DECISION_SIGNER_KEYS_JSON`
+- `NOOTERRA_TRUSTED_SETTLEMENT_DECISION_SIGNER_KEYS_JSON`
   - JSON object mapping `keyId -> publicKeyPem`
   - required to validate settlement decision report signatures
 
@@ -64,7 +64,7 @@ Bundles may include `timestampProof` objects that require a verifier-trusted tim
 
 Verifier input mechanism:
 
-- `SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON`
+- `NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON`
   - JSON object mapping `keyId -> publicKeyPem`
   - required only when verifying a timestamp proof that must be trusted in strict mode
 
@@ -72,7 +72,7 @@ Verifier input mechanism:
 
 The committed end-to-end fixtures under `test/fixtures/bundles/v1/**` include a `trust.json` file that contains the trusted keys used by tests.
 
-The CLI fixture harness reads that file and injects the corresponding env vars when running `settld-verify` against fixtures.
+The CLI fixture harness reads that file and injects the corresponding env vars when running `nooterra-verify` against fixtures.
 
 ## Rotation workflow (example)
 

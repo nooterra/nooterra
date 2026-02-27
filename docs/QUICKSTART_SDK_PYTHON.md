@@ -20,12 +20,12 @@ npm run dev:api
 In a second shell:
 
 ```sh
-export SETTLD_BASE_URL=http://127.0.0.1:3000
-export SETTLD_TENANT_ID=tenant_default
-export SETTLD_API_KEY="$(
-  curl -sS -X POST "$SETTLD_BASE_URL/ops/api-keys" \
+export NOOTERRA_BASE_URL=http://127.0.0.1:3000
+export NOOTERRA_TENANT_ID=tenant_default
+export NOOTERRA_API_KEY="$(
+  curl -sS -X POST "$NOOTERRA_BASE_URL/ops/api-keys" \
     -H "authorization: Bearer $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -H "content-type: application/json" \
     -d '{"scopes":["ops_read","ops_write","finance_read","finance_write","audit_read"],"description":"python sdk quickstart"}' \
   | jq -r '.keyId + "." + .secret'
@@ -51,12 +51,38 @@ Expected output:
 }
 ```
 
+## 3b) Run ACS substrate smoke flow (Python SDK)
+
+This exercises discovery, delegation grants, authority grants, negotiation, work orders, state checkpoints, session lineage, reputation graph wrappers, and capability attestations end-to-end.
+
+```sh
+npm run sdk:acs-smoke:py
+```
+
+Expected output:
+
+```json
+{
+  "principalAgentId": "agt_py_acs_principal_...",
+  "workerAgentId": "agt_py_acs_worker_...",
+  "delegationGrantId": "dgrant_...",
+  "authorityGrantId": "agrant_...",
+  "workOrderId": "workord_...",
+  "workOrderStatus": "completed",
+  "completionStatus": "success",
+  "sessionId": "sess_...",
+  "checkpointId": "chkpt_...",
+  "checkpointHash": "sha256...",
+  "attestationId": "catt_..."
+}
+```
+
 ## 4) Use the helper directly in code
 
 ```python
-from settld_api_sdk import SettldClient
+from nooterra_api_sdk import NooterraClient
 
-client = SettldClient(
+client = NooterraClient(
     base_url="http://127.0.0.1:3000",
     tenant_id="tenant_default",
     api_key="keyId.secret",
@@ -104,8 +130,8 @@ diff = client.diff_tenant_trust_graph("tenant_default", {"baseMonth": "2026-01",
 Or run the prebuilt script:
 
 ```sh
-SETTLD_BASE_URL=http://127.0.0.1:8787 \
-SETTLD_TENANT_ID=tenant_default \
-SETTLD_X_API_KEY=test_key \
+NOOTERRA_BASE_URL=http://127.0.0.1:8787 \
+NOOTERRA_TENANT_ID=tenant_default \
+NOOTERRA_X_API_KEY=test_key \
 npm run sdk:analytics:py
 ```

@@ -12,7 +12,7 @@
     {
       "keyId": "key_1b8a321d958a68bc9e0922c0",
       "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAGzTuNVNG1MOQprj3b5hL5AKZrygUndqa9HOs3i/Lv5I=\n-----END PUBLIC KEY-----\n",
-      "comment": "release signing root (set the matching private key in CI secret SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM)"
+      "comment": "release signing root (set the matching private key in CI secret NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM)"
     }
   ]
 }

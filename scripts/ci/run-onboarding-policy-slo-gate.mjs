@@ -11,7 +11,8 @@ const DEFAULT_REPORT_PATH = "artifacts/gates/onboarding-policy-slo-gate.json";
 const DEFAULT_HOST_MATRIX_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_METRICS_DIR = "artifacts/ops/onboarding-policy-slo";
 const DEFAULT_METRICS_EXT = ".prom";
-const MATRIX_SCHEMA_VERSION = "SettldMcpHostCertMatrix.v1";
+const MATRIX_SCHEMA_VERSION = "NooterraMcpHostCertMatrix.v1";
+const MATRIX_DRIFT_GATE_SCHEMA_VERSION = "NooterraMcpHostCertMatrixDriftGate.v1";
 const REPORT_ARTIFACT_HASH_SCOPE = "OnboardingPolicySloGateDeterministicCore.v1";
 
 function usage() {
@@ -139,6 +140,31 @@ export function extractHostRows(hostMatrixReport) {
   if (hostMatrixReport?.schemaVersion !== MATRIX_SCHEMA_VERSION) {
     throw new Error(`host matrix schemaVersion must be ${MATRIX_SCHEMA_VERSION}`);
   }
+  const driftGate = hostMatrixReport?.driftGate;
+  if (driftGate !== null && driftGate !== undefined) {
+    if (!driftGate || typeof driftGate !== "object" || Array.isArray(driftGate)) {
+      throw new Error("host matrix driftGate must be an object when provided");
+    }
+    if (
+      typeof driftGate.schemaVersion === "string" &&
+      driftGate.schemaVersion.trim() &&
+      driftGate.schemaVersion !== MATRIX_DRIFT_GATE_SCHEMA_VERSION
+    ) {
+      throw new Error(`host matrix driftGate schemaVersion must be ${MATRIX_DRIFT_GATE_SCHEMA_VERSION}`);
+    }
+    if (!(driftGate.ok === true || driftGate.ok === false)) {
+      throw new Error("host matrix driftGate.ok must be a boolean");
+    }
+    if (driftGate.ok !== true) {
+      const blockingIssues = Array.isArray(driftGate.blockingIssues) ? driftGate.blockingIssues : [];
+      const firstIssue = blockingIssues.find((issue) => issue && typeof issue === "object");
+      const reason =
+        normalizeOptionalString(firstIssue?.reason) ??
+        normalizeOptionalString(firstIssue?.detail) ??
+        "incompatible matrix drift detected";
+      throw new Error(`host matrix drift gate failed: ${reason}`);
+    }
+  }
   const checks = Array.isArray(hostMatrixReport?.checks) ? hostMatrixReport.checks : [];
   const byHost = new Map();
   for (let index = 0; index < checks.length; index += 1) {
@@ -148,8 +174,17 @@ export function extractHostRows(hostMatrixReport) {
     }
     const hostRaw = typeof check?.host === "string" ? check.host.trim().toLowerCase() : "";
     if (!hostRaw) throw new Error(`host matrix row ${index} is missing host`);
-    if (!(check.ok === true || check.ok === false)) {
-      throw new Error(`host matrix row ${index} host=${hostRaw} must include boolean ok`);
+    const hasCompatibilityBoolean =
+      check.compatibilityOkWithOverride === true ||
+      check.compatibilityOkWithOverride === false ||
+      check.compatibilityOk === true ||
+      check.compatibilityOk === false ||
+      check.ok === true ||
+      check.ok === false;
+    if (!hasCompatibilityBoolean) {
+      throw new Error(
+        `host matrix row ${index} host=${hostRaw} must include compatibilityOkWithOverride, compatibilityOk, or ok boolean`
+      );
     }
     const existing = byHost.get(hostRaw) ?? [];
     existing.push(check);
@@ -160,11 +195,40 @@ export function extractHostRows(hostMatrixReport) {
   for (const host of sortedHosts) {
     const sourceRows = byHost.get(host) ?? [];
     const duplicateRows = Math.max(0, sourceRows.length - 1);
-    const compatibilityFromMatrix = sourceRows.every((row) => row?.ok === true);
+    const compatibilityRows = sourceRows.map((row) => ({
+      row,
+      source:
+        row?.compatibilityOkWithOverride === true || row?.compatibilityOkWithOverride === false
+          ? "compatibilityOkWithOverride"
+          : row?.compatibilityOk === true || row?.compatibilityOk === false
+            ? "compatibilityOk"
+            : "ok",
+      compatibility:
+        row?.compatibilityOkWithOverride === true || row?.compatibilityOkWithOverride === false
+          ? row.compatibilityOkWithOverride
+          : row?.compatibilityOk === true || row?.compatibilityOk === false
+            ? row.compatibilityOk
+            : row?.ok === true
+    }));
+    const compatibilityFromMatrix = compatibilityRows.every((entry) => entry.compatibility === true);
     const compatibilityOk = duplicateRows === 0 && compatibilityFromMatrix;
-    let detail = compatibilityFromMatrix ? "host marked compatible in matrix" : "host not compatible in matrix";
+    let detail;
     if (duplicateRows > 0) {
       detail = `host matrix contains duplicate rows for ${host}; fail closed`;
+    } else if (compatibilityFromMatrix) {
+      const overrideApplied = compatibilityRows.some(
+        (entry) =>
+          entry.source === "compatibilityOkWithOverride" && entry.row?.compatibilityOk === false && entry.compatibility === true
+      );
+      detail = overrideApplied ? "host compatibility accepted via audited drift override" : "host marked compatible in matrix";
+    } else {
+      const failed = compatibilityRows.find((entry) => entry.compatibility !== true);
+      const releasePolicyChecks = Array.isArray(failed?.row?.releasePolicy?.checks) ? failed.row.releasePolicy.checks : [];
+      const failedReleasePolicyCheck = releasePolicyChecks.find((check) => check?.ok !== true);
+      detail =
+        normalizeOptionalString(failedReleasePolicyCheck?.detail) ??
+        normalizeOptionalString(failed?.row?.releasePolicy?.detail) ??
+        "host not compatible in matrix";
     }
     rows.push({
       host,

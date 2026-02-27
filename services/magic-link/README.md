@@ -18,7 +18,7 @@ This service provides a minimal “Magic Link” hosted verifier for `InvoiceBun
 
 Requirements:
 
-- `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` is required for `mode=strict` (optional for `mode=compat` / `mode=auto`)
+- `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` is required for `mode=strict` (optional for `mode=compat` / `mode=auto`)
 - Node.js (repo toolchain)
 
 Example:
@@ -27,7 +27,7 @@ Example:
 export MAGIC_LINK_HOST=127.0.0.1   # set 0.0.0.0 in prod
 export MAGIC_LINK_PORT=8787
 export MAGIC_LINK_API_KEY='dev_key'
-export MAGIC_LINK_DATA_DIR=/tmp/settld-magic-link # dev only; use a persistent volume path in production
+export MAGIC_LINK_DATA_DIR=/tmp/nooterra-magic-link # dev only; use a persistent volume path in production
 export MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=0      # set 1 in production to fail fast on ephemeral paths
 export MAGIC_LINK_VERIFY_TIMEOUT_MS=60000
 export MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_HOUR=100
@@ -42,9 +42,9 @@ export MAGIC_LINK_WEBHOOK_RETRY_BACKOFF_MS=250
 export MAGIC_LINK_WEBHOOK_RETRY_INTERVAL_MS=2000
 export MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_THRESHOLD=10
 export MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_TARGETS='slack,zapier,defaultRelay,internal'
-export MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_URL='https://ops.example.com/hooks/settld-alerts'
+export MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_URL='https://ops.example.com/hooks/nooterra-alerts'
 export MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_SECRET='whsec_ops_alerts'
-export MAGIC_LINK_DEFAULT_EVENT_RELAY_URL='https://relay.example.com/settld-events'
+export MAGIC_LINK_DEFAULT_EVENT_RELAY_URL='https://relay.example.com/nooterra-events'
 export MAGIC_LINK_DEFAULT_EVENT_RELAY_SECRET='whsec_shared_relay_secret'
 export MAGIC_LINK_INTEGRATION_OAUTH_STATE_TTL_SECONDS=900
 export MAGIC_LINK_INTEGRATION_OAUTH_HTTP_TIMEOUT_MS=10000
@@ -60,7 +60,7 @@ export MAGIC_LINK_BUYER_OTP_DELIVERY_MODE=record   # record|log|smtp
 export MAGIC_LINK_DECISION_OTP_DELIVERY_MODE=record # record|log|smtp
 
 # Required for strict verification:
-export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----\\n..."}'
+export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----\\n..."}'
 
 node services/magic-link/src/server.js
 ```
@@ -97,12 +97,12 @@ SMTP config (required for `smtp` mode):
 - `MAGIC_LINK_SMTP_SECURE=1|0` (default `0`; set `1` for SMTPS/465)
 - `MAGIC_LINK_SMTP_STARTTLS=1|0` (default `1`; ignored when `SECURE=1`)
 - `MAGIC_LINK_SMTP_USER`, `MAGIC_LINK_SMTP_PASS` (optional; enables `AUTH PLAIN`)
-- `MAGIC_LINK_SMTP_FROM` (required when `MAGIC_LINK_SMTP_HOST` is set; use bare email for envelope sender, e.g. `ops@settld.work`)
+- `MAGIC_LINK_SMTP_FROM` (required when `MAGIC_LINK_SMTP_HOST` is set; use bare email for envelope sender, e.g. `ops@nooterra.work`)
 
 Resend config (required for `resend` mode):
 
 - `MAGIC_LINK_RESEND_API_KEY`
-- `MAGIC_LINK_RESEND_FROM` (verified sender, e.g. `onboarding@settld.work`)
+- `MAGIC_LINK_RESEND_FROM` (verified sender, e.g. `onboarding@nooterra.work`)
 - `MAGIC_LINK_RESEND_BASE_URL` (optional, default `https://api.resend.com`)
 
 ## Data dir format + upgrades
@@ -146,7 +146,7 @@ Upload via CLI:
 
 ```bash
 export MAGIC_LINK_API_KEY='dev_key'
-node packages/magic-link-cli/bin/settld-magic-link.js upload InvoiceBundle.v1.zip --url http://localhost:8787 --mode auto --tenant tenant_example
+node packages/magic-link-cli/bin/nooterra-magic-link.js upload InvoiceBundle.v1.zip --url http://localhost:8787 --mode auto --tenant tenant_example
 ```
 
 Wizard + template APIs:
@@ -301,7 +301,7 @@ Operational defaults:
   - `MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_THRESHOLD` (`0` disables alerts)
   - `MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_TARGETS` (comma-separated: `slack`, `zapier`, `defaultRelay`, `internal`, or explicit `https://...` URLs)
   - `MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_URL` + `MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_SECRET` (required for `internal`, and secret required for explicit URL targets)
-- Webhook payloads are always HMAC-signed (`x-settld-signature`).
+- Webhook payloads are always HMAC-signed (`x-nooterra-signature`).
 - Slack/Zapier OAuth click-connect is enabled when the corresponding OAuth env vars are configured.
 
 Webhook retry ops (tenant admin):

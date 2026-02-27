@@ -23,7 +23,7 @@ function makePolicyPayload({ policyId, policyVersion, amberReleaseRatePct, descr
     policyVersion,
     verificationMethod: {
       mode: "deterministic",
-      source: "verifier://settld-verify"
+      source: "verifier://nooterra-verify"
     },
     policy: {
       mode: "automatic",
@@ -87,8 +87,8 @@ async function main() {
       : "tenant_default";
   const timeoutMs = parseIntEnv("HTTP_TIMEOUT_MS", 10_000, { min: 1000, max: 120_000 });
   const protocolVersion =
-    typeof process.env.SETTLD_PROTOCOL === "string" && process.env.SETTLD_PROTOCOL.trim() !== ""
-      ? process.env.SETTLD_PROTOCOL.trim()
+    typeof process.env.NOOTERRA_PROTOCOL === "string" && process.env.NOOTERRA_PROTOCOL.trim() !== ""
+      ? process.env.NOOTERRA_PROTOCOL.trim()
       : "1.0";
   const reportPath = resolveIncidentReportPath(process.cwd(), process.env);
   const policyId =
@@ -112,7 +112,7 @@ async function main() {
     const headers = { ...defaultHeaders };
     if (write) {
       headers["content-type"] = "application/json";
-      headers["x-settld-protocol"] = protocolVersion;
+      headers["x-nooterra-protocol"] = protocolVersion;
       if (idempotencyKey) headers["x-idempotency-key"] = idempotencyKey;
     }
     const response = await fetch(`${baseUrl}${path}`, {

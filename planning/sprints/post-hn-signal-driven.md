@@ -1,4 +1,4 @@
-# Settld Sprint Plan: Post-HN, Signal-Driven
+# Nooterra Sprint Plan: Post-HN, Signal-Driven
 
 Baseline: 2026-02-14 (Sat) · Philosophy: build what adoption demands, not what sounds good on a roadmap.
 
@@ -21,14 +21,14 @@ Long-horizon vision (not execution status): `planning/sprints/agent-economy-road
 | Item | Status | Evidence |
 |---|---:|---|
 | Doc drift fixed (`core-primitives.md`, `AgentIdentity.v1.md`) | Done | Docs align with code |
-| `ToolCallAgreement.v1` + `ToolCallEvidence.v1` promoted to protocol objects | Done | Spec + schema + golden vectors + conformance |
+| `ToolCallAgreement` + `ToolCallEvidence` promoted to protocol objects | Done | Spec + schema + golden vectors + conformance |
 | `maxDailyCents` enforced (daily spend accumulator) | Done | `test/api-e2e-wallet-policy-max-daily.test.js` |
 | HN post live | Done | Posted 2026-02-13 |
 | Tests | Done | 497 passing (`npm test`) |
 
 ## North Star
 
-A developer who has never seen Settld goes from zero to a verified receipt in <= 10 minutes with zero questions.
+A developer who has never seen Nooterra goes from zero to a verified receipt in <= 10 minutes with zero questions.
 
 For the `docs/QUICKSTART_X402_GATEWAY.md` funnel, "receipt" means: a successful `402 -> hold -> verify -> release` outcome plus a fetchable gate state via `GET /x402/gate/:id`.
 
@@ -177,7 +177,7 @@ Binary acceptance criteria:
 
 Ask:
 
-1. Did anyone new try Settld this week? If yes: build what they asked for. If no: try a different distribution channel.
+1. Did anyone new try Nooterra this week? If yes: build what they asked for. If no: try a different distribution channel.
 2. Did anyone who tried it come back? If yes: double down. If no: the first experience is broken; fix it.
 3. What is the single biggest blocker to the next user? Build that. Only that.
 

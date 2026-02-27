@@ -13,9 +13,9 @@ function usage() {
     "usage: node scripts/ops/run-x402-hitl-smoke.mjs [options]",
     "",
     "options:",
-    "  --base-url <url>     API base URL (default: $SETTLD_BASE_URL or http://127.0.0.1:3000)",
-    "  --tenant-id <id>     Tenant ID (default: $SETTLD_TENANT_ID or tenant_default)",
-    "  --protocol <v>       Protocol header value (default: $SETTLD_PROTOCOL or 1.0)",
+    "  --base-url <url>     API base URL (default: $NOOTERRA_BASE_URL or http://127.0.0.1:3000)",
+    "  --tenant-id <id>     Tenant ID (default: $NOOTERRA_TENANT_ID or tenant_default)",
+    "  --protocol <v>       Protocol header value (default: $NOOTERRA_PROTOCOL or 1.0)",
     "  --api-key <key>      API key token (keyId.secret). If omitted, script mints one via --ops-token.",
     "  --ops-token <tok>    Ops token used to mint API key when --api-key is not provided",
     "  --out <file>         Report output path (default: artifacts/ops/x402-hitl-smoke.json)",
@@ -31,11 +31,11 @@ function normalizeOptionalString(value) {
 
 export function parseArgs(argv, env = process.env) {
   const out = {
-    baseUrl: normalizeOptionalString(env.SETTLD_BASE_URL) ?? "http://127.0.0.1:3000",
-    tenantId: normalizeOptionalString(env.SETTLD_TENANT_ID) ?? "tenant_default",
-    protocol: normalizeOptionalString(env.SETTLD_PROTOCOL) ?? "1.0",
-    apiKey: normalizeOptionalString(env.SETTLD_API_KEY),
-    opsToken: normalizeOptionalString(env.PROXY_OPS_TOKEN) ?? normalizeOptionalString(env.SETTLD_OPS_TOKEN),
+    baseUrl: normalizeOptionalString(env.NOOTERRA_BASE_URL) ?? "http://127.0.0.1:3000",
+    tenantId: normalizeOptionalString(env.NOOTERRA_TENANT_ID) ?? "tenant_default",
+    protocol: normalizeOptionalString(env.NOOTERRA_PROTOCOL) ?? "1.0",
+    apiKey: normalizeOptionalString(env.NOOTERRA_API_KEY),
+    opsToken: normalizeOptionalString(env.PROXY_OPS_TOKEN) ?? normalizeOptionalString(env.NOOTERRA_OPS_TOKEN),
     outPath: "artifacts/ops/x402-hitl-smoke.json",
     help: false
   };
@@ -154,7 +154,7 @@ async function requestJson({ baseUrl, method, pathname, headers, body }) {
 function buildApiHeaders({ tenantId, protocol, apiKey, idempotencyKey = null, withBody = false }) {
   return {
     "x-proxy-tenant-id": tenantId,
-    "x-settld-protocol": protocol,
+    "x-nooterra-protocol": protocol,
     ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
     ...(idempotencyKey ? { "x-idempotency-key": idempotencyKey } : {}),
     ...(withBody ? { "content-type": "application/json; charset=utf-8" } : {})
@@ -184,7 +184,7 @@ async function mintApiKey({ baseUrl, tenantId, protocol, opsToken }) {
     pathname: "/ops/api-keys",
     headers: {
       "x-proxy-tenant-id": tenantId,
-      "x-settld-protocol": protocol,
+      "x-nooterra-protocol": protocol,
       "x-proxy-ops-token": opsToken,
       authorization: `Bearer ${opsToken}`,
       "content-type": "application/json; charset=utf-8"

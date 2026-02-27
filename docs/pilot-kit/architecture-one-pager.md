@@ -4,7 +4,7 @@ This document describes the hosted verification service used in pilots (“Verif
 
 ## Data flow (high level)
 
-1. Vendor uploads a Settld bundle ZIP (e.g. `InvoiceBundle.v1` / `ClosePack.v1`) using a vendor-scoped ingest key.
+1. Vendor uploads a Nooterra bundle ZIP (e.g. `InvoiceBundle.v1` / `ClosePack.v1`) using a vendor-scoped ingest key.
 2. Verify Cloud stores the ZIP and runs deterministic verification in a budgeted worker.
 3. Verify Cloud writes deterministic outputs + a redacted render model.
 4. Buyer views a hosted report link and/or downloads exports (audit packet, CSV, support bundle).

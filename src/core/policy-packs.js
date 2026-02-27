@@ -1,5 +1,5 @@
-export const POLICY_PACK_SCHEMA_VERSION = "SettldPolicyPack.v1";
-export const POLICY_PACK_TEMPLATE_CATALOG_VERSION = "SettldPolicyPackTemplateCatalog.v1";
+export const POLICY_PACK_SCHEMA_VERSION = "NooterraPolicyPack.v1";
+export const POLICY_PACK_TEMPLATE_CATALOG_VERSION = "NooterraPolicyPackTemplateCatalog.v1";
 
 const STARTER_POLICY_PACKS = Object.freeze([
   Object.freeze({

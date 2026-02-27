@@ -1,6 +1,6 @@
-# Trust OS v1 Threat Matrix
+# Trust OS Threat Matrix
 
-Status: Draft v1.0
+Status: Draft
 Owner: Security + Trust Architecture
 Last Updated: 2026-02-21
 

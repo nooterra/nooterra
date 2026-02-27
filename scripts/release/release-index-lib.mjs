@@ -197,10 +197,10 @@ export async function loadReleaseTrust({ trustPath }) {
 }
 
 export function classifyArtifactKind(name) {
-  if (/^settld-[a-z0-9-]+-\d+\.\d+\.\d+.*\.tgz$/i.test(name)) return "npm-tgz";
-  if (/^settld-\d+\.\d+\.\d+.*\.tgz$/i.test(name)) return "helm-chart-tgz";
+  if (/^nooterra-[a-z0-9-]+-\d+\.\d+\.\d+.*\.tgz$/i.test(name)) return "npm-tgz";
+  if (/^nooterra-\d+\.\d+\.\d+.*\.tgz$/i.test(name)) return "helm-chart-tgz";
   if (name.endsWith(".whl")) return "python-wheel";
-  if (/^settld_api_sdk_python-.*\.tar\.gz$/i.test(name)) return "python-sdist";
+  if (/^nooterra_api_sdk_python-.*\.tar\.gz$/i.test(name)) return "python-sdist";
   if (name.endsWith(".tgz")) return "tgz";
   if (name.endsWith(".tar.gz")) return "tar.gz";
   if (name.endsWith(".zip")) return "zip";

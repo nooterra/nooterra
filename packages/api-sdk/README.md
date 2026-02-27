@@ -1,10 +1,48 @@
-# settld-api-sdk
+# nooterra-api-sdk
 
-Node/TypeScript SDK for Settld API + x402 helpers.
+Node/TypeScript SDK for Nooterra API + x402 helpers.
+
+Core ACS surface in `NooterraClient` includes:
+- agent cards + discovery (`upsertAgentCard`, `discoverAgentCards`, `discoverPublicAgentCards`, `streamPublicAgentCards`)
+- reputation + relationship graph (`getPublicAgentReputationSummary`, `getAgentInteractionGraphPack`, `listRelationships`)
+- delegation + authority grants (`createDelegationGrant`, `createAuthorityGrant`)
+- task negotiation (`createTaskQuote`, `createTaskOffer`, `createTaskAcceptance`)
+- work-order lifecycle + metering + completion receipts (`createWorkOrder`, `acceptWorkOrder`, `progressWorkOrder`, `topUpWorkOrder`, `getWorkOrderMetering`, `completeWorkOrder`, `settleWorkOrder`, `listWorkOrderReceipts`, `getWorkOrderReceipt`)
+- state checkpoints (`createStateCheckpoint`, `listStateCheckpoints`, `getStateCheckpoint`)
+- session lineage (`createSession`, `listSessions`, `listSessionEvents`, `streamSessionEvents`, `appendSessionEvent`, `getSessionReplayPack`, `getSessionTranscript`)
+- capability attestations (`createCapabilityAttestation`, `revokeCapabilityAttestation`)
+
+Quickstarts:
+- JS SDK: `docs/QUICKSTART_SDK.md`
+- Python SDK: `docs/QUICKSTART_SDK_PYTHON.md`
+- JS ACS smoke flow: `npm run sdk:acs-smoke`
+- Python ACS smoke flow: `npm run sdk:acs-smoke:py`
+
+## Transport Parity Adapters (HTTP + MCP)
+
+Use parity adapters when you need the same payload/error/retry/idempotency semantics across HTTP and MCP transports:
+
+- `client.createHttpParityAdapter(...)`
+- `client.createMcpParityAdapter({ callTool, ... })`
+
+Both adapters return a shared response envelope:
+- `ok`, `status`, `requestId`, `body`, `headers`
+- `transport`, `operationId`, `idempotencyKey`, `attempts`
+
+Both adapters fail with a stable `error.nooterra` shape that includes:
+- `status`, `code`, `message`, `details`, `requestId`
+- `retryable`, `attempts`, `transport`, `operationId`
+
+Safety caveats for integration:
+- Treat `PARITY_*` validation errors as hard-stop conditions. Do not bypass them.
+- Idempotency is fail-closed by default (`idempotencyRequired: true`). Set `idempotencyRequired: false` only for explicitly safe read operations.
+- For safety-critical writes, keep the same idempotency key across retries.
+- For chain-bound writes, require `expectedPrevChainHash` (`expectedPrevChainHashRequired: true`) so retries stay causally bound.
+- Keep retry policy deterministic (fixed delay or deterministic delay function) and avoid transport-specific fallback logic outside the adapter.
 
 ## Webhook Signature Verification
 
-Use `verifySettldWebhookSignature` to verify incoming `x-settld-signature` headers with:
+Use `verifyNooterraWebhookSignature` to verify incoming `x-nooterra-signature` headers with:
 
 - multi-signature support (`v1=...` list, including rotation windows),
 - constant-time comparison (`crypto.timingSafeEqual`),
@@ -12,17 +50,17 @@ Use `verifySettldWebhookSignature` to verify incoming `x-settld-signature` heade
 
 ```js
 import express from "express";
-import { verifySettldWebhookSignature } from "settld-api-sdk";
+import { verifyNooterraWebhookSignature } from "nooterra-api-sdk";
 
 const app = express();
 
 // IMPORTANT: keep the raw body; do not JSON-parse before verification.
-app.post("/webhooks/settld", express.raw({ type: "application/json" }), (req, res) => {
-  const signatureHeader = req.get("x-settld-signature") ?? "";
-  const timestamp = req.get("x-settld-timestamp"); // required for current Settld delivery format
-  const secret = process.env.SETTLD_WEBHOOK_SECRET;
+app.post("/webhooks/nooterra", express.raw({ type: "application/json" }), (req, res) => {
+  const signatureHeader = req.get("x-nooterra-signature") ?? "";
+  const timestamp = req.get("x-nooterra-timestamp"); // required for current Nooterra delivery format
+  const secret = process.env.NOOTERRA_WEBHOOK_SECRET;
 
-  verifySettldWebhookSignature(req.body, signatureHeader, secret, {
+  verifyNooterraWebhookSignature(req.body, signatureHeader, secret, {
     timestamp,
     toleranceSeconds: 300
   });
@@ -35,18 +73,18 @@ app.post("/webhooks/settld", express.raw({ type: "application/json" }), (req, re
 
 The verifier also supports signature headers that embed timestamp directly:
 
-`x-settld-signature: t=1708380000,v1=<sig-new>,v1=<sig-old>`
+`x-nooterra-signature: t=1708380000,v1=<sig-new>,v1=<sig-old>`
 
 ## Express Middleware Helper
 
-Use `verifySettldWebhook` to verify signatures in an Express-style middleware.
+Use `verifyNooterraWebhook` to verify signatures in an Express-style middleware.
 
 ```js
 import express from "express";
-import { verifySettldWebhook } from "settld-api-sdk";
+import { verifyNooterraWebhook } from "nooterra-api-sdk";
 
 const app = express();
-const secret = process.env.SETTLD_WEBHOOK_SECRET;
+const secret = process.env.NOOTERRA_WEBHOOK_SECRET;
 
 // IMPORTANT: preserve raw body bytes before JSON parsing mutates payload shape.
 app.use(
@@ -58,8 +96,8 @@ app.use(
 );
 
 app.post(
-  "/webhooks/settld",
-  verifySettldWebhook(secret, { toleranceSeconds: 300 }),
+  "/webhooks/nooterra",
+  verifyNooterraWebhook(secret, { toleranceSeconds: 300 }),
   (req, res) => {
     const event = req.body;
     // handle event...

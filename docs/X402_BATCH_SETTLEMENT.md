@@ -107,8 +107,8 @@ Optional:
 
 `scripts/demo/mcp-paid-exa.mjs` can run this worker automatically after a successful paid-tool call:
 
-- `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`
-- `SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID=<walletId>` (required for sandbox/production if `CIRCLE_WALLET_ID_ESCROW` is not set)
+- `NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1`
+- `NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID=<walletId>` (required for sandbox/production if `CIRCLE_WALLET_ID_ESCROW` is not set)
 
 The demo writes:
 
@@ -120,7 +120,7 @@ The demo writes:
 
 Set both env vars:
 
-- `SETTLD_BATCH_SIGNER_PUBLIC_KEY_PEM`
-- `SETTLD_BATCH_SIGNER_PRIVATE_KEY_PEM`
+- `NOOTERRA_BATCH_SIGNER_PUBLIC_KEY_PEM`
+- `NOOTERRA_BATCH_SIGNER_PRIVATE_KEY_PEM`
 
 If present, the worker adds an Ed25519 signature to `payout-manifest.meta.json`.

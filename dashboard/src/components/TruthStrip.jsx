@@ -1,13 +1,13 @@
 function badgeClass(status) {
   switch (status) {
     case "ok":
-      return "border-settld-success/40 bg-settld-success/10 text-settld-success";
+      return "border-nooterra-success/40 bg-nooterra-success/10 text-nooterra-success";
     case "warn":
-      return "border-settld-warning/40 bg-settld-warning/10 text-settld-warning";
+      return "border-nooterra-warning/40 bg-nooterra-warning/10 text-nooterra-warning";
     case "fail":
-      return "border-settld-error/40 bg-settld-error/10 text-settld-error";
+      return "border-nooterra-error/40 bg-nooterra-error/10 text-nooterra-error";
     default:
-      return "border-settld-border bg-black/20 text-gray-300";
+      return "border-nooterra-border bg-black/20 text-gray-300";
   }
 }
 
@@ -34,7 +34,7 @@ export default function TruthStrip({ truth, onPick }) {
   ];
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-4">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-4">
       <div className="flex flex-wrap gap-2">
         {items.map((it) => (
           <button

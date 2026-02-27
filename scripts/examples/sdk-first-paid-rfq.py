@@ -11,7 +11,7 @@ import time
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "packages" / "api-sdk-python"))
 
-from settld_api_sdk import SettldClient  # noqa: E402
+from nooterra_api_sdk import NooterraClient  # noqa: E402
 
 
 def _unique_suffix() -> str:
@@ -28,16 +28,16 @@ def _fixture_keys() -> tuple[str, str]:
 
 
 def main() -> int:
-    base_url = os.environ.get("SETTLD_BASE_URL", "http://127.0.0.1:3000")
-    tenant_id = os.environ.get("SETTLD_TENANT_ID", "tenant_default")
-    api_key = os.environ.get("SETTLD_API_KEY")
+    base_url = os.environ.get("NOOTERRA_BASE_URL", "http://127.0.0.1:3000")
+    tenant_id = os.environ.get("NOOTERRA_TENANT_ID", "tenant_default")
+    api_key = os.environ.get("NOOTERRA_API_KEY")
     if not api_key:
-        print("SETTLD_API_KEY is not set; calls will fail unless API auth is disabled.", file=sys.stderr)
+        print("NOOTERRA_API_KEY is not set; calls will fail unless API auth is disabled.", file=sys.stderr)
 
     poster_key, bidder_key = _fixture_keys()
     suffix = _unique_suffix()
 
-    client = SettldClient(
+    client = NooterraClient(
         base_url=base_url,
         tenant_id=tenant_id,
         api_key=api_key,

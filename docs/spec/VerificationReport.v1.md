@@ -15,7 +15,7 @@ In strict mode, it is **required** and **must be signed**.
 
 - `schemaVersion = "VerificationReport.v1"`
 - `profile = "strict"`
-- `tool`: `{ name: "settld", version: string | null, commit?: string }`
+- `tool`: `{ name: "nooterra", version: string | null, commit?: string }`
 - `warnings`: array of warning objects (see `WARNINGS.md`)
 - `subject`:
   - `type`: bundle kind/type (e.g. `JobProofBundle.v1`, `MonthProofBundle.v1`, `FinancePackBundle.v1`)

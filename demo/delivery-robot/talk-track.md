@@ -20,7 +20,7 @@ If anything fails live, open `demo/delivery-robot/output/latest/` and narrate fr
 1) “This is the **upstream telemetry** we ingest from a dispatch/ops platform.”
    - Show `sample_ingest_request.json` and point at `externalEventId`, `correlationKey`, and the job window.
 
-2) “Settld appends facts into a **hash-chained job stream** (dispute-resistant).”
+2) “Nooterra appends facts into a **hash-chained job stream** (dispute-resistant).”
    - Show `timeline.json` and point at ordering + event types.
 
 3) “The robot started after the booking window ended → SLA breach.”

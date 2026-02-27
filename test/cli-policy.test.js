@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runSettld(args) {
-  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "settld.js"), ...args], {
+function runNooterra(args) {
+  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "nooterra.js"), ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     timeout: 30_000
@@ -32,33 +32,33 @@ function parseJson(text, label) {
 }
 
 async function createPolicyFixture(t, { packId = "engineering-spend" } = {}) {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-policy-cli-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-policy-cli-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
   const packPath = path.join(tmpDir, `${packId}.policy-pack.json`);
-  const initRun = runSettld(["policy", "init", packId, "--out", packPath, "--format", "json"]);
+  const initRun = runNooterra(["policy", "init", packId, "--out", packPath, "--format", "json"]);
   assert.equal(initRun.status, 0, `stdout:\n${initRun.stdout}\n\nstderr:\n${initRun.stderr}`);
   return { tmpDir, packPath };
 }
 
-test("CLI: settld --help includes policy commands", () => {
-  const run = runSettld(["--help"]);
+test("CLI: nooterra --help includes policy commands", () => {
+  const run = runNooterra(["--help"]);
   assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
-  assert.match(run.stderr, /settld policy init <pack-id>/);
-  assert.match(run.stderr, /settld policy simulate <policy-pack\.json\|->/);
-  assert.match(run.stderr, /settld policy publish <policy-pack\.json\|->/);
+  assert.match(run.stderr, /nooterra policy init <pack-id>/);
+  assert.match(run.stderr, /nooterra policy simulate <policy-pack\.json\|->/);
+  assert.match(run.stderr, /nooterra policy publish <policy-pack\.json\|->/);
 });
 
-test("CLI: settld policy init writes starter pack with json/json-out modes", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-policy-cli-init-"));
+test("CLI: nooterra policy init writes starter pack with json/json-out modes", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-policy-cli-init-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
   const outPath = path.join(tmpDir, "engineering.policy-pack.json");
   const jsonOutPath = path.join(tmpDir, "init.report.json");
 
-  const run = runSettld(["policy", "init", "engineering-spend", "--out", outPath, "--format", "json", "--json-out", jsonOutPath]);
+  const run = runNooterra(["policy", "init", "engineering-spend", "--out", outPath, "--format", "json", "--json-out", jsonOutPath]);
   assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
 
   const stdoutBody = parseJson(run.stdout, "policy init stdout");
@@ -70,13 +70,13 @@ test("CLI: settld policy init writes starter pack with json/json-out modes", asy
   assert.equal(stdoutBody.outPath, outPath);
 
   const policyPack = parseJson(await fs.readFile(outPath, "utf8"), "policy pack file");
-  assert.equal(policyPack.schemaVersion, "SettldPolicyPack.v1");
+  assert.equal(policyPack.schemaVersion, "NooterraPolicyPack.v1");
   assert.equal(policyPack.packId, "engineering-spend");
   assert.equal(policyPack.metadata.vertical, "engineering");
   assert.equal(Array.isArray(policyPack.policy.approvals), true);
 });
 
-test("CLI: settld policy simulate reports deterministic deny reasons", async (t) => {
+test("CLI: nooterra policy simulate reports deterministic deny reasons", async (t) => {
   const { packPath } = await createPolicyFixture(t);
   const scenario = JSON.stringify({
     providerId: "provider_unknown",
@@ -89,10 +89,10 @@ test("CLI: settld policy simulate reports deterministic deny reasons", async (t)
     toolVersionKnown: false
   });
 
-  const run = runSettld(["policy", "simulate", packPath, "--scenario-json", scenario, "--format", "json"]);
+  const run = runNooterra(["policy", "simulate", packPath, "--scenario-json", scenario, "--format", "json"]);
   assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
   const body = parseJson(run.stdout, "policy simulate stdout");
-  assert.equal(body.schemaVersion, "SettldPolicySimulationReport.v1");
+  assert.equal(body.schemaVersion, "NooterraPolicySimulationReport.v1");
   assert.equal(body.ok, true);
   assert.equal(body.packId, "engineering-spend");
   assert.equal(body.decision, "deny");
@@ -106,14 +106,14 @@ test("CLI: settld policy simulate reports deterministic deny reasons", async (t)
   assert.equal(body.reasons.includes("tool_version_known"), true);
 });
 
-test("CLI: settld policy publish writes deterministic local publication report", async (t) => {
+test("CLI: nooterra policy publish writes deterministic local publication report", async (t) => {
   const { tmpDir, packPath } = await createPolicyFixture(t);
   const outPath = path.join(tmpDir, "engineering-spend.publish.local.json");
 
-  const firstRun = runSettld(["policy", "publish", packPath, "--out", outPath, "--format", "json"]);
+  const firstRun = runNooterra(["policy", "publish", packPath, "--out", outPath, "--format", "json"]);
   assert.equal(firstRun.status, 0, `stdout:\n${firstRun.stdout}\n\nstderr:\n${firstRun.stderr}`);
   const firstReport = parseJson(firstRun.stdout, "policy publish stdout#1");
-  assert.equal(firstReport.schemaVersion, "SettldPolicyPublishReport.v1");
+  assert.equal(firstReport.schemaVersion, "NooterraPolicyPublishReport.v1");
   assert.equal(firstReport.ok, true);
   assert.equal(firstReport.channel, "local");
   assert.equal(firstReport.owner, "local-operator");
@@ -122,13 +122,13 @@ test("CLI: settld policy publish writes deterministic local publication report",
 
   const firstArtifactRaw = await fs.readFile(firstReport.artifactPath, "utf8");
   const firstArtifact = parseJson(firstArtifactRaw, "policy publish artifact#1");
-  assert.equal(firstArtifact.schemaVersion, "SettldPolicyPublication.v1");
+  assert.equal(firstArtifact.schemaVersion, "NooterraPolicyPublication.v1");
   assert.equal(firstArtifact.packId, "engineering-spend");
   assert.equal(firstArtifact.policyFingerprint, firstReport.policyFingerprint);
   assert.equal(firstArtifact.publicationRef, firstReport.publicationRef);
   assert.equal(firstArtifact.checksums.policyPackCanonicalSha256, firstReport.policyFingerprint);
 
-  const secondRun = runSettld(["policy", "publish", packPath, "--out", firstReport.artifactPath, "--force", "--format", "json"]);
+  const secondRun = runNooterra(["policy", "publish", packPath, "--out", firstReport.artifactPath, "--force", "--format", "json"]);
   assert.equal(secondRun.status, 0, `stdout:\n${secondRun.stdout}\n\nstderr:\n${secondRun.stderr}`);
   const secondReport = parseJson(secondRun.stdout, "policy publish stdout#2");
   assert.deepEqual(secondReport, firstReport);
@@ -137,8 +137,8 @@ test("CLI: settld policy publish writes deterministic local publication report",
   assert.equal(secondArtifactRaw, firstArtifactRaw);
 });
 
-test("CLI: settld policy init unknown pack returns actionable error", () => {
-  const run = runSettld(["policy", "init", "missing-pack-id"]);
+test("CLI: nooterra policy init unknown pack returns actionable error", () => {
+  const run = runNooterra(["policy", "init", "missing-pack-id"]);
   assert.equal(run.status, 1, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
   assert.match(run.stderr, /unknown policy pack: missing-pack-id/);
   assert.match(run.stderr, /known:/);

@@ -1,7 +1,7 @@
 # Security Sub-Agent Charter
 
 ## Purpose
-Own application and protocol security posture for Settld's autonomous economy transaction rails so threats are modeled early, controls are practical, and deterministic protocol guarantees remain intact under adversarial conditions.
+Own application and protocol security posture for Nooterra's autonomous economy transaction rails so threats are modeled early, controls are practical, and deterministic protocol guarantees remain intact under adversarial conditions.
 
 ## Accountabilities
 - Identify and prioritize security risks across protocol, API, worker, storage, and operator flows.

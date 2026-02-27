@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runSettld(args, { env = null } = {}) {
-  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "settld.js"), ...args], {
+function runNooterra(args, { env = null } = {}) {
+  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "nooterra.js"), ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     env: env ? { ...process.env, ...env } : process.env,
@@ -25,9 +25,9 @@ function runSettld(args, { env = null } = {}) {
   };
 }
 
-function runSettldAsync(args, { env = null, timeoutMs = 30_000 } = {}) {
+function runNooterraAsync(args, { env = null, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(REPO_ROOT, "bin", "settld.js"), ...args], {
+    const child = spawn(process.execPath, [path.join(REPO_ROOT, "bin", "nooterra.js"), ...args], {
       cwd: REPO_ROOT,
       env: env ? { ...process.env, ...env } : process.env,
       stdio: ["ignore", "pipe", "pipe"]
@@ -68,9 +68,9 @@ function runSettldAsync(args, { env = null, timeoutMs = 30_000 } = {}) {
   });
 }
 
-function runSettldWithInput(args, { input = "", env = null, timeoutMs = 30_000 } = {}) {
+function runNooterraWithInput(args, { input = "", env = null, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(REPO_ROOT, "bin", "settld.js"), ...args], {
+    const child = spawn(process.execPath, [path.join(REPO_ROOT, "bin", "nooterra.js"), ...args], {
       cwd: REPO_ROOT,
       env: env ? { ...process.env, ...env } : process.env,
       stdio: ["pipe", "pipe", "pipe"]
@@ -132,19 +132,19 @@ function pickKeywordFlag(flags, keyword) {
 
 function buildRuntimeEnv({ baseUrl, tenantId, bearerToken, walletRef }) {
   return {
-    SETTLD_RUNTIME_BASE_URL: baseUrl,
-    SETTLD_RUNTIME_URL: baseUrl,
-    SETTLD_BASE_URL: baseUrl,
-    SETTLD_API_URL: baseUrl,
-    SETTLD_RUNTIME_TENANT_ID: tenantId,
-    SETTLD_TENANT_ID: tenantId,
-    SETTLD_RUNTIME_BEARER_TOKEN: bearerToken,
-    SETTLD_BEARER_TOKEN: bearerToken,
-    SETTLD_API_KEY: bearerToken,
-    SETTLD_TOKEN: bearerToken,
-    SETTLD_RUNTIME_WALLET_REF: walletRef,
-    SETTLD_WALLET_REF: walletRef,
-    SETTLD_X402_WALLET_REF: walletRef
+    NOOTERRA_RUNTIME_BASE_URL: baseUrl,
+    NOOTERRA_RUNTIME_URL: baseUrl,
+    NOOTERRA_BASE_URL: baseUrl,
+    NOOTERRA_API_URL: baseUrl,
+    NOOTERRA_RUNTIME_TENANT_ID: tenantId,
+    NOOTERRA_TENANT_ID: tenantId,
+    NOOTERRA_RUNTIME_BEARER_TOKEN: bearerToken,
+    NOOTERRA_BEARER_TOKEN: bearerToken,
+    NOOTERRA_API_KEY: bearerToken,
+    NOOTERRA_TOKEN: bearerToken,
+    NOOTERRA_RUNTIME_WALLET_REF: walletRef,
+    NOOTERRA_WALLET_REF: walletRef,
+    NOOTERRA_X402_WALLET_REF: walletRef
   };
 }
 
@@ -202,17 +202,17 @@ async function listenLocal(server) {
 }
 
 async function createProfileFixture(t, fileName = "engineering.profile.json") {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-cli-apply-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-profile-cli-apply-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
   const profilePath = path.join(tmpDir, fileName);
-  const initRun = runSettld(["profile", "init", "engineering-spend", "--out", profilePath, "--format", "json"]);
+  const initRun = runNooterra(["profile", "init", "engineering-spend", "--out", profilePath, "--format", "json"]);
   assert.equal(initRun.status, 0, `stdout:\n${initRun.stdout}\n\nstderr:\n${initRun.stderr}`);
   return { profilePath };
 }
 
-const APPLY_HELP_RUN = runSettld(["profile", "apply", "--help"]);
+const APPLY_HELP_RUN = runNooterra(["profile", "apply", "--help"]);
 const APPLY_HELP_TEXT = `${APPLY_HELP_RUN.stdout}\n${APPLY_HELP_RUN.stderr}`;
 const PROFILE_APPLY_SUPPORTED = !/unsupported command:\s*apply/i.test(APPLY_HELP_TEXT);
 const APPLY_FLAGS = extractApplyFlags(APPLY_HELP_TEXT);
@@ -248,11 +248,11 @@ function buildApplyArgs({ profilePath, mode, runtime = null }) {
   return args;
 }
 
-test("CLI: settld profile list returns starter profiles with deterministic fingerprints", () => {
-  const run = runSettld(["profile", "list", "--format", "json"]);
+test("CLI: nooterra profile list returns starter profiles with deterministic fingerprints", () => {
+  const run = runNooterra(["profile", "list", "--format", "json"]);
   assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
   const body = parseJson(run.stdout, "profile list output");
-  assert.equal(body.schemaVersion, "SettldProfileTemplateCatalog.v1");
+  assert.equal(body.schemaVersion, "NooterraProfileTemplateCatalog.v1");
   assert.equal(body.profileFingerprintAlgorithm, "sha256");
   assert.equal(Array.isArray(body.profiles), true);
   assert.equal(body.profiles.length >= 6, true);
@@ -261,13 +261,13 @@ test("CLI: settld profile list returns starter profiles with deterministic finge
   }
 });
 
-test("CLI: settld profile wizard non-interactive writes profile valid for validate/simulate/apply pipeline", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-cli-wizard-"));
+test("CLI: nooterra profile wizard non-interactive writes profile valid for validate/simulate/apply pipeline", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-profile-cli-wizard-"));
   const profilePath = path.join(tmpDir, "custom.profile.json");
   const jsonOutPath = path.join(tmpDir, "wizard-output.json");
 
   try {
-    const wizardRun = runSettld([
+    const wizardRun = runNooterra([
       "profile",
       "wizard",
       "--non-interactive",
@@ -311,12 +311,12 @@ test("CLI: settld profile wizard non-interactive writes profile valid for valida
     assert.deepEqual(profileDoc.policy.allowlists.providers, ["openai", "anthropic"]);
     assert.deepEqual(profileDoc.policy.allowlists.tools, ["llm.inference", "ci.compute"]);
 
-    const validateRun = runSettld(["profile", "validate", profilePath, "--format", "json"]);
+    const validateRun = runNooterra(["profile", "validate", profilePath, "--format", "json"]);
     assert.equal(validateRun.status, 0, `stdout:\n${validateRun.stdout}\n\nstderr:\n${validateRun.stderr}`);
     const validateBody = parseJson(validateRun.stdout, "wizard validate output");
     assert.equal(validateBody.ok, true);
 
-    const simulateRun = runSettld([
+    const simulateRun = runNooterra([
       "profile",
       "simulate",
       profilePath,
@@ -341,14 +341,14 @@ test("CLI: settld profile wizard non-interactive writes profile valid for valida
   }
 });
 
-test("CLI: settld profile wizard interactive prompts accept defaults", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-cli-wizard-interactive-"));
+test("CLI: nooterra profile wizard interactive prompts accept defaults", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-profile-cli-wizard-interactive-"));
   const profilePath = path.join(tmpDir, "interactive.profile.json");
   const jsonOutPath = path.join(tmpDir, "interactive-wizard-output.json");
   const promptAnswers = ["", "team-policy", "", "", "", "", "", "", "", ""].join("\n") + "\n";
 
   try {
-    const wizardRun = await runSettldWithInput(
+    const wizardRun = await runNooterraWithInput(
       ["profile", "wizard", "--out", profilePath, "--json-out", jsonOutPath, "--format", "json"],
       { input: promptAnswers }
     );
@@ -365,7 +365,7 @@ test("CLI: settld profile wizard interactive prompts accept defaults", async () 
     assert.equal(profileDoc.metadata.name, "Engineering Spend");
     assert.equal(profileDoc.policy.currency, "USD");
 
-    const validateRun = runSettld(["profile", "validate", profilePath, "--format", "json"]);
+    const validateRun = runNooterra(["profile", "validate", profilePath, "--format", "json"]);
     assert.equal(validateRun.status, 0, `stdout:\n${validateRun.stdout}\n\nstderr:\n${validateRun.stderr}`);
     const validateBody = parseJson(validateRun.stdout, "interactive wizard validate output");
     assert.equal(validateBody.ok, true);
@@ -374,45 +374,45 @@ test("CLI: settld profile wizard interactive prompts accept defaults", async () 
   }
 });
 
-test("CLI: settld profile init + validate + simulate", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-cli-"));
+test("CLI: nooterra profile init + validate + simulate", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-profile-cli-"));
   const profilePath = path.join(tmpDir, "engineering.profile.json");
   const scenarioPath = path.join(REPO_ROOT, "test", "fixtures", "profile", "scenario-allow.json");
 
   try {
-    const initRun = runSettld(["profile", "init", "engineering-spend", "--out", profilePath, "--format", "json"]);
+    const initRun = runNooterra(["profile", "init", "engineering-spend", "--out", profilePath, "--format", "json"]);
     assert.equal(initRun.status, 0, `stdout:\n${initRun.stdout}\n\nstderr:\n${initRun.stderr}`);
     const initBody = JSON.parse(initRun.stdout);
     assert.equal(initBody.ok, true);
     assert.equal(initBody.profileId, "engineering-spend");
-    assert.equal(initBody.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.equal(initBody.profileFingerprintVersion, "NooterraProfileFingerprint.v1");
     assert.match(String(initBody.profileFingerprint), /^[0-9a-f]{64}$/);
     const profileDoc = JSON.parse(await fs.readFile(profilePath, "utf8"));
-    assert.equal(profileDoc.schemaVersion, "SettldProfile.v1");
+    assert.equal(profileDoc.schemaVersion, "NooterraProfile.v1");
     assert.equal(profileDoc.profileId, "engineering-spend");
 
-    const validateRun = runSettld(["profile", "validate", profilePath, "--format", "json"]);
+    const validateRun = runNooterra(["profile", "validate", profilePath, "--format", "json"]);
     assert.equal(validateRun.status, 0, `stdout:\n${validateRun.stdout}\n\nstderr:\n${validateRun.stderr}`);
     const validateBody = JSON.parse(validateRun.stdout);
-    assert.equal(validateBody.schemaVersion, "SettldProfileValidationReport.v1");
+    assert.equal(validateBody.schemaVersion, "NooterraProfileValidationReport.v1");
     assert.equal(validateBody.ok, true);
     assert.deepEqual(validateBody.errors, []);
-    assert.equal(validateBody.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.equal(validateBody.profileFingerprintVersion, "NooterraProfileFingerprint.v1");
     assert.match(String(validateBody.profileFingerprint), /^[0-9a-f]{64}$/);
 
-    const simulateRunA = runSettld(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
+    const simulateRunA = runNooterra(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
     assert.equal(simulateRunA.status, 0, `stdout:\n${simulateRunA.stdout}\n\nstderr:\n${simulateRunA.stderr}`);
     const simulateBodyA = JSON.parse(simulateRunA.stdout);
-    assert.equal(simulateBodyA.schemaVersion, "SettldProfileSimulationReport.v1");
+    assert.equal(simulateBodyA.schemaVersion, "NooterraProfileSimulationReport.v1");
     assert.equal(simulateBodyA.ok, true);
     assert.equal(simulateBodyA.decision, "allow");
     assert.equal(simulateBodyA.requiredApprovers, 1);
     assert.deepEqual(simulateBodyA.reasonCodes, []);
-    assert.equal(simulateBodyA.reasonRegistryVersion, "SettldProfileSimulationReasonRegistry.v1");
-    assert.equal(simulateBodyA.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.equal(simulateBodyA.reasonRegistryVersion, "NooterraProfileSimulationReasonRegistry.v1");
+    assert.equal(simulateBodyA.profileFingerprintVersion, "NooterraProfileFingerprint.v1");
     assert.match(String(simulateBodyA.profileFingerprint), /^[0-9a-f]{64}$/);
 
-    const simulateRunChallenge = runSettld([
+    const simulateRunChallenge = runNooterra([
       "profile",
       "simulate",
       profilePath,
@@ -437,7 +437,7 @@ test("CLI: settld profile init + validate + simulate", async () => {
     assert.equal(simulateBodyChallenge.reasonDetails[0].checkId, "approval_required");
     assert.equal(simulateBodyChallenge.reasonDetails[0].severity, "warning");
 
-    const simulateRunB = runSettld(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
+    const simulateRunB = runNooterra(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
     assert.equal(simulateRunB.status, 0, `stdout:\n${simulateRunB.stdout}\n\nstderr:\n${simulateRunB.stderr}`);
     assert.equal(simulateRunA.stdout, simulateRunB.stdout, "simulate output should be deterministic for identical inputs");
   } finally {
@@ -446,7 +446,7 @@ test("CLI: settld profile init + validate + simulate", async () => {
 });
 
 test(
-  "CLI: settld profile apply dry-run emits deterministic JSON output shape",
+  "CLI: nooterra profile apply dry-run emits deterministic JSON output shape",
   { skip: !PROFILE_APPLY_SUPPORTED },
   async (t) => {
     if (!APPLY_DRY_RUN_FLAG) {
@@ -468,8 +468,8 @@ test(
     const args = buildApplyArgs({ profilePath, mode: "dry-run", runtime });
     const env = buildRuntimeEnv(runtime);
 
-    const runA = runSettld(args, { env });
-    const runB = runSettld(args, { env });
+    const runA = runNooterra(args, { env });
+    const runB = runNooterra(args, { env });
 
     assert.equal(runA.status, 0, `stdout:\n${runA.stdout}\n\nstderr:\n${runA.stderr}`);
     assert.equal(runB.status, 0, `stdout:\n${runB.stdout}\n\nstderr:\n${runB.stderr}`);
@@ -481,12 +481,12 @@ test(
 );
 
 test(
-  "CLI: settld profile apply fails when runtime env/args are missing",
+  "CLI: nooterra profile apply fails when runtime env/args are missing",
   { skip: !PROFILE_APPLY_SUPPORTED },
   async (t) => {
     const { profilePath } = await createProfileFixture(t, "apply-missing-runtime.profile.json");
     const args = buildApplyArgs({ profilePath, mode: "live", runtime: null });
-    const run = runSettld(args, { env: clearedRuntimeEnv() });
+    const run = runNooterra(args, { env: clearedRuntimeEnv() });
 
     assert.notEqual(run.status, 0, "apply without runtime config should fail");
     const combined = `${run.stdout}\n${run.stderr}`.toLowerCase();
@@ -495,7 +495,7 @@ test(
 );
 
 test(
-  "CLI: settld profile apply live calls wallet policy + settlement policy endpoints with tenant/bearer/idempotency headers",
+  "CLI: nooterra profile apply live calls wallet policy + settlement policy endpoints with tenant/bearer/idempotency headers",
   { skip: !PROFILE_APPLY_SUPPORTED },
   async (t) => {
     const requests = [];
@@ -551,7 +551,7 @@ test(
       walletRef: "wallet_profile_apply_live"
     };
     const args = buildApplyArgs({ profilePath, mode: "live", runtime });
-    const run = await runSettldAsync(args, { env: buildRuntimeEnv(runtime) });
+    const run = await runNooterraAsync(args, { env: buildRuntimeEnv(runtime) });
 
     assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
     assert.equal(requests.length, 2, `expected exactly 2 requests, received ${requests.length}`);

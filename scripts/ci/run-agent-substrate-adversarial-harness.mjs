@@ -16,11 +16,11 @@ function usage() {
     "usage: node scripts/ci/run-agent-substrate-adversarial-harness.mjs [options]",
     "",
     "options:",
-    "  --profile <core|full>                    Check profile (default: core)",
+    "  --profile <core|full|prompt-contagion>   Check profile (default: core)",
     "  --out <file>                             Report path (default: artifacts/security/agent-substrate-adversarial-harness.json)",
     "  --bootstrap-local                        Bootstrap local API + temporary API key for local runs only",
-    "  --bootstrap-base-url <url>               Bootstrap API base URL (default: SETTLD_BASE_URL or http://127.0.0.1:3000)",
-    "  --bootstrap-tenant-id <id>               Bootstrap tenant id (default: SETTLD_TENANT_ID or tenant_default)",
+    "  --bootstrap-base-url <url>               Bootstrap API base URL (default: NOOTERRA_BASE_URL or http://127.0.0.1:3000)",
+    "  --bootstrap-tenant-id <id>               Bootstrap tenant id (default: NOOTERRA_TENANT_ID or tenant_default)",
     "  --bootstrap-ops-token <tok>              Bootstrap ops token (default: PROXY_OPS_TOKEN or tok_ops)",
     "  --help                                   Show help"
   ].join("\n");
@@ -32,8 +32,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     out: path.resolve(cwd, "artifacts/security/agent-substrate-adversarial-harness.json"),
     help: false,
     bootstrapLocal: false,
-    bootstrapBaseUrl: String(env?.SETTLD_BASE_URL ?? "http://127.0.0.1:3000").trim(),
-    bootstrapTenantId: String(env?.SETTLD_TENANT_ID ?? "tenant_default").trim(),
+    bootstrapBaseUrl: String(env?.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000").trim(),
+    bootstrapTenantId: String(env?.NOOTERRA_TENANT_ID ?? "tenant_default").trim(),
     bootstrapOpsToken: String(env?.PROXY_OPS_TOKEN ?? "tok_ops").trim()
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -59,8 +59,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else throw new Error(`unknown argument: ${arg}`);
   }
   const normalizedProfile = String(out.profile ?? "").trim().toLowerCase();
-  if (!["core", "full"].includes(normalizedProfile)) {
-    throw new Error("--profile must be core|full");
+  if (!["core", "full", "prompt-contagion"].includes(normalizedProfile)) {
+    throw new Error("--profile must be core|full|prompt-contagion");
   }
   out.profile = normalizedProfile;
   if (out.bootstrapLocal) {
@@ -94,15 +94,37 @@ function runCheck({ id, command, args = [], env = {} }) {
 }
 
 function checksForProfile(profile) {
+  const promptContagion = [
+    {
+      id: "prompt_contagion_forced_modes",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "x402 prompt risk forced challenge|x402 prompt risk forced mode can target a specific principal|tainted session provenance forces challenge on x402 authorize below escalation threshold|tainted session provenance forces escalate on x402 authorize above escalation threshold|tainted session verify fails closed until provenance evidence refs are submitted",
+        "test/api-e2e-x402-delegation-grant.test.js"
+      ]
+    },
+    {
+      id: "prompt_contagion_provenance_replay_fail_closed",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "SessionEvent.v1 provenance taint propagates deterministically and replay pack reports provenance verification|SessionReplayPack.v1 fails closed on provenance mismatch even when chain hashes are re-computed",
+        "test/api-e2e-sessions.test.js"
+      ]
+    }
+  ];
   const core = [
     {
       id: "prompt_contagion_guardrails",
       command: "node",
       args: [
         "--test",
-        "test/api-e2e-x402-delegation-grant.test.js",
         "--test-name-pattern",
-        "x402 prompt risk forced challenge|suspicious x402 verify cannot release until human override is recorded|x402 prompt risk forced mode can target a specific principal"
+        "x402 prompt risk forced challenge|suspicious x402 verify cannot release until human override is recorded|x402 prompt risk forced mode can target a specific principal",
+        "test/api-e2e-x402-delegation-grant.test.js"
       ]
     },
     {
@@ -125,9 +147,9 @@ function checksForProfile(profile) {
       command: "node",
       args: [
         "--test",
-        "test/api-e2e-capability-attestation-discovery.test.js",
         "--test-name-pattern",
-        "capability attestation registry \\+ discovery filter with exclusion reasons|public discover auto-applies capability attestation policy"
+        "capability attestation registry \\+ discovery filter with exclusion reasons|public discover auto-applies capability attestation policy",
+        "test/api-e2e-capability-attestation-discovery.test.js"
       ]
     }
   ];
@@ -143,6 +165,7 @@ function checksForProfile(profile) {
       ]
     }
   ];
+  if (profile === "prompt-contagion") return promptContagion;
   if (profile === "core") return core;
   return [...core, ...full];
 }

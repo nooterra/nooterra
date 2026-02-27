@@ -182,9 +182,9 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     const { exit, stdout, stderr } = await runDemo({
       outPath,
       env: {
-        SETTLD_BASE_URL: baseUrl,
-        SETTLD_TENANT_ID: tenantId,
-        SETTLD_API_KEY: apiKey
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: tenantId,
+        NOOTERRA_API_KEY: apiKey
       }
     });
 
@@ -199,8 +199,27 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     assert.equal(report.ok, true, `demo report failed: ${reportRaw}`);
     assert.equal(report.summary?.settlementStatus, "released");
 
-    const completeStep = report.transcript?.find((row) => row?.step === "settld.work_order_complete");
+    const completeStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_complete");
     assert.equal(Boolean(completeStep?.ok), true);
+
+    const quoteStep = report.transcript?.find((row) => row?.step === "nooterra.task_quote_issue");
+    assert.equal(Boolean(quoteStep?.ok), true);
+    assert.match(String(quoteStep?.result?.result?.taskQuote?.quoteHash ?? ""), /^[a-f0-9]{64}$/);
+
+    const offerStep = report.transcript?.find((row) => row?.step === "nooterra.task_offer_issue");
+    assert.equal(Boolean(offerStep?.ok), true);
+    assert.match(String(offerStep?.result?.result?.taskOffer?.offerHash ?? ""), /^[a-f0-9]{64}$/);
+
+    const acceptanceStep = report.transcript?.find((row) => row?.step === "nooterra.task_acceptance_issue");
+    assert.equal(Boolean(acceptanceStep?.ok), true);
+    assert.match(String(acceptanceStep?.result?.result?.taskAcceptance?.acceptanceHash ?? ""), /^[a-f0-9]{64}$/);
+
+    const createStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_create");
+    assert.equal(Boolean(createStep?.ok), true);
+    assert.equal(createStep?.result?.result?.workOrder?.x402ToolId, "openclaw_substrate_demo");
+    assert.equal(createStep?.result?.result?.workOrder?.x402ProviderId, report?.ids?.workerAgentId);
+    assert.equal(createStep?.result?.result?.workOrder?.acceptanceBinding?.acceptanceId, report?.ids?.acceptanceId);
+    assert.equal(report?.summary?.workOrderAcceptanceBound, true);
 
     const completionReceipt = completeStep?.result?.result?.completionReceipt;
     assert.match(String(completionReceipt?.receiptHash ?? ""), /^[a-f0-9]{64}$/);
@@ -209,9 +228,67 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     assert.ok(completionReceipt.evidenceRefs.some((ref) => String(ref).startsWith("sha256:")));
     assert.ok(completionReceipt.evidenceRefs.some((ref) => String(ref).startsWith("verification://")));
 
-    const settleStep = report.transcript?.find((row) => row?.step === "settld.work_order_settle");
+    const settleStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_settle");
     assert.equal(Boolean(settleStep?.ok), true);
     assert.equal(settleStep?.result?.result?.workOrder?.settlement?.status, "released");
+
+    const lineageStep = report.transcript?.find((row) => row?.step === "nooterra.audit_lineage_list");
+    assert.equal(Boolean(lineageStep?.ok), true);
+    const lineage = lineageStep?.result?.result?.lineage;
+    assert.equal(lineage?.schemaVersion, "AuditLineage.v1");
+    assert.match(String(lineage?.lineageHash ?? ""), /^[a-f0-9]{64}$/);
+    assert.equal(lineage?.filters?.traceId, report?.ids?.traceId);
+    assert.equal(report?.summary?.auditLineageHash, lineage?.lineageHash);
+    assert.equal(Number.isSafeInteger(report?.summary?.auditLineageTotalRecords), true);
+    assert.equal(report?.summary?.auditLineageTotalRecords >= 1, true);
+
+    const lineageVerifyStep = report.transcript?.find((row) => row?.step === "ops.audit_lineage_verify");
+    assert.equal(Boolean(lineageVerifyStep?.ok), true);
+    assert.equal(lineageVerifyStep?.result?.schemaVersion, "AuditLineageVerificationReport.v1");
+    assert.equal(lineageVerifyStep?.result?.ok, true);
+    assert.equal(lineageVerifyStep?.result?.lineageHash, lineage?.lineageHash);
+    assert.equal(report?.summary?.auditLineageVerificationOk, true);
+
+    const replayPackStep = report.transcript?.find((row) => row?.step === "nooterra.session_replay_pack_get");
+    assert.equal(Boolean(replayPackStep?.ok), true);
+    const replayPack = replayPackStep?.result?.result?.replayPack;
+    assert.equal(replayPack?.schemaVersion, "SessionReplayPack.v1");
+    assert.equal(replayPack?.sessionId, report?.ids?.sessionId);
+    assert.match(String(replayPack?.packHash ?? ""), /^[a-f0-9]{64}$/);
+
+    const sessionTranscriptStep = report.transcript?.find((row) => row?.step === "nooterra.session_transcript_get");
+    assert.equal(Boolean(sessionTranscriptStep?.ok), true);
+    const sessionTranscript = sessionTranscriptStep?.result?.result?.transcript;
+    assert.equal(sessionTranscript?.schemaVersion, "SessionTranscript.v1");
+    assert.equal(sessionTranscript?.sessionId, report?.ids?.sessionId);
+    assert.match(String(sessionTranscript?.transcriptHash ?? ""), /^[a-f0-9]{64}$/);
+    assert.equal(sessionTranscript?.verification?.chainOk, true);
+    assert.equal(sessionTranscript?.verification?.provenance?.ok, true);
+    assert.equal(sessionTranscript?.eventCount, replayPack?.eventCount);
+    assert.equal(sessionTranscript?.headChainHash, replayPack?.headChainHash);
+    assert.equal(sessionTranscript?.sessionHash, replayPack?.sessionHash);
+    assert.equal(report?.summary?.sessionReplayPackHash, replayPack?.packHash);
+    assert.equal(report?.summary?.sessionReplayPackEventCount, replayPack?.eventCount);
+    assert.equal(report?.summary?.sessionTranscriptHash, sessionTranscript?.transcriptHash);
+    assert.equal(report?.summary?.sessionTranscriptEventCount, sessionTranscript?.eventCount);
+    assert.equal(report?.summary?.sessionTranscriptVerificationOk, true);
+    assert.equal(report?.summary?.sessionTranscriptProvenanceVerificationOk, true);
+
+    assert.equal(typeof report?.ids?.lineageInputPath, "string");
+    assert.equal(typeof report?.ids?.lineageVerificationPath, "string");
+    assert.equal(report.ids.lineageInputPath.includes("openclaw-substrate-demo-lineage-"), true);
+    assert.equal(report.ids.lineageVerificationPath.includes("openclaw-substrate-demo-lineage-verify-"), true);
+
+    const lineageInputRaw = await readFile(report.ids.lineageInputPath, "utf8");
+    const lineageInput = JSON.parse(lineageInputRaw);
+    assert.equal(lineageInput?.lineage?.schemaVersion, "AuditLineage.v1");
+    assert.equal(lineageInput?.lineage?.lineageHash, lineage?.lineageHash);
+
+    const lineageVerifyRaw = await readFile(report.ids.lineageVerificationPath, "utf8");
+    const lineageVerify = JSON.parse(lineageVerifyRaw);
+    assert.equal(lineageVerify?.schemaVersion, "AuditLineageVerificationReport.v1");
+    assert.equal(lineageVerify?.ok, true);
+    assert.equal(lineageVerify?.lineageHash, lineage?.lineageHash);
   } finally {
     await stopChildProcess(api);
   }

@@ -34,7 +34,7 @@ Verification sweep (2026-02-09):
 | STLD-T1502 Ship guided first settlement UI | done | onboarding now includes explicit first-settlement checklist flow (Step 5 with summary/progress/refresh + analytics handoff) in `services/magic-link/src/server.js`; covered by onboarding UI assertions in `test/magic-link-service.test.js` | None |
 | STLD-T1503 Instrument onboarding funnel events | done | onboarding event ingestion route `/v1/tenants/:tenantId/onboarding/events`; enriched onboarding metrics include funnel + drop-off + cohort rows in `services/magic-link/src/server.js` + `services/magic-link/src/tenant-onboarding.js`; validated in `test/magic-link-service.test.js` | None |
 
-## S16 Arbitration Ops v1
+## S16 Arbitration Ops
 
 | Ticket | Status | Evidence | Remaining |
 |---|---|---|---|
@@ -42,7 +42,7 @@ Verification sweep (2026-02-09):
 | STLD-T1602 Implement arbitration operator workspace | done | ops HTML workspace shipped at `/ops/arbitration/workspace` in `src/api/app.js` with queue filters, case detail panel, evidence timeline, and assign/evidence/verdict/close actions; covered by `test/api-e2e-ops-arbitration-workspace.test.js` | None |
 | STLD-T1603 Add arbitration SLA watchdog alerts | done | command-center includes `disputes.overSlaCases` with case IDs; emits `dispute_case_over_sla` alerts with dimensions (`caseId`,`runId`,`disputeId`,`priority`) in `src/api/app.js`; validated in `test/api-e2e-ops-command-center.test.js` | None |
 
-## S17 Policy Control Plane v1
+## S17 Policy Control Plane
 
 | Ticket | Status | Evidence | Remaining |
 |---|---|---|---|
@@ -62,8 +62,8 @@ Verification sweep (2026-02-09):
 
 | Ticket | Status | Evidence | Remaining |
 |---|---|---|---|
-| STLD-T1901 Add capability listing object and API | done | canonical listing object + CRUD/query APIs at `/marketplace/capability-listings` in `src/api/app.js`; OpenAPI contract published in `src/api/openapi.js` + `openapi/settld.openapi.json`; covered by `test/api-e2e-marketplace-capability-listings.test.js` | None |
-| STLD-T1902 Implement RFQ and bid submission endpoints | done | external contract hard-cut to RFQ semantics in `src/api/app.js` and `src/api/openapi.js` (`rfq`,`rfqs`,`rfqId` only), OpenAPI artifact regenerated in `openapi/settld.openapi.json`, and workspace naming aligned in `/ops/marketplace/workspace`; validated by `test/api-e2e-marketplace-tasks.test.js`, `test/api-e2e-ops-marketplace-workspace.test.js`, and `test/api-openapi.test.js` | None |
+| STLD-T1901 Add capability listing object and API | done | canonical listing object + CRUD/query APIs at `/marketplace/capability-listings` in `src/api/app.js`; OpenAPI contract published in `src/api/openapi.js` + `openapi/nooterra.openapi.json`; covered by `test/api-e2e-marketplace-capability-listings.test.js` | None |
+| STLD-T1902 Implement RFQ and bid submission endpoints | done | external contract hard-cut to RFQ semantics in `src/api/app.js` and `src/api/openapi.js` (`rfq`,`rfqs`,`rfqId` only), OpenAPI artifact regenerated in `openapi/nooterra.openapi.json`, and workspace naming aligned in `/ops/marketplace/workspace`; validated by `test/api-e2e-marketplace-tasks.test.js`, `test/api-e2e-ops-marketplace-workspace.test.js`, and `test/api-openapi.test.js` | None |
 | STLD-T1903 Ship marketplace beta UI | done | operator workspace shipped at `/ops/marketplace/workspace` in `src/api/app.js` with capability listing, RFQ task creation, bid submission, and acceptance controls; covered by `test/api-e2e-ops-marketplace-workspace.test.js` | None |
 
 ## Post-S19 Next (Real Critical Path)
@@ -71,7 +71,7 @@ Verification sweep (2026-02-09):
 | Stream | Status | Evidence | Remaining |
 |---|---|---|---|
 | STLD-T177 10x throughput drill | done | load drill runner `scripts/ci/run-10x-throughput-drill.mjs` + incident rehearsal runner `scripts/ci/run-10x-throughput-incident-rehearsal.mjs`, workflows `.github/workflows/throughput-drill-10x.yml`/`.github/workflows/go-live-gate.yml`, runbook `docs/ops/THROUGHPUT_DRILL_10X.md`, and artifacts `artifacts/throughput/10x-drill-summary.json` + `artifacts/throughput/10x-incident-rehearsal-summary.json` validated by `run-go-live-gate.mjs` and `build-launch-cutover-packet.mjs` | None |
-| STLD-T179 settlement-volume fee billing | done | invoice-grade billing draft lines (`BillingInvoiceDraft.v1`) shipped in `src/api/app.js` period-close flow with deterministic source digests and line-item linkage for settled-volume fees; covered in `test/api-e2e-billing-plan-enforcement.test.js` | None |
+| STLD-T179 settlement-volume fee billing | done | invoice-grade billing draft lines (`BillingInvoiceDraft`) shipped in `src/api/app.js` period-close flow with deterministic source digests and line-item linkage for settled-volume fees; covered in `test/api-e2e-billing-plan-enforcement.test.js` | None |
 | STLD-T180 lighthouse production customers | done | lighthouse tracker source-of-truth `planning/launch/lighthouse-production-tracker.json`, validation module `scripts/ci/lib/lighthouse-tracker.mjs`, update CLI `scripts/ci/update-lighthouse-tracker.mjs`, and 3/3 active accounts with required evidence fields now present | None |
 | STLD-T182 go-live gate and cutover | done | unified gate runner `scripts/ci/run-go-live-gate.mjs`, cutover packet generator `scripts/ci/build-launch-cutover-packet.mjs`, workflow `.github/workflows/go-live-gate.yml`, runbook `docs/ops/GO_LIVE_GATE_S13.md`, and green artifacts `artifacts/gates/s13-go-live-gate.json` + `artifacts/gates/s13-launch-cutover-packet.json` (`verdict.ok=true`) | None |
 

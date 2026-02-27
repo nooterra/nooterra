@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Settld Kernel v0</title>
+    <title>Nooterra Kernel v0</title>
     <style>
       :root {
         color-scheme: light;
@@ -196,15 +196,15 @@
       <section class="card">
         <h2>Kernel conformance</h2>
         <div class="code">
-          <pre>npx settld conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json</pre>
+          <pre>npx nooterra conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json</pre>
         </div>
       </section>
 
       <section class="card">
         <h2>Offline verification and audit export</h2>
         <div class="code">
-          <pre>npx settld closepack export --agreement-hash &lt;hash&gt; --out closepack.zip
-npx settld closepack verify closepack.zip --json-out verify.json</pre>
+          <pre>npx nooterra closepack export --agreement-hash &lt;hash&gt; --out closepack.zip
+npx nooterra closepack verify closepack.zip --json-out verify.json</pre>
         </div>
       </section>
     </main>

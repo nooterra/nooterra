@@ -1,6 +1,6 @@
 # Quickstart: First verified agent run with the SDK
 
-Goal: run one end-to-end agent transaction (register identities, append run events, verify `green`, release settlement) using `SettldClient.firstVerifiedRun(...)`.
+Goal: run one end-to-end agent transaction (register identities, append run events, verify `green`, release settlement) using `NooterraClient.firstVerifiedRun(...)`.
 
 ## 0) Install deps
 
@@ -40,7 +40,7 @@ npm run dev:billing:doctor
 Optional: make `sdk:first-run` create a disputable settlement window:
 
 ```sh
-SETTLD_SDK_DISPUTE_WINDOW_DAYS=3 npm run sdk:first-run
+NOOTERRA_SDK_DISPUTE_WINDOW_DAYS=3 npm run sdk:first-run
 ```
 
 ## 1) Start the API with a local ops token
@@ -55,12 +55,12 @@ npm run dev:api
 In a second shell:
 
 ```sh
-export SETTLD_BASE_URL=http://127.0.0.1:3000
-export SETTLD_TENANT_ID=tenant_default
-export SETTLD_API_KEY="$(
-  curl -sS -X POST "$SETTLD_BASE_URL/ops/api-keys" \
+export NOOTERRA_BASE_URL=http://127.0.0.1:3000
+export NOOTERRA_TENANT_ID=tenant_default
+export NOOTERRA_API_KEY="$(
+  curl -sS -X POST "$NOOTERRA_BASE_URL/ops/api-keys" \
     -H "authorization: Bearer $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -H "content-type: application/json" \
     -d '{"scopes":["ops_read","ops_write","finance_read","finance_write","audit_read"],"description":"sdk quickstart"}' \
   | jq -r '.keyId + "." + .secret'
@@ -86,16 +86,42 @@ Expected output:
 }
 ```
 
+## 3b) Run ACS substrate smoke flow (JS SDK)
+
+This exercises discovery, delegation grants, authority grants, negotiation, work orders, state checkpoints, session lineage, reputation graph wrappers, and capability attestations end-to-end.
+
+```sh
+npm run sdk:acs-smoke
+```
+
+Expected output:
+
+```json
+{
+  "principalAgentId": "agt_js_acs_principal_...",
+  "workerAgentId": "agt_js_acs_worker_...",
+  "delegationGrantId": "dgrant_...",
+  "authorityGrantId": "agrant_...",
+  "workOrderId": "workord_...",
+  "workOrderStatus": "completed",
+  "completionStatus": "success",
+  "sessionId": "sess_...",
+  "checkpointId": "chkpt_...",
+  "checkpointHash": "sha256...",
+  "attestationId": "catt_..."
+}
+```
+
 ## 4) Use the helper directly in code
 
 ```js
-import { SettldClient } from "./packages/api-sdk/src/index.js";
+import { NooterraClient } from "./packages/api-sdk/src/index.js";
 
-const client = new SettldClient({
-  baseUrl: process.env.SETTLD_BASE_URL,
-  tenantId: process.env.SETTLD_TENANT_ID,
-  apiKey: process.env.SETTLD_API_KEY,
-  xApiKey: process.env.SETTLD_X_API_KEY // optional for Magic Link deployments that enforce x-api-key
+const client = new NooterraClient({
+  baseUrl: process.env.NOOTERRA_BASE_URL,
+  tenantId: process.env.NOOTERRA_TENANT_ID,
+  apiKey: process.env.NOOTERRA_API_KEY,
+  xApiKey: process.env.NOOTERRA_X_API_KEY // optional for Magic Link deployments that enforce x-api-key
 });
 
 const result = await client.firstVerifiedRun({
@@ -118,8 +144,8 @@ const diff = await client.diffTenantTrustGraph("tenant_default", { baseMonth: "2
 Or run the prebuilt script:
 
 ```sh
-SETTLD_BASE_URL=http://127.0.0.1:8787 \
-SETTLD_TENANT_ID=tenant_default \
-SETTLD_X_API_KEY=test_key \
+NOOTERRA_BASE_URL=http://127.0.0.1:8787 \
+NOOTERRA_TENANT_ID=tenant_default \
+NOOTERRA_X_API_KEY=test_key \
 npm run sdk:analytics
 ```

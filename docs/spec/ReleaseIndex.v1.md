@@ -1,6 +1,6 @@
 # ReleaseIndex.v1
 
-`ReleaseIndex.v1` is a **signed release manifest** for Settld distribution artifacts.
+`ReleaseIndex.v1` is a **signed release manifest** for Nooterra distribution artifacts.
 
 It is a tooling contract (not a bundle protocol object). Its purpose is to make release authenticity verifiable:
 

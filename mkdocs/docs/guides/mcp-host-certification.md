@@ -1,17 +1,17 @@
 # MCP Host Certification
 
-This verifies that a host can run Settld MCP paths reliably.
+This verifies that a host can run Nooterra MCP paths reliably.
 
 ## 1) Doctor check
 
 ```bash
-npx settld doctor
+npx nooterra doctor
 ```
 
 Optional report output:
 
 ```bash
-npx settld doctor --report ./artifacts/ops/doctor-report.json
+npx nooterra doctor --report ./artifacts/ops/doctor-report.json
 ```
 
 ## 2) Onboarding smoke (runtime bootstrap + MCP call)
@@ -40,5 +40,5 @@ A host is considered ready when all are true:
 
 - Setup writes host config deterministically
 - MCP initialize + tools/list succeeds
-- `settld.about` tool call succeeds
+- `nooterra.about` tool call succeeds
 - First paid path completes with verifiable receipt

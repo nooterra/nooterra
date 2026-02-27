@@ -9,7 +9,7 @@ import { bootstrapLocalGateEnv } from "./local-bootstrap.mjs";
 
 const SCHEMA_VERSION = "OpenClawClawhubInstallSmoke.v1";
 const DEFAULT_OUT = "artifacts/ops/openclaw-clawhub-install-smoke.json";
-const DEFAULT_SKILL_SLUG = "settld-mcp-payments";
+const DEFAULT_SKILL_SLUG = "nooterra-mcp-payments";
 
 function nowIso() {
   return new Date().toISOString();
@@ -24,8 +24,8 @@ function usage() {
     `  --out <file>                 Report path (default: ${DEFAULT_OUT})`,
     "  --force                      Pass --force to `clawhub install` (required for suspicious-skills non-interactive install)",
     "  --bootstrap-local            Bootstrap local API + temporary API key for MCP call validation",
-    "  --bootstrap-base-url <url>   Bootstrap API base URL (default: SETTLD_BASE_URL or http://127.0.0.1:3000)",
-    "  --bootstrap-tenant-id <id>   Bootstrap tenant id (default: SETTLD_TENANT_ID or tenant_default)",
+    "  --bootstrap-base-url <url>   Bootstrap API base URL (default: NOOTERRA_BASE_URL or http://127.0.0.1:3000)",
+    "  --bootstrap-tenant-id <id>   Bootstrap tenant id (default: NOOTERRA_TENANT_ID or tenant_default)",
     "  --bootstrap-ops-token <tok>  Bootstrap ops token (default: PROXY_OPS_TOKEN or tok_ops)",
     "  --help                       Show help"
   ].join("\n");
@@ -34,12 +34,12 @@ function usage() {
 function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
     help: false,
-    slug: String(env.SETTLD_CLAWHUB_SKILL_SLUG ?? DEFAULT_SKILL_SLUG).trim(),
+    slug: String(env.NOOTERRA_CLAWHUB_SKILL_SLUG ?? DEFAULT_SKILL_SLUG).trim(),
     out: path.resolve(cwd, DEFAULT_OUT),
     force: false,
     bootstrapLocal: false,
-    bootstrapBaseUrl: String(env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000").trim(),
-    bootstrapTenantId: String(env.SETTLD_TENANT_ID ?? "tenant_default").trim(),
+    bootstrapBaseUrl: String(env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000").trim(),
+    bootstrapTenantId: String(env.NOOTERRA_TENANT_ID ?? "tenant_default").trim(),
     bootstrapOpsToken: String(env.PROXY_OPS_TOKEN ?? "tok_ops").trim()
   };
 
@@ -158,7 +158,7 @@ async function findSkillRoot(skillsDir, slug, hintRoots = []) {
     const skillMdPath = path.join(root, "SKILL.md");
     try {
       const raw = await fs.readFile(skillMdPath, "utf8");
-      if (raw.toLowerCase().includes(slug.toLowerCase()) || raw.toLowerCase().includes("settld")) {
+      if (raw.toLowerCase().includes(slug.toLowerCase()) || raw.toLowerCase().includes("nooterra")) {
         return root;
       }
     } catch {}
@@ -280,7 +280,7 @@ function checkRpcSuccess(rpcResponse, label) {
 async function runSmoke(args) {
   const startedAt = nowIso();
   const checks = [];
-  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-clawhub-install-smoke-"));
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-clawhub-install-smoke-"));
   const skillsDir = path.join(workspaceDir, "skills");
   await fs.mkdir(skillsDir, { recursive: true });
 
@@ -367,12 +367,12 @@ async function runSmoke(args) {
     if (!installedSkillRoot) throw new Error("installed skill root not found");
 
     const skillMd = await fs.readFile(path.join(installedSkillRoot, "SKILL.md"), "utf8");
-    const hasSettldKeyword = skillMd.toLowerCase().includes("settld");
+    const hasNooterraKeyword = skillMd.toLowerCase().includes("nooterra");
     checks.push({
-      id: "skill_markdown_contains_settld",
-      ok: hasSettldKeyword
+      id: "skill_markdown_contains_nooterra",
+      ok: hasNooterraKeyword
     });
-    if (!hasSettldKeyword) throw new Error("installed SKILL.md does not appear to be Settld skill");
+    if (!hasNooterraKeyword) throw new Error("installed SKILL.md does not appear to be Nooterra skill");
 
     const mcpExamplePath = path.join(installedSkillRoot, "mcp-server.example.json");
     const mcpServerExampleRaw = await fs.readFile(mcpExamplePath, "utf8");
@@ -395,12 +395,31 @@ async function runSmoke(args) {
       command: serverConfig.command,
       args: serverConfig.args,
       env: bootstrap.envPatch,
-      toolName: "settld.about",
+      toolName: "nooterra.about",
       toolArgs: {}
     });
     checkRpcSuccess(mcpCall.initialize, "initialize");
     checkRpcSuccess(mcpCall.toolsList, "tools/list");
-    checkRpcSuccess(mcpCall.toolCall, "tools/call settld.about");
+    checkRpcSuccess(mcpCall.toolCall, "tools/call nooterra.about");
+    const requiredTools = [
+      "nooterra.relationships_list",
+      "nooterra.public_reputation_summary_get",
+      "nooterra.interaction_graph_pack_get"
+    ];
+    const listedTools = Array.isArray(mcpCall.toolsList?.result?.tools) ? mcpCall.toolsList.result.tools : [];
+    const listedNames = new Set(listedTools.map((row) => String(row?.name ?? "").trim()).filter(Boolean));
+    const missingRequiredTools = requiredTools.filter((name) => !listedNames.has(name));
+    checks.push({
+      id: "mcp_required_substrate_tools_present",
+      ok: missingRequiredTools.length === 0,
+      details: {
+        requiredTools,
+        missingRequiredTools
+      }
+    });
+    if (missingRequiredTools.length) {
+      throw new Error(`missing required substrate MCP tools: ${missingRequiredTools.join(", ")}`);
+    }
 
     checks.push({
       id: "mcp_initialize_tools_list_tools_call",

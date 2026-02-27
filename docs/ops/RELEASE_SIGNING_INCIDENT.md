@@ -1,6 +1,6 @@
 # Release signing incident runbook
 
-This runbook covers the “release signing key compromised” scenario for Settld distribution artifacts.
+This runbook covers the “release signing key compromised” scenario for Nooterra distribution artifacts.
 
 ## Immediate goals
 
@@ -11,7 +11,7 @@ This runbook covers the “release signing key compromised” scenario for Settl
 
 - Release authenticity is verified via `ReleaseIndex.v1` + `ReleaseTrust.v2` (see `docs/spec/SUPPLY_CHAIN.md`).
 - Release trust roots are pinned in `trust/release-trust.json`.
-- Release signing private keys are stored as CI secrets (e.g., `SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM`).
+- Release signing private keys are stored as CI secrets (e.g., `NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM`).
 
 ## Procedure (high-level)
 
@@ -37,7 +37,7 @@ This runbook covers the “release signing key compromised” scenario for Settl
 
 - Produce release artifacts.
 - Verify via:
-  - `settld-release verify --dir <release-assets-dir> --trust-file trust/release-trust.json --format json --explain`
+  - `nooterra-release verify --dir <release-assets-dir> --trust-file trust/release-trust.json --format json --explain`
 
 5) **Validate the block**
 

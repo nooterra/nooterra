@@ -5,7 +5,7 @@ import { detectDeploymentAuthMode } from "../scripts/setup/login.mjs";
 
 test("auth mode detection: returns known mode from endpoint", async () => {
   const out = await detectDeploymentAuthMode({
-    baseUrl: "https://api.settld.work",
+    baseUrl: "https://api.nooterra.work",
     fetchImpl: async () =>
       new Response(JSON.stringify({ ok: true, authMode: "enterprise_preprovisioned", enterpriseProvisionedTenantsOnly: true }), {
         status: 200,
@@ -19,7 +19,7 @@ test("auth mode detection: returns known mode from endpoint", async () => {
 
 test("auth mode detection: falls back to unknown on non-200", async () => {
   const out = await detectDeploymentAuthMode({
-    baseUrl: "https://api.settld.work",
+    baseUrl: "https://api.nooterra.work",
     fetchImpl: async () =>
       new Response(JSON.stringify({ ok: false }), {
         status: 404,

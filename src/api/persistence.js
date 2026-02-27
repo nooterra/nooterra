@@ -185,6 +185,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "AGENT_CARD_ABUSE_REPORT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const report = op.report ?? null;
+      if (!report || typeof report !== "object" || Array.isArray(report)) {
+        throw new TypeError("AGENT_CARD_ABUSE_REPORT_UPSERT requires report");
+      }
+      const reportId = report.reportId ?? op.reportId ?? null;
+      if (!reportId) throw new TypeError("AGENT_CARD_ABUSE_REPORT_UPSERT requires report.reportId");
+      if (!(store.agentCardAbuseReports instanceof Map)) store.agentCardAbuseReports = new Map();
+      const key = makeScopedKey({ tenantId, id: String(reportId) });
+      store.agentCardAbuseReports.set(key, { ...report, tenantId, reportId: String(reportId) });
+      continue;
+    }
+
     if (kind === "SESSION_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const session = op.session ?? null;
@@ -691,6 +705,62 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "AUTHORITY_GRANT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const authorityGrant = op.authorityGrant ?? null;
+      if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) {
+        throw new TypeError("AUTHORITY_GRANT_UPSERT requires authorityGrant");
+      }
+      const grantId = authorityGrant.grantId ?? op.grantId ?? null;
+      if (!grantId) throw new TypeError("AUTHORITY_GRANT_UPSERT requires authorityGrant.grantId");
+      if (!(store.authorityGrants instanceof Map)) store.authorityGrants = new Map();
+      const key = makeScopedKey({ tenantId, id: String(grantId) });
+      store.authorityGrants.set(key, { ...authorityGrant, tenantId, grantId: String(grantId) });
+      continue;
+    }
+
+    if (kind === "TASK_QUOTE_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const taskQuote = op.taskQuote ?? null;
+      if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) {
+        throw new TypeError("TASK_QUOTE_UPSERT requires taskQuote");
+      }
+      const quoteId = taskQuote.quoteId ?? op.quoteId ?? null;
+      if (!quoteId) throw new TypeError("TASK_QUOTE_UPSERT requires taskQuote.quoteId");
+      if (!(store.taskQuotes instanceof Map)) store.taskQuotes = new Map();
+      const key = makeScopedKey({ tenantId, id: String(quoteId) });
+      store.taskQuotes.set(key, { ...taskQuote, tenantId, quoteId: String(quoteId) });
+      continue;
+    }
+
+    if (kind === "TASK_OFFER_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const taskOffer = op.taskOffer ?? null;
+      if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) {
+        throw new TypeError("TASK_OFFER_UPSERT requires taskOffer");
+      }
+      const offerId = taskOffer.offerId ?? op.offerId ?? null;
+      if (!offerId) throw new TypeError("TASK_OFFER_UPSERT requires taskOffer.offerId");
+      if (!(store.taskOffers instanceof Map)) store.taskOffers = new Map();
+      const key = makeScopedKey({ tenantId, id: String(offerId) });
+      store.taskOffers.set(key, { ...taskOffer, tenantId, offerId: String(offerId) });
+      continue;
+    }
+
+    if (kind === "TASK_ACCEPTANCE_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const taskAcceptance = op.taskAcceptance ?? null;
+      if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) {
+        throw new TypeError("TASK_ACCEPTANCE_UPSERT requires taskAcceptance");
+      }
+      const acceptanceId = taskAcceptance.acceptanceId ?? op.acceptanceId ?? null;
+      if (!acceptanceId) throw new TypeError("TASK_ACCEPTANCE_UPSERT requires taskAcceptance.acceptanceId");
+      if (!(store.taskAcceptances instanceof Map)) store.taskAcceptances = new Map();
+      const key = makeScopedKey({ tenantId, id: String(acceptanceId) });
+      store.taskAcceptances.set(key, { ...taskAcceptance, tenantId, acceptanceId: String(acceptanceId) });
+      continue;
+    }
+
     if (kind === "CAPABILITY_ATTESTATION_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const capabilityAttestation = op.capabilityAttestation ?? null;
@@ -733,6 +803,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "STATE_CHECKPOINT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const stateCheckpoint = op.stateCheckpoint ?? null;
+      if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) {
+        throw new TypeError("STATE_CHECKPOINT_UPSERT requires stateCheckpoint");
+      }
+      const checkpointId = stateCheckpoint.checkpointId ?? op.checkpointId ?? null;
+      if (!checkpointId) throw new TypeError("STATE_CHECKPOINT_UPSERT requires stateCheckpoint.checkpointId");
+      if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
+      const key = makeScopedKey({ tenantId, id: String(checkpointId) });
+      store.stateCheckpoints.set(key, { ...stateCheckpoint, tenantId, checkpointId: String(checkpointId) });
+      continue;
+    }
+
     if (kind === "X402_GATE_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const gate = op.gate ?? null;
@@ -756,8 +840,19 @@ export function applyTxRecord(store, record) {
       const agentId = agentLifecycle.agentId ?? op.agentId ?? null;
       if (!agentId) throw new TypeError("X402_AGENT_LIFECYCLE_UPSERT requires agentLifecycle.agentId");
       const status = typeof agentLifecycle.status === "string" ? agentLifecycle.status.trim().toLowerCase() : "";
-      if (status !== "active" && status !== "frozen" && status !== "archived") {
-        throw new TypeError("X402_AGENT_LIFECYCLE_UPSERT requires status active|frozen|archived");
+      if (
+        status !== "provisioned" &&
+        status !== "active" &&
+        status !== "throttled" &&
+        status !== "suspended" &&
+        status !== "quarantined" &&
+        status !== "decommissioned" &&
+        status !== "frozen" &&
+        status !== "archived"
+      ) {
+        throw new TypeError(
+          "X402_AGENT_LIFECYCLE_UPSERT requires status provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+        );
       }
       if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
       const key = makeScopedKey({ tenantId, id: String(agentId) });

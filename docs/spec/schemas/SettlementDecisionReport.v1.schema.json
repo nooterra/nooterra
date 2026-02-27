@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/SettlementDecisionReport.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/SettlementDecisionReport.v1.schema.json",
   "title": "SettlementDecisionReport.v1",
   "type": "object",
   "required": ["schemaVersion", "decision", "decidedAt", "invoiceBundle", "policy", "verification", "tool", "reportHash", "signature", "signerKeyId", "signedAt"],

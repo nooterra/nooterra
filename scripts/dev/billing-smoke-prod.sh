@@ -15,21 +15,21 @@ for bin in curl jq; do
   fi
 done
 
-: "${SETTLD_BASE_URL:?SETTLD_BASE_URL is required (example: https://<your-api-domain>)}"
+: "${NOOTERRA_BASE_URL:?NOOTERRA_BASE_URL is required (example: https://<your-api-domain>)}"
 : "${PROXY_OPS_TOKEN:?PROXY_OPS_TOKEN is required}"
 
 # Default to an isolated smoke tenant to avoid stale billing/subscription state
 # in long-lived tenants (for example tenant_default).
-if [[ -z "${SETTLD_TENANT_ID:-}" || "${SETTLD_TENANT_ID}" == "tenant_default" ]]; then
-  SETTLD_TENANT_ID="tenant_smoke_$(date +%s)"
+if [[ -z "${NOOTERRA_TENANT_ID:-}" || "${NOOTERRA_TENANT_ID}" == "tenant_default" ]]; then
+  NOOTERRA_TENANT_ID="tenant_smoke_$(date +%s)"
 fi
-export SETTLD_TENANT_ID
+export NOOTERRA_TENANT_ID
 
-if [[ "$SETTLD_BASE_URL" == "http://127.0.0.1:3000" || "$SETTLD_BASE_URL" == "http://localhost:3000" ]]; then
+if [[ "$NOOTERRA_BASE_URL" == "http://127.0.0.1:3000" || "$NOOTERRA_BASE_URL" == "http://localhost:3000" ]]; then
   cat <<EOF
-This is the production smoke script, but SETTLD_BASE_URL is still local ($SETTLD_BASE_URL).
+This is the production smoke script, but NOOTERRA_BASE_URL is still local ($NOOTERRA_BASE_URL).
 Set your deployed API URL once:
-  echo 'SETTLD_BASE_URL=https://api.settld.work' >> .env.dev.runtime
+  echo 'NOOTERRA_BASE_URL=https://api.nooterra.work' >> .env.dev.runtime
 EOF
   exit 1
 fi
@@ -46,9 +46,9 @@ fi
 api_get() {
   local path="$1"
   local response body status
-  response="$(curl -sS "$SETTLD_BASE_URL$path" \
+  response="$(curl -sS "$NOOTERRA_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -w $'\n%{http_code}')"
   body="$(printf "%s" "$response" | sed '$d')"
   status="$(printf "%s" "$response" | tail -n1)"
@@ -64,9 +64,9 @@ api_post_json() {
   local path="$1"
   local payload="$2"
   local response body status
-  response="$(curl -sS -X POST "$SETTLD_BASE_URL$path" \
+  response="$(curl -sS -X POST "$NOOTERRA_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -H "content-type: application/json" \
     -d "$payload" \
     -w $'\n%{http_code}')"
@@ -84,9 +84,9 @@ api_post_json_with_status() {
   local path="$1"
   local payload="$2"
   local response body status
-  response="$(curl -sS -X POST "$SETTLD_BASE_URL$path" \
+  response="$(curl -sS -X POST "$NOOTERRA_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -H "content-type: application/json" \
     -d "$payload" \
     -w $'\n%{http_code}')"
@@ -96,10 +96,10 @@ api_post_json_with_status() {
 }
 
 echo "[1/5] Health check..."
-HEALTH_RAW="$(curl -sS "$SETTLD_BASE_URL/healthz" || true)"
+HEALTH_RAW="$(curl -sS "$NOOTERRA_BASE_URL/healthz" || true)"
 if ! echo "$HEALTH_RAW" | jq -e . >/dev/null 2>&1; then
   echo "Health endpoint did not return JSON."
-  echo "This usually means SETTLD_BASE_URL points to the frontend (for example Vercel) instead of the API service."
+  echo "This usually means NOOTERRA_BASE_URL points to the frontend (for example Vercel) instead of the API service."
   echo
   echo "First 240 chars returned:"
   echo "$HEALTH_RAW" | head -c 240
@@ -120,7 +120,7 @@ if [[ -n "${PROXY_BILLING_STRIPE_SECRET_KEY:-}" ]]; then
   STRIPE_CUSTOMER_ID="$(
     curl -sS https://api.stripe.com/v1/customers \
       -u "$PROXY_BILLING_STRIPE_SECRET_KEY:" \
-      -d "name=Settld Smoke Customer $(date +%s)" | jq -r '.id'
+      -d "name=Nooterra Smoke Customer $(date +%s)" | jq -r '.id'
   )"
   if [[ -z "$STRIPE_CUSTOMER_ID" || "$STRIPE_CUSTOMER_ID" == "null" ]]; then
     echo "Failed to create Stripe customer for smoke run." >&2
@@ -132,8 +132,8 @@ echo "[2/5] Billing checkout session..."
 CHECKOUT_PAYLOAD="$(jq -n \
   --arg plan "builder" \
   --arg customerId "$STRIPE_CUSTOMER_ID" \
-  --arg successUrl "${SETTLD_BASE_URL%/}/billing/success" \
-  --arg cancelUrl "${SETTLD_BASE_URL%/}/billing/cancel" \
+  --arg successUrl "${NOOTERRA_BASE_URL%/}/billing/success" \
+  --arg cancelUrl "${NOOTERRA_BASE_URL%/}/billing/cancel" \
   '{
     plan: $plan,
     successUrl: $successUrl,
@@ -188,7 +188,7 @@ RECON_PAYLOAD="$(jq -n \
   --arg price "$GROWTH_PRICE_ID" \
   --arg plan "growth" \
   --argjson created "$TS" \
-  '{events:[{id:$eventId,type:"customer.subscription.updated",created:$created,data:{object:{id:$subId,customer:$customerId,status:"active",items:{data:[{price:{id:$price,metadata:{settldPlan:$plan}}}]},metadata:{settldPlan:$plan}}}}]}'
+  '{events:[{id:$eventId,type:"customer.subscription.updated",created:$created,data:{object:{id:$subId,customer:$customerId,status:"active",items:{data:[{price:{id:$price,metadata:{nooterraPlan:$plan}}}]},metadata:{nooterraPlan:$plan}}}}]}'
 )"
 RECON_JSON="$(api_post_json "/ops/finance/billing/providers/stripe/reconcile" "$RECON_PAYLOAD")"
 echo "$RECON_JSON" | jq '{tenantId,summary}'
@@ -215,5 +215,5 @@ fi
 
 echo
 echo "Production billing smoke passed."
-echo "Base URL: $SETTLD_BASE_URL"
-echo "Tenant:   $SETTLD_TENANT_ID"
+echo "Base URL: $NOOTERRA_BASE_URL"
+echo "Tenant:   $NOOTERRA_TENANT_ID"

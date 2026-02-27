@@ -1,6 +1,6 @@
 # Conformance packs
 
-Conformance packs are **language-agnostic test oracles** for Settld verification.
+Conformance packs are **language-agnostic test oracles** for Nooterra verification.
 
 They are intended for:
 
@@ -11,4 +11,4 @@ They are intended for:
 ## Packs
 
 - `conformance/v1/` — first conformance pack for protocol `v1` objects.
-
+- `conformance/session-v1/` — session replay/transcript interoperability pack for third-party runtime adapters.

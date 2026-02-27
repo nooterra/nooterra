@@ -38,6 +38,6 @@ The API returns:
 ```sh
 curl -sS "http://localhost:3000/artifacts/art_123/status" \
   -H "x-proxy-tenant-id: tenant_default" \
-  -H "x-settld-protocol: 1.0" \
+  -H "x-nooterra-protocol: 1.0" \
   -H "x-proxy-ops-token: <ops_read_token>" | jq
 ```

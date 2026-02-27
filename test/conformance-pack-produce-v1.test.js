@@ -8,9 +8,9 @@ test("producer conformance pack v1 (produce + strict verify)", () => {
     [
       "conformance/v1/run-produce.mjs",
       "--produce-node-bin",
-      "packages/artifact-produce/bin/settld-produce.js",
+      "packages/artifact-produce/bin/nooterra-produce.js",
       "--verify-node-bin",
-      "packages/artifact-verify/bin/settld-verify.js"
+      "packages/artifact-verify/bin/nooterra-verify.js"
     ],
     { encoding: "utf8" }
   );

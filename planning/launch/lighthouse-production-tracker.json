@@ -5,8 +5,8 @@
   "accounts": [
     {
       "accountId": "lh_001",
-      "companyName": "Settld Internal Pilot A",
-      "owner": "founder@settld.work",
+      "companyName": "Nooterra Internal Pilot A",
+      "owner": "founder@nooterra.work",
       "status": "paid_production_settlement_confirmed",
       "signedAt": "2026-02-06T18:00:00.000Z",
       "goLiveAt": "2026-02-08T17:30:00.000Z",
@@ -15,8 +15,8 @@
     },
     {
       "accountId": "lh_002",
-      "companyName": "Settld Internal Pilot B",
-      "owner": "founder@settld.work",
+      "companyName": "Nooterra Internal Pilot B",
+      "owner": "founder@nooterra.work",
       "status": "production_active",
       "signedAt": "2026-02-07T19:00:00.000Z",
       "goLiveAt": "2026-02-09T14:20:00.000Z",
@@ -25,8 +25,8 @@
     },
     {
       "accountId": "lh_003",
-      "companyName": "Settld Internal Pilot C",
-      "owner": "founder@settld.work",
+      "companyName": "Nooterra Internal Pilot C",
+      "owner": "founder@nooterra.work",
       "status": "paid_production_settlement_confirmed",
       "signedAt": "2026-02-08T12:30:00.000Z",
       "goLiveAt": "2026-02-09T15:10:00.000Z",

@@ -1,10 +1,10 @@
 # Operations: Signing in production
 
-Settld supports producing strictly verifiable bundles without storing private keys on disk by using a remote signer.
+Nooterra supports producing strictly verifiable bundles without storing private keys on disk by using a remote signer.
 
 ## Recommended posture (hardened)
 
-- Use `settld-produce --signer remote` and keep private keys inside an HSM/KMS-backed signing service.
+- Use `nooterra-produce --signer remote` and keep private keys inside an HSM/KMS-backed signing service.
 - Keep `trust.json` (public trust anchors) in version control and rotate via PR.
 - In CI, use strict verification and archive `VerifyCliOutput.v1` JSON.
 

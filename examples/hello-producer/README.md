@@ -10,7 +10,7 @@ This example shows the “from zero” workflow a design partner can run without
 
 ```bash
 mkdir -p out/hello-producer
-npm exec --silent -- settld-trust init --out out/hello-producer/trust --format json --force
+npm exec --silent -- nooterra-trust init --out out/hello-producer/trust --format json --force
 ```
 
 This writes:
@@ -21,7 +21,7 @@ This writes:
 ## 2) Produce a JobProof bundle
 
 ```bash
-npm exec --silent -- settld-produce jobproof \
+npm exec --silent -- nooterra-produce jobproof \
   --out out/hello-producer/jobproof \
   --keys out/hello-producer/trust/keypairs.json \
   --format json \
@@ -34,10 +34,10 @@ npm exec --silent -- settld-produce jobproof \
 Then:
 
 ```bash
-export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "const fs=require('fs'); const t=JSON.parse(fs.readFileSync('out/hello-producer/trust/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}))")"
-export SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON="$(node -e "const fs=require('fs'); const t=JSON.parse(fs.readFileSync('out/hello-producer/trust/trust.json','utf8')); process.stdout.write(JSON.stringify(t.timeAuthorities||{}))")"
+export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "const fs=require('fs'); const t=JSON.parse(fs.readFileSync('out/hello-producer/trust/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}))")"
+export NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON="$(node -e "const fs=require('fs'); const t=JSON.parse(fs.readFileSync('out/hello-producer/trust/trust.json','utf8')); process.stdout.write(JSON.stringify(t.timeAuthorities||{}))")"
 
-npm exec --silent -- settld-verify --format json --strict --job-proof out/hello-producer/jobproof > out/hello-producer/verify.json
+npm exec --silent -- nooterra-verify --format json --strict --job-proof out/hello-producer/jobproof > out/hello-producer/verify.json
 ```
 
 `out/hello-producer/verify.json` is `VerifyCliOutput.v1` and is intended to be archived as audit evidence.

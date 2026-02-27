@@ -1,6 +1,6 @@
-# Service Level Objectives (SLO) — v1
+# Service Level Objectives (SLO)
 
-This document defines a minimal, explicit set of SLOs for Settld as a finance-grade system-of-record service.
+This document defines a minimal, explicit set of SLOs for Nooterra as a finance-grade system-of-record service.
 
 These SLOs are enforced in CI (kind smoke) via a post-run `/metrics` snapshot check (`scripts/slo/check.mjs`).
 
@@ -8,7 +8,7 @@ These SLOs are enforced in CI (kind smoke) via a post-run `/metrics` snapshot ch
 
 **Objective**
 
-- During the Kubernetes smoke lifecycle, the Settld API must not emit HTTP 5xx responses.
+- During the Kubernetes smoke lifecycle, the Nooterra API must not emit HTTP 5xx responses.
 
 **Metric**
 
@@ -96,7 +96,7 @@ If the outbox is growing without being drained, the system is not steady-state s
 
 **Objective**
 
-- Supported hosts must pass deterministic `settld setup --preflight-only` onboarding checks at or above a configured success rate under isolated HOME paths.
+- Supported hosts must pass deterministic `nooterra setup --preflight-only` onboarding checks at or above a configured success rate under isolated HOME paths.
 
 **Metrics**
 

@@ -18,7 +18,7 @@ const DEFAULT_MIN_SUCCESS_RATE_PCT = 90;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_PROFILE_ID = "engineering-spend";
 const DEFAULT_HOSTS = Object.freeze([...SUPPORTED_HOSTS]);
-const SETTLD_BIN = path.resolve(process.cwd(), "bin", "settld.js");
+const NOOTERRA_BIN = path.resolve(process.cwd(), "bin", "nooterra.js");
 
 function usage() {
   return [
@@ -27,11 +27,11 @@ function usage() {
     "options:",
     "  --report <file>              Output report path (default: artifacts/gates/onboarding-host-success-gate.json)",
     "  --metrics-dir <dir>          Metrics directory (default: artifacts/ops/onboarding-host-success)",
-    "  --hosts <csv>                Hosts to test (default: codex,claude,cursor,openclaw)",
+    "  --hosts <csv>                Hosts to test (default: nooterra,claude,cursor,openclaw)",
     "  --attempts <n>               Attempts per host (default: 1)",
     "  --min-success-rate-pct <n>   Minimum pass rate per host in percent (default: 90)",
     "  --timeout-ms <n>             Per-attempt timeout (default: 60000)",
-    "  --base-url <url>             Settld API URL (required)",
+    "  --base-url <url>             Nooterra API URL (required)",
     "  --tenant-id <id>             Tenant ID (required)",
     "  --api-key <key>              Tenant API key (required)",
     "  --profile-id <id>            Starter profile ID (default: engineering-spend)",
@@ -47,9 +47,9 @@ function usage() {
     "  ONBOARDING_HOST_SUCCESS_TIMEOUT_MS",
     "  ONBOARDING_PROFILE_ID",
     "  ONBOARDING_CLEAN_HOME_ROOT",
-    "  SETTLD_BASE_URL / SETTLD_RUNTIME_BASE_URL / SETTLD_RUNTIME_URL / SETTLD_API_URL",
-    "  SETTLD_TENANT_ID / SETTLD_RUNTIME_TENANT_ID",
-    "  SETTLD_API_KEY / SETTLD_RUNTIME_BEARER_TOKEN / SETTLD_BEARER_TOKEN / SETTLD_TOKEN"
+    "  NOOTERRA_BASE_URL / NOOTERRA_RUNTIME_BASE_URL / NOOTERRA_RUNTIME_URL / NOOTERRA_API_URL",
+    "  NOOTERRA_TENANT_ID / NOOTERRA_RUNTIME_TENANT_ID",
+    "  NOOTERRA_API_KEY / NOOTERRA_RUNTIME_BEARER_TOKEN / NOOTERRA_BEARER_TOKEN / NOOTERRA_TOKEN"
   ].join("\n");
 }
 
@@ -131,7 +131,7 @@ function summarizeText(text, limit = 260) {
 
 function buildOnboardingArgs({ host, baseUrl, tenantId, apiKey, profileId }) {
   return [
-    SETTLD_BIN,
+    NOOTERRA_BIN,
     "setup",
     "--non-interactive",
     "--host",
@@ -140,7 +140,7 @@ function buildOnboardingArgs({ host, baseUrl, tenantId, apiKey, profileId }) {
     baseUrl,
     "--tenant-id",
     tenantId,
-    "--settld-api-key",
+    "--nooterra-api-key",
     apiKey,
     "--wallet-mode",
     "none",
@@ -206,7 +206,7 @@ export async function runOnboardingHostAttempt({
   cleanHomeRoot = null
 } = {}) {
   const root = cleanHomeRoot ? path.resolve(cleanHomeRoot) : os.tmpdir();
-  const tempHome = await mkdtemp(path.join(root, `settld-onboard-${host}-a${attempt}-`));
+  const tempHome = await mkdtemp(path.join(root, `nooterra-onboard-${host}-a${attempt}-`));
   const startedAt = Date.now();
   try {
     const result = spawnSync(process.execPath, buildOnboardingArgs({ host, baseUrl, tenantId, apiKey, profileId }), {
@@ -310,10 +310,10 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     ),
     timeoutMs: toPositiveInt(env.ONBOARDING_HOST_SUCCESS_TIMEOUT_MS, "ONBOARDING_HOST_SUCCESS_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     baseUrl: normalizeOptionalString(
-      env.SETTLD_BASE_URL ?? env.SETTLD_RUNTIME_BASE_URL ?? env.SETTLD_RUNTIME_URL ?? env.SETTLD_API_URL
+      env.NOOTERRA_BASE_URL ?? env.NOOTERRA_RUNTIME_BASE_URL ?? env.NOOTERRA_RUNTIME_URL ?? env.NOOTERRA_API_URL
     ),
-    tenantId: normalizeOptionalString(env.SETTLD_TENANT_ID ?? env.SETTLD_RUNTIME_TENANT_ID),
-    apiKey: normalizeOptionalString(env.SETTLD_API_KEY ?? env.SETTLD_RUNTIME_BEARER_TOKEN ?? env.SETTLD_BEARER_TOKEN ?? env.SETTLD_TOKEN),
+    tenantId: normalizeOptionalString(env.NOOTERRA_TENANT_ID ?? env.NOOTERRA_RUNTIME_TENANT_ID),
+    apiKey: normalizeOptionalString(env.NOOTERRA_API_KEY ?? env.NOOTERRA_RUNTIME_BEARER_TOKEN ?? env.NOOTERRA_BEARER_TOKEN ?? env.NOOTERRA_TOKEN),
     profileId: normalizeOptionalString(env.ONBOARDING_PROFILE_ID) ?? DEFAULT_PROFILE_ID,
     cleanHomeRoot: normalizeOptionalString(env.ONBOARDING_CLEAN_HOME_ROOT)
   };

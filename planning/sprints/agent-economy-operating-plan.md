@@ -2,13 +2,13 @@
 
 ## Objective
 
-Build Settld into the default economic operating layer for autonomous agents by hardening the kernel, expanding programmable market primitives, and integrating regulated rails without becoming a bespoke integrations shop.
+Build Nooterra into the default economic operating layer for autonomous agents by hardening the kernel, expanding programmable market primitives, and integrating regulated rails without becoming a bespoke integrations shop.
 
 This plan is intentionally sequence-based (not date-based).
 
 ## Architectural Thesis
 
-Settld should be a modular **Agent Economic Kernel** with strict protocol contracts:
+Nooterra should be a modular **Agent Economic Kernel** with strict protocol contracts:
 
 1. **Identity + Delegation Kernel**
 2. **Policy + Risk Control Plane**
@@ -18,14 +18,14 @@ Settld should be a modular **Agent Economic Kernel** with strict protocol contra
 6. **Compliance and Legal Interop Plane**
 7. **Physical-World Adapter Plane**
 
-Settld owns planes 1-4 deeply; planes 5-7 are hybrid (core contracts + adapter ecosystem).
+Nooterra owns planes 1-4 deeply; planes 5-7 are hybrid (core contracts + adapter ecosystem).
 
 ## Current State (Repo-backed)
 
 Already present in codebase:
 
 - x402 verify-before-release gateway and API lifecycle (`/x402/gate/*`)
-- deterministic receipts and settlement decisions (`SettlementDecisionRecord.v2`, `SettlementReceipt.v1`)
+- deterministic receipts and settlement decisions (`SettlementDecisionRecord`, `SettlementReceipt`)
 - durable receipt store + query/export + offline verification
 - provider publish + conformance + certification + marketplace listings
 - request-bound token semantics (strict binding support)
@@ -69,8 +69,8 @@ Portable, cryptographically stable identity/delegation model for agents and sub-
 
 ### New protocol objects
 
-- `AgentPassport.v1`
-- `DelegationGrant.v1`
+- `AgentPassport`
+- `DelegationGrant`
 
 ### Core services
 
@@ -97,9 +97,9 @@ Single deterministic source of spend/risk decisioning for all autonomous actions
 
 ### New protocol objects
 
-- `ExecutionIntent.v1`
-- `RiskDecision.v1` (future)
-- `PolicyPack.v1` (future)
+- `ExecutionIntent`
+- `RiskDecision` (future)
+- `PolicyPack` (future)
 
 ### Core services
 
@@ -126,9 +126,9 @@ Unified machine contract from intent -> quote -> authorization -> execution -> s
 
 ### New protocol objects
 
-- `WorkContract.v1` (future)
-- `Quote.v2` (future)
-- `OutcomeProof.v1` (future)
+- `WorkContract` (future)
+- `Quote` (future)
+- `OutcomeProof` (future)
 
 ### Core services
 
@@ -155,9 +155,9 @@ Agents can autonomously discover, select, and negotiate with certified providers
 
 ### New protocol objects
 
-- `ResolverQuery.v1` (future)
-- `NegotiationThread.v1` (future)
-- `OfferCommitment.v1` (future)
+- `ResolverQuery` (future)
+- `NegotiationThread` (future)
+- `OfferCommitment` (future)
 
 ### Core services
 
@@ -184,9 +184,9 @@ Economic expansion from pure payments to risk-priced autonomy using verified out
 
 ### New protocol objects
 
-- `ReputationDelta.v3` (future)
-- `CreditDecision.v1` (future)
-- `InsuranceClaim.v1` (future)
+- `ReputationDelta` (future)
+- `CreditDecision` (future)
+- `InsuranceClaim` (future)
 
 ### Core services
 
@@ -213,9 +213,9 @@ Jurisdiction-aware, legally accountable execution that can bridge real-world rai
 
 ### New protocol objects
 
-- `ComplianceDecision.v1` (future)
-- `JurisdictionProfile.v1` (future)
-- `OracleAttestation.v1` (future)
+- `ComplianceDecision` (future)
+- `JurisdictionProfile` (future)
+- `OracleAttestation` (future)
 
 ### Core services
 
@@ -275,7 +275,7 @@ Each program must define:
 
 ## Program Exit Condition
 
-Settld becomes the default economic trust layer when autonomous agents can:
+Nooterra becomes the default economic trust layer when autonomous agents can:
 
 1. act under bounded delegated authority,
 2. transact with certified providers under policy/risk constraints,

@@ -88,7 +88,7 @@ async function createX402Gate(api, { gateId, payerAgentId, payeeAgentId, idempot
     path: "/x402/gate/create",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       gateId,
@@ -109,7 +109,7 @@ async function authorizeX402Gate(api, { gateId, idempotencyKey }) {
     path: "/x402/gate/authorize-payment",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { gateId }
   });

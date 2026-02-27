@@ -4,7 +4,7 @@ import http from "node:http";
 
 import { createApi } from "../src/api/app.js";
 import { request } from "./api-test-harness.js";
-import { buildSettldPayKeysetV1 } from "../src/core/settld-keys.js";
+import { buildNooterraPayKeysetV1 } from "../src/core/nooterra-keys.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { computePaidToolManifestHashV1 } from "../src/core/paid-tool-manifest.js";
 import {
@@ -12,7 +12,7 @@ import {
   PROVIDER_PUBLISH_PROOF_TYPE,
   mintProviderPublishProofTokenV1
 } from "../src/core/provider-publish-proof.js";
-import { createSettldPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
+import { createNooterraPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
 
 async function listenServer(server, { host = "127.0.0.1" } = {}) {
   await new Promise((resolve) => server.listen(0, host, resolve));
@@ -43,14 +43,14 @@ function mintPublishProofToken({ manifest, providerId, publicKeyPem, privateKeyP
 
 test("API e2e: provider publish v0 certifies and lists provider", async (t) => {
   const api = createApi();
-  const settldKeyId = keyIdFromPublicKeyPem(api.store.serverSigner.publicKeyPem);
-  assert.equal(api.store.serverSigner.keyId, settldKeyId);
+  const nooterraKeyId = keyIdFromPublicKeyPem(api.store.serverSigner.publicKeyPem);
+  assert.equal(api.store.serverSigner.keyId, nooterraKeyId);
 
   const keysetServer = http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/.well-known/settld-keys.json") {
-      const keyset = buildSettldPayKeysetV1({
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
+      const keyset = buildNooterraPayKeysetV1({
         activeKey: {
-          keyId: settldKeyId,
+          keyId: nooterraKeyId,
           publicKeyPem: api.store.serverSigner.publicKeyPem
         },
         refreshedAt: new Date().toISOString()
@@ -75,14 +75,14 @@ test("API e2e: provider publish v0 certifies and lists provider", async (t) => {
   const providerKeyId = keyIdFromPublicKeyPem(providerKeys.publicKeyPem);
   const publishProofKeys = createEd25519Keypair();
   const publishProofKeyId = keyIdFromPublicKeyPem(publishProofKeys.publicKeyPem);
-  const publishProofJwks = buildSettldPayKeysetV1({
+  const publishProofJwks = buildNooterraPayKeysetV1({
     activeKey: {
       keyId: publishProofKeyId,
       publicKeyPem: publishProofKeys.publicKeyPem
     },
     refreshedAt: new Date().toISOString()
   });
-  const paidHandler = createSettldPaidNodeHttpHandler({
+  const paidHandler = createNooterraPaidNodeHttpHandler({
     providerId,
     providerPublicKeyPem: providerKeys.publicKeyPem,
     providerPrivateKeyPem: providerKeys.privateKeyPem,
@@ -94,8 +94,8 @@ test("API e2e: provider publish v0 certifies and lists provider", async (t) => {
     }),
     paymentAddress: "mock:payee",
     paymentNetwork: "mocknet",
-    settldPay: {
-      keysetUrl: `${keysetAddr.url}/.well-known/settld-keys.json`
+    nooterraPay: {
+      keysetUrl: `${keysetAddr.url}/.well-known/nooterra-keys.json`
     },
     execute: async ({ url }) => ({
       body: {
@@ -113,7 +113,7 @@ test("API e2e: provider publish v0 certifies and lists provider", async (t) => {
       res.end(JSON.stringify({ ok: true }));
       return;
     }
-    if (req.method === "GET" && url.pathname === "/settld/provider-key") {
+    if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(
         JSON.stringify({
@@ -323,7 +323,7 @@ test("API e2e: provider publish rejects tampered manifest hash proof", async (t)
 
   const proofKeys = createEd25519Keypair();
   const proofKeyId = keyIdFromPublicKeyPem(proofKeys.publicKeyPem);
-  const proofJwks = buildSettldPayKeysetV1({
+  const proofJwks = buildNooterraPayKeysetV1({
     activeKey: { keyId: proofKeyId, publicKeyPem: proofKeys.publicKeyPem },
     refreshedAt: new Date().toISOString()
   });
@@ -405,7 +405,7 @@ test("API e2e: provider publish rejects unknown publish proof kid", async (t) =>
   const signingKeys = createEd25519Keypair();
   const jwksKeys = createEd25519Keypair();
   const jwksKeyId = keyIdFromPublicKeyPem(jwksKeys.publicKeyPem);
-  const proofJwks = buildSettldPayKeysetV1({
+  const proofJwks = buildNooterraPayKeysetV1({
     activeKey: { keyId: jwksKeyId, publicKeyPem: jwksKeys.publicKeyPem },
     refreshedAt: new Date().toISOString()
   });
@@ -528,7 +528,7 @@ test("API e2e: provider publish rejects jwks url mismatch between request and ma
   const providerId = "prov_publish_jwks_mismatch";
   const proofKeys = createEd25519Keypair();
   const proofKeyId = keyIdFromPublicKeyPem(proofKeys.publicKeyPem);
-  const proofJwks = buildSettldPayKeysetV1({
+  const proofJwks = buildNooterraPayKeysetV1({
     activeKey: { keyId: proofKeyId, publicKeyPem: proofKeys.publicKeyPem },
     refreshedAt: new Date().toISOString()
   });

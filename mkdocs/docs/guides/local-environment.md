@@ -11,8 +11,8 @@ npm run dev:env:init
 Edit `.env.dev` and set at minimum:
 
 - `DATABASE_URL`
-- `SETTLD_BASE_URL` (default `http://127.0.0.1:3000`)
-- `SETTLD_TENANT_ID` (default `tenant_default`)
+- `NOOTERRA_BASE_URL` (default `http://127.0.0.1:3000`)
+- `NOOTERRA_TENANT_ID` (default `tenant_default`)
 - `PROXY_OPS_TOKEN`
 
 ## 2) Start local API
@@ -35,7 +35,7 @@ npm run dev:finance-sink
 npm run dev:sdk:key
 ```
 
-This writes `.env.dev.runtime` with `SETTLD_API_KEY`.
+This writes `.env.dev.runtime` with `NOOTERRA_API_KEY`.
 
 ## 4) Run a first verified run locally
 

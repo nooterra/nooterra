@@ -1,4 +1,4 @@
-# Settld Magic Link Helm Chart
+# Nooterra Magic Link Helm Chart
 
 This chart deploys **Verify Cloud (Magic Link)**:
 
@@ -32,7 +32,7 @@ kubectl create secret generic magic-link-secrets \
 
 ```bash
 helm upgrade --install magic-link deploy/helm/magic-link \
-  --set image.repository=ghcr.io/settld/settld \
+  --set image.repository=ghcr.io/nooterra/nooterra \
   --set image.tag=0.0.0 \
   --set magicLink.secretEnv[0].name=MAGIC_LINK_API_KEY \
   --set magicLink.secretEnv[0].secretName=magic-link-secrets \

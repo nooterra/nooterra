@@ -7,7 +7,7 @@ function assertOperation(spec, path, method, { scopes = null } = {}) {
   const op = spec?.paths?.[path]?.[method] ?? null;
   assert.ok(op, `missing operation ${method.toUpperCase()} ${path}`);
   if (scopes) {
-    const gotScopes = op["x-settld-scopes"] ?? [];
+    const gotScopes = op["x-nooterra-scopes"] ?? [];
     assert.deepEqual(gotScopes, scopes, `scope mismatch for ${method.toUpperCase()} ${path}`);
   }
 }
@@ -105,7 +105,7 @@ test("R1 API contract freeze: x402 authorize-payment publishes known execution-i
   const operation = spec?.paths?.["/x402/gate/authorize-payment"]?.post ?? null;
   assert.ok(operation, "missing POST /x402/gate/authorize-payment");
 
-  const knownConflictCodes = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
+  const knownConflictCodes = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
   assert.ok(Array.isArray(knownConflictCodes), "x402 authorize-payment 409 must expose known error codes");
   assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_REQUIRED"));
   assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH"));
@@ -117,7 +117,7 @@ test("R1 API contract freeze: x402 verify publishes known request-binding confli
   const operation = spec?.paths?.["/x402/gate/verify"]?.post ?? null;
   assert.ok(operation, "missing POST /x402/gate/verify");
 
-  const knownConflictCodes = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
+  const knownConflictCodes = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
   assert.ok(Array.isArray(knownConflictCodes), "x402 verify 409 must expose known error codes");
   assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_REQUIRED"));
   assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_REQUIRED"));

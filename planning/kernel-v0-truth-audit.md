@@ -18,8 +18,8 @@ Legend:
 | Tool-call replay endpoint exists and is wired                      | **TRUE** | `src/api/app.js:15889`                                                                       | —           | —            |
 | Run settlement replay endpoint exists                              | **TRUE** | `src/api/app.js:27718`                                                                       | —           | —            |
 | Closepack export + offline verify exists and is conformance-gated  | **TRUE** | `scripts/closepack/lib.mjs:244`, `conformance/kernel-v0/run.mjs:808`                         | —           | —            |
-| SettlementDecisionRecord.v2 default path + policy pinning exists   | **TRUE** | `src/core/settlement-kernel.js:293`, `src/api/app.js:7054`                                   | —           | —            |
-| `settld init capability` exists and has tests                      | **TRUE** | `bin/settld.js:169`, `scripts/init/capability.mjs:79`, `test/cli-init-capability.test.js:14` | —           | —            |
+| SettlementDecisionRecord default path + policy pinning exists   | **TRUE** | `src/core/settlement-kernel.js:293`, `src/api/app.js:7054`                                   | —           | —            |
+| `nooterra init capability` exists and has tests                      | **TRUE** | `bin/nooterra.js:169`, `scripts/init/capability.mjs:79`, `test/cli-init-capability.test.js:14` | —           | —            |
 | Release workflow has CLI/SDK publish lane + assets/checksums gates | **TRUE** | `.github/workflows/release.yml`, `docs/RELEASE_CHECKLIST.md`                                 | —           | —            |
 
 ## 2) Dispute / arbitration correctness
@@ -50,9 +50,9 @@ Legend:
 | Claim                                                                                 |      Status | Evidence                                                                | Notes / Gap                                                                               | To make TRUE                                                                                                    |
 | ------------------------------------------------------------------------------------- | ----------: | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Tarball “no clone” path is documented                                                 |    **TRUE** | `docs/QUICKSTART_KERNEL_V0.md:15`                                       | —                                                                                         | —                                                                                                               |
-| CI smoke explicitly tests **local tarball npx --package ./settld-<version>.tgz** path | **TRUE** | `scripts/ci/cli-pack-smoke.mjs`, `.github/workflows/release.yml:58` | Release gate runs `test:cli:pack-smoke`; script now executes `npx --yes --package <local-tarball> -- settld --version` and `conformance kernel:list` | — |
+| CI smoke explicitly tests **local tarball npx --package ./nooterra-<version>.tgz** path | **TRUE** | `scripts/ci/cli-pack-smoke.mjs`, `.github/workflows/release.yml:58` | Release gate runs `test:cli:pack-smoke`; script now executes `npx --yes --package <local-tarball> -- nooterra --version` and `conformance kernel:list` | — |
 | Registry publish is wired                                                             |    **TRUE** | `.github/workflows/release.yml` (publish lane exists)                   | Wired ≠ executed                                                                          | —                                                                                                               |
-| “First live npm publish proven”                                                       |    **TRUE** | GitHub Actions run `21917972978` (`npm_publish` + `python_publish` + `github_release` green), release `v0.1.2`, `npm view settld@0.1.2 version -> 0.1.2`, `npm exec --yes --package settld@0.1.2 -- settld --version -> 0.1.2`, PyPI `settld-api-sdk-python==0.1.2` | — | — |
+| “First live npm publish proven”                                                       |    **TRUE** | GitHub Actions run `21917972978` (`npm_publish` + `python_publish` + `github_release` green), release `v0.1.2`, `npm view nooterra@0.1.2 version -> 0.1.2`, `npm exec --yes --package nooterra@0.1.2 -- nooterra --version -> 0.1.2`, PyPI `nooterra-api-sdk-python==0.1.2` | — | — |
 
 ## 6) Hosted baseline
 
@@ -80,7 +80,7 @@ Must be TRUE:
 * Closepack export + offline verify, conformance-gated (TRUE)
 * Deterministic verifier exists with at least one meaningful failing case (verify separately)
 * Reputation: either TRUE **or** explicitly labeled “preview/experimental” with conformance proving idempotency for what you claim
-* `npx settld …` from npm registry: **TRUE** (requires a real publish event)
+* `npx nooterra …` from npm registry: **TRUE** (requires a real publish event)
 
 May remain FALSE for this gate:
 
@@ -137,15 +137,15 @@ Add one entry per first successful registry publish proof:
 First proven publish (current release line):
 
 - Version/tag: `v0.1.2` (workflow_dispatch version `0.1.2`)
-- Release workflow run URL: `https://github.com/aidenlippert/settld/actions/runs/21917972978`
+- Release workflow run URL: `https://github.com/aidenlippert/nooterra/actions/runs/21917972978`
 - npm postpublish smoke artifact name: `npm-postpublish-smoke-0.1.2`
 - Command evidence:
-  - `npm view settld@0.1.2 version` -> `0.1.2`
-  - `npm exec --yes --package settld@0.1.2 -- settld --version` -> `0.1.2`
-  - `npm exec --yes --package settld@0.1.2 -- settld conformance kernel:list`
-  - `npm exec --yes --package settld@0.1.2 -- settld --help` (contains `settld closepack verify`)
-  - `npm exec --yes --package settld@0.1.2 -- settld init capability smoke-cap --out /tmp/settld-registry-starter`
-  - `https://pypi.org/pypi/settld-api-sdk-python/0.1.2/json` -> `0.1.2`
+  - `npm view nooterra@0.1.2 version` -> `0.1.2`
+  - `npm exec --yes --package nooterra@0.1.2 -- nooterra --version` -> `0.1.2`
+  - `npm exec --yes --package nooterra@0.1.2 -- nooterra conformance kernel:list`
+  - `npm exec --yes --package nooterra@0.1.2 -- nooterra --help` (contains `nooterra closepack verify`)
+  - `npm exec --yes --package nooterra@0.1.2 -- nooterra init capability smoke-cap --out /tmp/nooterra-registry-starter`
+  - `https://pypi.org/pypi/nooterra-api-sdk-python/0.1.2/json` -> `0.1.2`
 
 When this section has a verified entry for the current release line, flip **“First live npm publish proven”** to `TRUE`.
 

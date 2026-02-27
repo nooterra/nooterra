@@ -175,3 +175,95 @@ async function registerAgent(api, { tenantId, agentId, ownerId = "svc_pg_billabl
     } catch {}
   }
 });
+
+(databaseUrl ? test : test.skip)("pg api e2e: ops billable-events ingest is durable/idempotent and conflict-safe", async () => {
+  const schema = makeSchema();
+  const tenantId = "tenant_pg_billable_ops_ingest";
+  const period = "2026-02";
+  const store = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: true });
+  try {
+    const api = createApi({
+      store,
+      now: () => "2026-02-11T00:00:00.000Z",
+      opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";")
+    });
+
+    const baseBody = {
+      eventKey: "ops_ingest_pg_ev_1",
+      eventType: "settled_volume",
+      occurredAt: "2026-02-11T10:00:00.000Z",
+      amountCents: 432,
+      currency: "USD",
+      quantity: 1,
+      sourceType: "ops_ingest",
+      sourceId: "source_ops_ingest_pg_1"
+    };
+
+    const created = await request(api, {
+      method: "POST",
+      path: "/ops/finance/billable-events",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "tok_finw",
+        "x-idempotency-key": "pg_ops_billable_ingest_create_1"
+      },
+      body: baseBody
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    assert.equal(created.json?.ok, true);
+    assert.equal(created.json?.appended, true);
+    assert.equal(created.json?.event?.eventKey, "ops_ingest_pg_ev_1");
+
+    const deduped = await request(api, {
+      method: "POST",
+      path: "/ops/finance/billable-events",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "tok_finw",
+        "x-idempotency-key": "pg_ops_billable_ingest_create_2"
+      },
+      body: baseBody
+    });
+    assert.equal(deduped.statusCode, 200, deduped.body);
+    assert.equal(deduped.json?.appended, false);
+
+    const conflict = await request(api, {
+      method: "POST",
+      path: "/ops/finance/billable-events",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "tok_finw",
+        "x-idempotency-key": "pg_ops_billable_ingest_create_3"
+      },
+      body: {
+        ...baseBody,
+        amountCents: 999
+      }
+    });
+    assert.equal(conflict.statusCode, 409, conflict.body);
+    assert.equal(conflict.json?.code, "BILLABLE_USAGE_EVENT_CONFLICT");
+
+    const listed = await request(api, {
+      method: "GET",
+      path: `/ops/finance/billable-events?period=${encodeURIComponent(period)}&eventType=settled_volume&limit=50`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "tok_finr"
+      }
+    });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.json?.count, 1);
+    assert.equal(listed.json?.events?.[0]?.eventKey, "ops_ingest_pg_ev_1");
+    assert.equal(listed.json?.events?.[0]?.amountCents, 432);
+
+    const persistedCount = await store.pg.pool.query(
+      "SELECT COUNT(*)::int AS c FROM billable_usage_events WHERE tenant_id = $1 AND event_key = $2",
+      [tenantId, "ops_ingest_pg_ev_1"]
+    );
+    assert.equal(Number(persistedCount.rows[0]?.c ?? 0), 1);
+  } finally {
+    try {
+      await store.close();
+    } catch {}
+  }
+});

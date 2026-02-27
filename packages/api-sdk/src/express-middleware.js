@@ -1,8 +1,8 @@
 import {
-  SettldWebhookNoMatchingSignatureError,
-  SettldWebhookSignatureHeaderError,
-  SettldWebhookTimestampToleranceError,
-  verifySettldWebhookSignature
+  NooterraWebhookNoMatchingSignatureError,
+  NooterraWebhookSignatureHeaderError,
+  NooterraWebhookTimestampToleranceError,
+  verifyNooterraWebhookSignature
 } from "./webhook-signature.js";
 
 function isBodyVerifiable(body) {
@@ -33,15 +33,15 @@ function resolveMiddlewareOptions(optionsOrTolerance) {
   if (optionsOrTolerance === undefined || optionsOrTolerance === null) {
     return {
       toleranceSeconds: 300,
-      signatureHeaderName: "x-settld-signature",
-      timestampHeaderName: "x-settld-timestamp"
+      signatureHeaderName: "x-nooterra-signature",
+      timestampHeaderName: "x-nooterra-timestamp"
     };
   }
   if (typeof optionsOrTolerance === "number") {
     return {
       toleranceSeconds: optionsOrTolerance,
-      signatureHeaderName: "x-settld-signature",
-      timestampHeaderName: "x-settld-timestamp"
+      signatureHeaderName: "x-nooterra-signature",
+      timestampHeaderName: "x-nooterra-timestamp"
     };
   }
   if (typeof optionsOrTolerance !== "object" || Array.isArray(optionsOrTolerance)) {
@@ -52,8 +52,8 @@ function resolveMiddlewareOptions(optionsOrTolerance) {
       optionsOrTolerance.toleranceSeconds === undefined || optionsOrTolerance.toleranceSeconds === null
         ? 300
         : Number(optionsOrTolerance.toleranceSeconds),
-    signatureHeaderName: optionsOrTolerance.signatureHeaderName || "x-settld-signature",
-    timestampHeaderName: optionsOrTolerance.timestampHeaderName || "x-settld-timestamp"
+    signatureHeaderName: optionsOrTolerance.signatureHeaderName || "x-nooterra-signature",
+    timestampHeaderName: optionsOrTolerance.timestampHeaderName || "x-nooterra-timestamp"
   };
 }
 
@@ -85,47 +85,47 @@ function writeErrorResponse(res, statusCode, code, message) {
 }
 
 function classifyVerificationError(err) {
-  if (err instanceof SettldWebhookSignatureHeaderError) {
+  if (err instanceof NooterraWebhookSignatureHeaderError) {
     return {
       status: 400,
-      code: err.code || "SETTLD_WEBHOOK_SIGNATURE_HEADER_INVALID",
+      code: err.code || "NOOTERRA_WEBHOOK_SIGNATURE_HEADER_INVALID",
       message: err.message
     };
   }
-  if (err instanceof SettldWebhookTimestampToleranceError) {
+  if (err instanceof NooterraWebhookTimestampToleranceError) {
     return {
       status: 401,
-      code: err.code || "SETTLD_WEBHOOK_TIMESTAMP_OUTSIDE_TOLERANCE",
+      code: err.code || "NOOTERRA_WEBHOOK_TIMESTAMP_OUTSIDE_TOLERANCE",
       message: err.message
     };
   }
-  if (err instanceof SettldWebhookNoMatchingSignatureError) {
+  if (err instanceof NooterraWebhookNoMatchingSignatureError) {
     return {
       status: 401,
-      code: err.code || "SETTLD_WEBHOOK_SIGNATURE_NO_MATCH",
+      code: err.code || "NOOTERRA_WEBHOOK_SIGNATURE_NO_MATCH",
       message: err.message
     };
   }
   return {
     status: 401,
-    code: "SETTLD_WEBHOOK_UNAUTHORIZED",
+    code: "NOOTERRA_WEBHOOK_UNAUTHORIZED",
     message: err?.message || "webhook signature verification failed"
   };
 }
 
 /**
- * Express-style middleware for Settld webhook verification.
+ * Express-style middleware for Nooterra webhook verification.
  *
  * IMPORTANT:
  * - This requires the raw request body bytes.
  * - Use `req.rawBody` (preferred) or `req.body` as Buffer/string/typed array.
  */
-export function verifySettldWebhook(secretOrResolver, optionsOrTolerance = 300) {
+export function verifyNooterraWebhook(secretOrResolver, optionsOrTolerance = 300) {
   const options = resolveMiddlewareOptions(optionsOrTolerance);
   const resolveSecret =
     typeof secretOrResolver === "function" ? secretOrResolver : () => secretOrResolver;
 
-  return function settldWebhookMiddleware(req, res, next) {
+  return function nooterraWebhookMiddleware(req, res, next) {
     Promise.resolve()
       .then(() => resolveSecret(req))
       .then((secret) => {
@@ -134,15 +134,15 @@ export function verifySettldWebhook(secretOrResolver, optionsOrTolerance = 300) 
           writeErrorResponse(
             res,
             400,
-            "SETTLD_WEBHOOK_RAW_BODY_REQUIRED",
-            "Settld Webhook Error: request body is already parsed or missing raw bytes. Configure body-parser to preserve the raw buffer."
+            "NOOTERRA_WEBHOOK_RAW_BODY_REQUIRED",
+            "Nooterra Webhook Error: request body is already parsed or missing raw bytes. Configure body-parser to preserve the raw buffer."
           );
           return;
         }
 
         const signatureHeader = readHeader(req, options.signatureHeaderName);
         const timestampHeader = readHeader(req, options.timestampHeaderName);
-        verifySettldWebhookSignature(rawBody, signatureHeader ?? "", secret, {
+        verifyNooterraWebhookSignature(rawBody, signatureHeader ?? "", secret, {
           toleranceSeconds: options.toleranceSeconds,
           timestamp: timestampHeader
         });

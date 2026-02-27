@@ -44,6 +44,26 @@ jobs:
       - name: Enforce CHANGELOG discipline for protocol/release-note PRs
         run: node scripts/ci/changelog-guard.mjs --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
 
+  branding_copy_hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Enforce branding/copy hygiene in public docs and site copy
+        run: npm run -s test:ci:branding-copy-hygiene
+      - name: Upload branding/copy hygiene report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branding-copy-hygiene-${{ github.run_id }}
+          path: artifacts/ci/branding-copy-hygiene.json
+          if-no-files-found: warn
+
   unit_tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -132,7 +152,7 @@ jobs:
       - name: Run x402 quickstart (CI mode)
         run: |
           set -euo pipefail
-          SETTLD_QUICKSTART_KEEP_ALIVE=0 \
+          NOOTERRA_QUICKSTART_KEEP_ALIVE=0 \
           HOLDBACK_BPS=2000 \
           DISPUTE_WINDOW_MS=3600000 \
           npm run quickstart:x402
@@ -156,6 +176,35 @@ jobs:
           test/demo-mcp-paid-exa.test.js
       - name: Run OpenClaw substrate demo regression
         run: npm run -s test:ops:openclaw-substrate-demo
+
+  mcp_runtime_pg_binding_fail_closed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run MCP runtime PG fail-closed binding tests
+        env:
+          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+        run: |
+          set -euo pipefail
+          node --test --test-name-pattern "mcp runtime pg:" test/mcp-runtime-work-order-binding-fail-closed.test.js
 
   mcp_host_smoke:
     runs-on: ubuntu-latest
@@ -227,7 +276,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Start Settld API (local gate mode)
+      - name: Start Nooterra API (local gate mode)
         run: |
           set -euo pipefail
           STORE=memory \
@@ -235,7 +284,7 @@ jobs:
           PROXY_AUTOTICK_INTERVAL_MS=200 \
           PORT=3000 \
           node src/api/server.js &
-          echo $! > /tmp/settld_onboarding_host_success_pid
+          echo $! > /tmp/nooterra_onboarding_host_success_pid
       - name: Wait for API readiness
         run: |
           set -euo pipefail
@@ -252,7 +301,7 @@ jobs:
             --base-url http://127.0.0.1:3000 \
             --tenant-id tenant_default \
             --api-key sk_test \
-            --hosts codex,claude,cursor,openclaw \
+            --hosts nooterra,claude,cursor,openclaw \
             --attempts 1 \
             --min-success-rate-pct 100 \
             --report artifacts/gates/onboarding-host-success-gate.json \
@@ -270,7 +319,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [[ -f /tmp/settld_onboarding_host_success_pid ]]; then kill "$(cat /tmp/settld_onboarding_host_success_pid)" || true; fi
+          if [[ -f /tmp/nooterra_onboarding_host_success_pid ]]; then kill "$(cat /tmp/nooterra_onboarding_host_success_pid)" || true; fi
 
   kernel_v0_ship_gate:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -306,6 +355,12 @@ jobs:
       - run: npm ci
       - name: Run production cutover gate
         run: npm run -s test:ops:production-cutover-gate
+      - name: Assert production cutover required checks (collaboration + lineage + transcript + checkpoint grant binding + SDK JS/PY smoke)
+        run: |
+          set -euo pipefail
+          node scripts/ci/assert-production-cutover-required-checks.mjs \
+            --in artifacts/gates/production-cutover-gate.json \
+            --json-out artifacts/gates/production-cutover-required-checks.json
       - name: Upload production cutover gate artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -313,6 +368,7 @@ jobs:
           name: production-cutover-gate-${{ github.run_id }}
           path: |
             artifacts/gates/production-cutover-gate.json
+            artifacts/gates/production-cutover-required-checks.json
             artifacts/ops/mcp-host-smoke.json
             artifacts/ops/mcp-host-cert-matrix.json
             artifacts/ops/x402-hitl-smoke.json
@@ -340,14 +396,14 @@ jobs:
       - name: Run offline verification parity gate (NOO-50)
         run: |
           set -euo pipefail
-          export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}));")"
-          export SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.pricingSigners||{}));")"
-          export SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.timeAuthorities||{}));")"
+          export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}));")"
+          export NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.pricingSigners||{}));")"
+          export NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.timeAuthorities||{}));")"
           npm run -s test:ops:offline-verification-parity-gate -- \
             --baseline-label node \
             --candidate-label python \
-            --baseline-command "node packages/artifact-verify/bin/settld-verify.js --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json" \
-            --candidate-command "python3 reference/verifier-py/settld-verify-py --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json"
+            --baseline-command "node packages/artifact-verify/bin/nooterra-verify.js --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json" \
+            --candidate-command "python3 reference/verifier-py/nooterra-verify-py --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json"
       - name: Upload offline verification parity gate artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -355,6 +411,40 @@ jobs:
           name: offline-verification-parity-gate-${{ github.run_id }}
           path: artifacts/gates/offline-verification-parity-gate.json
           if-no-files-found: error
+
+  release_promotion_materialization_chain:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOOTERRA_RELEASE_PROMOTION_E2E_ARTIFACT_DIR: artifacts/ops/release-promotion-materialization-chain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run release promotion input materialization fail-closed tests
+        run: node --test test/release-promotion-guard-input-materialization-script.test.js
+      - name: Run release promotion guard fail-closed suite
+        run: node --test test/release-promotion-guard-script.test.js
+      - name: Run release promotion guard e2e materialized chain
+        run: node --test test/release-promotion-guard-e2e-materialized.test.js
+      - name: Run required production cutover checks assertion tests
+        run: node --test test/assert-production-cutover-required-checks-script.test.js
+      - name: Run release notes from gates generator tests
+        run: node --test test/build-release-notes-from-gates-script.test.js
+      - name: Run release workflow contract tests
+        run: node --test test/release-workflow-contract.test.js
+      - name: Upload release promotion materialization chain artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-promotion-materialization-chain-${{ github.run_id }}
+          path: |
+            artifacts/ops/release-promotion-materialization-chain/
+          if-no-files-found: warn
 
   flake_budget_guard:
     runs-on: ubuntu-latest
@@ -398,7 +488,7 @@ jobs:
         run: npm run -s test:ci:runtime-import-smoke
       - name: Secret hygiene guard
         run: npm run -s test:ci:secret-hygiene
-      - name: Start Settld API (pg mode)
+      - name: Start Nooterra API (pg mode)
         run: |
           set -euo pipefail
           STORE=pg \
@@ -411,7 +501,7 @@ jobs:
           PROXY_MONEY_RAIL_RECONCILE_ENABLED=1 \
           PORT=3000 \
           node src/api/server.js &
-          echo $! > /tmp/settld_pid
+          echo $! > /tmp/nooterra_pid
       - name: Wait for readiness
         run: |
           set -euo pipefail
@@ -453,7 +543,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [[ -f /tmp/settld_pid ]]; then kill "$(cat /tmp/settld_pid)" || true; fi
+          if [[ -f /tmp/nooterra_pid ]]; then kill "$(cat /tmp/nooterra_pid)" || true; fi
 
   openapi_drift:
     runs-on: ubuntu-latest
@@ -469,7 +559,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run openapi:write
-          git diff --exit-code -- openapi/settld.openapi.json
+          git diff --exit-code -- openapi/nooterra.openapi.json
 
   npm_pack_smoke:
     strategy:
@@ -485,7 +575,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: npm pack + install smoke (settld-verify + settld-produce)
+      - name: npm pack + install smoke (nooterra-verify + nooterra-produce)
         run: node scripts/ci/npm-pack-smoke.mjs
 
   cli_cross_platform:
@@ -530,9 +620,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install cryptography
       - name: Run conformance pack v1 against python verifier
-        run: node conformance/v1/run.mjs --bin reference/verifier-py/settld-verify-py
+        run: node conformance/v1/run.mjs --bin reference/verifier-py/nooterra-verify-py
 
-  github_action_settld_verify:
+  github_action_nooterra_verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -546,14 +636,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify fixture bundle via composite action
         id: verify
-        uses: ./.github/actions/settld-verify
+        uses: ./.github/actions/nooterra-verify
         with:
           bundle_path: ${{ matrix.bundle.path }}
           strict: "true"
           fail_on_warnings: "false"
           hash_concurrency: "4"
           trust_file: test/fixtures/bundles/v1/trust.json
-          output_json_path: settld-verify-${{ matrix.bundle.kind }}.json
+          output_json_path: nooterra-verify-${{ matrix.bundle.kind }}.json
       - name: Assert VerifyCliOutput.v1 shape
         run: |
           node -e '

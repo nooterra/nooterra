@@ -31,7 +31,7 @@ async function main() {
 
   const api = createApi({ now: nowIso, ingestToken: "ingest_tok" });
 
-  const protocolHeaders = { "x-settld-protocol": "1.0" };
+  const protocolHeaders = { "x-nooterra-protocol": "1.0" };
 
   const steps = [];
   const recordStep = (name, res, extra = null) => {

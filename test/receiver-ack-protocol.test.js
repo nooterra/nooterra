@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAckWorker } from "../services/receiver/src/ack-worker.js";
-import { SETTLD_PROTOCOL_CURRENT } from "../src/core/protocol.js";
+import { NOOTERRA_PROTOCOL_CURRENT } from "../src/core/protocol.js";
 
 async function waitFor(fn, { timeoutMs = 2000, intervalMs = 25 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -13,13 +13,13 @@ async function waitFor(fn, { timeoutMs = 2000, intervalMs = 25 } = {}) {
   return false;
 }
 
-test("receiver: ACK includes x-settld-protocol", async () => {
+test("receiver: ACK includes x-nooterra-protocol", async () => {
   const calls = [];
   const fetchFn = async (url, options) => {
     calls.push({ url, options });
     return {
       status: 204,
-      headers: { get: (k) => (String(k).toLowerCase() === "x-settld-protocol" ? SETTLD_PROTOCOL_CURRENT : null) },
+      headers: { get: (k) => (String(k).toLowerCase() === "x-nooterra-protocol" ? NOOTERRA_PROTOCOL_CURRENT : null) },
       text: async () => ""
     };
   };
@@ -53,5 +53,5 @@ test("receiver: ACK includes x-settld-protocol", async () => {
 
   assert.equal(ok, true, "expected fetch to be called");
   const hdrs = calls[0]?.options?.headers ?? {};
-  assert.equal(hdrs["x-settld-protocol"], SETTLD_PROTOCOL_CURRENT);
+  assert.equal(hdrs["x-nooterra-protocol"], NOOTERRA_PROTOCOL_CURRENT);
 });

@@ -1,8 +1,8 @@
-# Trust OS v1 Execution Board (Completion + Adoption)
+# Trust OS Execution Board (Completion + Adoption)
 
 ## Mandate
 
-Ship Trust OS v1 as a production-grade, rail-agnostic trust kernel and convert that delivery into measurable adoption.
+Ship Trust OS as a production-grade, rail-agnostic trust kernel and convert that delivery into measurable adoption.
 
 Operating principles:
 - Fail closed on policy, identity, and request-binding violations.
@@ -12,7 +12,7 @@ Operating principles:
 ## Release outcomes
 
 1. Mandatory policy runtime enforcement for all paid actions.
-2. Deterministic `ReceiptBundle.v1` export and strict offline verification.
+2. Deterministic `ReceiptBundle` export and strict offline verification.
 3. Deterministic dispute-to-verdict-to-reversal outcomes.
 4. Operator controls with signed audit history and emergency containment.
 5. One production-hardened adapter lane with conformance gate.
@@ -71,7 +71,7 @@ Tickets:
 - `STLD-T2420`, `STLD-T2421`, `STLD-T2422`, `STLD-T2423`
 
 Exit criteria:
-- `ReceiptBundle.v1` strict offline verification passes deterministically.
+- `ReceiptBundle` strict offline verification passes deterministically.
 - Dispute state machine and verdict application are idempotent and test-covered.
 - Dispute APIs are usable via API/SDK/MCP surfaces.
 
@@ -105,7 +105,7 @@ Tickets:
 - `STLD-T2470`, `STLD-T2471`, `STLD-T2472`
 
 Exit criteria:
-- Trust OS v1 release gate checklist passes with proof artifacts.
+- Trust OS release gate checklist passes with proof artifacts.
 - New builder reaches first verified receipt in under 15 minutes via quickstart.
 - Three reference blueprints run end-to-end in CI.
 - Activation and pilot conversion dashboard reports daily.
@@ -123,7 +123,7 @@ Exit criteria:
 
 1. No ticket is done without deterministic test evidence or objective verification output.
 2. New fail paths require stable reason codes and docs before merge.
-3. Adoption tickets are release-candidate blockers for Trust OS v1, not stretch goals.
+3. Adoption tickets are release-candidate blockers for Trust OS, not stretch goals.
 4. Any emergency or governance control must include rollback and audit export paths.
 
 ## Weekly review

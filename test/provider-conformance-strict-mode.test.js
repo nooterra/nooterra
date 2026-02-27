@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 
 import { runProviderConformanceV1 } from "../src/core/provider-publish-conformance.js";
-import { buildSettldPayKeysetV1 } from "../src/core/settld-keys.js";
+import { buildNooterraPayKeysetV1 } from "../src/core/nooterra-keys.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
-import { createSettldPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
+import { createNooterraPaidNodeHttpHandler } from "../packages/provider-kit/src/index.js";
 
 async function listenServer(server, host = "127.0.0.1") {
   await new Promise((resolve) => server.listen(0, host, resolve));
@@ -19,17 +19,17 @@ async function closeServer(server) {
 }
 
 test("provider conformance: side-effecting tool requires strict request binding check", async (t) => {
-  const settldSigner = createEd25519Keypair();
-  const settldKeyId = keyIdFromPublicKeyPem(settldSigner.publicKeyPem);
+  const nooterraSigner = createEd25519Keypair();
+  const nooterraKeyId = keyIdFromPublicKeyPem(nooterraSigner.publicKeyPem);
   const providerSigner = createEd25519Keypair();
   const providerId = "prov_side_effect";
 
   const keysetServer = http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/.well-known/settld-keys.json") {
-      const keyset = buildSettldPayKeysetV1({
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
+      const keyset = buildNooterraPayKeysetV1({
         activeKey: {
-          keyId: settldKeyId,
-          publicKeyPem: settldSigner.publicKeyPem
+          keyId: nooterraKeyId,
+          publicKeyPem: nooterraSigner.publicKeyPem
         }
       });
       res.writeHead(200, {
@@ -47,7 +47,7 @@ test("provider conformance: side-effecting tool requires strict request binding 
     await closeServer(keysetServer);
   });
 
-  const paidHandler = createSettldPaidNodeHttpHandler({
+  const paidHandler = createNooterraPaidNodeHttpHandler({
     providerId,
     providerPublicKeyPem: providerSigner.publicKeyPem,
     providerPrivateKeyPem: providerSigner.privateKeyPem,
@@ -59,8 +59,8 @@ test("provider conformance: side-effecting tool requires strict request binding 
       requestBindingMode: "strict",
       idempotency: "side_effecting"
     }),
-    settldPay: {
-      keysetUrl: `${keysetAddr.url}/.well-known/settld-keys.json`
+    nooterraPay: {
+      keysetUrl: `${keysetAddr.url}/.well-known/nooterra-keys.json`
     },
     execute: async ({ requestBodyBuffer }) => ({
       statusCode: 200,
@@ -73,7 +73,7 @@ test("provider conformance: side-effecting tool requires strict request binding 
 
   const providerServer = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (req.method === "GET" && url.pathname === "/settld/provider-key") {
+    if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ publicKeyPem: providerSigner.publicKeyPem }));
       return;
@@ -122,10 +122,10 @@ test("provider conformance: side-effecting tool requires strict request binding 
     manifest,
     providerId,
     providerSigningPublicKeyPem: providerSigner.publicKeyPem,
-    settldSigner: {
-      keyId: settldKeyId,
-      publicKeyPem: settldSigner.publicKeyPem,
-      privateKeyPem: settldSigner.privateKeyPem
+    nooterraSigner: {
+      keyId: nooterraKeyId,
+      publicKeyPem: nooterraSigner.publicKeyPem,
+      privateKeyPem: nooterraSigner.privateKeyPem
     }
   });
   assert.equal(report?.verdict?.ok, true, JSON.stringify(report, null, 2));
@@ -146,8 +146,8 @@ test("provider conformance: production mode rejects loopback provider base url",
     else process.env.NODE_ENV = prevNodeEnv;
   });
 
-  const settldSigner = createEd25519Keypair();
-  const settldKeyId = keyIdFromPublicKeyPem(settldSigner.publicKeyPem);
+  const nooterraSigner = createEd25519Keypair();
+  const nooterraKeyId = keyIdFromPublicKeyPem(nooterraSigner.publicKeyPem);
   const providerId = "prov_loopback_blocked";
   const manifest = {
     schemaVersion: "PaidToolManifest.v1",
@@ -173,10 +173,10 @@ test("provider conformance: production mode rejects loopback provider base url",
     providerBaseUrl: "http://127.0.0.1:9402",
     manifest,
     providerId,
-    settldSigner: {
-      keyId: settldKeyId,
-      publicKeyPem: settldSigner.publicKeyPem,
-      privateKeyPem: settldSigner.privateKeyPem
+    nooterraSigner: {
+      keyId: nooterraKeyId,
+      publicKeyPem: nooterraSigner.publicKeyPem,
+      privateKeyPem: nooterraSigner.privateKeyPem
     }
   });
   assert.equal(report?.verdict?.ok, false);
@@ -186,17 +186,17 @@ test("provider conformance: production mode rejects loopback provider base url",
 });
 
 test("provider conformance: v2 action tool class enforces strict request binding", async (t) => {
-  const settldSigner = createEd25519Keypair();
-  const settldKeyId = keyIdFromPublicKeyPem(settldSigner.publicKeyPem);
+  const nooterraSigner = createEd25519Keypair();
+  const nooterraKeyId = keyIdFromPublicKeyPem(nooterraSigner.publicKeyPem);
   const providerSigner = createEd25519Keypair();
   const providerId = "prov_v2_action_binding";
 
   const keysetServer = http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/.well-known/settld-keys.json") {
-      const keyset = buildSettldPayKeysetV1({
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
+      const keyset = buildNooterraPayKeysetV1({
         activeKey: {
-          keyId: settldKeyId,
-          publicKeyPem: settldSigner.publicKeyPem
+          keyId: nooterraKeyId,
+          publicKeyPem: nooterraSigner.publicKeyPem
         }
       });
       res.writeHead(200, {
@@ -214,7 +214,7 @@ test("provider conformance: v2 action tool class enforces strict request binding
     await closeServer(keysetServer);
   });
 
-  const paidHandler = createSettldPaidNodeHttpHandler({
+  const paidHandler = createNooterraPaidNodeHttpHandler({
     providerId,
     providerPublicKeyPem: providerSigner.publicKeyPem,
     providerPrivateKeyPem: providerSigner.privateKeyPem,
@@ -226,8 +226,8 @@ test("provider conformance: v2 action tool class enforces strict request binding
       requestBindingMode: "strict",
       idempotency: "side_effecting"
     }),
-    settldPay: {
-      keysetUrl: `${keysetAddr.url}/.well-known/settld-keys.json`
+    nooterraPay: {
+      keysetUrl: `${keysetAddr.url}/.well-known/nooterra-keys.json`
     },
     execute: async () => ({
       statusCode: 200,
@@ -237,7 +237,7 @@ test("provider conformance: v2 action tool class enforces strict request binding
 
   const providerServer = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (req.method === "GET" && url.pathname === "/settld/provider-key") {
+    if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ publicKeyPem: providerSigner.publicKeyPem }));
       return;
@@ -295,10 +295,10 @@ test("provider conformance: v2 action tool class enforces strict request binding
     manifest,
     providerId,
     providerSigningPublicKeyPem: providerSigner.publicKeyPem,
-    settldSigner: {
-      keyId: settldKeyId,
-      publicKeyPem: settldSigner.publicKeyPem,
-      privateKeyPem: settldSigner.privateKeyPem
+    nooterraSigner: {
+      keyId: nooterraKeyId,
+      publicKeyPem: nooterraSigner.publicKeyPem,
+      privateKeyPem: nooterraSigner.privateKeyPem
     }
   });
   assert.equal(report?.verdict?.ok, true, JSON.stringify(report, null, 2));

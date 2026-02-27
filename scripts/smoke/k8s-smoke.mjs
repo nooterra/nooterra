@@ -45,6 +45,25 @@ async function httpJson({ method, path, headers, body }) {
   return { status: res.status, json, text, headers: res.headers };
 }
 
+function readExpectedPrevChainHashFromConflict(response) {
+  if (!response || response.status !== 409) return null;
+  const expectedPrev = response?.json?.details?.expectedPrevChainHash;
+  return typeof expectedPrev === "string" && expectedPrev.length > 0 ? expectedPrev : null;
+}
+
+function isAlreadyAdvancedTransition({ eventType, response }) {
+  if (!response || response.status !== 400) return false;
+  if (response?.json?.code !== "TRANSITION_ILLEGAL") return false;
+  const fromStatus = String(response?.json?.details?.fromStatus ?? "").toUpperCase();
+  if (eventType === "MATCHED") {
+    return ["RESERVED", "IN_PROGRESS", "COMPLETED", "SETTLED"].includes(fromStatus);
+  }
+  if (eventType === "RESERVED") {
+    return ["RESERVED", "IN_PROGRESS", "COMPLETED", "SETTLED"].includes(fromStatus);
+  }
+  return false;
+}
+
 async function main() {
   await waitFor(async () => {
     const r = await httpJson({ method: "GET", path: "/healthz" }).catch(() => null);
@@ -53,19 +72,19 @@ async function main() {
   await waitFor(async () => {
     const r = await httpJson({ method: "GET", path: "/capabilities" }).catch(() => null);
     if (!r || r.status !== 200) return false;
-    if (r.headers.get("x-settld-protocol") !== PROTOCOL) return false;
+    if (r.headers.get("x-nooterra-protocol") !== PROTOCOL) return false;
     return true;
   });
 
   const createKey = await httpJson({
     method: "POST",
     path: "/ops/api-keys",
-    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-settld-protocol": PROTOCOL },
+    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-nooterra-protocol": PROTOCOL },
     body: { scopes: ["ops_read", "ops_write", "finance_read", "finance_write", "audit_read"] }
   });
   assert.equal(createKey.status, 201, createKey.text);
   const bearer = `Bearer ${createKey.json.keyId}.${createKey.json.secret}`;
-  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-settld-protocol": PROTOCOL };
+  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-nooterra-protocol": PROTOCOL };
 
   // Robot registration + availability.
   const { publicKeyPem: robotPublicKeyPem, privateKeyPem: robotPrivateKeyPem } = createEd25519Keypair();
@@ -109,6 +128,15 @@ async function main() {
   const jobId = createJob.json.job.id;
   let lastChainHash = createJob.json.job.lastChainHash;
 
+  async function refreshJobChainHead() {
+    const r = await httpJson({ method: "GET", path: `/jobs/${jobId}`, headers: headersBase });
+    assert.equal(r.status, 200, r.text);
+    const nextLastChainHash = r?.json?.job?.lastChainHash ?? null;
+    if (typeof nextLastChainHash === "string" && nextLastChainHash.length > 0) {
+      lastChainHash = nextLastChainHash;
+    }
+  }
+
   const quote = await httpJson({
     method: "POST",
     path: `/jobs/${jobId}/quote`,
@@ -134,24 +162,63 @@ async function main() {
   lastChainHash = book.json.job.lastChainHash;
 
   async function postServerEvent(type, payload, idempotencyKey) {
-    const r = await httpJson({
-      method: "POST",
-      path: `/jobs/${jobId}/events`,
-      headers: { ...headersBase, "x-idempotency-key": idempotencyKey, "x-proxy-expected-prev-chain-hash": lastChainHash },
-      body: { type, actor: { type: "system", id: "proxy" }, payload }
-    });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      const effectiveIdempotencyKey = attempt === 0 ? idempotencyKey : `${idempotencyKey}_retry${attempt}`;
+      const r = await httpJson({
+        method: "POST",
+        path: `/jobs/${jobId}/events`,
+        headers: {
+          ...headersBase,
+          "x-idempotency-key": effectiveIdempotencyKey,
+          "x-proxy-expected-prev-chain-hash": lastChainHash
+        },
+        body: { type, actor: { type: "system", id: "proxy" }, payload }
+      });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      const expectedPrevChainHash = readExpectedPrevChainHashFromConflict(r);
+      if (expectedPrevChainHash && expectedPrevChainHash !== lastChainHash) {
+        lastChainHash = expectedPrevChainHash;
+        attempt += 1;
+        continue;
+      }
+      if (isAlreadyAdvancedTransition({ eventType: type, response: r })) {
+        await refreshJobChainHead();
+        return null;
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append server event after ${maxAttempts} attempts`);
   }
 
   async function postRobotEvent(type, payload) {
-    const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
-    const finalized = finalizeChainedEvent({ event: draft, prevChainHash: lastChainHash, signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem } });
-    const r = await httpJson({ method: "POST", path: `/jobs/${jobId}/events`, headers: { ...headersBase }, body: finalized });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
+      const finalized = finalizeChainedEvent({
+        event: draft,
+        prevChainHash: lastChainHash,
+        signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem }
+      });
+      const r = await httpJson({ method: "POST", path: `/jobs/${jobId}/events`, headers: { ...headersBase }, body: finalized });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      const expectedPrevChainHash = readExpectedPrevChainHashFromConflict(r);
+      if (expectedPrevChainHash && expectedPrevChainHash !== lastChainHash) {
+        lastChainHash = expectedPrevChainHash;
+        attempt += 1;
+        continue;
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append robot event after ${maxAttempts} attempts`);
   }
 
   // Move the job through the state machine.
@@ -193,7 +260,7 @@ async function main() {
   // Sanity: protocol headers present.
   const status = await httpJson({ method: "GET", path: "/ops/status", headers: headersBase });
   assert.equal(status.status, 200, status.text);
-  assert.equal(status.headers.get("x-settld-protocol"), PROTOCOL);
+  assert.equal(status.headers.get("x-nooterra-protocol"), PROTOCOL);
 
   // Extra assertion: booking pinned policy hash is deterministic (exercise policy functions quickly).
   const sla = computeSlaPolicy({ environmentTier: "ENV_MANAGED_BUILDING" });

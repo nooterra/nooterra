@@ -213,10 +213,12 @@ function normalizeSettlement(settlement) {
   return normalizeForCanonicalJson(
     {
       status: normalizeSettlementStatus(settlement.status, "settlement.status"),
+      traceId: normalizeOptionalString(settlement.traceId, "settlement.traceId", { max: 256 }),
       x402GateId: assertNonEmptyString(settlement.x402GateId, "settlement.x402GateId", { max: 200 }),
       x402RunId: assertNonEmptyString(settlement.x402RunId, "settlement.x402RunId", { max: 200 }),
       x402SettlementStatus: assertNonEmptyString(settlement.x402SettlementStatus, "settlement.x402SettlementStatus", { max: 64 }).toLowerCase(),
       x402ReceiptId: normalizeOptionalString(settlement.x402ReceiptId, "settlement.x402ReceiptId", { max: 200 }),
+      authorityGrantRef: normalizeOptionalString(settlement.authorityGrantRef, "settlement.authorityGrantRef", { max: 200 }),
       completionReceiptId: assertNonEmptyString(settlement.completionReceiptId, "settlement.completionReceiptId", { max: 200 }),
       settledAt: normalizeIsoDateTime(settlement.settledAt, "settlement.settledAt")
     },
@@ -231,11 +233,15 @@ export function buildSubAgentWorkOrderV1({
   principalAgentId,
   subAgentId,
   requiredCapability,
+  traceId = null,
+  x402ToolId = null,
+  x402ProviderId = null,
   specification,
   pricing,
   constraints = null,
   evidencePolicy = null,
   delegationGrantRef = null,
+  authorityGrantRef = null,
   metadata = null,
   createdAt = new Date().toISOString()
 } = {}) {
@@ -251,11 +257,15 @@ export function buildSubAgentWorkOrderV1({
       principalAgentId: assertNonEmptyString(principalAgentId, "principalAgentId", { max: 200 }),
       subAgentId: assertNonEmptyString(subAgentId, "subAgentId", { max: 200 }),
       requiredCapability: assertNonEmptyString(requiredCapability, "requiredCapability", { max: 256 }),
+      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
+      x402ToolId: normalizeOptionalString(x402ToolId, "x402ToolId", { max: 200 }),
+      x402ProviderId: normalizeOptionalString(x402ProviderId, "x402ProviderId", { max: 200 }),
       specification: normalizeForCanonicalJson(normalizedSpecification, { path: "$.specification" }),
       pricing: normalizePricing(pricing),
       constraints: normalizeConstraints(constraints),
       evidencePolicy: normalizeEvidencePolicy(evidencePolicy),
       delegationGrantRef: normalizeOptionalString(delegationGrantRef, "delegationGrantRef", { max: 200 }),
+      authorityGrantRef: normalizeOptionalString(authorityGrantRef, "authorityGrantRef", { max: 200 }),
       status: SUB_AGENT_WORK_ORDER_STATUS.CREATED,
       progressEvents: [],
       acceptedByAgentId: null,
@@ -284,10 +294,25 @@ export function validateSubAgentWorkOrderV1(workOrder) {
   assertNonEmptyString(workOrder.principalAgentId, "workOrder.principalAgentId", { max: 200 });
   assertNonEmptyString(workOrder.subAgentId, "workOrder.subAgentId", { max: 200 });
   assertNonEmptyString(workOrder.requiredCapability, "workOrder.requiredCapability", { max: 256 });
+  if (workOrder.traceId !== null && workOrder.traceId !== undefined) {
+    normalizeOptionalString(workOrder.traceId, "workOrder.traceId", { max: 256 });
+  }
+  if (workOrder.x402ToolId !== null && workOrder.x402ToolId !== undefined) {
+    normalizeOptionalString(workOrder.x402ToolId, "workOrder.x402ToolId", { max: 200 });
+  }
+  if (workOrder.x402ProviderId !== null && workOrder.x402ProviderId !== undefined) {
+    normalizeOptionalString(workOrder.x402ProviderId, "workOrder.x402ProviderId", { max: 200 });
+  }
   normalizeWorkOrderStatus(workOrder.status, "workOrder.status");
   normalizePricing(workOrder.pricing);
   if (workOrder.constraints !== null && workOrder.constraints !== undefined) normalizeConstraints(workOrder.constraints);
   if (workOrder.evidencePolicy !== null && workOrder.evidencePolicy !== undefined) normalizeEvidencePolicy(workOrder.evidencePolicy);
+  if (workOrder.delegationGrantRef !== null && workOrder.delegationGrantRef !== undefined) {
+    normalizeOptionalString(workOrder.delegationGrantRef, "workOrder.delegationGrantRef", { max: 200 });
+  }
+  if (workOrder.authorityGrantRef !== null && workOrder.authorityGrantRef !== undefined) {
+    normalizeOptionalString(workOrder.authorityGrantRef, "workOrder.authorityGrantRef", { max: 200 });
+  }
   normalizeIsoDateTime(workOrder.createdAt, "workOrder.createdAt");
   normalizeIsoDateTime(workOrder.updatedAt, "workOrder.updatedAt");
   if (workOrder.acceptedAt !== null && workOrder.acceptedAt !== undefined) normalizeIsoDateTime(workOrder.acceptedAt, "workOrder.acceptedAt");
@@ -387,6 +412,7 @@ export function buildSubAgentCompletionReceiptV1({
   evidenceRefs = [],
   amountCents = null,
   currency = null,
+  traceId = null,
   deliveredAt = new Date().toISOString(),
   metadata = null
 } = {}) {
@@ -407,6 +433,7 @@ export function buildSubAgentCompletionReceiptV1({
       principalAgentId: assertNonEmptyString(workOrder.principalAgentId, "workOrder.principalAgentId", { max: 200 }),
       subAgentId: assertNonEmptyString(workOrder.subAgentId, "workOrder.subAgentId", { max: 200 }),
       status: normalizedStatus,
+      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
       outputs:
         outputs && typeof outputs === "object" && !Array.isArray(outputs)
           ? normalizeForCanonicalJson(outputs, { path: "$.outputs" })
@@ -442,6 +469,9 @@ export function validateSubAgentCompletionReceiptV1(receipt) {
   assertNonEmptyString(receipt.principalAgentId, "receipt.principalAgentId", { max: 200 });
   assertNonEmptyString(receipt.subAgentId, "receipt.subAgentId", { max: 200 });
   normalizeCompletionStatus(receipt.status, "receipt.status");
+  if (receipt.traceId !== null && receipt.traceId !== undefined) {
+    normalizeOptionalString(receipt.traceId, "receipt.traceId", { max: 256 });
+  }
   normalizeIsoDateTime(receipt.deliveredAt, "receipt.deliveredAt");
   assertPlainObject(receipt.settlementQuote, "receipt.settlementQuote");
   normalizeSafeInteger(receipt.settlementQuote.amountCents, "receipt.settlementQuote.amountCents", { min: 0 });
@@ -486,10 +516,14 @@ export function completeSubAgentWorkOrderV1({ workOrder, completionReceipt, comp
 export function settleSubAgentWorkOrderV1({
   workOrder,
   completionReceiptId,
+  completionReceipt = null,
   settlement,
   settledAt = new Date().toISOString()
 } = {}) {
   validateSubAgentWorkOrderV1(workOrder);
+  if (completionReceipt !== null && completionReceipt !== undefined) {
+    validateSubAgentCompletionReceiptV1(completionReceipt);
+  }
   const currentStatus = normalizeWorkOrderStatus(workOrder.status);
   if (currentStatus !== SUB_AGENT_WORK_ORDER_STATUS.COMPLETED && currentStatus !== SUB_AGENT_WORK_ORDER_STATUS.FAILED) {
     throw new TypeError(`work order cannot be settled from status ${currentStatus}`);
@@ -504,6 +538,17 @@ export function settleSubAgentWorkOrderV1({
     completionReceiptId: normalizedReceiptId,
     settledAt: settlement?.settledAt ?? normalizedSettledAt
   });
+  const maxCostCents = normalizeSafeInteger(workOrder?.constraints?.maxCostCents ?? null, "workOrder.constraints.maxCostCents", {
+    min: 0,
+    allowNull: true
+  });
+  const settlementAmountCents =
+    completionReceipt && typeof completionReceipt === "object" && completionReceipt.settlementQuote
+      ? normalizeSafeInteger(completionReceipt.settlementQuote.amountCents, "completionReceipt.settlementQuote.amountCents", { min: 0 })
+      : normalizeSafeInteger(workOrder?.pricing?.amountCents, "workOrder.pricing.amountCents", { min: 1 });
+  if (maxCostCents !== null && settlementAmountCents > maxCostCents) {
+    throw new TypeError("settlement amount exceeds work order constraints.maxCostCents");
+  }
   return normalizeForCanonicalJson(
     {
       ...workOrder,

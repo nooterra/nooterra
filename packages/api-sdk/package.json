@@ -1,5 +1,5 @@
 {
-  "name": "settld-api-sdk",
+  "name": "nooterra-api-sdk",
   "version": "0.2.0",
   "private": false,
   "type": "module",
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aidenlippert/settld"
+    "url": "https://github.com/nooterra/nooterra"
   },
   "engines": {
     "node": ">=20"

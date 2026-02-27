@@ -22,10 +22,10 @@ function shellQuote(value) {
 
 async function main() {
   const repoRoot = process.cwd();
-  const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-pack-"));
-  const unpackDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-unpack-"));
-  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-out-"));
-  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-cache-"));
+  const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-cli-pack-"));
+  const unpackDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-cli-unpack-"));
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-cli-out-"));
+  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-cli-cache-"));
 
   const npmEnv = {
     ...process.env,
@@ -36,17 +36,17 @@ async function main() {
 
   try {
     sh("npm", ["--cache", npmCacheDir, "pack", "--silent", "--pack-destination", packDir], { cwd: repoRoot, env: npmEnv });
-    const packed = (await fs.readdir(packDir)).filter((name) => /^settld-.*\.tgz$/.test(name)).sort();
-    assert(packed.length > 0, "npm pack did not produce settld-*.tgz");
+    const packed = (await fs.readdir(packDir)).filter((name) => /^nooterra-.*\.tgz$/.test(name)).sort();
+    assert(packed.length > 0, "npm pack did not produce nooterra-*.tgz");
     const tarballPath = path.join(packDir, packed[packed.length - 1]);
     sh("tar", ["-xzf", tarballPath, "-C", unpackDir], { env: npmEnv });
     const packageRoot = path.join(unpackDir, "package");
-    const cliPath = path.join(packageRoot, "bin", "settld.js");
-    await fs.access(path.join(packageRoot, "scripts", "mcp", "settld-mcp-server.mjs"));
+    const cliPath = path.join(packageRoot, "bin", "nooterra.js");
+    await fs.access(path.join(packageRoot, "scripts", "mcp", "nooterra-mcp-server.mjs"));
     await fs.access(path.join(packageRoot, "packages", "api-sdk", "src", "x402-autopay.js"));
 
     const runTarballCli = (args) => {
-      const cmd = ["npx", "--yes", "--package", tarballPath, "--", "settld", ...args].map(shellQuote).join(" ");
+      const cmd = ["npx", "--yes", "--package", tarballPath, "--", "nooterra", ...args].map(shellQuote).join(" ");
       const res = spawnSync("bash", ["-lc", cmd], {
         cwd: packDir,
         env: npmEnv,
@@ -61,7 +61,7 @@ async function main() {
       if (blockedBySandbox) return { stdout: "", blockedBySandbox: true };
       if (res.status !== 0) {
         const err = (res.stderr || res.stdout || "").trim();
-        throw new Error(`npx --package <tarball> settld ${args.join(" ")} failed (exit ${res.status})${err ? `: ${err}` : ""}`);
+        throw new Error(`npx --package <tarball> nooterra ${args.join(" ")} failed (exit ${res.status})${err ? `: ${err}` : ""}`);
       }
       return { stdout: String(res.stdout ?? ""), blockedBySandbox: false };
     };
@@ -82,7 +82,7 @@ async function main() {
       if (blockedBySandbox) return { stdout: "", blockedBySandbox: true };
       if (res.status !== 0) {
         const err = (res.stderr || res.stdout || "").trim();
-        throw new Error(`settld ${args.join(" ")} failed (exit ${res.status})${err ? `: ${err}` : ""}`);
+        throw new Error(`nooterra ${args.join(" ")} failed (exit ${res.status})${err ? `: ${err}` : ""}`);
       }
       return { stdout: String(res.stdout ?? ""), blockedBySandbox: false };
     };
@@ -91,17 +91,17 @@ async function main() {
     const sandboxBlocked = versionResult.blockedBySandbox === true;
     if (!sandboxBlocked) {
       const version = versionResult.stdout.trim();
-      assert(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-.]+)?$/.test(version), `unexpected settld --version output: ${JSON.stringify(version)}`);
+      assert(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-.]+)?$/.test(version), `unexpected nooterra --version output: ${JSON.stringify(version)}`);
     }
 
     if (sandboxBlocked) {
       // In restricted sandboxes some child-process invocations return EPERM with status=0 and no IO.
       // Fall back to static package checks; CI environments still execute the full behavioral path above.
-      await fs.access(path.join(packageRoot, "bin", "settld.js"));
+      await fs.access(path.join(packageRoot, "bin", "nooterra.js"));
       await fs.access(path.join(packageRoot, "scripts", "init", "capability.mjs"));
       await fs.access(path.join(packageRoot, "conformance", "kernel-v0", "run.mjs"));
       await fs.access(path.join(packageRoot, "scripts", "closepack", "verify.mjs"));
-      await fs.access(path.join(packageRoot, "SETTLD_VERSION"));
+      await fs.access(path.join(packageRoot, "NOOTERRA_VERSION"));
       await fs.access(path.join(packageRoot, "Dockerfile"));
       await fs.access(path.join(packageRoot, "docker-compose.yml"));
       await fs.access(path.join(packageRoot, "src", "api", "server.js"));
@@ -125,19 +125,19 @@ async function main() {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    assert(tarballCases.length > 0, "npx --package <tarball> settld conformance kernel:list returned no cases");
+    assert(tarballCases.length > 0, "npx --package <tarball> nooterra conformance kernel:list returned no cases");
 
     const infoRaw = runCli(["dev", "info"]).stdout.trim();
     const info = JSON.parse(infoRaw);
-    assert(String(info.baseUrl ?? "") === "http://127.0.0.1:3000", "settld dev info baseUrl mismatch");
-    assert(String(info.tenantId ?? "") === "tenant_default", "settld dev info tenantId mismatch");
-    assert(String(info.opsToken ?? "") === "tok_ops", "settld dev info opsToken mismatch");
+    assert(String(info.baseUrl ?? "") === "http://127.0.0.1:3000", "nooterra dev info baseUrl mismatch");
+    assert(String(info.tenantId ?? "") === "tenant_default", "nooterra dev info tenantId mismatch");
+    assert(String(info.opsToken ?? "") === "tok_ops", "nooterra dev info opsToken mismatch");
 
     const cases = runCli(["conformance", "kernel:list"]).stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    assert(cases.length > 0, "settld conformance kernel:list returned no cases");
+    assert(cases.length > 0, "nooterra conformance kernel:list returned no cases");
 
     runCli(["closepack", "verify", "--help"]);
     runCli(["x402", "receipt", "verify", "--help"]);
@@ -150,7 +150,7 @@ async function main() {
     await fs.access(path.join(starterDir, "scripts", "kernel-prove.mjs"));
     await fs.access(path.join(starterDir, "scripts", "kernel-conformance.mjs"));
     const kernelProveSource = await fs.readFile(path.join(starterDir, "scripts", "kernel-prove.mjs"), "utf8");
-    assert(kernelProveSource.includes("import(\"settld-api-sdk\")"), "starter kernel-prove script must attempt npm SDK import first");
+    assert(kernelProveSource.includes("import(\"nooterra-api-sdk\")"), "starter kernel-prove script must attempt npm SDK import first");
   } finally {
     await fs.rm(packDir, { recursive: true, force: true });
     await fs.rm(unpackDir, { recursive: true, force: true });

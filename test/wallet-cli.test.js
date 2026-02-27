@@ -121,9 +121,9 @@ test("wallet cli: status uses session cookie auth and requests balances without 
     argv: ["status", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_demo",
-      cookie: "settld_session=abc123"
+      cookie: "nooterra_session=abc123"
     }),
     stdout: { write: (chunk) => chunks.push(String(chunk)) }
   });
@@ -133,12 +133,12 @@ test("wallet cli: status uses session cookie auth and requests balances without 
   assert.equal(result.wallet.spendWallet.walletId, "wid_spend");
   assert.equal(result.wallet.spendWallet.usdcAmount, 0.5);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].init.headers.cookie, "settld_session=abc123");
+  assert.equal(calls[0].init.headers.cookie, "nooterra_session=abc123");
   const posted = JSON.parse(String(calls[0].init.body ?? "{}"));
   assert.equal(posted.provider, "circle");
   assert.equal(posted.circle.faucet, false);
   assert.equal(posted.circle.includeBalances, true);
-  assert.match(chunks.join(""), /SettldWalletStatus\.v1/);
+  assert.match(chunks.join(""), /NooterraWalletStatus\.v1/);
 });
 
 test("wallet cli: fund transfer returns spend address via wallet-funding backend", async () => {
@@ -162,9 +162,9 @@ test("wallet cli: fund transfer returns spend address via wallet-funding backend
     argv: ["fund", "--method", "transfer", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_demo",
-      cookie: "settld_session=abc123"
+      cookie: "nooterra_session=abc123"
     }),
     stdout: { write() {} }
   });
@@ -198,9 +198,9 @@ test("wallet cli: fund card with --open uses backend-provided hosted URL", async
     argv: ["fund", "--method", "card", "--open", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_demo",
-      cookie: "settld_session=abc123"
+      cookie: "nooterra_session=abc123"
     }),
     openInBrowserImpl: (url) => {
       openedUrl = url;
@@ -242,9 +242,9 @@ test("wallet cli: fund without method chooses recommended method in non-interact
     argv: ["fund", "--non-interactive", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_demo",
-      cookie: "settld_session=abc123"
+      cookie: "nooterra_session=abc123"
     }),
     stdout: { write() {} }
   });
@@ -271,9 +271,9 @@ test("wallet cli: balance watch waits until threshold is reached", async () => {
     argv: ["balance", "--watch", "--min-usdc", "1", "--interval-seconds", "0", "--timeout-seconds", "2", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.settld.work",
+      baseUrl: "https://api.nooterra.work",
       tenantId: "tenant_demo",
-      cookie: "settld_session=abc123"
+      cookie: "nooterra_session=abc123"
     }),
     stdout: { write() {} }
   });

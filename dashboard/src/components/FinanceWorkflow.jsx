@@ -14,13 +14,13 @@ function classifyStep(step) {
 function badgeClass(status) {
   switch (status) {
     case "ok":
-      return "border-settld-success/40 bg-settld-success/10 text-settld-success";
+      return "border-nooterra-success/40 bg-nooterra-success/10 text-nooterra-success";
     case "warn":
-      return "border-settld-warning/40 bg-settld-warning/10 text-settld-warning";
+      return "border-nooterra-warning/40 bg-nooterra-warning/10 text-nooterra-warning";
     case "fail":
-      return "border-settld-error/40 bg-settld-error/10 text-settld-error";
+      return "border-nooterra-error/40 bg-nooterra-error/10 text-nooterra-error";
     default:
-      return "border-settld-border bg-black/20 text-gray-300";
+      return "border-nooterra-border bg-black/20 text-gray-300";
   }
 }
 
@@ -33,7 +33,7 @@ export default function FinanceWorkflow({ steps }) {
   }, [steps]);
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div>
           <h2 className="text-xl font-semibold">Finance Workflow Replay</h2>
@@ -42,7 +42,7 @@ export default function FinanceWorkflow({ steps }) {
         <div className="text-xs text-gray-500">click steps to inspect request/response</div>
       </div>
 
-      <div className="border border-settld-border rounded-lg overflow-hidden">
+      <div className="border border-nooterra-border rounded-lg overflow-hidden">
         <div className="grid grid-cols-12 bg-black/20 text-xs text-gray-400 px-3 py-2">
           <div className="col-span-7">step</div>
           <div className="col-span-2">status</div>
@@ -53,7 +53,7 @@ export default function FinanceWorkflow({ steps }) {
             <button
               key={`${s.name}_${idx}`}
               onClick={() => setSelected(s)}
-              className="w-full text-left grid grid-cols-12 px-3 py-2 border-t border-settld-border/40 hover:bg-white/5 text-xs"
+              className="w-full text-left grid grid-cols-12 px-3 py-2 border-t border-nooterra-border/40 hover:bg-white/5 text-xs"
             >
               <div className="col-span-7 font-mono text-gray-200">{s.name}</div>
               <div className="col-span-2">

@@ -304,7 +304,7 @@
       "Ticket Key": "STLD-T2451",
       "Epic Key": "STLD-E2406",
       "Summary": "Add CLI profile init validate and simulate commands",
-      "Description": "Ship `settld profile init`, `settld profile validate`, and `settld profile simulate` with deterministic outputs.",
+      "Description": "Ship `nooterra profile init`, `nooterra profile validate`, and `nooterra profile simulate` with deterministic outputs.",
       "Owner": "CLI",
       "Estimate": "4d",
       "Priority": "Highest",

@@ -1,6 +1,6 @@
-# ClawHub Publish Checklist (Settld MCP Skill)
+# ClawHub Publish Checklist (Nooterra MCP Skill)
 
-Use this to publish and validate the Settld OpenClaw skill safely.
+Use this to publish and validate the Nooterra OpenClaw skill safely.
 
 ## 1) Pre-Publish Validation
 
@@ -14,9 +14,9 @@ node --test test/openclaw-clawhub-install-smoke-script.test.js
 
 Confirm required files exist:
 
-- `docs/integrations/openclaw/settld-mcp-skill/SKILL.md`
-- `docs/integrations/openclaw/settld-mcp-skill/mcp-server.example.json`
-- `docs/integrations/openclaw/settld-mcp-skill/skill.json`
+- `docs/integrations/openclaw/nooterra-mcp-skill/SKILL.md`
+- `docs/integrations/openclaw/nooterra-mcp-skill/mcp-server.example.json`
+- `docs/integrations/openclaw/nooterra-mcp-skill/skill.json`
 
 ## 2) Prepare Skill Metadata
 
@@ -30,35 +30,35 @@ In `SKILL.md`, verify:
 
 ## 3) Publish To ClawHub
 
-Publish the folder `docs/integrations/openclaw/settld-mcp-skill/` as your skill package.
+Publish the folder `docs/integrations/openclaw/nooterra-mcp-skill/` as your skill package.
 
 If ClawHub UI requests install instructions, use:
 
 - command: `npx`
-- args: `-y --package settld@latest settld-mcp`
-- env: `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`, `SETTLD_API_KEY`, optional `SETTLD_PAID_TOOLS_BASE_URL`
+- args: `-y --package nooterra@latest nooterra-mcp`
+- env: `NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`, optional `NOOTERRA_PAID_TOOLS_BASE_URL`
 
 ## 4) Post-Publish Smoke Test
 
 Install the skill in a clean OpenClaw environment and verify:
 
-1. Tools are discoverable (`settld.*` visible).
-2. `settld.about` succeeds.
+1. Tools are discoverable (`nooterra.*` visible).
+2. `nooterra.about` succeeds.
 3. One paid call succeeds:
-   - `settld.exa_search_paid`, or
-   - `settld.weather_current_paid`
-4. Result includes `x-settld-*` verification headers.
+   - `nooterra.exa_search_paid`, or
+   - `nooterra.weather_current_paid`
+4. Result includes `x-nooterra-*` verification headers.
 
 Automated smoke (requires network and public ClawHub access):
 
 ```bash
-npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --bootstrap-local
+npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug nooterra-mcp-payments --bootstrap-local
 ```
 
 If ClawHub blocks non-interactive install due suspicious-skill gating, rerun with:
 
 ```bash
-npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --force --bootstrap-local
+npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug nooterra-mcp-payments --force --bootstrap-local
 ```
 
 ## 5) Rollback Plan
@@ -74,7 +74,7 @@ If smoke fails in production:
 Capture these fields each publish:
 
 - Skill version
-- Settld package version used
+- Nooterra package version used
 - Added/changed tools
 - Known limitations
 - Validation run timestamp

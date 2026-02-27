@@ -13,7 +13,7 @@ async function writeCanonicalJson(fp, json) {
 }
 
 test("release signing compromise drill: revoke old key, accept new key", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-compromise-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-compromise-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   // Fixture keypairs (test-only).

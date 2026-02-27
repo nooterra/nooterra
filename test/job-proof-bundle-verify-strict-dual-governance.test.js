@@ -24,7 +24,7 @@ test("JobProofBundle.v1 strict verification succeeds with dual-scope governance 
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
 
   const jobEvents = [];
@@ -74,7 +74,7 @@ test("JobProofBundle.v1 strict verification succeeds with dual-scope governance 
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-strict-dual-gov-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-strict-dual-gov-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
@@ -97,7 +97,7 @@ test("JobProofBundle.v1 strict verification fails when verify/verification_repor
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
 
   const jobEvents = [];
@@ -146,7 +146,7 @@ test("JobProofBundle.v1 strict verification fails when verify/verification_repor
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-strict-missing-report-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-strict-missing-report-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
   await fs.rm(path.join(dir, "verify", "verification_report.json"));
@@ -169,7 +169,7 @@ test("JobProofBundle.v1 strict verification fails when governance streams are mi
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
 
   const jobEvents = [];
@@ -202,7 +202,7 @@ test("JobProofBundle.v1 strict verification fails when governance streams are mi
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-strict-missing-gov-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-strict-missing-gov-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 

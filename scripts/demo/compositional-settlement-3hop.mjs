@@ -107,7 +107,7 @@ const settleDecision = buildSettlementDecisionRecordV2({
     verificationMethodHash: "2".repeat(64)
   },
   verifierRef: {
-    verifierId: "settld.demo",
+    verifierId: "nooterra.demo",
     verifierVersion: "v1",
     verifierHash: "3".repeat(64),
     modality: "deterministic"
@@ -163,7 +163,7 @@ const unwindDecision = buildSettlementDecisionRecordV2({
     verificationMethodHash: "6".repeat(64)
   },
   verifierRef: {
-    verifierId: "settld.demo",
+    verifierId: "nooterra.demo",
     verifierVersion: "v1",
     verifierHash: "7".repeat(64),
     modality: "deterministic"

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "ConformanceExpected.v1",
+  "exitCode": 1,
+  "ok": false,
+  "verificationOk": false,
+  "errorCodes": ["SIGNING_TIME_UNPROVABLE"],
+  "warningCodes": []
+}

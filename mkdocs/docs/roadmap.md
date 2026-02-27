@@ -23,7 +23,7 @@ This roadmap reflects the current Trust OS direction.
 - Richer profile/policy simulation workflows
 - Expanded adapter surface under same trust contract
 
-## Phase 4: Agentverse Infrastructure
+## Phase 4: Agent Network Infrastructure
 
 - Cross-runtime trust fabric
 - Stronger inter-agent settlement primitives

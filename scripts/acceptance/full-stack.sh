@@ -13,7 +13,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 RUN_ID="${ACCEPTANCE_RUN_ID:-$(date +%s)_$RANDOM}"
-PROJECT="${ACCEPTANCE_PROJECT_NAME:-settld_acc_${RUN_ID}}"
+PROJECT="${ACCEPTANCE_PROJECT_NAME:-nooterra_acc_${RUN_ID}}"
 SCHEMA="${ACCEPTANCE_PG_SCHEMA:-acc_${RUN_ID}}"
 ART_DIR="${ACCEPTANCE_ARTIFACT_DIR:-$(mktemp -d)}"
 
@@ -65,7 +65,7 @@ compose_down() {
       BEARER="$(cat "${ART_DIR}/bearer.txt" 2>/dev/null || true)"
       if [[ -n "${BEARER}" ]]; then
         BEARER="${BEARER}" TENANT="${ACCEPTANCE_TENANT_ID:-tenant_default}" PROTO="${ACCEPTANCE_PROTOCOL:-1.0}" API="${ACCEPTANCE_API_BASE_URL:-http://127.0.0.1:3000}" \
-        node --input-type=module -e "const b=process.env.BEARER; const t=process.env.TENANT; const p=process.env.PROTO; const base=process.env.API; async function get(path){const r=await fetch(base+path,{headers:{authorization:b,'x-proxy-tenant-id':t,'x-settld-protocol':p}}).catch(()=>null); if(!r){console.log(path, 'fetch_failed'); return;} const txt=await r.text(); console.log(path, r.status); console.log(txt.slice(0, 4000));} await get('/ops/status'); await get('/ops/deliveries?limit=50'); await get('/ops/dlq?type=delivery&limit=50');" \
+        node --input-type=module -e "const b=process.env.BEARER; const t=process.env.TENANT; const p=process.env.PROTO; const base=process.env.API; async function get(path){const r=await fetch(base+path,{headers:{authorization:b,'x-proxy-tenant-id':t,'x-nooterra-protocol':p}}).catch(()=>null); if(!r){console.log(path, 'fetch_failed'); return;} const txt=await r.text(); console.log(path, r.status); console.log(txt.slice(0, 4000));} await get('/ops/status'); await get('/ops/deliveries?limit=50'); await get('/ops/dlq?type=delivery&limit=50');" \
           >"${ART_DIR}/ops.snapshots.txt" 2>&1 || true
         cat "${ART_DIR}/ops.snapshots.txt" || true
       fi

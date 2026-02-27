@@ -8,7 +8,7 @@
 
 ## Sprint objective
 
-Move Settld from release-ready components to a live autonomous transaction network with production money rails, deterministic settlement loops, and first lighthouse production revenue.
+Move Nooterra from release-ready components to a live autonomous transaction network with production money rails, deterministic settlement loops, and first lighthouse production revenue.
 
 ## Sprint window
 

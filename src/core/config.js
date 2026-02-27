@@ -27,6 +27,36 @@ function parseFlagEnv(name, fallback) {
   throw new TypeError(`${name} must be 0 or 1`);
 }
 
+function parseDelimitedStringListEnv(name, { fallback = [], lowerCase = false } = {}) {
+  const raw = typeof process !== "undefined" ? process.env[name] : null;
+  if (raw === null || raw === undefined || String(raw).trim() === "") return [...fallback];
+  const deduped = new Set();
+  const rows = String(raw)
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value !== "");
+  for (const row of rows) {
+    const normalized = lowerCase ? row.toLowerCase() : row;
+    deduped.add(normalized);
+  }
+  return [...deduped].sort((a, b) => a.localeCompare(b));
+}
+
+function parseOptionalDidEnv(name) {
+  const raw = typeof process !== "undefined" ? process.env[name] : null;
+  if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+  const did = String(raw).trim();
+  if (did.length > 256) throw new TypeError(`${name} must be <= 256 characters`);
+  if (!did.includes(":")) throw new TypeError(`${name} must be a DID-like identifier`);
+  return did;
+}
+
+function parseOptionalStringEnv(name) {
+  const raw = typeof process !== "undefined" ? process.env[name] : null;
+  if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+  return String(raw).trim();
+}
+
 function safeSchemaName(name) {
   assertNonEmptyString(name, "PROXY_PG_SCHEMA");
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
@@ -164,6 +194,24 @@ export function loadConfig({ mode = "api" } = {}) {
   const evidencePresignMaxSeconds = parsePositiveIntEnv("PROXY_EVIDENCE_PRESIGN_MAX_SECONDS", 300);
   if (evidencePresignMaxSeconds > 3600) throw new TypeError("PROXY_EVIDENCE_PRESIGN_MAX_SECONDS must be <= 3600");
 
+  const coordinatorDid = parseOptionalDidEnv("COORDINATOR_DID") ?? parseOptionalDidEnv("PROXY_COORDINATOR_DID");
+  const trustedCoordinatorDids = parseDelimitedStringListEnv("PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS");
+  const coordinatorSigningPrivateKeyPem = parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM");
+  const coordinatorSigningKeyId = parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_KEY_ID");
+  const federationEnabled =
+    coordinatorDid !== null ||
+    trustedCoordinatorDids.length > 0 ||
+    coordinatorSigningPrivateKeyPem !== null ||
+    coordinatorSigningKeyId !== null;
+  if (federationEnabled && !coordinatorDid) {
+    throw new Error(
+      "federation config requires COORDINATOR_DID (or PROXY_COORDINATOR_DID) when federation env vars are set"
+    );
+  }
+  if (coordinatorSigningPrivateKeyPem && !coordinatorSigningKeyId) {
+    throw new Error("PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM requires PROXY_COORDINATOR_SIGNING_KEY_ID");
+  }
+
   const autotickEnabled = typeof process !== "undefined" && process.env.PROXY_AUTOTICK === "1";
   const autotickIntervalMs = (() => {
     const raw = typeof process !== "undefined" ? (process.env.PROXY_AUTOTICK_INTERVAL_MS ?? null) : null;
@@ -237,6 +285,16 @@ export function loadConfig({ mode = "api" } = {}) {
     evidence: {
       presignMaxSeconds: evidencePresignMaxSeconds
     },
+    federation: {
+      enabled: federationEnabled,
+      coordinatorDid,
+      trustedCoordinatorDids,
+      signing: {
+        enabled: Boolean(coordinatorSigningPrivateKeyPem && coordinatorSigningKeyId),
+        keyId: coordinatorSigningKeyId,
+        privateKeyPem: coordinatorSigningPrivateKeyPem
+      }
+    },
     exports: {
       allowInlineSecrets,
       destinationsConfigured: countDestinationsByTenant(exportDestinations)
@@ -267,6 +325,17 @@ export function configForLog(config) {
     workers: config.workers ?? null,
     secrets: config.secrets ?? null,
     evidence: config.evidence ?? null,
+    federation: {
+      enabled: config.federation?.enabled ?? false,
+      coordinatorDid: config.federation?.coordinatorDid ?? null,
+      trustedCoordinatorDids: Array.isArray(config.federation?.trustedCoordinatorDids)
+        ? config.federation.trustedCoordinatorDids
+        : [],
+      signing: {
+        enabled: config.federation?.signing?.enabled ?? false,
+        keyId: config.federation?.signing?.keyId ?? null
+      }
+    },
     exports: config.exports ?? null
   };
 }

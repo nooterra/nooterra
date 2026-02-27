@@ -1,6 +1,6 @@
 # TenantSettings.v2
 
-`TenantSettings.v2` is the **tenant-scoped configuration contract** for Settld Verify Cloud / Magic Link.
+`TenantSettings.v2` is the **tenant-scoped configuration contract** for Nooterra Verify Cloud / Magic Link.
 
 It is a backwards-compatible evolution of `TenantSettings.v1` that adds:
 

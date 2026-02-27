@@ -32,7 +32,7 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
     argv: [
       "--non-interactive",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
       "--email",
@@ -40,7 +40,7 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
       "--otp",
       "123456",
       "--session-file",
-      "/tmp/settld-session-test.json",
+      "/tmp/nooterra-session-test.json",
       "--format",
       "json"
     ],
@@ -54,7 +54,7 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.tenantId, "tenant_default");
-  assert.equal(result.sessionFile, "/tmp/settld-session-test.json");
+  assert.equal(result.sessionFile, "/tmp/nooterra-session-test.json");
   assert.equal(result.authMode, "public_signup");
   assert.equal(calls.length, 2);
   assert.ok(String(calls[0].url).includes("/v1/public/auth-mode"));
@@ -87,11 +87,11 @@ test("login: non-interactive public signup forbidden returns actionable guidance
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.settld.work",
+          "https://api.nooterra.work",
           "--email",
           "founder@example.com",
           "--company",
-          "Settld",
+          "Nooterra",
           "--otp",
           "123456"
         ],
@@ -121,11 +121,11 @@ test("login: enterprise_preprovisioned mode requires tenant-id before signup att
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.settld.work",
+          "https://api.nooterra.work",
           "--email",
           "founder@example.com",
           "--company",
-          "Settld",
+          "Nooterra",
           "--otp",
           "123456"
         ],
@@ -161,7 +161,7 @@ test("login: non-interactive otp forbidden returns actionable guidance", async (
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.settld.work",
+          "https://api.nooterra.work",
           "--tenant-id",
           "tenant_default",
           "--email",

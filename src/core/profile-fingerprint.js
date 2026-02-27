@@ -1,7 +1,7 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { sha256Hex } from "./crypto.js";
 
-export const PROFILE_FINGERPRINT_SCHEMA_VERSION = "SettldProfileFingerprint.v1";
+export const PROFILE_FINGERPRINT_SCHEMA_VERSION = "NooterraProfileFingerprint.v1";
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

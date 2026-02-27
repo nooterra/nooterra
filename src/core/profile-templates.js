@@ -1,5 +1,5 @@
-export const PROFILE_SCHEMA_VERSION = "SettldProfile.v1";
-export const PROFILE_TEMPLATE_CATALOG_VERSION = "SettldProfileTemplateCatalog.v1";
+export const PROFILE_SCHEMA_VERSION = "NooterraProfile.v1";
+export const PROFILE_TEMPLATE_CATALOG_VERSION = "NooterraProfileTemplateCatalog.v1";
 
 const STARTER_PROFILES = Object.freeze([
   Object.freeze({

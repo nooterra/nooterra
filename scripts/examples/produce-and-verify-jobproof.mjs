@@ -46,7 +46,7 @@ async function readTrustFile() {
 }
 
 async function runVerifyCli({ bundleDir, outJsonPath, env }) {
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const proc = spawn(process.execPath, [bin, "--format", "json", "--strict", "--job-proof", bundleDir], {
     env: { ...process.env, ...(env ?? {}) },
     stdio: ["ignore", "pipe", "inherit"]
@@ -59,7 +59,7 @@ async function runVerifyCli({ bundleDir, outJsonPath, env }) {
   });
   const out = Buffer.concat(stdout).toString("utf8");
   await fs.writeFile(outJsonPath, out, "utf8");
-  if (code !== 0) throw new Error(`settld-verify failed with exit code ${code}`);
+  if (code !== 0) throw new Error(`nooterra-verify failed with exit code ${code}`);
   return out;
 }
 
@@ -166,7 +166,7 @@ async function main() {
   });
 
   const bundleDir = path.join(outDir, "bundle");
-  const verifyOutPath = path.join(outDir, "settld-verify-output.json");
+  const verifyOutPath = path.join(outDir, "nooterra-verify-output.json");
 
   await ensureEmptyDir(outDir);
   await ensureEmptyDir(bundleDir);
@@ -177,8 +177,8 @@ async function main() {
     bundleDir,
     outJsonPath: verifyOutPath,
     env: {
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
     }
   });
 

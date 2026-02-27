@@ -47,8 +47,8 @@ test("openapi + sdk expose TA execution-intent error codes for x402 authorize-pa
   const operation = spec?.paths?.["/x402/gate/authorize-payment"]?.post ?? null;
   assert.ok(operation, "missing POST /x402/gate/authorize-payment");
 
-  const known409 = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
-  assert.ok(Array.isArray(known409), "409 response must expose x-settld-known-error-codes");
+  const known409 = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(known409), "409 response must expose x-nooterra-known-error-codes");
   for (const code of REQUIRED_TA_ERROR_CODES) {
     assert.ok(known409.includes(code), `OpenAPI 409 known codes missing ${code}`);
   }
@@ -65,8 +65,8 @@ test("openapi + sdk expose verify known error codes for x402 verify", () => {
   const operation = spec?.paths?.["/x402/gate/verify"]?.post ?? null;
   assert.ok(operation, "missing POST /x402/gate/verify");
 
-  const known409 = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
-  assert.ok(Array.isArray(known409), "409 response must expose x-settld-known-error-codes");
+  const known409 = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(known409), "409 response must expose x-nooterra-known-error-codes");
   for (const code of REQUIRED_VERIFY_ERROR_CODES) {
     assert.ok(known409.includes(code), `OpenAPI 409 known codes missing ${code}`);
   }

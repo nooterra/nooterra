@@ -1,6 +1,6 @@
 # GTM Pilot Playbook (Autonomous Workflows)
 
-This playbook turns Settld pilot work into repeatable pipeline and expansion motion.
+This playbook turns Nooterra pilot work into repeatable pipeline and expansion motion.
 
 ## 1) Pilot objective
 
@@ -59,7 +59,7 @@ Subject: Reduce automation-work invoice disputes in 30 days
 Hi {{Name}},
 
 Teams using external agents and automation vendors often lose time in invoice review because SLA evidence and approvals are fragmented.
-Settld gives buyers a single verification link with signed artifact evidence and approve/hold decisions.
+Nooterra gives buyers a single verification link with signed artifact evidence and approve/hold decisions.
 
 For a pilot, we scope one workflow and target:
 
@@ -126,7 +126,7 @@ Weekly 45-minute review with customer:
 3. Template/policy updates needed
 4. Next-week volume and success targets
 
-Internal Settld cadence:
+Internal Nooterra cadence:
 
 - Monday: KPI check + risk log update
 - Wednesday: technical blockers + integration follow-up

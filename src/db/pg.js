@@ -58,8 +58,8 @@ function queryLabelFromArgs(args) {
 function instrumentClient(client) {
   if (!PG_LOG_SLOW_MS) return;
   if (!client || typeof client !== "object") return;
-  if (client.__settldSlowLogWrapped) return;
-  client.__settldSlowLogWrapped = true;
+  if (client.__nooterraSlowLogWrapped) return;
+  client.__nooterraSlowLogWrapped = true;
 
   const originalQuery = client.query.bind(client);
   client.query = function queryWrapper(...args) {

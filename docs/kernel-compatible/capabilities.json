@@ -5,10 +5,10 @@
     {
       "id": "reference-deterministic-latency-threshold",
       "name": "Reference Capability: Deterministic Latency Threshold",
-      "owner": "settld",
+      "owner": "nooterra",
       "type": "reference",
       "repoPath": "examples/reference-capabilities/deterministic-latency-threshold",
-      "deterministicVerifierRef": "verifier://settld/deterministic/latency-threshold-v1",
+      "deterministicVerifierRef": "verifier://nooterra/deterministic/latency-threshold-v1",
       "conformanceCaseIds": [
         "tool_call_holdback_release",
         "tool_call_holdback_refund"
@@ -20,10 +20,10 @@
     {
       "id": "reference-deterministic-schema-check",
       "name": "Reference Capability: Deterministic Schema Check",
-      "owner": "settld",
+      "owner": "nooterra",
       "type": "reference",
       "repoPath": "examples/reference-capabilities/deterministic-schema-check",
-      "deterministicVerifierRef": "verifier://settld/deterministic/schema-check-v1",
+      "deterministicVerifierRef": "verifier://nooterra/deterministic/schema-check-v1",
       "conformanceCaseIds": [
         "tool_call_holdback_release",
         "marketplace_run_replay_evaluate"

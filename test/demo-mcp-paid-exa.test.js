@@ -31,10 +31,10 @@ async function runDemo({ artifactDir, env = {}, timeoutMs = 90_000 }) {
     env: {
       ...process.env,
       ...env,
-      SETTLD_DEMO_KEEP_ALIVE: "0",
-      SETTLD_DEMO_QUERY: "dentist chicago",
-      SETTLD_DEMO_NUM_RESULTS: "2",
-      SETTLD_DEMO_ARTIFACT_DIR: artifactDir
+      NOOTERRA_DEMO_KEEP_ALIVE: "0",
+      NOOTERRA_DEMO_QUERY: "dentist chicago",
+      NOOTERRA_DEMO_NUM_RESULTS: "2",
+      NOOTERRA_DEMO_ARTIFACT_DIR: artifactDir
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -83,9 +83,9 @@ test("demo:mcp-paid-exa script completes and writes PASS artifact bundle", async
   const { exit, stdout, stderr } = await runDemo({
     artifactDir,
     env: {
-      SETTLD_DEMO_API_PORT: String(apiPort),
-      SETTLD_DEMO_UPSTREAM_PORT: String(upstreamPort),
-      SETTLD_DEMO_GATEWAY_PORT: String(gatewayPort)
+      NOOTERRA_DEMO_API_PORT: String(apiPort),
+      NOOTERRA_DEMO_UPSTREAM_PORT: String(upstreamPort),
+      NOOTERRA_DEMO_GATEWAY_PORT: String(gatewayPort)
     }
   });
 
@@ -132,11 +132,11 @@ test("demo:mcp-paid-exa can execute batch settlement in stub mode", async () => 
   const { exit, stdout, stderr } = await runDemo({
     artifactDir,
     env: {
-      SETTLD_DEMO_API_PORT: String(apiPort),
-      SETTLD_DEMO_UPSTREAM_PORT: String(upstreamPort),
-      SETTLD_DEMO_GATEWAY_PORT: String(gatewayPort),
-      SETTLD_DEMO_RUN_BATCH_SETTLEMENT: "1",
-      SETTLD_DEMO_CIRCLE_MODE: "stub"
+      NOOTERRA_DEMO_API_PORT: String(apiPort),
+      NOOTERRA_DEMO_UPSTREAM_PORT: String(upstreamPort),
+      NOOTERRA_DEMO_GATEWAY_PORT: String(gatewayPort),
+      NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT: "1",
+      NOOTERRA_DEMO_CIRCLE_MODE: "stub"
     }
   });
 

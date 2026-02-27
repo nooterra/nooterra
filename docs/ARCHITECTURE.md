@@ -1,6 +1,6 @@
-# Settld Architecture (v0)
+# Nooterra Architecture (v0)
 
-Settld is a **trust fabric + runtime + ledger** for autonomous work.
+Nooterra is a **trust fabric + runtime + ledger** for autonomous work.
 
 ## Layers (logical)
 
@@ -28,7 +28,7 @@ Invariants:
 
 ## Core components (eventual)
 
-### Settld Cloud
+### Nooterra Cloud
 
 - **Job Orchestrator**: validates and advances job state, emits job events.
 - **Dispatch Service**: matching + reservation + replanning.
@@ -36,7 +36,7 @@ Invariants:
 - **Trust Service**: evidence bundling, incident/claims workflow.
 - **Skill Registry**: signed bundles, certification tiers, distribution rules.
 
-### Settld Agent (on/near execution runtime)
+### Nooterra Agent (on/near execution runtime)
 
 - Secure channel to cloud (mTLS + rotating certs).
 - Advertises capabilities/health.

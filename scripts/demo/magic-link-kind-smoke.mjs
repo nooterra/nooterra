@@ -12,7 +12,7 @@ const baseUrl = process.env.MAGIC_LINK_SMOKE_URL ?? "http://127.0.0.1:8787";
 const apiKey = process.env.MAGIC_LINK_SMOKE_API_KEY ?? "dev_key";
 const tenantId = process.env.MAGIC_LINK_SMOKE_TENANT_ID ?? "tenant_example";
 
-const buyerEmail = process.env.MAGIC_LINK_SMOKE_BUYER_EMAIL ?? "aiden@settld.work";
+const buyerEmail = process.env.MAGIC_LINK_SMOKE_BUYER_EMAIL ?? "aiden@nooterra.work";
 const buyerEmailDomain = buyerEmail.split("@")[1] ?? "example.com";
 
 const vendorId = process.env.MAGIC_LINK_SMOKE_VENDOR_ID ?? "vendor_a";
@@ -23,7 +23,7 @@ const k8sNamespace = process.env.MAGIC_LINK_SMOKE_NAMESPACE ?? "magic-link-demo"
 const helmRelease = process.env.MAGIC_LINK_SMOKE_HELM_RELEASE ?? "magic-link";
 const kubectl = process.env.KUBECTL_BIN ?? "kubectl";
 
-const deploymentName = `${helmRelease}-settld-magic-link`;
+const deploymentName = `${helmRelease}-nooterra-magic-link`;
 const magicLinkContainerName = "magic-link";
 
 async function listFilesRecursive(dir) {
@@ -143,7 +143,7 @@ async function waitForLogOtp({ kind, token, email, timeoutMs = 15_000 }) {
 }
 
 async function main() {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-kind-smoke-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-kind-smoke-"));
 
   // A) Deploy + basic health.
   {
@@ -406,7 +406,7 @@ async function main() {
     await fs.writeFile(bundlePath, bundle.body);
     await fs.writeFile(decisionPath, decision.body);
 
-    const nodeBin = path.resolve(process.cwd(), "packages/artifact-verify/bin/settld-verify.js");
+    const nodeBin = path.resolve(process.cwd(), "packages/artifact-verify/bin/nooterra-verify.js");
     const trust = JSON.parse(await fs.readFile("test/fixtures/bundles/v1/trust.json", "utf8"));
     const run = spawnSync(
       process.execPath,
@@ -417,8 +417,8 @@ async function main() {
           ...process.env,
           LANG: "C",
           LC_ALL: "C",
-          SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
-          SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust.pricingSigners ?? {})
+          NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+          NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust.pricingSigners ?? {})
         }
       }
     );

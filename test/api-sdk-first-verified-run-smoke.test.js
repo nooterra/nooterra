@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 import { request } from "./api-test-harness.js";
 
 function uniqueSuffix() {
@@ -58,7 +58,7 @@ test("api-sdk: firstVerifiedRun executes a full verified+settled run", async () 
     }
   });
 
-  const client = new SettldClient({
+  const client = new NooterraClient({
     baseUrl: "http://in-process",
     tenantId,
     apiKey: `${keyId}.${secret}`,

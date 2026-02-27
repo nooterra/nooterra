@@ -1,7 +1,7 @@
 {
-  "id": "settld",
-  "name": "Settld",
-  "description": "Settld tools for OpenClaw with runtime env auto-discovery from Settld setup.",
+  "id": "nooterra",
+  "name": "Nooterra",
+  "description": "Nooterra tools for OpenClaw with runtime env auto-discovery from Nooterra setup.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

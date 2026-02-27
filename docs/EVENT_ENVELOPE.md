@@ -1,6 +1,6 @@
 # Event Envelope & Black Box Rules (v0.2)
 
-Settld’s “black box” is an append-only, hash-chained event stream. The API rejects events that fail envelope, causality, or signer-policy validation.
+Nooterra’s “black box” is an append-only, hash-chained event stream. The API rejects events that fail envelope, causality, or signer-policy validation.
 
 ## Envelope
 

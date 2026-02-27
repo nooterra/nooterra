@@ -22,7 +22,7 @@ export default function DemoPicker({ scenarioId, setScenarioId, scenarios }) {
   }, [scenarios]);
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xl font-semibold">Pick a demo</h2>
@@ -42,10 +42,10 @@ export default function DemoPicker({ scenarioId, setScenarioId, scenarios }) {
               disabled={disabled}
               className={`text-left p-4 rounded-lg border-2 transition-all hover:scale-[1.01] ${
                 disabled
-                  ? "border-settld-border bg-black/20 opacity-50 cursor-not-allowed"
+                  ? "border-nooterra-border bg-black/20 opacity-50 cursor-not-allowed"
                   : selected
-                    ? "border-settld-accent bg-settld-accent/10"
-                    : "border-settld-border hover:border-settld-accent/50"
+                    ? "border-nooterra-accent bg-nooterra-accent/10"
+                    : "border-nooterra-border hover:border-nooterra-accent/50"
               }`}
             >
               <div className="flex items-center gap-3">

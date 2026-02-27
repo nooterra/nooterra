@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/ReleaseIndexSignature.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/ReleaseIndexSignature.v1.schema.json",
   "title": "ReleaseIndexSignature.v1",
   "type": "object",
   "required": ["schemaVersion", "algorithm", "messageSha256", "publicKeyPem", "signatureBase64"],

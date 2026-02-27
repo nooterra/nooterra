@@ -1,7 +1,7 @@
 import { docsLinks, ossLinks } from "./config/links.js";
 import "./site.css";
 
-const hostList = ["OpenClaw", "Codex", "Claude", "Cursor"];
+const hostList = ["OpenClaw", "Nooterra", "Claude", "Cursor"];
 
 const controlPrimitives = [
   {
@@ -31,26 +31,26 @@ const onboardingSteps = [
     id: "01",
     title: "Install + configure",
     body: "Run setup once. Choose host, wallet mode, and profile in the wizard.",
-    terminal: "$ npx settld setup\n\no host: openclaw\no wallet mode: managed\no profile: bounded-spend\n\nok configuration written"
+    terminal: "$ npx nooterra setup\n\no host: openclaw\no wallet mode: managed\no profile: bounded-spend\n\nok configuration written"
   },
   {
     id: "02",
     title: "Route live calls",
-    body: "Agent actions pass through Settld before money moves.",
+    body: "Agent actions pass through Nooterra before money moves.",
     terminal: "-> action: pay_api_call\n-> policy evaluate\n<- decision: ALLOW\n<- reason: BUDGET_OK, RATE_OK\n<- binding: 0x7f2a"
   },
   {
     id: "03",
     title: "Verify outcomes",
     body: "Every run emits auditable evidence.",
-    terminal: "$ settld x402 receipt verify ./receipt.json\n\nok signature valid\nok timeline hash matches\nok policy fingerprint matches"
+    terminal: "$ nooterra x402 receipt verify ./receipt.json\n\nok signature valid\nok timeline hash matches\nok policy fingerprint matches"
   }
 ];
 
 const walletModes = [
   {
     title: "Managed Wallet",
-    body: "Fastest path. Settld bootstraps wallet setup for first paid run."
+    body: "Fastest path. Nooterra bootstraps wallet setup for first paid run."
   },
   {
     title: "Bring Your Own Wallet",
@@ -69,10 +69,10 @@ const spendScopes = [
   "Data and service purchases under policy limits"
 ];
 
-const quickCommands = `npx settld setup
-npm run mcp:probe -- --call settld.about '{}'
+const quickCommands = `npx nooterra setup
+npm run mcp:probe -- --call nooterra.about '{}'
 npm run demo:mcp-paid-exa
-settld x402 receipt verify /tmp/settld-first-receipt.json --format json`;
+nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json`;
 
 const proofItems = [
   "Policy fingerprint + reason codes",
@@ -85,9 +85,9 @@ export default function SiteShell() {
     <div className="calm-site" id="top">
       <header className="calm-nav-wrap">
         <nav className="calm-nav" aria-label="Primary">
-          <a className="calm-brand" href="/" aria-label="Settld home">
-            <img className="calm-logo" src="/brand/settld-logo.png" alt="Settld logo" />
-            <span className="calm-brand-title">Settld</span>
+          <a className="calm-brand" href="/" aria-label="Nooterra home">
+            <img className="calm-logo" src="/brand/nooterra-logo.png" alt="Nooterra logo" />
+            <span className="calm-brand-title">Nooterra</span>
           </a>
           <div className="calm-nav-links">
             <a href={docsLinks.home}>Docs</a>
@@ -122,7 +122,7 @@ export default function SiteShell() {
           </div>
           <aside className="calm-command-card" aria-label="Setup preview">
             <p>Get started in one command</p>
-            <code>npx settld setup</code>
+            <code>npx nooterra setup</code>
             <pre><code>{quickCommands}</code></pre>
           </aside>
         </section>
@@ -155,7 +155,7 @@ export default function SiteShell() {
         <section className="calm-section calm-reveal" id="workflow" style={{ animationDelay: "160ms" }}>
           <header className="calm-section-head">
             <p>Workflow</p>
-            <h2>How teams use Settld in production</h2>
+            <h2>How teams use Nooterra in production</h2>
           </header>
           <div className="calm-grid calm-grid-3">
             {onboardingSteps.map((step) => (
@@ -216,7 +216,7 @@ export default function SiteShell() {
       </main>
 
       <footer className="calm-footer">
-        <span>Settld</span>
+        <span>Nooterra</span>
         <span>Deterministic trust infrastructure for autonomous economic action.</span>
       </footer>
     </div>

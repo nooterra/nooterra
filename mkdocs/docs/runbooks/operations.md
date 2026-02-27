@@ -1,6 +1,6 @@
 # Operations Runbook
 
-This runbook is for daily production operation of Settld control loops.
+This runbook is for daily production operation of Nooterra control loops.
 
 ## Daily checks
 

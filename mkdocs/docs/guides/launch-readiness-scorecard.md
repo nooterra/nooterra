@@ -1,6 +1,6 @@
 # Launch Readiness Scorecard
 
-Settld launch readiness is gated by binary pass/fail checks, not subjective confidence.
+Nooterra launch readiness is gated by binary pass/fail checks, not subjective confidence.
 
 ## Decision Rules
 

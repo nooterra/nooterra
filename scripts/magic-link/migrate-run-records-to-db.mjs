@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { migrateRunRecordsFromFsToDbBestEffort, runStoreModeInfo } from "../../services/magic-link/src/run-records.js";
 
-const dataDir = process.env.MAGIC_LINK_DATA_DIR ? path.resolve(process.env.MAGIC_LINK_DATA_DIR) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDir = process.env.MAGIC_LINK_DATA_DIR ? path.resolve(process.env.MAGIC_LINK_DATA_DIR) : path.join(os.tmpdir(), "nooterra-magic-link");
 const tenantIds =
   process.env.MAGIC_LINK_MIGRATE_TENANT_IDS && process.env.MAGIC_LINK_MIGRATE_TENANT_IDS.trim()
     ? process.env.MAGIC_LINK_MIGRATE_TENANT_IDS.split(",").map((x) => x.trim()).filter(Boolean)

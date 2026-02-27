@@ -42,12 +42,12 @@ Entry criteria alignment:
 | `STLD-T2302` | **Hosted-baseline backup/restore (prod)** — same for production environment | `hosted-baseline-prod.json` status=pass with `backupRestore.ok=true` |
 | `STLD-T2303` | **Chargeback evidence packet** — generate and sign chargeback + design-partner packets from automated runs | Artifacts committed, linked from release checklist |
 | `STLD-T2304` | **Outbox drain + SLA gauge triage** — drain worker outbox, root-cause SLA gauge alerts | `worker_outbox_pending_total_gauge` near zero; triage tickets created with owners |
-| `STLD-T2305` | **MCP server spike** — prototype MCP server exposing Settld tools (create agreement, submit evidence, settle, dispute) via `stdio` transport | Agent can discover + invoke tools; spike doc with API surface and latency measurements |
+| `STLD-T2305` | **MCP server spike** — prototype MCP server exposing Nooterra tools (create agreement, submit evidence, settle, dispute) via `stdio` transport | Agent can discover + invoke tools; spike doc with API surface and latency measurements |
 | `STLD-T2306` | **MCP quickstart draft** — rough 5-min tutorial for connecting an agent to the spike server | Draft doc committed; reviewed by 1 external tester |
 
 **Sprint gate**:
 - **Artifact**: `artifacts/ops/hosted-baseline-prod.json` (signed, `backupRestore.ok=true`)
-- **Gate command**: `npm run ops:hosted-baseline:evidence -- --base-url "$SETTLD_BASE_URL" --tenant-id "$SETTLD_TENANT_ID" --ops-token "$SETTLD_OPS_TOKEN" --environment prod --run-backup-restore true --require-backup-restore true --database-url "$DATABASE_URL" --restore-database-url "$RESTORE_DATABASE_URL" --out ./artifacts/ops/hosted-baseline-prod.json`
+- **Gate command**: `npm run ops:hosted-baseline:evidence -- --base-url "$NOOTERRA_BASE_URL" --tenant-id "$NOOTERRA_TENANT_ID" --ops-token "$NOOTERRA_OPS_TOKEN" --environment prod --run-backup-restore true --require-backup-restore true --database-url "$DATABASE_URL" --restore-database-url "$RESTORE_DATABASE_URL" --out ./artifacts/ops/hosted-baseline-prod.json`
 - **Runbook**: `docs/ops/HOSTED_BASELINE_R2.md`
 
 ---
@@ -64,7 +64,7 @@ Entry criteria alignment:
 | `STLD-T2404` | **Interactive API explorer** — Swagger UI + "Try It" with sandbox auto-provisioning | Hosted at `/docs/api`; sandbox keys auto-created |
 | `STLD-T2405` | **SDK code generators** — OpenAPI codegen pipeline for JS/Python/Go/Rust | CI generates + publishes SDKs on spec change |
 | `STLD-T2406` | **Developer portal v1** — Docusaurus site with guides, API ref, examples | Deployed; SEO-optimized; search works |
-| `STLD-T2407` | **CLI v2** — `settld` CLI with `init`, `dev`, `deploy`, `status`, `logs` subcommands | CLI installable via npm/brew; shell completions |
+| `STLD-T2407` | **CLI v2** — `nooterra` CLI with `init`, `dev`, `deploy`, `status`, `logs` subcommands | CLI installable via npm/brew; shell completions |
 
 **Sprint gate**:
 - **Artifact**: `artifacts/sdk/first-settlement-timing.json` (p50 < 5min from `npm init` to settled)
@@ -75,11 +75,11 @@ Entry criteria alignment:
 
 ## Sprint 25 — MCP Gateway + Agent Protocol Bridge
 
-**North star**: Any AI agent framework can plug into Settld with a single endpoint.
+**North star**: Any AI agent framework can plug into Nooterra with a single endpoint.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
-| `STLD-T2501` | **MCP server (production)** — harden spike into production MCP server with SSE + `stdio` transport | MCP-compatible agent discovers + invokes Settld tools |
+| `STLD-T2501` | **MCP server (production)** — harden spike into production MCP server with SSE + `stdio` transport | MCP-compatible agent discovers + invokes Nooterra tools |
 | `STLD-T2502` | **MCP gateway service** — HTTP→MCP bridge proxying authenticated API calls as tool responses | Gateway passes conformance vectors; latency < 50ms overhead |
 | `STLD-T2503` | **Agent protocol adapters** — adapters for OpenAI function calling, Anthropic tool use, LangChain/LangGraph | Each adapter has runnable example + smoke test |
 | `STLD-T2504` | **Agent identity auto-registration** — agents self-register via API key + capability advertisement | E2E test: agent registers → creates agreement → completes settlement |
@@ -94,7 +94,7 @@ Entry criteria alignment:
 
 ## Sprint 26 — Privacy, Compliance + Selective Disclosure
 
-**North star**: Settld is SOC 2 Type II ready and supports privacy-preserving verification.
+**North star**: Nooterra is SOC 2 Type II ready and supports privacy-preserving verification.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -114,7 +114,7 @@ Entry criteria alignment:
 
 ## Sprint 27 — Multi-Tenant Production Hardening
 
-**North star**: Settld runs at 10,000 settlements/minute with zero data leaks.
+**North star**: Nooterra runs at 10,000 settlements/minute with zero data leaks.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -159,7 +159,7 @@ Entry criteria alignment:
 
 ## Sprint 29 — Marketplace V2 + Discovery
 
-**North star**: Agents find and hire other agents through Settld's marketplace.
+**North star**: Agents find and hire other agents through Nooterra's marketplace.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -179,7 +179,7 @@ Entry criteria alignment:
 
 ## Sprint 30 — Payment Rails V2 + Global Settlement
 
-**North star**: Settld settles in any currency, any country, in < 24 hours.
+**North star**: Nooterra settles in any currency, any country, in < 24 hours.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -199,7 +199,7 @@ Entry criteria alignment:
 
 ## Sprint 31 — Enterprise Governance + Role-Based Access
 
-**North star**: Fortune 500 teams can operate Settld with full organizational controls.
+**North star**: Fortune 500 teams can operate Nooterra with full organizational controls.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -239,7 +239,7 @@ Entry criteria alignment:
 
 ## Sprint 33 — Growth Engine + PLG Automation
 
-**North star**: Settld grows through product usage, not sales calls.
+**North star**: Nooterra grows through product usage, not sales calls.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
@@ -247,9 +247,9 @@ Entry criteria alignment:
 | `STLD-T3302` | **Referral program v2** — automated referral tracking with credit + payout | Referral link → signup → credit applied; fully automated |
 | `STLD-T3303` | **Usage-based billing v2** — real-time usage dashboard with cost projections | Usage updates within 5 minutes; projection accuracy > 90% |
 | `STLD-T3304` | **Template marketplace** — community-contributed SLA templates, policy packs, integration blueprints | Submit → review → publish flow; version control |
-| `STLD-T3305` | **Embeddable verification widget** — `<settld-verify>` web component for embedding receipts in any app | Widget < 50KB; works in React/Vue/vanilla; themeable |
+| `STLD-T3305` | **Embeddable verification widget** — `<nooterra-verify>` web component for embedding receipts in any app | Widget < 50KB; works in React/Vue/vanilla; themeable |
 | `STLD-T3306` | **Customer success automation** — health scoring, churn prediction, automated re-engagement | Health score per tenant; automated alerts to CS team |
-| `STLD-T3307` | **Public status page** — Settld status page with incident history and uptime metrics | Automated by monitoring; RSS feed for updates |
+| `STLD-T3307` | **Public status page** — Nooterra status page with incident history and uptime metrics | Automated by monitoring; RSS feed for updates |
 
 **Sprint gate**:
 - **Artifact**: `artifacts/growth/plg-funnel-baseline.json` (funnel metrics captured for all conversion steps)
@@ -260,16 +260,16 @@ Entry criteria alignment:
 
 ## Sprint 34 — Protocol V2 + Ecosystem
 
-**North star**: Settld becomes the industry standard for verifiable agent economics.
+**North star**: Nooterra becomes the industry standard for verifiable agent economics.
 
 | Ticket | Deliverable | Acceptance |
 |--------|-------------|------------|
 | `STLD-T3401` | **Protocol v2 spec** — learnings from v1 → v2 spec with improved extensibility, versioning | Spec reviewed by 3+ external engineers; RFC published |
-| `STLD-T3402` | **Third-party verifier certification** — program for external verifiers to become "Settld Certified" | Certification test suite; first external verifier passes |
+| `STLD-T3402` | **Third-party verifier certification** — program for external verifiers to become "Nooterra Certified" | Certification test suite; first external verifier passes |
 | `STLD-T3403` | **Plugin SDK** — plugin system for custom evidence types, verification rules, settlement logic | Plugin API stable; 3 example plugins published |
 | `STLD-T3404` | **Cross-platform conformance** — conformance suite runs in Rust, Go, Python, and Node | All 4 language implementations pass 100% of vectors |
-| `STLD-T3405` | **Industry working group** — publish Settld protocol as open standard proposal | Draft submitted to relevant standards body or published as RFC |
-| `STLD-T3406` | **Ecosystem directory** — public directory of Settld-integrated agents, tools, and services | Directory live; API for programmatic listing |
+| `STLD-T3405` | **Industry working group** — publish Nooterra protocol as open standard proposal | Draft submitted to relevant standards body or published as RFC |
+| `STLD-T3406` | **Ecosystem directory** — public directory of Nooterra-integrated agents, tools, and services | Directory live; API for programmatic listing |
 
 **Sprint gate**:
 - **Artifact**: `artifacts/protocol/v2-conformance-matrix.json` (4 languages × all vectors = 100% pass)

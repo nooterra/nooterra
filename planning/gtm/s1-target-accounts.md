@@ -8,7 +8,7 @@ Owner: GTM
 1. Agent-native SaaS teams with delegated automation workflows.
 2. Operations/BPO teams with recurring SLA disputes and payout friction.
 
-## ICP v1 focus for self-serve
+## ICP focus for self-serve
 
 - Primary ICP: AI tool providers (1-30 engineers, API-first).
 - Buyer: founder / platform lead / product engineer.

@@ -17,7 +17,7 @@ const FAILURE_CLASSES = Object.freeze([
     code: "ONBOARDING_AUTH_OTP_INVALID",
     phase: "auth",
     patterns: [/OTP_(INVALID|EXPIRED|CONSUMED|MISSING)/i, /otp code is required/i, /invalid otp/i],
-    remediation: "Request a fresh OTP and retry `settld login`."
+    remediation: "Request a fresh OTP and retry `nooterra login`."
   },
   {
     code: "ONBOARDING_AUTH_TENANT_DISABLED",
@@ -28,7 +28,7 @@ const FAILURE_CLASSES = Object.freeze([
       /Saved login session was rejected for this tenant/i
     ],
     remediation:
-      "Rerun `settld login` without `--tenant-id` to create a fresh tenant, or choose `Generate during setup` / `Paste existing key`."
+      "Rerun `nooterra login` without `--tenant-id` to create a fresh tenant, or choose `Generate during setup` / `Paste existing key`."
   },
   {
     code: "ONBOARDING_BOOTSTRAP_FORBIDDEN",
@@ -46,7 +46,7 @@ const FAILURE_CLASSES = Object.freeze([
     code: "ONBOARDING_WALLET_BOOTSTRAP_FAILED",
     phase: "wallet",
     patterns: [/remote wallet bootstrap failed/i, /wallet bootstrap/i],
-    remediation: "Switch wallet mode to `none` to finish trust wiring, then run `settld wallet status` and retry funding."
+    remediation: "Switch wallet mode to `none` to finish trust wiring, then run `nooterra wallet status` and retry funding."
   },
   {
     code: "ONBOARDING_BYO_ENV_MISSING",

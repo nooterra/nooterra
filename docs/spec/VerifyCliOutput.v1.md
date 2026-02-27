@@ -1,6 +1,6 @@
 # VerifyCliOutput.v1
 
-`VerifyCliOutput.v1` is the machine-readable JSON output emitted by `settld-verify --format json`.
+`VerifyCliOutput.v1` is the machine-readable JSON output emitted by `nooterra-verify --format json`.
 
 This is a **tool contract** intended for CI gating and automated ingestion. It is versioned and treated as a stable surface.
 
@@ -19,7 +19,7 @@ See `schemas/VerifyCliOutput.v1.schema.json`.
 
 ## `--explain` (deterministic stderr)
 
-`settld-verify --explain` prints a deterministic diagnostic summary to **stderr** (while `--format json` continues to print machine output to stdout).
+`nooterra-verify --explain` prints a deterministic diagnostic summary to **stderr** (while `--format json` continues to print machine output to stdout).
 
 Contract:
 

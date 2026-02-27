@@ -1,0 +1,11 @@
+{
+  "name": "nooterra-mcp-payments",
+  "version": "0.2.0",
+  "description": "OpenClaw skill for Nooterra paid MCP tools with policy decisions and verifiable receipts.",
+  "author": "Nooterra",
+  "entry": "SKILL.md",
+  "files": [
+    "SKILL.md",
+    "mcp-server.example.json"
+  ]
+}

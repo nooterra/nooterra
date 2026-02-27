@@ -423,14 +423,14 @@ export async function verifyInvoiceBundleDir({ dir, strict = false, hashConcurre
 
   const warnings = [];
   if (!strict) {
-    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
-    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+    const rawTrusted = String(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
   }
 
-  const settldPath = path.join(dir, "settld.json");
+  const nooterraPath = path.join(dir, "nooterra.json");
   const manifestPath = path.join(dir, "manifest.json");
 
-  const header = await readJson(settldPath);
+  const header = await readJson(nooterraPath);
   if (header?.type !== INVOICE_BUNDLE_TYPE_V1) {
     return { ok: false, error: "unsupported bundle type", type: header?.type ?? null, warnings };
   }
@@ -461,7 +461,7 @@ export async function verifyInvoiceBundleDir({ dir, strict = false, hashConcurre
       present.add(name);
     }
     const required = [
-      "settld.json",
+      "nooterra.json",
       "governance/policy.json",
       "governance/revocations.json",
       "pricing/pricing_matrix.json",
@@ -522,7 +522,7 @@ export async function verifyInvoiceBundleDir({ dir, strict = false, hashConcurre
     }
     trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
     if (trustedGovernanceRoots.size === 0) {
-      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+      return { ok: false, error: "strict requires trusted governance root keys", env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
     }
     const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
     if (!sigOk.ok) return { ok: false, error: "governance policy signature invalid", detail: sigOk, warnings };
@@ -559,7 +559,7 @@ export async function verifyInvoiceBundleDir({ dir, strict = false, hashConcurre
       pricingMatrixSignatures = { present: false, pricingMatrixHash: null, signerKeyIds: [] };
     } else {
       if (strict && trustedPricingSigners.size === 0) {
-        return { ok: false, error: "strict requires trusted pricing signer keys", env: "SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON", warnings };
+        return { ok: false, error: "strict requires trusted pricing signer keys", env: "NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON", warnings };
       }
 
       const fp = path.join(dir, "pricing", "pricing_matrix_signatures.json");

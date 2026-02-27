@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const REPO_ROOT = process.cwd();
 
 test("mcp host smoke script emits fail-closed runtime/policy metadata evidence", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-mcp-host-smoke-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-mcp-host-smoke-test-"));
   const reportPath = path.join(tmpDir, "report.json");
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -35,10 +35,12 @@ test("mcp host smoke script emits fail-closed runtime/policy metadata evidence",
   const byId = new Map(checks.map((check) => [check.id, check]));
 
   assert.equal(byId.get("runtime_bootstrap")?.ok, true);
+  assert.equal(byId.get("runtime_bootstrap_base_url_matches_local_api")?.ok, true);
   assert.equal(byId.get("runtime_bootstrap_metadata_projection")?.ok, true);
   assert.equal(byId.get("runtime_smoke_test")?.ok, true);
   assert.equal(byId.get("runtime_smoke_test_rejects_tenant_mismatch")?.ok, true);
   assert.equal(byId.get("runtime_smoke_test_rejects_tenant_mismatch")?.code, "ENV_INVALID");
+  assert.equal(byId.get("mcp_interaction_graph_signed_smoke")?.ok, true);
   assert.equal(byId.get("mcp_paid_tool_runtime_policy_metadata_fail_closed")?.ok, true);
   assert.equal(byId.get("mcp_paid_tool_runtime_policy_metadata_fail_closed")?.requestCount > 0, true);
 });

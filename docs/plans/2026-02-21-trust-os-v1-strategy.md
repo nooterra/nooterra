@@ -1,14 +1,14 @@
-# Trust OS v1 Strategy
+# Trust OS Strategy
 
 Date: 2026-02-21  
-Owner: Settld Product + Platform
+Owner: Nooterra Product + Platform
 
 ## Positioning
 
-Settld is a Trust OS for autonomous agent actions.  
+Nooterra is a Trust OS for autonomous agent actions.  
 It is not a wallet replacement and not a prompt-only guardrail product.
 
-Settld is the control plane that makes agent spending and execution:
+Nooterra is the control plane that makes agent spending and execution:
 
 1. enforceable,
 2. auditable,
@@ -28,7 +28,7 @@ Any agent integration should be able to:
 5. pass audit/compliance scrutiny,
 6. plug into real operations workflows.
 
-## Product Direction (Trust OS v1)
+## Product Direction (Trust OS)
 
 Current release focus: terminal-first onboarding + MCP host integration, with deterministic trust guarantees.
 
@@ -39,7 +39,7 @@ Guarantee:
 
 Implementation anchors:
 - `src/api/app.js`
-- `scripts/mcp/settld-mcp-server.mjs`
+- `scripts/mcp/nooterra-mcp-server.mjs`
 - `src/core/policy.js`
 - `src/core/event-policy.js`
 
@@ -183,7 +183,7 @@ Test/gate anchors:
 
 ### Phase 2: Frictionless Adoption (Next)
 - Default managed wallet path where possible.
-- One-command onboarding for Codex/Claude/Cursor/OpenClaw.
+- One-command onboarding for Nooterra/Claude/Cursor/OpenClaw.
 - Strong first verified receipt path.
 - Better operator reliability workflows.
 
@@ -192,7 +192,7 @@ Test/gate anchors:
 - Richer profile packs + simulation.
 - Tenant automation and enterprise controls.
 
-### Phase 4: Agentverse Infrastructure
+### Phase 4: Agent Network Infrastructure
 - Cross-runtime inter-agent trust fabric.
 - Cross-tenant dispute/reputation/attestation primitives.
 - Open standards leadership for machine-native commerce trust.
@@ -235,7 +235,6 @@ Near term:
 5. Production cutover gates green.
 
 Long term:
-1. Settld is the default trust layer across multiple ecosystems.
-2. Teams adopt Settld to reduce operational and compliance burden.
+1. Nooterra is the default trust layer across multiple ecosystems.
+2. Teams adopt Nooterra to reduce operational and compliance burden.
 3. Agent commerce scales without becoming ungovernable.
-

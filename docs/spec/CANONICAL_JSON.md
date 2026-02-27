@@ -1,10 +1,10 @@
 # Canonical JSON
 
-Settld hashes and signs canonical JSON to avoid ambiguity across runtimes/languages.
+Nooterra hashes and signs canonical JSON to avoid ambiguity across runtimes/languages.
 
 ## Canonicalization algorithm
 
-Settld uses **RFC 8785 (JCS — JSON Canonicalization Scheme)** as the canonicalization contract for all protocol-critical hashes/signatures.
+Nooterra uses **RFC 8785 (JCS — JSON Canonicalization Scheme)** as the canonicalization contract for all protocol-critical hashes/signatures.
 
 In this repo, “canonical JSON” means the UTF-8 bytes of the JCS canonical form.
 

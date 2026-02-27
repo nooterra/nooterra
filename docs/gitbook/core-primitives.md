@@ -1,6 +1,6 @@
 # Core Primitives
 
-Settld security and settlement correctness come from signed, hash-bound artifacts with deterministic relationships.
+Nooterra security and settlement correctness come from signed, hash-bound artifacts with deterministic relationships.
 
 ## Canonical transaction chain
 
@@ -20,7 +20,7 @@ Kernel v0 paid capability flow (as implemented in this repo):
 
 Reality notes:
 
-- `AuthorityGrant` is **not shipped** in this repo (no code, no schema, no spec). Current authorization is enforced by API auth/scope and by policy gates (for example `AgentIdentity.walletPolicy`) depending on the workflow surface.
+- `AuthorityGrant.v1` is now shipped (core object + schema + API/MCP). Legacy flows that do not reference an authority grant still rely on API auth/scope and policy gates.
 - `ToolCallAgreement.v1` and `ToolCallEvidence.v1` are frozen protocol objects under `docs/spec/` (normative spec + JSON schemas + conformance vectors).
 
 ## Primitive purpose

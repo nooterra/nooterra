@@ -1,21 +1,22 @@
-# Settld Protocol Specs
+# Nooterra Protocol Specs
 
-This directory freezes the **wire-format contracts** that Settld emits and verifies (bundles, manifests, attestations, and verification reports).
+This directory freezes the **wire-format contracts** that Nooterra emits and verifies (bundles, manifests, attestations, and verification reports).
 
-These specs are written so an independent implementer can build a verifier without reading Settld’s source.
+These specs are written so an independent implementer can build a verifier without reading Nooterra’s source.
 
 ## Canonicalization + hashing (global rules)
 
 - **Canonical JSON**: JSON objects are canonicalized using RFC 8785 (JCS).
 - **Hashing**: all hashes in these specs are `sha256` over UTF-8 bytes of canonical JSON (or raw file bytes, as specified), represented as lowercase hex.
 - **Derived outputs**: bundle manifests intentionally **exclude** `verify/**` to avoid circular hashing; those files are verified out-of-band by signature and by binding to the `manifestHash`.
-- **x402 gateway parity**: `x-settld-verification-codes` uses shared reason-code normalization (trim + dedup + lexical sort), and policy fingerprint headers (`x-settld-policy-hash`, `x-settld-policy-version`, `x-settld-policy-verification-method-hash`, `x-settld-policy-evaluation-hash`) must mirror `decisionRecord.bindings.policyDecisionFingerprint`.
+- **x402 gateway parity**: `x-nooterra-verification-codes` uses shared reason-code normalization (trim + dedup + lexical sort), and policy fingerprint headers (`x-nooterra-policy-hash`, `x-nooterra-policy-version`, `x-nooterra-policy-verification-method-hash`, `x-nooterra-policy-evaluation-hash`) must mirror `decisionRecord.bindings.policyDecisionFingerprint`.
 
 ## Documents
 
-- `public/` — public-facing collaboration substrate docs for integrators (`AgentCard.v1`, `DelegationGrant.v1`, `SubAgentWorkOrder.v1`, `SubAgentCompletionReceipt.v1`, `CapabilityAttestation.v1`).
+- `public/` — public-facing collaboration substrate docs for integrators (`AgentCard.v1`, `AuthorityGrant.v1`, `DelegationGrant.v1`, `TaskQuote.v1`, `TaskOffer.v1`, `TaskAcceptance.v1`, `SubAgentWorkOrder.v1`, `SubAgentCompletionReceipt.v1`, `Meter.v1`, `ArtifactRef.v1`, `StateCheckpoint.v1`, `CapabilityAttestation.v1`, `ReputationEvent.v1`, `RelationshipEdge.v1`, `PublicAgentReputationSummary.v1`).
 - `CANONICAL_JSON.md` — canonical JSON rules used before hashing/signing.
 - `VERSIONING.md` — tool vs protocol versioning policy (SemVer + protocol object evolution).
+- `federation.md` — coordinator-to-coordinator federation contract (identity, trust model, invoke/result envelopes).
 - `REFERENCE_VERIFIER_BEHAVIOR.md` — filesystem/path/ordering rules to prevent cross-impl drift.
 - `REFERENCE_IMPLEMENTATIONS.md` — reference verifier implementations and conformance parity policy.
 - `THREAT_MODEL.md` — explicit threats, mitigations, and residual risks (evidence-backed).
@@ -39,15 +40,16 @@ These specs are written so an independent implementer can build a verifier witho
 - `EvidenceIndex.v1.md` — deterministic evidence reference index for ClosePack.
 - `SlaDefinition.v1.md` / `SlaEvaluation.v1.md` — deterministic SLA rules + evaluation surfaces for ClosePack.
 - `AcceptanceCriteria.v1.md` / `AcceptanceEvaluation.v1.md` — deterministic acceptance rules + evaluation surfaces for ClosePack.
-- `VerifyCliOutput.v1.md` — `settld-verify --format json` machine output contract.
-- `VerifyAboutOutput.v1.md` — `settld-verify --about --format json` tool metadata contract.
-- `ProduceCliOutput.v1.md` — `settld-produce --format json` machine output contract.
+- `VerifyCliOutput.v1.md` — `nooterra-verify --format json` machine output contract.
+- `VerifyAboutOutput.v1.md` — `nooterra-verify --about --format json` tool metadata contract.
+- `ProduceCliOutput.v1.md` — `nooterra-produce --format json` machine output contract.
 - `ToolManifest.v1.md` — signed tool/capability manifest that can be pinned by hash.
 - `ToolCallAgreement.v1.md` — hash-addressable agreement binding a tool call (`callId` + `inputHash`) to settlement terms.
 - `ToolCallEvidence.v1.md` — hash-addressable evidence binding a tool call output (`outputHash`) to an agreement hash.
 - `AgentIdentity.v1.md` — portable autonomous agent identity contract.
 - `AgentPassport.v1.md` — delegated identity envelope binding principal, keyset anchors, delegation root, and policy envelope.
 - `DelegationGrant.v1.md` — deterministic delegated-authority grant contract (scope + spend + chain + validity).
+- `AuthorityGrant.v1.md` — deterministic principal-to-agent authority grant contract (scope + spend + chain + validity).
 - `ExecutionIntent.v1.md` — canonical pre-execution intent contract binding request fingerprint, risk profile, and policy/spend envelope.
 - `PolicyDecision.v1.md` — hash-addressable policy outcome artifact with normalized decision results and optional signature.
 - `OperatorAction.v1.md` — canonical operator decision audit artifact with deterministic hash binding and optional signature.
@@ -102,7 +104,7 @@ Current integrations should use the active specs listed above.
 
 ## Quickstart
 
-See `docs/QUICKSTART_VERIFY.md` for a CI-friendly verifier quickstart using `settld-verify --format json`.
+See `docs/QUICKSTART_VERIFY.md` for a CI-friendly verifier quickstart using `nooterra-verify --format json`.
 
 ## Conformance + audit evidence
 

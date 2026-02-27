@@ -1,15 +1,15 @@
-# Settld PRD (v0)
+# Nooterra PRD (v0)
 
 ## One-line
 
-Settld lets a person or business delegate real-world work to an agent (robot + optional operator assist) with strict limits, proof of what happened, and a clear “who pays if something goes wrong” answer.
+Nooterra lets a person or business delegate real-world work to an agent (robot + optional operator assist) with strict limits, proof of what happened, and a clear “who pays if something goes wrong” answer.
 
 ## Who it’s for
 
 - **Requesters**: Households and Businesses that purchase outcomes (“Reset my apartment”).
 - **Owners**: Entities that provide robot capacity (time/location/reliability) and receive payouts.
 - **Operators**: Trained humans that provide remote assist and exception handling.
-- **Developers**: Publish skills; Settld certifies and distributes them.
+- **Developers**: Publish skills; Nooterra certifies and distributes them.
 - **Trust Counterparty**: Insurance/guarantee/claims partner (initially) and later first-party.
 
 ## Core promise

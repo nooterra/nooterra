@@ -33,7 +33,7 @@ test("API e2e: ops policy workspace page renders control-plane UX", async () => 
   assert.match(workspace.body, /\/ops\/settlement-policies\/rollback/);
   assert.match(workspace.body, /\/ops\/settlement-policies\/diff/);
   assert.match(workspace.body, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/settlement\/policy-replay/);
-  assert.match(workspace.body, /x-settld-protocol/);
+  assert.match(workspace.body, /x-nooterra-protocol/);
 
   const queryAuthWorkspace = await request(api, {
     method: "GET",
@@ -60,7 +60,7 @@ test("API e2e: ops settlement policy control endpoints support state, rollout, r
   const writeHeaders = {
     "x-proxy-tenant-id": "tenant_policy_workspace",
     "x-proxy-ops-token": "tok_opsw",
-    "x-settld-protocol": "1.0"
+    "x-nooterra-protocol": "1.0"
   };
   const readHeaders = {
     "x-proxy-tenant-id": "tenant_policy_workspace",
@@ -79,7 +79,7 @@ test("API e2e: ops settlement policy control endpoints support state, rollout, r
       policyVersion: 1,
       verificationMethod: {
         mode: "deterministic",
-        source: "verifier://settld-verify"
+        source: "verifier://nooterra-verify"
       },
       policy: {
         mode: "automatic",
@@ -110,7 +110,7 @@ test("API e2e: ops settlement policy control endpoints support state, rollout, r
       policyVersion: 2,
       verificationMethod: {
         mode: "deterministic",
-        source: "verifier://settld-verify"
+        source: "verifier://nooterra-verify"
       },
       policy: {
         mode: "automatic",

@@ -1,7 +1,7 @@
 {
-  "name": "settld",
+  "name": "nooterra",
   "version": "0.2.8",
-  "description": "Settld kernel CLI and local control-plane tooling",
+  "description": "Nooterra kernel CLI and local control-plane tooling",
   "license": "Apache-2.0",
   "private": false,
   "type": "module",
@@ -13,10 +13,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aidenlippert/settld"
+    "url": "https://github.com/nooterra/nooterra"
   },
   "files": [
-    "SETTLD_VERSION",
+    "NOOTERRA_VERSION",
     "README.md",
     "Dockerfile",
     "docker-compose.yml",
@@ -35,8 +35,8 @@
     "services/receiver"
   ],
   "bin": {
-    "settld": "bin/settld.js",
-    "settld-mcp": "bin/settld-mcp"
+    "nooterra": "bin/nooterra.js",
+    "nooterra-mcp": "bin/nooterra-mcp"
   },
   "openclaw": {
     "extensions": [
@@ -44,7 +44,7 @@
     ]
   },
   "exports": {
-    "./mcp": "./scripts/mcp/settld-mcp-server.mjs"
+    "./mcp": "./scripts/mcp/nooterra-mcp-server.mjs"
   },
   "scripts": {
     "preinstall": "node scripts/init/preinstall-node-version.mjs",
@@ -83,13 +83,14 @@
     "proof:job": "node scripts/proof-bundle/job.mjs",
     "proof:month": "node scripts/proof-bundle/month.mjs",
     "trust:wizard": "node scripts/trust-config/wizard.mjs",
-    "keys:rotate": "node scripts/trust-config/rotate-settld-pay.mjs",
-    "scaffold:paid-tool": "node scripts/scaffold/create-settld-paid-tool.mjs",
+    "keys:rotate": "node scripts/trust-config/rotate-nooterra-pay.mjs",
+    "scaffold:paid-tool": "node scripts/scaffold/create-nooterra-paid-tool.mjs",
     "settlement:x402:batch": "node scripts/settlement/x402-batch-worker.mjs",
-    "mcp:server": "node scripts/mcp/settld-mcp-server.mjs",
+    "mcp:server": "node scripts/mcp/nooterra-mcp-server.mjs",
     "mcp:probe": "node scripts/mcp/probe.mjs",
-    "mcp:http": "node scripts/mcp/settld-mcp-http-gateway.mjs",
+    "mcp:http": "node scripts/mcp/nooterra-mcp-http-gateway.mjs",
     "provider:conformance": "node scripts/provider/conformance-run.mjs",
+    "conformance:session:v1": "node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "provider:publish": "node scripts/provider/publish.mjs",
     "provider:keys:generate": "node scripts/provider/keys-generate.mjs",
     "governance:export": "node scripts/governance/export.mjs",
@@ -99,6 +100,8 @@
     "sdk:first-run": "node scripts/examples/sdk-first-verified-run.mjs",
     "sdk:first-run:py": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-first-verified-run.py",
     "sdk:first-rfq:py": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-first-paid-rfq.py",
+    "sdk:acs-smoke": "node scripts/examples/sdk-acs-substrate-smoke.mjs",
+    "sdk:acs-smoke:py": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-acs-substrate-smoke.py",
     "sdk:analytics": "node scripts/examples/sdk-tenant-analytics.mjs",
     "sdk:analytics:py": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-tenant-analytics.py",
     "dev:env:init": "bash -lc 'if [ ! -f .env.dev ]; then cp scripts/dev/env.dev.example .env.dev; fi; echo \"Created .env.dev (or kept existing)\"'",
@@ -111,7 +114,7 @@
     "lint": "npm run -s lint:syntax && npm run -s lint:eslint",
     "lint:syntax": "node scripts/ci/run-syntax-lint.mjs",
     "lint:eslint": "eslint bin openclaw scripts src services test packages dashboard/src --cache --cache-location .cache/eslint",
-    "lint:ci": "npm run -s lint && npm run -s test:ci:secret-hygiene",
+    "lint:ci": "npm run -s lint && npm run -s test:ci:branding-copy-hygiene && npm run -s test:ci:secret-hygiene",
     "test": "bash scripts/test/run.sh",
     "test:ops:arbitration:browser": "bash scripts/ci/run-arbitration-workspace-browser-e2e.sh",
     "test:ops:throughput:10x": "node scripts/ci/run-10x-throughput-drill.mjs",
@@ -125,19 +128,23 @@
     "test:ops:onboarding-host-success-gate": "node scripts/ci/run-onboarding-host-success-gate.mjs",
     "test:ops:agent-substrate-fast-loop": "node scripts/ci/run-agent-substrate-fast-loop.mjs --bootstrap-local",
     "test:ops:agent-substrate-adversarial-harness": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs",
+    "test:ops:agent-substrate-adversarial-harness:prompt-contagion": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs --profile prompt-contagion",
     "test:ops:openclaw-substrate-demo": "node --test test/openclaw-substrate-demo-script.test.js",
-    "test:ops:settld-verified-gate": "node scripts/ci/run-settld-verified-gate.mjs --bootstrap-local",
+    "test:ops:nooterra-verified-gate": "node scripts/ci/run-nooterra-verified-gate.mjs --bootstrap-local",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",
     "test:ops:public-onboarding-gate": "node scripts/ci/run-public-onboarding-gate.mjs",
     "test:ops:production-cutover-gate": "node scripts/ci/run-production-cutover-gate.mjs",
+    "test:ops:release-promotion-materialize-inputs": "node scripts/ci/materialize-release-promotion-guard-inputs.mjs",
     "test:ops:release-promotion-guard": "node scripts/ci/run-release-promotion-guard.mjs",
     "test:ci:mcp-host-smoke": "node scripts/ci/run-mcp-host-smoke.mjs",
+    "test:ci:mcp-runtime-binding-fail-closed": "node --test test/mcp-runtime-work-order-binding-fail-closed.test.js",
     "test:ci:mcp-host-cert-matrix": "node scripts/ci/run-mcp-host-cert-matrix.mjs",
     "test:ci:openclaw-clawhub-install-smoke": "node scripts/ci/run-openclaw-clawhub-install-smoke.mjs --force --bootstrap-local",
     "test:x402:circle:sandbox:batch-e2e": "node --test test/circle-sandbox-batch-settlement-e2e.test.js",
     "test:x402:circle:sandbox:smoke": "node scripts/ci/run-circle-sandbox-smoke.mjs",
     "test:ci:runtime-import-smoke": "node scripts/ci/runtime-import-smoke.mjs",
+    "test:ci:branding-copy-hygiene": "node scripts/ci/check-branding-copy-hygiene.mjs --report artifacts/ci/branding-copy-hygiene.json",
     "test:ci:secret-hygiene": "node scripts/ci/check-secret-hygiene.mjs",
     "test:ci:public-openclaw-npx-smoke": "node scripts/ci/run-public-openclaw-npx-smoke.mjs",
     "test:cli:pack-smoke": "node scripts/ci/cli-pack-smoke.mjs",
@@ -149,10 +156,12 @@
     "ops:x402:pilot:weekly-report": "node scripts/ops/build-x402-pilot-reliability-report.mjs",
     "ops:x402:hitl:smoke": "node scripts/ops/run-x402-hitl-smoke.mjs",
     "ops:x402:receipt:sample-check": "node scripts/ops/check-x402-receipt-sample.mjs",
+    "ops:audit:lineage:verify": "node scripts/ops/verify-audit-lineage.mjs",
     "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
     "release:artifacts": "node scripts/release/build-artifacts.mjs",
+    "release:cutover:audit-view": "node scripts/release/build-cutover-audit-view.mjs",
     "audit:packet": "node scripts/audit/build-audit-packet.mjs"
   },
   "dependencies": {

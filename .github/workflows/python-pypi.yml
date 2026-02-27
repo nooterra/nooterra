@@ -42,9 +42,9 @@ jobs:
           export PYTHONDONTWRITEBYTECODE=1
           python3 -m build packages/api-sdk-python --sdist --wheel --outdir "$OUT"
 
-          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
-          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
-          (cd "$OUT" && sha256sum settld_api_sdk_python-*.whl settld_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
+          ls "$OUT"/nooterra_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
+          ls "$OUT"/nooterra_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
+          (cd "$OUT" && sha256sum nooterra_api_sdk_python-*.whl nooterra_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
 
       - name: Upload Python artifacts
         uses: actions/upload-artifact@v4
@@ -58,7 +58,7 @@ jobs:
     needs: [build_python]
     environment:
       name: pypi
-      url: https://pypi.org/project/settld-api-sdk-python/
+      url: https://pypi.org/project/nooterra-api-sdk-python/
     permissions:
       id-token: write
     steps:
@@ -72,8 +72,8 @@ jobs:
           set -euo pipefail
           VERSION="${{ needs.build_python.outputs.version }}"
           ls -la .artifacts/python
-          ls .artifacts/python/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
-          ls .artifacts/python/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
+          ls .artifacts/python/nooterra_api_sdk_python-${VERSION}.tar.gz >/dev/null
+          ls .artifacts/python/nooterra_api_sdk_python-${VERSION}-*.whl >/dev/null
           test -f .artifacts/python/python-SHA256SUMS
 
       - name: Prepare publish-only dist directory

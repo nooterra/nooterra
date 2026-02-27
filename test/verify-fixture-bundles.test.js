@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 async function runCli(args, { env } = {}) {
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const proc = spawn(process.execPath, [bin, ...args], {
     env: { ...process.env, ...(env ?? {}) },
     stdio: ["ignore", "pipe", "pipe"]
@@ -46,9 +46,9 @@ test("fixture bundles verify via CLI (matrix)", async (t) => {
     // eslint-disable-next-line no-await-in-loop
     await t.test(fx.id, async () => {
       const env = {
-        SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
-        SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust.pricingSigners ?? {}),
-        ...(fx.needsTrustedTimeAuthorities ? { SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {}) } : {})
+        NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+        NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust.pricingSigners ?? {}),
+        ...(fx.needsTrustedTimeAuthorities ? { NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {}) } : {})
       };
       if (fx.envOverrides && typeof fx.envOverrides === "object" && !Array.isArray(fx.envOverrides)) {
         for (const [k, v] of Object.entries(fx.envOverrides)) {

@@ -27,8 +27,8 @@ test("remote signer stdio wrapper schemas validate examples", async () => {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
 
-  const validateReq = ajv.getSchema("https://settld.local/schemas/RemoteSignerRequest.v1.schema.json");
-  const validateRes = ajv.getSchema("https://settld.local/schemas/RemoteSignerResponse.v1.schema.json");
+  const validateReq = ajv.getSchema("https://nooterra.local/schemas/RemoteSignerRequest.v1.schema.json");
+  const validateRes = ajv.getSchema("https://nooterra.local/schemas/RemoteSignerResponse.v1.schema.json");
   assert.ok(validateReq);
   assert.ok(validateRes);
 

@@ -6,17 +6,17 @@ import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/cor
 import { sha256Hex } from "../../src/core/crypto.js";
 import { createStarterPolicyPack, listPolicyPackTemplates, POLICY_PACK_SCHEMA_VERSION } from "../../src/core/policy-packs.js";
 
-const VALIDATION_REPORT_SCHEMA_VERSION = "SettldPolicyPackValidationReport.v1";
-const SIMULATION_REPORT_SCHEMA_VERSION = "SettldPolicySimulationReport.v1";
-const PUBLISH_REPORT_SCHEMA_VERSION = "SettldPolicyPublishReport.v1";
-const PUBLICATION_ARTIFACT_SCHEMA_VERSION = "SettldPolicyPublication.v1";
+const VALIDATION_REPORT_SCHEMA_VERSION = "NooterraPolicyPackValidationReport.v1";
+const SIMULATION_REPORT_SCHEMA_VERSION = "NooterraPolicySimulationReport.v1";
+const PUBLISH_REPORT_SCHEMA_VERSION = "NooterraPolicyPublishReport.v1";
+const PUBLICATION_ARTIFACT_SCHEMA_VERSION = "NooterraPolicyPublication.v1";
 
 function usage() {
   const lines = [
     "usage:",
-    "  settld policy init <pack-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]",
-    "  settld policy simulate <policy-pack.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]",
-    "  settld policy publish <policy-pack.json|-> [--out <path>] [--force] [--channel <name>] [--owner <id>] [--format json|text] [--json-out <path>]"
+    "  nooterra policy init <pack-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]",
+    "  nooterra policy simulate <policy-pack.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]",
+    "  nooterra policy publish <policy-pack.json|-> [--out <path>] [--force] [--channel <name>] [--owner <id>] [--format json|text] [--json-out <path>]"
   ];
   process.stderr.write(`${lines.join("\n")}\n`);
 }

@@ -1,4 +1,4 @@
-# Trust OS v1 Phase Plan
+# Trust OS Phase Plan
 
 Status: Active planning baseline
 Owner: Program Lead (Trust OS)
@@ -6,7 +6,7 @@ Last Updated: 2026-02-21
 
 ## 1) Program Objective
 
-Deliver Trust OS v1 as the default enforceable control plane for autonomous paid/high-risk actions across hosts and rails.
+Deliver Trust OS as the default enforceable control plane for autonomous paid/high-risk actions across hosts and rails.
 
 Program outcomes:
 
@@ -24,7 +24,7 @@ In scope:
 - Trust-kernel runtime behavior and protocol object integrity.
 - Deterministic conformance + release evidence.
 
-Out of scope (for v1):
+Out of scope (current phase):
 
 - Becoming a payment rail provider.
 - Full cross-org federation standardization.
@@ -35,7 +35,7 @@ Out of scope (for v1):
 - Phase 1: Production Core (target by 2026-04-30)
 - Phase 2: Frictionless Adoption (target by 2026-06-30)
 - Phase 3: Platform Expansion (target by 2026-09-30)
-- Phase 4: Agentverse Infrastructure (target by 2026-12-31)
+- Phase 4: Agent Network Infrastructure (target by 2026-12-31)
 
 ## 4) Workstream Tracks
 
@@ -53,7 +53,7 @@ Goal: close enforcement and reliability gaps; prove fail-closed production readi
 
 ### 5.1 Deliverables
 
-1. `PolicyDecision.v1` + enforced decision middleware across high-risk routes.
+1. `PolicyDecision` + enforced decision middleware across high-risk routes.
 2. End-to-end request fingerprint binding and replay/mutation denial paths.
 3. Dispute state machine + verdict -> settlement idempotent mapping.
 4. Signed operator action and emergency control APIs.
@@ -84,7 +84,7 @@ Goal: reduce onboarding time and policy authoring friction while preserving stri
 1. Profile CLI: `init`, `validate`, `simulate`.
 2. Starter policy profile packs with stable fingerprints.
 3. Reason-code linked simulation remediation output.
-4. One-command host onboarding for Codex/Claude/Cursor/OpenClaw.
+4. One-command host onboarding for Nooterra/Claude/Cursor/OpenClaw.
 
 ### 6.2 Exit Criteria
 
@@ -99,7 +99,7 @@ Goal: scale across multiple adapter lanes and richer enterprise policy operation
 ### 7.1 Deliverables
 
 1. Multi-adapter conformance matrix under same trust-kernel contract.
-2. Sub-agent paid work-order primitives (`SubAgentWorkOrder.v1`, receipt chaining).
+2. Sub-agent paid work-order primitives (`SubAgentWorkOrder`, receipt chaining).
 3. Tenant automation and enterprise guardrail controls.
 4. Expanded policy packs with simulation templates.
 
@@ -109,7 +109,7 @@ Goal: scale across multiple adapter lanes and richer enterprise policy operation
 2. End-to-end compositional receipts for parent+sub-agent flows.
 3. No contract drift between adapters and kernel.
 
-## 8) Phase 4 Plan (Agentverse Infrastructure)
+## 8) Phase 4 Plan (Agent Network Infrastructure)
 
 Goal: interoperability and trust portability across organizations/runtimes.
 
@@ -199,11 +199,11 @@ Internal:
 
 ## 15) Linear Mapping
 
-Program is tracked in Linear project `Trust OS v1` with milestones:
+Program is tracked in Linear project `Trust OS` with milestones:
 
 1. `Phase 1: Production Core (Now)`
 2. `Phase 2: Frictionless Adoption (Next)`
 3. `Phase 3: Platform Expansion`
-4. `Phase 4: Agentverse Infrastructure`
+4. `Phase 4: Agent Network Infrastructure`
 
 Epics and tickets are already seeded and dependency-linked for critical path execution.

@@ -43,14 +43,14 @@ function timingSafeEqualHex(leftHex, rightHex) {
 
 function parseSignatureHeader(signatureHeader) {
   if (!isNonEmptyString(signatureHeader)) {
-    throw new SettldWebhookSignatureHeaderError("x-settld-signature header is required");
+    throw new NooterraWebhookSignatureHeaderError("x-nooterra-signature header is required");
   }
   const parts = signatureHeader
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
   if (parts.length === 0) {
-    throw new SettldWebhookSignatureHeaderError("x-settld-signature header is empty");
+    throw new NooterraWebhookSignatureHeaderError("x-nooterra-signature header is empty");
   }
 
   let timestamp = null;
@@ -74,7 +74,7 @@ function parseSignatureHeader(signatureHeader) {
   }
 
   if (signatures.length === 0) {
-    throw new SettldWebhookSignatureHeaderError("x-settld-signature header did not include any signatures");
+    throw new NooterraWebhookSignatureHeaderError("x-nooterra-signature header did not include any signatures");
   }
   return { timestamp, signatures };
 }
@@ -102,39 +102,39 @@ function parseVerifyOptions(optionsOrTolerance) {
   };
 }
 
-export class SettldWebhookSignatureError extends Error {
-  constructor(message, { code = "SETTLD_WEBHOOK_SIGNATURE_ERROR" } = {}) {
+export class NooterraWebhookSignatureError extends Error {
+  constructor(message, { code = "NOOTERRA_WEBHOOK_SIGNATURE_ERROR" } = {}) {
     super(message);
-    this.name = "SettldWebhookSignatureError";
+    this.name = "NooterraWebhookSignatureError";
     this.code = code;
   }
 }
 
-export class SettldWebhookSignatureHeaderError extends SettldWebhookSignatureError {
+export class NooterraWebhookSignatureHeaderError extends NooterraWebhookSignatureError {
   constructor(message) {
-    super(message, { code: "SETTLD_WEBHOOK_SIGNATURE_HEADER_INVALID" });
-    this.name = "SettldWebhookSignatureHeaderError";
+    super(message, { code: "NOOTERRA_WEBHOOK_SIGNATURE_HEADER_INVALID" });
+    this.name = "NooterraWebhookSignatureHeaderError";
   }
 }
 
-export class SettldWebhookTimestampToleranceError extends SettldWebhookSignatureError {
+export class NooterraWebhookTimestampToleranceError extends NooterraWebhookSignatureError {
   constructor(message, { timestamp = null, toleranceSeconds = null, nowMs = null } = {}) {
-    super(message, { code: "SETTLD_WEBHOOK_TIMESTAMP_OUTSIDE_TOLERANCE" });
-    this.name = "SettldWebhookTimestampToleranceError";
+    super(message, { code: "NOOTERRA_WEBHOOK_TIMESTAMP_OUTSIDE_TOLERANCE" });
+    this.name = "NooterraWebhookTimestampToleranceError";
     this.timestamp = timestamp;
     this.toleranceSeconds = toleranceSeconds;
     this.nowMs = nowMs;
   }
 }
 
-export class SettldWebhookNoMatchingSignatureError extends SettldWebhookSignatureError {
+export class NooterraWebhookNoMatchingSignatureError extends NooterraWebhookSignatureError {
   constructor(message) {
-    super(message, { code: "SETTLD_WEBHOOK_SIGNATURE_NO_MATCH" });
-    this.name = "SettldWebhookNoMatchingSignatureError";
+    super(message, { code: "NOOTERRA_WEBHOOK_SIGNATURE_NO_MATCH" });
+    this.name = "NooterraWebhookNoMatchingSignatureError";
   }
 }
 
-export function verifySettldWebhookSignature(rawBody, signatureHeader, secret, optionsOrTolerance = 300) {
+export function verifyNooterraWebhookSignature(rawBody, signatureHeader, secret, optionsOrTolerance = 300) {
   if (!isNonEmptyString(secret)) throw new TypeError("secret is required");
   const bodyBuffer = toBodyBuffer(rawBody);
   const parsed = parseSignatureHeader(signatureHeader);
@@ -153,16 +153,16 @@ export function verifySettldWebhookSignature(rawBody, signatureHeader, secret, o
       ? String(options.timestamp).trim()
       : null;
   if (!timestamp) {
-    throw new SettldWebhookSignatureHeaderError("timestamp is required (use t=... in signature header or options.timestamp)");
+    throw new NooterraWebhookSignatureHeaderError("timestamp is required (use t=... in signature header or options.timestamp)");
   }
 
   const timestampMs = parseTimestampToMs(timestamp);
   if (!Number.isFinite(timestampMs)) {
-    throw new SettldWebhookSignatureHeaderError("timestamp is invalid");
+    throw new NooterraWebhookSignatureHeaderError("timestamp is invalid");
   }
   const ageSeconds = Math.abs(options.nowMs - timestampMs) / 1000;
   if (ageSeconds > options.toleranceSeconds) {
-    throw new SettldWebhookTimestampToleranceError("signature timestamp is outside tolerance", {
+    throw new NooterraWebhookTimestampToleranceError("signature timestamp is outside tolerance", {
       timestamp,
       toleranceSeconds: options.toleranceSeconds,
       nowMs: options.nowMs
@@ -178,5 +178,5 @@ export function verifySettldWebhookSignature(rawBody, signatureHeader, secret, o
       return true;
     }
   }
-  throw new SettldWebhookNoMatchingSignatureError("no matching signature in x-settld-signature header");
+  throw new NooterraWebhookNoMatchingSignatureError("no matching signature in x-nooterra-signature header");
 }

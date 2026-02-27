@@ -157,6 +157,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agentPassports.clear();
     if (!(store.agentCards instanceof Map)) store.agentCards = new Map();
     store.agentCards.clear();
+    if (!(store.agentCardAbuseReports instanceof Map)) store.agentCardAbuseReports = new Map();
+    store.agentCardAbuseReports.clear();
     if (!(store.sessions instanceof Map)) store.sessions = new Map();
     store.sessions.clear();
     if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
@@ -165,12 +167,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agreementDelegations.clear();
     if (!(store.delegationGrants instanceof Map)) store.delegationGrants = new Map();
     store.delegationGrants.clear();
+    if (!(store.authorityGrants instanceof Map)) store.authorityGrants = new Map();
+    store.authorityGrants.clear();
+    if (!(store.taskQuotes instanceof Map)) store.taskQuotes = new Map();
+    store.taskQuotes.clear();
+    if (!(store.taskOffers instanceof Map)) store.taskOffers = new Map();
+    store.taskOffers.clear();
+    if (!(store.taskAcceptances instanceof Map)) store.taskAcceptances = new Map();
+    store.taskAcceptances.clear();
     if (!(store.capabilityAttestations instanceof Map)) store.capabilityAttestations = new Map();
     store.capabilityAttestations.clear();
     if (!(store.subAgentWorkOrders instanceof Map)) store.subAgentWorkOrders = new Map();
     store.subAgentWorkOrders.clear();
     if (!(store.subAgentCompletionReceipts instanceof Map)) store.subAgentCompletionReceipts = new Map();
     store.subAgentCompletionReceipts.clear();
+    if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
+    store.stateCheckpoints.clear();
     if (!(store.x402Gates instanceof Map)) store.x402Gates = new Map();
     store.x402Gates.clear();
     if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
@@ -229,6 +241,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           agentId: snap?.agentId ?? String(id)
         });
       }
+      if (type === "agent_card_abuse_report") {
+        store.agentCardAbuseReports.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          reportId: snap?.reportId ?? String(id)
+        });
+      }
       if (type === "session") {
         store.sessions.set(key, {
           ...snap,
@@ -257,6 +276,34 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           grantId: snap?.grantId ?? String(id)
         });
       }
+      if (type === "authority_grant") {
+        store.authorityGrants.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          grantId: snap?.grantId ?? String(id)
+        });
+      }
+      if (type === "task_quote") {
+        store.taskQuotes.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          quoteId: snap?.quoteId ?? String(id)
+        });
+      }
+      if (type === "task_offer") {
+        store.taskOffers.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          offerId: snap?.offerId ?? String(id)
+        });
+      }
+      if (type === "task_acceptance") {
+        store.taskAcceptances.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          acceptanceId: snap?.acceptanceId ?? String(id)
+        });
+      }
       if (type === "capability_attestation") {
         store.capabilityAttestations.set(key, {
           ...snap,
@@ -276,6 +323,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           receiptId: snap?.receiptId ?? String(id)
+        });
+      }
+      if (type === "state_checkpoint") {
+        store.stateCheckpoints.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          checkpointId: snap?.checkpointId ?? String(id)
         });
       }
       if (type === "x402_gate") {
@@ -1427,6 +1481,21 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistAgentCardAbuseReport(client, { tenantId, reportId, report }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const normalizedReportId = reportId ? String(reportId) : report.reportId ? String(report.reportId) : null;
+    if (!normalizedReportId) throw new TypeError("reportId is required");
+    const normalizedReport = { ...report, tenantId, reportId: normalizedReportId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "agent_card_abuse_report",
+      aggregateId: normalizedReportId,
+      snapshot: normalizedReport,
+      updatedAt: normalizedReport.updatedAt ?? normalizedReport.createdAt ?? null
+    });
+  }
+
   async function persistSession(client, { tenantId, sessionId, session }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!session || typeof session !== "object" || Array.isArray(session)) throw new TypeError("session is required");
@@ -1456,6 +1525,79 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       aggregateId: normalizedGrantId,
       snapshot: normalizedDelegationGrant,
       updatedAt: normalizedDelegationGrant.updatedAt ?? normalizedDelegationGrant.createdAt ?? null
+    });
+  }
+
+  async function persistAuthorityGrant(client, { tenantId, grantId, authorityGrant }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) {
+      throw new TypeError("authorityGrant is required");
+    }
+    const normalizedGrantId = grantId ? String(grantId) : authorityGrant.grantId ? String(authorityGrant.grantId) : null;
+    if (!normalizedGrantId) throw new TypeError("grantId is required");
+    const normalizedAuthorityGrant = { ...authorityGrant, tenantId, grantId: normalizedGrantId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "authority_grant",
+      aggregateId: normalizedGrantId,
+      snapshot: normalizedAuthorityGrant,
+      updatedAt: normalizedAuthorityGrant.updatedAt ?? normalizedAuthorityGrant.createdAt ?? null
+    });
+  }
+
+  async function persistTaskQuote(client, { tenantId, quoteId, taskQuote }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) {
+      throw new TypeError("taskQuote is required");
+    }
+    const normalizedQuoteId = quoteId ? String(quoteId) : taskQuote.quoteId ? String(taskQuote.quoteId) : null;
+    if (!normalizedQuoteId) throw new TypeError("quoteId is required");
+    const normalizedTaskQuote = { ...taskQuote, tenantId, quoteId: normalizedQuoteId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_quote",
+      aggregateId: normalizedQuoteId,
+      snapshot: normalizedTaskQuote,
+      updatedAt: normalizedTaskQuote.updatedAt ?? normalizedTaskQuote.createdAt ?? null
+    });
+  }
+
+  async function persistTaskOffer(client, { tenantId, offerId, taskOffer }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) {
+      throw new TypeError("taskOffer is required");
+    }
+    const normalizedOfferId = offerId ? String(offerId) : taskOffer.offerId ? String(taskOffer.offerId) : null;
+    if (!normalizedOfferId) throw new TypeError("offerId is required");
+    const normalizedTaskOffer = { ...taskOffer, tenantId, offerId: normalizedOfferId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_offer",
+      aggregateId: normalizedOfferId,
+      snapshot: normalizedTaskOffer,
+      updatedAt: normalizedTaskOffer.updatedAt ?? normalizedTaskOffer.createdAt ?? null
+    });
+  }
+
+  async function persistTaskAcceptance(client, { tenantId, acceptanceId, taskAcceptance }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) {
+      throw new TypeError("taskAcceptance is required");
+    }
+    const normalizedAcceptanceId =
+      acceptanceId ? String(acceptanceId) : taskAcceptance.acceptanceId ? String(taskAcceptance.acceptanceId) : null;
+    if (!normalizedAcceptanceId) throw new TypeError("acceptanceId is required");
+    const normalizedTaskAcceptance = { ...taskAcceptance, tenantId, acceptanceId: normalizedAcceptanceId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_acceptance",
+      aggregateId: normalizedAcceptanceId,
+      snapshot: normalizedTaskAcceptance,
+      updatedAt:
+        normalizedTaskAcceptance.updatedAt ??
+        normalizedTaskAcceptance.acceptedAt ??
+        normalizedTaskAcceptance.createdAt ??
+        null
     });
   }
 
@@ -1513,6 +1655,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistStateCheckpoint(client, { tenantId, checkpointId, stateCheckpoint }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) {
+      throw new TypeError("stateCheckpoint is required");
+    }
+    const normalizedCheckpointId =
+      checkpointId ? String(checkpointId) : stateCheckpoint.checkpointId ? String(stateCheckpoint.checkpointId) : null;
+    if (!normalizedCheckpointId) throw new TypeError("checkpointId is required");
+    const normalizedStateCheckpoint = { ...stateCheckpoint, tenantId, checkpointId: normalizedCheckpointId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "state_checkpoint",
+      aggregateId: normalizedCheckpointId,
+      snapshot: normalizedStateCheckpoint,
+      updatedAt: normalizedStateCheckpoint.updatedAt ?? normalizedStateCheckpoint.createdAt ?? null
+    });
+  }
+
   async function persistX402Gate(client, { tenantId, gateId, gate }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) {
@@ -1550,8 +1710,19 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       agentId ? String(agentId) : agentLifecycle.agentId ? String(agentLifecycle.agentId) : null;
     if (!normalizedAgentId) throw new TypeError("agentId is required");
     const status = String(agentLifecycle.status ?? "").trim().toLowerCase();
-    if (status !== "active" && status !== "frozen" && status !== "archived") {
-      throw new TypeError("agentLifecycle.status must be active|frozen|archived");
+    if (
+      status !== "provisioned" &&
+      status !== "active" &&
+      status !== "throttled" &&
+      status !== "suspended" &&
+      status !== "quarantined" &&
+      status !== "decommissioned" &&
+      status !== "frozen" &&
+      status !== "archived"
+    ) {
+      throw new TypeError(
+        "agentLifecycle.status must be provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+      );
     }
 
     const updatedAt = parseIsoOrNull(agentLifecycle.updatedAt) ?? new Date().toISOString();
@@ -2464,6 +2635,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_IDENTITY_UPSERT",
       "AGENT_PASSPORT_UPSERT",
       "AGENT_CARD_UPSERT",
+      "AGENT_CARD_ABUSE_REPORT_UPSERT",
       "SESSION_UPSERT",
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
@@ -2472,9 +2644,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "ARBITRATION_CASE_UPSERT",
       "AGREEMENT_DELEGATION_UPSERT",
       "DELEGATION_GRANT_UPSERT",
+      "AUTHORITY_GRANT_UPSERT",
+      "TASK_QUOTE_UPSERT",
+      "TASK_OFFER_UPSERT",
+      "TASK_ACCEPTANCE_UPSERT",
       "CAPABILITY_ATTESTATION_UPSERT",
       "SUB_AGENT_WORK_ORDER_UPSERT",
       "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
+      "STATE_CHECKPOINT_UPSERT",
       "X402_GATE_UPSERT",
       "X402_AGENT_LIFECYCLE_UPSERT",
       "X402_RECEIPT_PUT",
@@ -3300,6 +3477,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.agentCard?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentCard(client, { tenantId, agentId: op.agentId, agentCard: op.agentCard });
         }
+        if (op.kind === "AGENT_CARD_ABUSE_REPORT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.report?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentCardAbuseReport(client, { tenantId, reportId: op.reportId, report: op.report });
+        }
         if (op.kind === "SESSION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.session?.tenantId ?? DEFAULT_TENANT_ID);
           await persistSession(client, { tenantId, sessionId: op.sessionId, session: op.session });
@@ -3333,6 +3514,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.delegationGrant?.tenantId ?? DEFAULT_TENANT_ID);
           await persistDelegationGrant(client, { tenantId, grantId: op.grantId, delegationGrant: op.delegationGrant });
         }
+        if (op.kind === "AUTHORITY_GRANT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.authorityGrant?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAuthorityGrant(client, { tenantId, grantId: op.grantId, authorityGrant: op.authorityGrant });
+        }
+        if (op.kind === "TASK_QUOTE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskQuote?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskQuote(client, { tenantId, quoteId: op.quoteId, taskQuote: op.taskQuote });
+        }
+        if (op.kind === "TASK_OFFER_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskOffer?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskOffer(client, { tenantId, offerId: op.offerId, taskOffer: op.taskOffer });
+        }
+        if (op.kind === "TASK_ACCEPTANCE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskAcceptance?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskAcceptance(client, { tenantId, acceptanceId: op.acceptanceId, taskAcceptance: op.taskAcceptance });
+        }
         if (op.kind === "CAPABILITY_ATTESTATION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.capabilityAttestation?.tenantId ?? DEFAULT_TENANT_ID);
           await persistCapabilityAttestation(client, {
@@ -3351,6 +3548,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             tenantId,
             receiptId: op.receiptId,
             completionReceipt: op.completionReceipt
+          });
+        }
+        if (op.kind === "STATE_CHECKPOINT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.stateCheckpoint?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistStateCheckpoint(client, {
+            tenantId,
+            checkpointId: op.checkpointId,
+            stateCheckpoint: op.stateCheckpoint
           });
         }
         if (op.kind === "X402_GATE_UPSERT") {
@@ -3938,6 +4143,78 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function authorityGrantSnapshotRowToRecord(row) {
+    const authorityGrant = row?.snapshot_json ?? null;
+    if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? authorityGrant?.tenantId ?? DEFAULT_TENANT_ID);
+    const grantId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof authorityGrant?.grantId === "string" && authorityGrant.grantId.trim() !== ""
+          ? authorityGrant.grantId.trim()
+          : null;
+    if (!grantId) return null;
+    return {
+      ...authorityGrant,
+      tenantId,
+      grantId
+    };
+  }
+
+  function taskQuoteSnapshotRowToRecord(row) {
+    const taskQuote = row?.snapshot_json ?? null;
+    if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskQuote?.tenantId ?? DEFAULT_TENANT_ID);
+    const quoteId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskQuote?.quoteId === "string" && taskQuote.quoteId.trim() !== ""
+          ? taskQuote.quoteId.trim()
+          : null;
+    if (!quoteId) return null;
+    return {
+      ...taskQuote,
+      tenantId,
+      quoteId
+    };
+  }
+
+  function taskOfferSnapshotRowToRecord(row) {
+    const taskOffer = row?.snapshot_json ?? null;
+    if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskOffer?.tenantId ?? DEFAULT_TENANT_ID);
+    const offerId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskOffer?.offerId === "string" && taskOffer.offerId.trim() !== ""
+          ? taskOffer.offerId.trim()
+          : null;
+    if (!offerId) return null;
+    return {
+      ...taskOffer,
+      tenantId,
+      offerId
+    };
+  }
+
+  function taskAcceptanceSnapshotRowToRecord(row) {
+    const taskAcceptance = row?.snapshot_json ?? null;
+    if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskAcceptance?.tenantId ?? DEFAULT_TENANT_ID);
+    const acceptanceId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskAcceptance?.acceptanceId === "string" && taskAcceptance.acceptanceId.trim() !== ""
+          ? taskAcceptance.acceptanceId.trim()
+          : null;
+    if (!acceptanceId) return null;
+    return {
+      ...taskAcceptance,
+      tenantId,
+      acceptanceId
+    };
+  }
+
   function capabilityAttestationSnapshotRowToRecord(row) {
     const capabilityAttestation = row?.snapshot_json ?? null;
     if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) return null;
@@ -3992,6 +4269,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function stateCheckpointSnapshotRowToRecord(row) {
+    const stateCheckpoint = row?.snapshot_json ?? null;
+    if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? stateCheckpoint?.tenantId ?? DEFAULT_TENANT_ID);
+    const checkpointId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof stateCheckpoint?.checkpointId === "string" && stateCheckpoint.checkpointId.trim() !== ""
+          ? stateCheckpoint.checkpointId.trim()
+          : null;
+    if (!checkpointId) return null;
+    return {
+      ...stateCheckpoint,
+      tenantId,
+      checkpointId
+    };
+  }
+
   store.getAgentCard = async function getAgentCard({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     assertNonEmptyString(agentId, "agentId");
@@ -4013,12 +4308,129 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
   };
 
+  store.putAgentCardAbuseReport = async function putAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, report, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const reportId = typeof report.reportId === "string" ? report.reportId.trim() : "";
+    if (!reportId) throw new TypeError("report.reportId is required");
+    const at = parseIsoOrNull(report.updatedAt) ?? parseIsoOrNull(report.createdAt) ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: { ...report, tenantId, reportId } }],
+      audit
+    });
+    return store.getAgentCardAbuseReport({ tenantId, reportId });
+  };
+
+  store.getAgentCardAbuseReport = async function getAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, reportId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(reportId, "reportId");
+    const normalizedReportId = String(reportId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_card_abuse_report' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedReportId]
+      );
+      if (!res.rows.length) return null;
+      const report = res.rows[0]?.snapshot_json ?? null;
+      if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+      return { ...report, tenantId, reportId: normalizedReportId };
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentCardAbuseReports.get(makeScopedKey({ tenantId, id: normalizedReportId })) ?? null;
+    }
+  };
+
+  store.listAgentCardAbuseReports = async function listAgentCardAbuseReports({
+    tenantId = DEFAULT_TENANT_ID,
+    subjectAgentId = null,
+    reasonCode = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const subjectFilter =
+      subjectAgentId === null || subjectAgentId === undefined || String(subjectAgentId).trim() === "" ? null : String(subjectAgentId).trim();
+    const reasonFilter =
+      reasonCode === null || reasonCode === undefined || String(reasonCode).trim() === "" ? null : String(reasonCode).trim().toUpperCase();
+
+    const applyFilters = (rows) => {
+      const filtered = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (subjectFilter && String(row.subjectAgentId ?? "") !== subjectFilter) continue;
+        if (reasonFilter && String(row.reasonCode ?? "").toUpperCase() !== reasonFilter) continue;
+        filtered.push(row);
+      }
+      filtered.sort((left, right) => {
+        const leftAt = Number.isFinite(Date.parse(String(left?.createdAt ?? ""))) ? Date.parse(String(left.createdAt)) : Number.NaN;
+        const rightAt = Number.isFinite(Date.parse(String(right?.createdAt ?? ""))) ? Date.parse(String(right.createdAt)) : Number.NaN;
+        if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+        return String(left?.reportId ?? "").localeCompare(String(right?.reportId ?? ""));
+      });
+      return filtered.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'agent_card_abuse_report'"];
+      if (subjectFilter !== null) {
+        params.push(subjectFilter);
+        where.push(`snapshot_json->>'subjectAgentId' = $${params.length}`);
+      }
+      if (reasonFilter !== null) {
+        params.push(reasonFilter);
+        where.push(`upper(coalesce(snapshot_json->>'reasonCode', '')) = $${params.length}`);
+      }
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE ${where.join(" AND ")}
+          ORDER BY updated_at DESC, aggregate_id ASC
+        `,
+        params
+      );
+      return applyFilters(
+        res.rows
+          .map((row) => {
+            const report = row?.snapshot_json ?? null;
+            if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+            const reportId = row?.aggregate_id ? String(row.aggregate_id).trim() : null;
+            if (!reportId) return null;
+            return { ...report, tenantId: normalizeTenantId(row?.tenant_id ?? tenantId), reportId };
+          })
+          .filter(Boolean)
+      );
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.agentCardAbuseReports.values()));
+    }
+  };
+
   store.listAgentCards = async function listAgentCards({
     tenantId = DEFAULT_TENANT_ID,
     agentId = null,
     status = null,
     visibility = null,
     capability = null,
+    executionCoordinatorDid = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -4033,7 +4445,93 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const executionCoordinatorDidFilter =
+      executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
+        ? null
+        : String(executionCoordinatorDid).trim();
+    const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
+    const toolRiskClassFilter =
+      toolRiskClass === null || toolRiskClass === undefined || String(toolRiskClass).trim() === ""
+        ? null
+        : String(toolRiskClass).trim().toLowerCase();
+    if (
+      toolRiskClassFilter !== null &&
+      toolRiskClassFilter !== "read" &&
+      toolRiskClassFilter !== "compute" &&
+      toolRiskClassFilter !== "action" &&
+      toolRiskClassFilter !== "financial"
+    ) {
+      throw new TypeError("toolRiskClass must be read|compute|action|financial");
+    }
+    const toolSideEffectingFilter =
+      toolSideEffecting === null || toolSideEffecting === undefined
+        ? null
+        : typeof toolSideEffecting === "boolean"
+          ? toolSideEffecting
+          : (() => {
+              throw new TypeError("toolSideEffecting must be boolean");
+            })();
+    const toolMaxPriceCentsFilter =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : (() => {
+            const parsed = Number(toolMaxPriceCents);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError("toolMaxPriceCents must be a non-negative safe integer");
+            return parsed;
+          })();
+    const toolRequiresEvidenceKindFilter =
+      toolRequiresEvidenceKind === null || toolRequiresEvidenceKind === undefined || String(toolRequiresEvidenceKind).trim() === ""
+        ? null
+        : String(toolRequiresEvidenceKind).trim().toLowerCase();
+    if (
+      toolRequiresEvidenceKindFilter !== null &&
+      toolRequiresEvidenceKindFilter !== "artifact" &&
+      toolRequiresEvidenceKindFilter !== "hash" &&
+      toolRequiresEvidenceKindFilter !== "verification_report"
+    ) {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      toolRiskClassFilter !== null ||
+      toolSideEffectingFilter !== null ||
+      toolMaxPriceCentsFilter !== null ||
+      toolRequiresEvidenceKindFilter !== null;
+
+    const matchesToolDescriptorFilters = (row) => {
+      if (!hasToolDescriptorFilter) return true;
+      const tools = Array.isArray(row?.tools) ? row.tools : [];
+      if (tools.length === 0) return false;
+      return tools.some((tool) => {
+        if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+        const descriptorToolId = typeof tool.toolId === "string" ? tool.toolId.trim() : "";
+        if (toolIdFilter !== null && descriptorToolId !== toolIdFilter) return false;
+        const descriptorMcpName = typeof tool.mcpToolName === "string" ? tool.mcpToolName.trim().toLowerCase() : "";
+        if (toolMcpNameFilter !== null && descriptorMcpName !== toolMcpNameFilter) return false;
+        const descriptorRiskClass = typeof tool.riskClass === "string" ? tool.riskClass.trim().toLowerCase() : "";
+        if (toolRiskClassFilter !== null && descriptorRiskClass !== toolRiskClassFilter) return false;
+        const descriptorSideEffecting = tool.sideEffecting === true;
+        if (toolSideEffectingFilter !== null && descriptorSideEffecting !== toolSideEffectingFilter) return false;
+        const descriptorAmountCents = Number(tool?.pricing?.amountCents);
+        if (
+          toolMaxPriceCentsFilter !== null &&
+          (!Number.isSafeInteger(descriptorAmountCents) || descriptorAmountCents > toolMaxPriceCentsFilter)
+        ) {
+          return false;
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          const evidenceKinds = Array.isArray(tool.requiresEvidenceKinds)
+            ? tool.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase())
+            : [];
+          if (!evidenceKinds.includes(toolRequiresEvidenceKindFilter)) return false;
+        }
+        return true;
+      });
+    };
 
     const applyFilters = (rows) => {
       const filtered = [];
@@ -4043,6 +4541,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (agentIdFilter && String(row.agentId ?? "") !== agentIdFilter) continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
         if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!capabilities.includes(capabilityFilter)) continue;
@@ -4054,6 +4553,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (!matchesToolDescriptorFilters(row)) continue;
         filtered.push(row);
       }
       filtered.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
@@ -4061,14 +4561,99 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
 
     try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'agent_card'"];
+      if (agentIdFilter !== null) {
+        params.push(agentIdFilter);
+        where.push(`aggregate_id = $${params.length}`);
+      }
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(coalesce(snapshot_json->>'status', '')) = $${params.length}`);
+      }
+      if (visibilityFilter !== null) {
+        params.push(visibilityFilter);
+        where.push(`lower(coalesce(snapshot_json->>'visibility', '')) = $${params.length}`);
+      }
+      if (capabilityFilter !== null) {
+        params.push(capabilityFilter);
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(snapshot_json->'capabilities') = 'array' THEN snapshot_json->'capabilities' ELSE '[]'::jsonb END
+            ) AS capability(value)
+            WHERE capability.value = $${params.length}
+          )`
+        );
+      }
+      if (executionCoordinatorDidFilter !== null) {
+        params.push(executionCoordinatorDidFilter);
+        where.push(`btrim(coalesce(snapshot_json->>'executionCoordinatorDid', '')) = $${params.length}`);
+      }
+      if (runtimeFilter !== null) {
+        params.push(runtimeFilter);
+        where.push(`lower(coalesce(snapshot_json->'host'->>'runtime', '')) = $${params.length}`);
+      }
+      if (hasToolDescriptorFilter) {
+        const toolClauses = [];
+        if (toolIdFilter !== null) {
+          params.push(toolIdFilter);
+          toolClauses.push(`btrim(tool->>'toolId') = $${params.length}`);
+        }
+        if (toolMcpNameFilter !== null) {
+          params.push(toolMcpNameFilter);
+          toolClauses.push(`lower(btrim(tool->>'mcpToolName')) = $${params.length}`);
+        }
+        if (toolRiskClassFilter !== null) {
+          params.push(toolRiskClassFilter);
+          toolClauses.push(`lower(btrim(tool->>'riskClass')) = $${params.length}`);
+        }
+        if (toolSideEffectingFilter !== null) {
+          params.push(toolSideEffectingFilter);
+          toolClauses.push(
+            `(CASE WHEN jsonb_typeof(tool->'sideEffecting') = 'boolean' THEN (tool->>'sideEffecting')::boolean ELSE false END) = $${params.length}`
+          );
+        }
+        if (toolMaxPriceCentsFilter !== null) {
+          params.push(toolMaxPriceCentsFilter);
+          toolClauses.push(
+            `(CASE WHEN (tool->'pricing'->>'amountCents') ~ '^[0-9]+$' THEN (tool->'pricing'->>'amountCents')::bigint ELSE NULL END) <= $${params.length}`
+          );
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          params.push(toolRequiresEvidenceKindFilter);
+          toolClauses.push(
+            `EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(
+                CASE
+                  WHEN jsonb_typeof(tool->'requiresEvidenceKinds') = 'array' THEN tool->'requiresEvidenceKinds'
+                  ELSE '[]'::jsonb
+                END
+              ) AS kind(value)
+              WHERE lower(btrim(kind.value)) = $${params.length}
+            )`
+          );
+        }
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(snapshot_json->'tools') = 'array' THEN snapshot_json->'tools' ELSE '[]'::jsonb END
+            ) AS tool
+            WHERE ${toolClauses.join(" AND ")}
+          )`
+        );
+      }
       const res = await pool.query(
         `
           SELECT tenant_id, aggregate_id, snapshot_json
           FROM snapshots
-          WHERE tenant_id = $1 AND aggregate_type = 'agent_card'
+          WHERE ${where.join(" AND ")}
           ORDER BY aggregate_id ASC
         `,
-        [tenantId]
+        params
       );
       return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
     } catch (err) {
@@ -4174,10 +4759,46 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
   };
 
+  store.getIdempotencyRecord = async function getIdempotencyRecord({ key } = {}) {
+    assertNonEmptyString(key, "key");
+    const normalizedKey = String(key).trim();
+    const { tenantId, principalId, endpoint, idempotencyKey } = parseIdempotencyStoreKey(normalizedKey);
+    try {
+      const res = await pool.query(
+        `
+          SELECT request_hash, status_code, response_json
+          FROM idempotency
+          WHERE tenant_id = $1 AND principal_id = $2 AND endpoint = $3 AND idem_key = $4
+          LIMIT 1
+        `,
+        [tenantId, principalId, endpoint, idempotencyKey]
+      );
+      if (!res.rows.length) return null;
+      const row = res.rows[0];
+      const record = {
+        requestHash: String(row.request_hash),
+        statusCode: Number(row.status_code),
+        body: row.response_json
+      };
+      if (store.idempotency instanceof Map) store.idempotency.set(normalizedKey, record);
+      return record;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.idempotency.get(normalizedKey) ?? null;
+    }
+  };
+
   store.listAgentCardsPublic = async function listAgentCardsPublic({
     status = null,
-    visibility = null,
+    visibility = "public",
     capability = null,
+    executionCoordinatorDid = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -4188,16 +4809,104 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const safeOffset = offset;
     const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
     const visibilityFilter =
-      visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
+      visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
+    if (visibilityFilter !== "public") throw new TypeError("visibility must be public");
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const executionCoordinatorDidFilter =
+      executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
+        ? null
+        : String(executionCoordinatorDid).trim();
+    const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
+    const toolRiskClassFilter =
+      toolRiskClass === null || toolRiskClass === undefined || String(toolRiskClass).trim() === ""
+        ? null
+        : String(toolRiskClass).trim().toLowerCase();
+    if (
+      toolRiskClassFilter !== null &&
+      toolRiskClassFilter !== "read" &&
+      toolRiskClassFilter !== "compute" &&
+      toolRiskClassFilter !== "action" &&
+      toolRiskClassFilter !== "financial"
+    ) {
+      throw new TypeError("toolRiskClass must be read|compute|action|financial");
+    }
+    const toolSideEffectingFilter =
+      toolSideEffecting === null || toolSideEffecting === undefined
+        ? null
+        : typeof toolSideEffecting === "boolean"
+          ? toolSideEffecting
+          : (() => {
+              throw new TypeError("toolSideEffecting must be boolean");
+            })();
+    const toolMaxPriceCentsFilter =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : (() => {
+            const parsed = Number(toolMaxPriceCents);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError("toolMaxPriceCents must be a non-negative safe integer");
+            return parsed;
+          })();
+    const toolRequiresEvidenceKindFilter =
+      toolRequiresEvidenceKind === null || toolRequiresEvidenceKind === undefined || String(toolRequiresEvidenceKind).trim() === ""
+        ? null
+        : String(toolRequiresEvidenceKind).trim().toLowerCase();
+    if (
+      toolRequiresEvidenceKindFilter !== null &&
+      toolRequiresEvidenceKindFilter !== "artifact" &&
+      toolRequiresEvidenceKindFilter !== "hash" &&
+      toolRequiresEvidenceKindFilter !== "verification_report"
+    ) {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      toolRiskClassFilter !== null ||
+      toolSideEffectingFilter !== null ||
+      toolMaxPriceCentsFilter !== null ||
+      toolRequiresEvidenceKindFilter !== null;
+
+    const matchesToolDescriptorFilters = (row) => {
+      if (!hasToolDescriptorFilter) return true;
+      const tools = Array.isArray(row?.tools) ? row.tools : [];
+      if (tools.length === 0) return false;
+      return tools.some((tool) => {
+        if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+        const descriptorToolId = typeof tool.toolId === "string" ? tool.toolId.trim() : "";
+        if (toolIdFilter !== null && descriptorToolId !== toolIdFilter) return false;
+        const descriptorMcpName = typeof tool.mcpToolName === "string" ? tool.mcpToolName.trim().toLowerCase() : "";
+        if (toolMcpNameFilter !== null && descriptorMcpName !== toolMcpNameFilter) return false;
+        const descriptorRiskClass = typeof tool.riskClass === "string" ? tool.riskClass.trim().toLowerCase() : "";
+        if (toolRiskClassFilter !== null && descriptorRiskClass !== toolRiskClassFilter) return false;
+        const descriptorSideEffecting = tool.sideEffecting === true;
+        if (toolSideEffectingFilter !== null && descriptorSideEffecting !== toolSideEffectingFilter) return false;
+        const descriptorAmountCents = Number(tool?.pricing?.amountCents);
+        if (
+          toolMaxPriceCentsFilter !== null &&
+          (!Number.isSafeInteger(descriptorAmountCents) || descriptorAmountCents > toolMaxPriceCentsFilter)
+        ) {
+          return false;
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          const evidenceKinds = Array.isArray(tool.requiresEvidenceKinds)
+            ? tool.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase())
+            : [];
+          if (!evidenceKinds.includes(toolRequiresEvidenceKindFilter)) return false;
+        }
+        return true;
+      });
+    };
 
     const applyFilters = (rows) => {
       const filtered = [];
       for (const row of rows) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
-        if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!capabilities.includes(capabilityFilter)) continue;
@@ -4209,6 +4918,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (!matchesToolDescriptorFilters(row)) continue;
         filtered.push(row);
       }
       filtered.sort((left, right) => {
@@ -4220,13 +4930,93 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
 
     try {
+      const params = [];
+      const where = ["aggregate_type = 'agent_card'"];
+      params.push("public");
+      where.push(`lower(coalesce(snapshot_json->>'visibility', '')) = $${params.length}`);
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(coalesce(snapshot_json->>'status', '')) = $${params.length}`);
+      }
+      if (capabilityFilter !== null) {
+        params.push(capabilityFilter);
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(snapshot_json->'capabilities') = 'array' THEN snapshot_json->'capabilities' ELSE '[]'::jsonb END
+            ) AS capability(value)
+            WHERE capability.value = $${params.length}
+          )`
+        );
+      }
+      if (executionCoordinatorDidFilter !== null) {
+        params.push(executionCoordinatorDidFilter);
+        where.push(`btrim(coalesce(snapshot_json->>'executionCoordinatorDid', '')) = $${params.length}`);
+      }
+      if (runtimeFilter !== null) {
+        params.push(runtimeFilter);
+        where.push(`lower(coalesce(snapshot_json->'host'->>'runtime', '')) = $${params.length}`);
+      }
+      if (hasToolDescriptorFilter) {
+        const toolClauses = [];
+        if (toolIdFilter !== null) {
+          params.push(toolIdFilter);
+          toolClauses.push(`btrim(tool->>'toolId') = $${params.length}`);
+        }
+        if (toolMcpNameFilter !== null) {
+          params.push(toolMcpNameFilter);
+          toolClauses.push(`lower(btrim(tool->>'mcpToolName')) = $${params.length}`);
+        }
+        if (toolRiskClassFilter !== null) {
+          params.push(toolRiskClassFilter);
+          toolClauses.push(`lower(btrim(tool->>'riskClass')) = $${params.length}`);
+        }
+        if (toolSideEffectingFilter !== null) {
+          params.push(toolSideEffectingFilter);
+          toolClauses.push(
+            `(CASE WHEN jsonb_typeof(tool->'sideEffecting') = 'boolean' THEN (tool->>'sideEffecting')::boolean ELSE false END) = $${params.length}`
+          );
+        }
+        if (toolMaxPriceCentsFilter !== null) {
+          params.push(toolMaxPriceCentsFilter);
+          toolClauses.push(
+            `(CASE WHEN (tool->'pricing'->>'amountCents') ~ '^[0-9]+$' THEN (tool->'pricing'->>'amountCents')::bigint ELSE NULL END) <= $${params.length}`
+          );
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          params.push(toolRequiresEvidenceKindFilter);
+          toolClauses.push(
+            `EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(
+                CASE
+                  WHEN jsonb_typeof(tool->'requiresEvidenceKinds') = 'array' THEN tool->'requiresEvidenceKinds'
+                  ELSE '[]'::jsonb
+                END
+              ) AS kind(value)
+              WHERE lower(btrim(kind.value)) = $${params.length}
+            )`
+          );
+        }
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(snapshot_json->'tools') = 'array' THEN snapshot_json->'tools' ELSE '[]'::jsonb END
+            ) AS tool
+            WHERE ${toolClauses.join(" AND ")}
+          )`
+        );
+      }
       const res = await pool.query(
         `
           SELECT tenant_id, aggregate_id, snapshot_json
           FROM snapshots
-          WHERE aggregate_type = 'agent_card'
+          WHERE ${where.join(" AND ")}
           ORDER BY tenant_id ASC, aggregate_id ASC
-        `
+        `,
+        params
       );
       return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
     } catch (err) {
@@ -4316,6 +5106,336 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.delegationGrants.values()));
+    }
+  };
+
+  store.getAuthorityGrant = async function getAuthorityGrant({ tenantId = DEFAULT_TENANT_ID, grantId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(grantId, "grantId");
+    const normalizedGrantId = String(grantId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_grant' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedGrantId]
+      );
+      return res.rows.length ? authorityGrantSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.authorityGrants.get(makeScopedKey({ tenantId, id: normalizedGrantId })) ?? null;
+    }
+  };
+
+  store.listAuthorityGrants = async function listAuthorityGrants({
+    tenantId = DEFAULT_TENANT_ID,
+    grantId = null,
+    grantHash = null,
+    principalId = null,
+    granteeAgentId = null,
+    includeRevoked = true,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const grantIdFilter = grantId === null || grantId === undefined || String(grantId).trim() === "" ? null : String(grantId).trim();
+    const grantHashFilter = grantHash === null || grantHash === undefined || String(grantHash).trim() === "" ? null : String(grantHash).trim().toLowerCase();
+    const principalFilter =
+      principalId === null || principalId === undefined || String(principalId).trim() === "" ? null : String(principalId).trim();
+    const granteeFilter =
+      granteeAgentId === null || granteeAgentId === undefined || String(granteeAgentId).trim() === "" ? null : String(granteeAgentId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (grantIdFilter && String(row.grantId ?? "") !== grantIdFilter) continue;
+        if (grantHashFilter && String(row.grantHash ?? "").toLowerCase() !== grantHashFilter) continue;
+        if (principalFilter && String(row?.principalRef?.principalId ?? "") !== principalFilter) continue;
+        if (granteeFilter && String(row.granteeAgentId ?? "") !== granteeFilter) continue;
+        if (!includeRevoked) {
+          const revokedAt =
+            row?.revocation && typeof row.revocation === "object" && !Array.isArray(row.revocation) ? row.revocation.revokedAt : null;
+          if (typeof revokedAt === "string" && revokedAt.trim() !== "") continue;
+        }
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_grant'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(authorityGrantSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.authorityGrants.values()));
+    }
+  };
+
+  store.getTaskQuote = async function getTaskQuote({ tenantId = DEFAULT_TENANT_ID, quoteId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(quoteId, "quoteId");
+    const normalizedQuoteId = String(quoteId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_quote' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedQuoteId]
+      );
+      return res.rows.length ? taskQuoteSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskQuotes.get(makeScopedKey({ tenantId, id: normalizedQuoteId })) ?? null;
+    }
+  };
+
+  store.listTaskQuotes = async function listTaskQuotes({
+    tenantId = DEFAULT_TENANT_ID,
+    quoteId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    requiredCapability = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const quoteIdFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const capabilityFilter =
+      requiredCapability === null || requiredCapability === undefined || String(requiredCapability).trim() === ""
+        ? null
+        : String(requiredCapability).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (quoteIdFilter && String(row.quoteId ?? "") !== quoteIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (capabilityFilter && String(row.requiredCapability ?? "") !== capabilityFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.quoteId ?? "").localeCompare(String(right.quoteId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_quote'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskQuoteSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskQuotes.values()));
+    }
+  };
+
+  store.getTaskOffer = async function getTaskOffer({ tenantId = DEFAULT_TENANT_ID, offerId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(offerId, "offerId");
+    const normalizedOfferId = String(offerId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_offer' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedOfferId]
+      );
+      return res.rows.length ? taskOfferSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskOffers.get(makeScopedKey({ tenantId, id: normalizedOfferId })) ?? null;
+    }
+  };
+
+  store.listTaskOffers = async function listTaskOffers({
+    tenantId = DEFAULT_TENANT_ID,
+    offerId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const offerIdFilter = offerId === null || offerId === undefined || String(offerId).trim() === "" ? null : String(offerId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const quoteFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (offerIdFilter && String(row.offerId ?? "") !== offerIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.offerId ?? "").localeCompare(String(right.offerId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_offer'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskOfferSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskOffers.values()));
+    }
+  };
+
+  store.getTaskAcceptance = async function getTaskAcceptance({ tenantId = DEFAULT_TENANT_ID, acceptanceId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(acceptanceId, "acceptanceId");
+    const normalizedAcceptanceId = String(acceptanceId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_acceptance' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedAcceptanceId]
+      );
+      return res.rows.length ? taskAcceptanceSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskAcceptances.get(makeScopedKey({ tenantId, id: normalizedAcceptanceId })) ?? null;
+    }
+  };
+
+  store.listTaskAcceptances = async function listTaskAcceptances({
+    tenantId = DEFAULT_TENANT_ID,
+    acceptanceId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    offerId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const acceptanceIdFilter =
+      acceptanceId === null || acceptanceId === undefined || String(acceptanceId).trim() === "" ? null : String(acceptanceId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const quoteFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const offerFilter = offerId === null || offerId === undefined || String(offerId).trim() === "" ? null : String(offerId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (acceptanceIdFilter && String(row.acceptanceId ?? "") !== acceptanceIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+        if (offerFilter && String(row?.offerRef?.offerId ?? "") !== offerFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.acceptanceId ?? "").localeCompare(String(right.acceptanceId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_acceptance'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskAcceptanceSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskAcceptances.values()));
     }
   };
 
@@ -4544,6 +5664,87 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.subAgentCompletionReceipts.values()));
+    }
+  };
+
+  store.getStateCheckpoint = async function getStateCheckpoint({ tenantId = DEFAULT_TENANT_ID, checkpointId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(checkpointId, "checkpointId");
+    const normalizedCheckpointId = String(checkpointId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'state_checkpoint' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedCheckpointId]
+      );
+      return res.rows.length ? stateCheckpointSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: normalizedCheckpointId })) ?? null;
+    }
+  };
+
+  store.listStateCheckpoints = async function listStateCheckpoints({
+    tenantId = DEFAULT_TENANT_ID,
+    checkpointId = null,
+    projectId = null,
+    sessionId = null,
+    ownerAgentId = null,
+    traceId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const checkpointFilter =
+      checkpointId === null || checkpointId === undefined || String(checkpointId).trim() === "" ? null : String(checkpointId).trim();
+    const projectFilter =
+      projectId === null || projectId === undefined || String(projectId).trim() === "" ? null : String(projectId).trim();
+    const sessionFilter =
+      sessionId === null || sessionId === undefined || String(sessionId).trim() === "" ? null : String(sessionId).trim();
+    const ownerFilter =
+      ownerAgentId === null || ownerAgentId === undefined || String(ownerAgentId).trim() === ""
+        ? null
+        : String(ownerAgentId).trim();
+    const traceFilter = traceId === null || traceId === undefined || String(traceId).trim() === "" ? null : String(traceId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (checkpointFilter && String(row.checkpointId ?? "") !== checkpointFilter) continue;
+        if (projectFilter && String(row.projectId ?? "") !== projectFilter) continue;
+        if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+        if (ownerFilter && String(row.ownerAgentId ?? "") !== ownerFilter) continue;
+        if (traceFilter && String(row.traceId ?? "") !== traceFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'state_checkpoint'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(stateCheckpointSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.stateCheckpoints.values()));
     }
   };
 

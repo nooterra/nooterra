@@ -1,6 +1,6 @@
 # Threat Model (v1)
 
-This document describes **in-scope threats**, **mitigations**, and **residual risks** for Settld’s bundle protocol and verifier.
+This document describes **in-scope threats**, **mitigations**, and **residual risks** for Nooterra’s bundle protocol and verifier.
 
 It is evidence-backed: each mitigation points to the spec and to executable tests/conformance cases.
 
@@ -62,7 +62,7 @@ It is evidence-backed: each mitigation points to the spec and to executable test
   - Spec: `STRICTNESS.md`, `WARNINGS.md`, `VerifyCliOutput.v1.md`
   - Enforcement:
     - Missing report strict vs warn: `docs/spec/STRICTNESS.md` and verifier implementations.
-    - CLI warning gating: `packages/artifact-verify/bin/settld-verify.js:112`–`121`
+    - CLI warning gating: `packages/artifact-verify/bin/nooterra-verify.js:112`–`121`
   - Evidence:
     - Conformance: `conformance/v1/cases.json` case `financepack_strict_fail_on_warnings_tool_version_unknown`
 

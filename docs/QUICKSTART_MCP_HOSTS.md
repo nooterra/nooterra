@@ -1,59 +1,59 @@
-# Quickstart: MCP Host Integrations (Codex, Claude, Cursor, OpenClaw)
+# Quickstart: MCP Host Integrations (Nooterra, Claude, Cursor, OpenClaw)
 
-This guide is the fastest path to wire Settld into an agent host and confirm a first verified paid action.
+This guide is the fastest path to wire Nooterra into an agent host and confirm a first verified paid action.
 
 Target outcome:
 
-1. Host can call `settld.*` MCP tools.
+1. Host can call `nooterra.*` MCP tools.
 2. Wallet mode is configured (`managed`, `byo`, or `none`).
 3. Policy profile is applied.
 4. Smoke call and first paid receipt are green.
 
 For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
 
-## 1) Before you run `settld setup`
+## 1) Before you run `nooterra setup`
 
 Public default path (recommended):
 
 - Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
 - no API keys required up front
-- run `settld setup`, choose `quick`, then login with OTP
+- run `nooterra setup`, choose `quick`, then login with OTP
 - setup creates tenant (if needed), mints runtime key, and wires MCP
 
 Admin/operator path (advanced):
 
-- explicit `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`
+- explicit `NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`
 - one of:
-  - `SETTLD_API_KEY` (`keyId.secret`), or
-  - `SETTLD_BOOTSTRAP_API_KEY` (bootstrap key that mints runtime key)
+  - `NOOTERRA_API_KEY` (`keyId.secret`), or
+  - `NOOTERRA_BOOTSTRAP_API_KEY` (bootstrap key that mints runtime key)
 
 Recommended interactive pattern:
 
 ```bash
-settld setup
+nooterra setup
 ```
 
 Recommended non-interactive pattern (automation/support):
 
 ```bash
-settld setup --non-interactive \
+nooterra setup --non-interactive \
   --host openclaw \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --settld-api-key 'sk_live_xxx.yyy' \
+  --nooterra-api-key 'sk_live_xxx.yyy' \
   --wallet-mode managed \
   --wallet-bootstrap remote \
   --profile-id engineering-spend \
   --smoke \
-  --out-env ./.tmp/settld-openclaw.env
+  --out-env ./.tmp/nooterra-openclaw.env
 ```
 
 If you want non-interactive setup to generate the tenant API key:
 
 ```bash
-settld setup --non-interactive \
+nooterra setup --non-interactive \
   --host openclaw \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
   --bootstrap-api-key 'ml_admin_xxx' \
   --wallet-mode managed \
@@ -65,11 +65,11 @@ settld setup --non-interactive \
 If you want validation only (no config writes):
 
 ```bash
-settld setup --non-interactive \
+nooterra setup --non-interactive \
   --host openclaw \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --settld-api-key 'sk_live_xxx.yyy' \
+  --nooterra-api-key 'sk_live_xxx.yyy' \
   --wallet-mode none \
   --preflight-only \
   --report-path ./.tmp/setup-preflight.json \
@@ -81,12 +81,12 @@ settld setup --non-interactive \
 Unified setup command:
 
 ```bash
-settld setup
+nooterra setup
 ```
 
 `quick` mode (default) handles:
 
-- host selection (`codex|claude|cursor|openclaw`)
+- host selection (`nooterra|claude|cursor|openclaw`)
 - wallet mode selection (`managed|byo|none`)
 - login/signup + OTP session flow (no manual key paste)
 - preflight checks (API health, tenant auth, profile baseline, host config path)
@@ -99,17 +99,17 @@ settld setup
 Host-specific non-interactive examples:
 
 ```bash
-# Codex
-settld setup --non-interactive --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+# Nooterra
+nooterra setup --non-interactive --host nooterra --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
 
 # Claude
-settld setup --non-interactive --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+nooterra setup --non-interactive --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
 
 # Cursor
-settld setup --non-interactive --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+nooterra setup --non-interactive --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
 
 # OpenClaw
-settld setup --non-interactive --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+nooterra setup --non-interactive --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
 ```
 
 ## 3) Wallet modes: managed vs BYO
@@ -127,10 +127,10 @@ Force the path explicitly when needed:
 
 ```bash
 # force remote wallet creation
-settld setup --non-interactive --host openclaw --base-url https://api.settld.work --tenant-id tenant_default --settld-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
+nooterra setup --non-interactive --host openclaw --base-url https://api.nooterra.work --tenant-id tenant_default --nooterra-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
 
 # force local wallet creation with Circle credentials
-settld setup --non-interactive --host openclaw --base-url https://api.settld.work --tenant-id tenant_default --settld-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap local --circle-api-key 'TEST_API_KEY:...' --profile-id engineering-spend --smoke
+nooterra setup --non-interactive --host openclaw --base-url https://api.nooterra.work --tenant-id tenant_default --nooterra-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap local --circle-api-key 'TEST_API_KEY:...' --profile-id engineering-spend --smoke
 ```
 
 ### BYO (`--wallet-mode byo`)
@@ -147,11 +147,11 @@ Provide your own existing wallet values. Required keys:
 Pass as env or repeated `--wallet-env KEY=VALUE` flags:
 
 ```bash
-settld setup --non-interactive \
+nooterra setup --non-interactive \
   --host openclaw \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --settld-api-key 'sk_live_xxx.yyy' \
+  --nooterra-api-key 'sk_live_xxx.yyy' \
   --wallet-mode byo \
   --wallet-env CIRCLE_BASE_URL=https://api-sandbox.circle.com \
   --wallet-env CIRCLE_BLOCKCHAIN=BASE-SEPOLIA \
@@ -169,50 +169,50 @@ Use this for policy/tooling setup without payment rails yet.
 
 ## 4) Activation after setup
 
-`settld setup` writes host MCP config and prints `Combined exports`.
+`nooterra setup` writes host MCP config and prints `Combined exports`.
 
 If you used `--out-env`, source it before running tools:
 
 ```bash
-source ./.tmp/settld-openclaw.env
+source ./.tmp/nooterra-openclaw.env
 ```
 
 Then activate host-side:
 
-- `codex`: restart Codex.
+- `nooterra`: restart Nooterra.
 - `claude`: restart Claude Desktop.
 - `cursor`: restart Cursor.
-- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), install plugin (`openclaw plugins install settld@latest`), run local verification (`openclaw agent --local --agent main --session-id settld-smoke --message "Use the tool named settld_about with empty arguments. Return only JSON." --json`), then run `openclaw tui --session main`.
+- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), install plugin (`openclaw plugins install nooterra@latest`), run local verification (`openclaw agent --local --agent main --session-id nooterra-smoke --message "Use the tool named nooterra_about with empty arguments. Return only JSON." --json`), then run `openclaw tui --session main`.
 
 ## 5) Fund and verify wallet state
 
 Check wallet assignment after setup:
 
 ```bash
-settld wallet status
+nooterra wallet status
 ```
 
 If wallet commands return auth errors, run:
 
 ```bash
-settld login
+nooterra login
 ```
 
 Funding paths:
 
 ```bash
 # Guided selector (recommended)
-settld wallet fund --open
+nooterra wallet fund --open
 
 # Hosted flow (card/bank) - provider-hosted URL, add --open to launch browser
-settld wallet fund --method card --open
-settld wallet fund --method bank --open
+nooterra wallet fund --method card --open
+nooterra wallet fund --method bank --open
 
 # Direct transfer path (prints chain + destination address)
-settld wallet fund --method transfer
+nooterra wallet fund --method transfer
 
 # Sandbox only: request faucet top-up
-settld wallet fund --method faucet
+nooterra wallet fund --method faucet
 ```
 
 Provider-hosted card/bank links are configured on the control-plane backend.
@@ -240,25 +240,25 @@ export MAGIC_LINK_WALLET_FUND_BANK_URL='https://pay.example.com/topup?tenant={te
 After funding, wait until spend wallet has balance:
 
 ```bash
-settld wallet balance --watch --min-usdc 1
+nooterra wallet balance --watch --min-usdc 1
 ```
 
-## 6) How the agent uses Settld after activation
+## 6) How the agent uses Nooterra after activation
 
-After host activation, the agent interacts with Settld through MCP `settld.*` tools.
+After host activation, the agent interacts with Nooterra through MCP `nooterra.*` tools.
 
 Typical flow:
 
-1. Connectivity check: `settld.about`
-2. Paid action: `settld.exa_search_paid` or `settld.weather_current_paid`
-3. Policy gate + authorization happen server-side in Settld.
-4. Settld records evidence/decision/receipt artifacts.
-5. You can verify receipts offline (`settld x402 receipt verify`).
+1. Connectivity check: `nooterra.about`
+2. Paid action: `nooterra.exa_search_paid` or `nooterra.weather_current_paid`
+3. Policy gate + authorization happen server-side in Nooterra.
+4. Nooterra records evidence/decision/receipt artifacts.
+5. You can verify receipts offline (`nooterra x402 receipt verify`).
 
 Quick local smoke:
 
 ```bash
-npm run mcp:probe -- --call settld.about '{}'
+npm run mcp:probe -- --call nooterra.about '{}'
 ```
 
 First paid run + artifacts:
@@ -271,7 +271,7 @@ Verify first receipt from artifacts:
 
 ```bash
 # replace <artifactDir> with the printed directory from demo output
-settld x402 receipt verify <artifactDir>/x402-receipt.json --json-out /tmp/settld-first-receipt.json
+nooterra x402 receipt verify <artifactDir>/x402-receipt.json --json-out /tmp/nooterra-first-receipt.json
 ```
 
 ## 7) Host config helper customization
@@ -283,7 +283,7 @@ Default host configuration logic is in:
 If you need a custom resolver/writer, pass:
 
 ```bash
-settld setup --host-config ./path/to/custom-host-config.mjs
+nooterra setup --host-config ./path/to/custom-host-config.mjs
 ```
 
 Your helper should provide resolver/setup exports compatible with `scripts/setup/wizard.mjs`.
@@ -292,14 +292,14 @@ Your helper should provide resolver/setup exports compatible with `scripts/setup
 
 - `BYO wallet mode missing required env keys`
   - Provide all required Circle keys in section 3.
-- `auth required: pass --cookie/--magic-link-api-key or run settld login first`
-  - Run `settld login`, then retry `settld wallet status` / `settld wallet fund`.
+- `auth required: pass --cookie/--magic-link-api-key or run nooterra login first`
+  - Run `nooterra login`, then retry `nooterra wallet status` / `nooterra wallet fund`.
 - `no hosted funding URL configured for card/bank`
   - set backend Coinbase env (`MAGIC_LINK_WALLET_FUND_PROVIDER=coinbase`, `MAGIC_LINK_COINBASE_API_KEY_VALUE`, `MAGIC_LINK_COINBASE_API_SECRET_KEY`) or set explicit `MAGIC_LINK_WALLET_FUND_CARD_URL` / `MAGIC_LINK_WALLET_FUND_BANK_URL`.
   - pass `--hosted-url` for an ad-hoc override.
 - `host config helper missing`
   - Add `scripts/setup/host-config.mjs` or pass `--host-config`.
-- `SETTLD_API_KEY must be a non-empty string`
+- `NOOTERRA_API_KEY must be a non-empty string`
   - Ensure key is present in shell or setup flags.
 - Host cannot run `npx`
   - Install Node.js 20.x and ensure `npx` is in `PATH`.

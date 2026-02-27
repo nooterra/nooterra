@@ -10,7 +10,7 @@ test("API e2e: finance reconciliation triage persists owner/status with idempote
   const api = createApi({
     opsTokens: ["tok_finw:finance_write", "tok_finr:finance_read", "tok_aud:audit_read"].join(";")
   });
-  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw", "x-settld-protocol": "1.0" };
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw", "x-nooterra-protocol": "1.0" };
   const financeReadHeaders = { "x-proxy-ops-token": "tok_finr" };
   const month = "2026-01";
   const tenantId = "tenant_default";
@@ -157,14 +157,14 @@ test("API e2e: finance reconciliation triage persists owner/status with idempote
       mismatchCode: selected.mismatchCode ?? null,
       status: "in_progress",
       severity: "critical",
-      ownerPrincipalId: "ops.finance@settld.test",
+      ownerPrincipalId: "ops.finance@nooterra.test",
       notes: "Investigating payout operation mismatch."
     }
   });
   assert.equal(triageUpdate.statusCode, 200, triageUpdate.body);
   assert.equal(triageUpdate.json?.changed, true);
   assert.equal(triageUpdate.json?.triage?.status, "in_progress");
-  assert.equal(triageUpdate.json?.triage?.ownerPrincipalId, "ops.finance@settld.test");
+  assert.equal(triageUpdate.json?.triage?.ownerPrincipalId, "ops.finance@nooterra.test");
   assert.equal(triageUpdate.json?.triage?.revision, 1);
 
   const triageReplay = await request(api, {
@@ -184,7 +184,7 @@ test("API e2e: finance reconciliation triage persists owner/status with idempote
       mismatchCode: selected.mismatchCode ?? null,
       status: "in_progress",
       severity: "critical",
-      ownerPrincipalId: "ops.finance@settld.test",
+      ownerPrincipalId: "ops.finance@nooterra.test",
       notes: "Investigating payout operation mismatch."
     }
   });
@@ -304,7 +304,7 @@ test("API e2e: finance scopes can read ops status and run finance reconcile main
     headers: {
       "x-proxy-tenant-id": "tenant_default",
       "x-proxy-ops-token": "tok_finw",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       force: true,

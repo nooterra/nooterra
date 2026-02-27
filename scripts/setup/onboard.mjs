@@ -24,12 +24,12 @@ const WALLET_BOOTSTRAP_MODES = new Set(["auto", "local", "remote"]);
 const SETUP_MODES = new Set(["quick", "advanced"]);
 const FORMAT_OPTIONS = new Set(["text", "json"]);
 const HOST_BINARY_HINTS = Object.freeze({
-  codex: "codex",
+  nooterra: "nooterra",
   claude: "claude",
   cursor: "cursor",
   openclaw: "openclaw"
 });
-const HOST_SELECTION_ORDER = Object.freeze(["openclaw", "codex", "claude", "cursor"]);
+const HOST_SELECTION_ORDER = Object.freeze(["openclaw", "nooterra", "claude", "cursor"]);
 const CIRCLE_BYO_REQUIRED_KEYS = Object.freeze([
   "CIRCLE_BASE_URL",
   "CIRCLE_BLOCKCHAIN",
@@ -41,9 +41,9 @@ const CIRCLE_BYO_REQUIRED_KEYS = Object.freeze([
 const ONBOARDING_DOCS_PATH = "docs/QUICKSTART_MCP_HOSTS.md";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
-const SETTLD_BIN = path.join(REPO_ROOT, "bin", "settld.js");
+const NOOTERRA_BIN = path.join(REPO_ROOT, "bin", "nooterra.js");
 const PROFILE_FINGERPRINT_REGEX = /^[0-9a-f]{64}$/;
-const DEFAULT_PUBLIC_BASE_URL = "https://api.settld.work";
+const DEFAULT_PUBLIC_BASE_URL = "https://api.nooterra.work";
 const MAX_INTERACTIVE_API_KEY_MODE_ATTEMPTS = 8;
 const ANSI_RESET = "\u001b[0m";
 const ANSI_BOLD = "\u001b[1m";
@@ -55,8 +55,8 @@ const ANSI_MAGENTA = "\u001b[35m";
 function usage() {
   const text = [
     "usage:",
-    "  settld setup [flags]",
-    "  settld onboard [flags]",
+    "  nooterra setup [flags]",
+    "  nooterra onboard [flags]",
     "  node scripts/setup/onboard.mjs [flags]",
     "",
     "flags:",
@@ -66,12 +66,12 @@ function usage() {
     "  --guided-next                   Run guided fund + first paid check after setup (default in quick mode)",
     "  --skip-guided-next              Skip guided post-setup actions",
     `  --host <${SUPPORTED_HOSTS.join("|")}>      Host target (default: auto-detect, fallback openclaw)`,
-    "  --base-url <url>                Settld API base URL (or SETTLD_BASE_URL)",
-    "  --tenant-id <id>                Settld tenant ID (or SETTLD_TENANT_ID)",
-    "  --settld-api-key <key>          Settld tenant API key (or SETTLD_API_KEY)",
+    "  --base-url <url>                Nooterra API base URL (or NOOTERRA_BASE_URL)",
+    "  --tenant-id <id>                Nooterra tenant ID (or NOOTERRA_TENANT_ID)",
+    "  --nooterra-api-key <key>          Nooterra tenant API key (or NOOTERRA_API_KEY)",
     "  --bootstrap-api-key <key>       Onboarding bootstrap API key used to mint tenant API key",
     "  --magic-link-api-key <key>      Alias for --bootstrap-api-key",
-    "  --session-file <path>           Saved login session path (default: ~/.settld/session.json)",
+    "  --session-file <path>           Saved login session path (default: ~/.nooterra/session.json)",
     "  --bootstrap-key-id <id>         Optional API key ID hint for runtime bootstrap",
     "  --bootstrap-scopes <csv>        Optional scopes for generated tenant API key",
     "  --wallet-mode <managed|byo|none> Wallet setup mode (default: managed)",
@@ -125,7 +125,7 @@ function parseArgs(argv) {
     host: null,
     baseUrl: null,
     tenantId: null,
-    settldApiKey: null,
+    nooterraApiKey: null,
     bootstrapApiKey: null,
     sessionFile: defaultSessionPath(),
     bootstrapKeyId: null,
@@ -225,9 +225,9 @@ function parseArgs(argv) {
       i = parsed.nextIndex;
       continue;
     }
-    if (arg === "--settld-api-key" || arg.startsWith("--settld-api-key=")) {
+    if (arg === "--nooterra-api-key" || arg.startsWith("--nooterra-api-key=")) {
       const parsed = readArgValue(argv, i, arg);
-      out.settldApiKey = parsed.value;
+      out.nooterraApiKey = parsed.value;
       i = parsed.nextIndex;
       continue;
     }
@@ -417,9 +417,9 @@ function parseJsonOrNull(text) {
   }
 }
 
-function runSettldProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 12000 } = {}) {
+function runNooterraProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 12000 } = {}) {
   const args = [
-    SETTLD_BIN,
+    NOOTERRA_BIN,
     "profile",
     "list",
     "--format",
@@ -429,9 +429,9 @@ function runSettldProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 1200
     cwd: REPO_ROOT,
     env: {
       ...process.env,
-      SETTLD_BASE_URL: String(baseUrl ?? ""),
-      SETTLD_TENANT_ID: String(tenantId ?? ""),
-      SETTLD_API_KEY: String(apiKey ?? "")
+      NOOTERRA_BASE_URL: String(baseUrl ?? ""),
+      NOOTERRA_TENANT_ID: String(tenantId ?? ""),
+      NOOTERRA_API_KEY: String(apiKey ?? "")
     },
     encoding: "utf8",
     timeout: timeoutMs,
@@ -440,8 +440,8 @@ function runSettldProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 1200
   });
 }
 
-function runSettldProfileInitProbe({ profileId, outPath, timeoutMs = 12000 } = {}) {
-  const args = [SETTLD_BIN, "profile", "init", String(profileId ?? ""), "--out", String(outPath ?? ""), "--force", "--format", "json"];
+function runNooterraProfileInitProbe({ profileId, outPath, timeoutMs = 12000 } = {}) {
+  const args = [NOOTERRA_BIN, "profile", "init", String(profileId ?? ""), "--out", String(outPath ?? ""), "--force", "--format", "json"];
   return spawnSync(process.execPath, args, {
     cwd: REPO_ROOT,
     env: process.env,
@@ -452,8 +452,8 @@ function runSettldProfileInitProbe({ profileId, outPath, timeoutMs = 12000 } = {
   });
 }
 
-function runSettldProfileSimulateProbe({ profilePath, timeoutMs = 12000 } = {}) {
-  const args = [SETTLD_BIN, "profile", "simulate", String(profilePath ?? ""), "--format", "json"];
+function runNooterraProfileSimulateProbe({ profilePath, timeoutMs = 12000 } = {}) {
+  const args = [NOOTERRA_BIN, "profile", "simulate", String(profilePath ?? ""), "--format", "json"];
   return spawnSync(process.execPath, args, {
     cwd: REPO_ROOT,
     env: process.env,
@@ -466,10 +466,10 @@ function runSettldProfileSimulateProbe({ profilePath, timeoutMs = 12000 } = {}) 
 
 export async function runProfileSimulationPreflight({ profileId, timeoutMs = 12000 } = {}) {
   const resolvedProfileId = String(profileId ?? "").trim() || "engineering-spend";
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-preflight-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-profile-preflight-"));
   const profilePath = path.join(tmpDir, `${resolvedProfileId}.profile.json`);
   try {
-    const initProbe = runSettldProfileInitProbe({ profileId: resolvedProfileId, outPath: profilePath, timeoutMs });
+    const initProbe = runNooterraProfileInitProbe({ profileId: resolvedProfileId, outPath: profilePath, timeoutMs });
     if (initProbe.error?.code === "ETIMEDOUT") {
       return { ok: false, detail: "profile init timed out" };
     }
@@ -483,7 +483,7 @@ export async function runProfileSimulationPreflight({ profileId, timeoutMs = 120
       return { ok: false, detail: "profile init output missing valid profileFingerprint" };
     }
 
-    const simulateProbe = runSettldProfileSimulateProbe({ profilePath, timeoutMs });
+    const simulateProbe = runNooterraProfileSimulateProbe({ profilePath, timeoutMs });
     if (simulateProbe.error?.code === "ETIMEDOUT") {
       return { ok: false, detail: "profile simulate timed out" };
     }
@@ -549,7 +549,7 @@ async function runPreflightChecks({
   config,
   normalizedBaseUrl,
   tenantId,
-  settldApiKey,
+  nooterraApiKey,
   hostHelper,
   walletEnv,
   fetchImpl = fetch,
@@ -566,7 +566,7 @@ async function runPreflightChecks({
 
   if (verbose) stdout.write("Preflight checks...\n");
   const healthUrl = healthUrlForBase(normalizedBaseUrl);
-  if (!healthUrl) fail("api_health", `invalid Settld base URL: ${normalizedBaseUrl}`);
+  if (!healthUrl) fail("api_health", `invalid Nooterra base URL: ${normalizedBaseUrl}`);
   let healthRes;
   try {
     healthRes = await fetchImpl(healthUrl, { method: "GET" });
@@ -578,10 +578,10 @@ async function runPreflightChecks({
   }
   ok("api_health", `reachable (${healthUrl})`);
 
-  const probe = runSettldProfileListProbe({
+  const probe = runNooterraProfileListProbe({
     baseUrl: normalizedBaseUrl,
     tenantId,
-    apiKey: settldApiKey
+    apiKey: nooterraApiKey
   });
   if (probe.error && probe.error.code === "ETIMEDOUT") {
     fail("tenant_auth", "profile list probe timed out");
@@ -591,7 +591,7 @@ async function runPreflightChecks({
     fail("tenant_auth", message);
   }
   const probeJson = parseJsonOrNull(probe.stdout);
-  if (!probeJson || typeof probeJson !== "object" || probeJson.schemaVersion !== "SettldProfileTemplateCatalog.v1") {
+  if (!probeJson || typeof probeJson !== "object" || probeJson.schemaVersion !== "NooterraProfileTemplateCatalog.v1") {
     fail("tenant_auth", "profile list probe returned invalid JSON schema");
   }
   const catalogProfiles = Array.isArray(probeJson.profiles) ? probeJson.profiles : [];
@@ -620,9 +620,9 @@ async function runPreflightChecks({
   const hostConfigProbe = await hostHelper.applyHostConfig({
     host: config.host,
     env: {
-      SETTLD_BASE_URL: normalizedBaseUrl,
-      SETTLD_TENANT_ID: tenantId,
-      SETTLD_API_KEY: settldApiKey,
+      NOOTERRA_BASE_URL: normalizedBaseUrl,
+      NOOTERRA_TENANT_ID: tenantId,
+      NOOTERRA_API_KEY: nooterraApiKey,
       ...(walletEnv ?? {})
     },
     configPath: null,
@@ -874,28 +874,28 @@ function buildHostNextSteps({ host, installedHosts }) {
   }
   if (host === "openclaw") {
     steps.push("Run `openclaw doctor` and ensure OpenClaw itself is onboarded (`openclaw onboard --install-daemon`).");
-    steps.push("Install the Settld OpenClaw plugin: `openclaw plugins install settld@latest`.");
-    steps.push("Verify in local mode: `openclaw agent --local --agent main --session-id settld-smoke --message \"Use the tool named settld_about with empty arguments. Return only JSON.\" --json`.");
+    steps.push("Install the Nooterra OpenClaw plugin: `openclaw plugins install nooterra@latest`.");
+    steps.push("Verify in local mode: `openclaw agent --local --agent main --session-id nooterra-smoke --message \"Use the tool named nooterra_about with empty arguments. Return only JSON.\" --json`.");
     steps.push("Run `openclaw tui --session main`.");
-    steps.push("If you are in a channel-bound session (e.g. whatsapp:*), switch back to `main` to access Settld tools.");
+    steps.push("If you are in a channel-bound session (e.g. whatsapp:*), switch back to `main` to access Nooterra tools.");
     return steps;
   }
-  if (host === "codex") {
-    steps.push("Restart Codex so it reloads MCP config.");
-    steps.push("Run a Settld tool call (for example: `settld.about`).");
+  if (host === "nooterra") {
+    steps.push("Restart Nooterra so it reloads MCP config.");
+    steps.push("Run a Nooterra tool call (for example: `nooterra.about`).");
     return steps;
   }
   if (host === "claude") {
     steps.push("Restart Claude Desktop so it reloads MCP config.");
-    steps.push("Run a Settld tool call (for example: `settld.about`).");
+    steps.push("Run a Nooterra tool call (for example: `nooterra.about`).");
     return steps;
   }
   if (host === "cursor") {
     steps.push("Restart Cursor so it reloads MCP config.");
-    steps.push("Run a Settld tool call (for example: `settld.about`).");
+    steps.push("Run a Nooterra tool call (for example: `nooterra.about`).");
     return steps;
   }
-  steps.push("Run a Settld MCP tool call (for example: `settld.about`).");
+  steps.push("Run a Nooterra MCP tool call (for example: `nooterra.about`).");
   return steps;
 }
 
@@ -903,7 +903,7 @@ function runMcpPaidCallProbe({ env, timeoutMs = 45_000 } = {}) {
   const args = [
     path.join("scripts", "mcp", "probe.mjs"),
     "--call",
-    "settld.weather_current_paid",
+    "nooterra.weather_current_paid",
     JSON.stringify({ city: "Chicago", unit: "f" }),
     "--timeout-ms",
     String(timeoutMs)
@@ -959,9 +959,9 @@ async function runGuidedQuickFlow({
   const actionEnv = {
     ...runtimeEnv,
     ...mergedEnv,
-    SETTLD_BASE_URL: normalizedBaseUrl,
-    SETTLD_TENANT_ID: tenantId,
-    ...(sessionCookie ? { SETTLD_SESSION_COOKIE: sessionCookie } : {})
+    NOOTERRA_BASE_URL: normalizedBaseUrl,
+    NOOTERRA_TENANT_ID: tenantId,
+    ...(sessionCookie ? { NOOTERRA_SESSION_COOKIE: sessionCookie } : {})
   };
   summary.ran = true;
 
@@ -1022,14 +1022,14 @@ async function runGuidedQuickFlow({
     }
   }
 
-  const paidToolsBaseUrl = String(actionEnv.SETTLD_PAID_TOOLS_BASE_URL ?? "").trim();
+  const paidToolsBaseUrl = String(actionEnv.NOOTERRA_PAID_TOOLS_BASE_URL ?? "").trim();
   if (!paidToolsBaseUrl) {
     summary.firstPaidCall = {
       ok: false,
       skipped: true,
-      reason: "SETTLD_PAID_TOOLS_BASE_URL not configured"
+      reason: "NOOTERRA_PAID_TOOLS_BASE_URL not configured"
     };
-    summary.warnings.push("first paid call probe skipped (SETTLD_PAID_TOOLS_BASE_URL not configured)");
+    summary.warnings.push("first paid call probe skipped (NOOTERRA_PAID_TOOLS_BASE_URL not configured)");
     return summary;
   }
 
@@ -1114,7 +1114,7 @@ async function requestRuntimeBootstrapMcpEnv({
   const body = {
     apiKey: {
       create: true,
-      description: "settld setup runtime bootstrap"
+      description: "nooterra setup runtime bootstrap"
     }
   };
   if (bootstrapKeyId) body.apiKey.keyId = String(bootstrapKeyId);
@@ -1149,12 +1149,12 @@ async function requestRuntimeBootstrapMcpEnv({
         : text || `HTTP ${res.status}`;
     if (res.status === 403 && cookie && !apiKey) {
       throw new Error(
-        `runtime bootstrap request failed (403): ${String(message)}. Saved login session was rejected for this tenant; rerun \`settld login\` without --tenant-id to create a fresh tenant, or choose \`Generate during setup\`.`
+        `runtime bootstrap request failed (403): ${String(message)}. Saved login session was rejected for this tenant; rerun \`nooterra login\` without --tenant-id to create a fresh tenant, or choose \`Generate during setup\`.`
       );
     }
     if (res.status === 400 && responseCode === "BUYER_AUTH_DISABLED") {
       throw new Error(
-        "runtime bootstrap request failed (400): buyer OTP login is not enabled for this tenant. Rerun `settld login` without --tenant-id to create a fresh tenant, or choose `Generate during setup`."
+        "runtime bootstrap request failed (400): buyer OTP login is not enabled for this tenant. Rerun `nooterra login` without --tenant-id to create a fresh tenant, or choose `Generate during setup`."
       );
     }
     throw new Error(`runtime bootstrap request failed (${res.status}): ${String(message)}`);
@@ -1165,7 +1165,7 @@ async function requestRuntimeBootstrapMcpEnv({
 async function requestRemoteWalletBootstrap({
   baseUrl,
   tenantId,
-  settldApiKey,
+  nooterraApiKey,
   bootstrapApiKey,
   sessionCookie,
   walletProvider,
@@ -1190,14 +1190,14 @@ async function requestRemoteWalletBootstrap({
 
   const url = new URL(`/v1/tenants/${encodeURIComponent(String(tenantId ?? ""))}/onboarding/wallet-bootstrap`, normalizedBaseUrl);
   const candidates = [];
-  const runtimeKey = String(settldApiKey ?? "").trim();
+  const runtimeKey = String(nooterraApiKey ?? "").trim();
   const bootstrapKey = String(bootstrapApiKey ?? "").trim();
   const cookie = String(sessionCookie ?? "").trim();
   if (runtimeKey) candidates.push({ kind: "runtime_key", apiKey: runtimeKey });
   if (bootstrapKey && bootstrapKey !== runtimeKey) candidates.push({ kind: "bootstrap_key", apiKey: bootstrapKey });
   if (cookie) candidates.push({ kind: "session_cookie", cookie });
   if (!candidates.length) {
-    throw new Error("remote wallet bootstrap requires SETTLD_API_KEY, bootstrap API key, or saved login session");
+    throw new Error("remote wallet bootstrap requires NOOTERRA_API_KEY, bootstrap API key, or saved login session");
   }
 
   let lastError = null;
@@ -1272,7 +1272,7 @@ async function resolveRuntimeConfig({
   runLoginImpl = runLogin,
   readSavedSessionImpl = readSavedSession
 }) {
-  const sessionFile = String(args.sessionFile ?? runtimeEnv.SETTLD_SESSION_FILE ?? defaultSessionPath()).trim();
+  const sessionFile = String(args.sessionFile ?? runtimeEnv.NOOTERRA_SESSION_FILE ?? defaultSessionPath()).trim();
   const savedSession = await readSavedSessionImpl({ sessionPath: sessionFile });
   const installedHosts = detectInstalledHostsImpl();
   const defaultHost = selectDefaultHost({
@@ -1284,16 +1284,16 @@ async function resolveRuntimeConfig({
     guidedNext: args.guidedNext,
     host: args.host ?? defaultHost,
     walletMode: args.walletMode,
-    baseUrl: String(args.baseUrl ?? runtimeEnv.SETTLD_BASE_URL ?? "").trim(),
-    tenantId: String(args.tenantId ?? runtimeEnv.SETTLD_TENANT_ID ?? "").trim(),
-    settldApiKey: String(args.settldApiKey ?? runtimeEnv.SETTLD_API_KEY ?? "").trim(),
+    baseUrl: String(args.baseUrl ?? runtimeEnv.NOOTERRA_BASE_URL ?? "").trim(),
+    tenantId: String(args.tenantId ?? runtimeEnv.NOOTERRA_TENANT_ID ?? "").trim(),
+    nooterraApiKey: String(args.nooterraApiKey ?? runtimeEnv.NOOTERRA_API_KEY ?? "").trim(),
     bootstrapApiKey: String(
-      args.bootstrapApiKey ?? runtimeEnv.SETTLD_BOOTSTRAP_API_KEY ?? runtimeEnv.MAGIC_LINK_API_KEY ?? ""
+      args.bootstrapApiKey ?? runtimeEnv.NOOTERRA_BOOTSTRAP_API_KEY ?? runtimeEnv.MAGIC_LINK_API_KEY ?? ""
     ).trim(),
     sessionFile,
-    sessionCookie: String(runtimeEnv.SETTLD_SESSION_COOKIE ?? "").trim(),
-    bootstrapKeyId: String(args.bootstrapKeyId ?? runtimeEnv.SETTLD_BOOTSTRAP_KEY_ID ?? "").trim(),
-    bootstrapScopes: String(args.bootstrapScopes ?? runtimeEnv.SETTLD_BOOTSTRAP_SCOPES ?? "").trim(),
+    sessionCookie: String(runtimeEnv.NOOTERRA_SESSION_COOKIE ?? "").trim(),
+    bootstrapKeyId: String(args.bootstrapKeyId ?? runtimeEnv.NOOTERRA_BOOTSTRAP_KEY_ID ?? "").trim(),
+    bootstrapScopes: String(args.bootstrapScopes ?? runtimeEnv.NOOTERRA_BOOTSTRAP_SCOPES ?? "").trim(),
     walletProvider: args.walletProvider,
     walletBootstrap: args.walletBootstrap,
     circleApiKey: String(args.circleApiKey ?? runtimeEnv.CIRCLE_API_KEY ?? "").trim(),
@@ -1322,8 +1322,8 @@ async function resolveRuntimeConfig({
     if (!SUPPORTED_HOSTS.includes(out.host)) throw new Error(`--host must be one of: ${SUPPORTED_HOSTS.join(", ")}`);
     if (!out.baseUrl) throw new Error("--base-url is required");
     if (!out.tenantId) throw new Error("--tenant-id is required");
-    if (!out.settldApiKey && !out.bootstrapApiKey && !out.sessionCookie) {
-      throw new Error("--settld-api-key, --bootstrap-api-key, or saved login session is required");
+    if (!out.nooterraApiKey && !out.bootstrapApiKey && !out.sessionCookie) {
+      throw new Error("--nooterra-api-key, --bootstrap-api-key, or saved login session is required");
     }
     if (out.walletMode === "managed" && out.walletBootstrap === "local" && !out.circleApiKey) {
       throw new Error("--circle-api-key is required for --wallet-mode managed --wallet-bootstrap local");
@@ -1338,7 +1338,7 @@ async function resolveRuntimeConfig({
   const mutableOutput = createMutableOutput(stdout);
   const rl = createInterface({ input: stdin, output: mutableOutput });
   try {
-    const title = tint(color, ANSI_BOLD, "Settld guided setup");
+    const title = tint(color, ANSI_BOLD, "Nooterra guided setup");
     const subtitle = tint(color, ANSI_DIM, "Deterministic onboarding for trusted agent spend");
     stdout.write(`${title}\n`);
     stdout.write(`${tint(color, ANSI_MAGENTA, "===================")}\n`);
@@ -1392,7 +1392,7 @@ async function resolveRuntimeConfig({
       stdout,
       "Select wallet mode",
       [
-        { value: "managed", label: "managed", hint: "Settld bootstraps wallet env for you" },
+        { value: "managed", label: "managed", hint: "Nooterra bootstraps wallet env for you" },
         { value: "byo", label: "byo", hint: "Use your existing wallet IDs and secrets" },
         { value: "none", label: "none", hint: "No payment rail wiring during setup" }
       ],
@@ -1414,11 +1414,11 @@ async function resolveRuntimeConfig({
     if (out.authMode === "enterprise_preprovisioned" && !out.tenantId && !savedSession?.tenantId) {
       out.tenantId = await promptLine(rl, "Tenant ID (required for this deployment mode)", { required: true });
     }
-    if (!out.settldApiKey) {
+    if (!out.nooterraApiKey) {
       let loginUnavailableForRun = false;
       let preferredKeyMode = null;
       let keyModeAttempts = 0;
-      while (!out.settldApiKey) {
+      while (!out.nooterraApiKey) {
         keyModeAttempts += 1;
         if (keyModeAttempts > MAX_INTERACTIVE_API_KEY_MODE_ATTEMPTS) {
           const error = new Error(
@@ -1466,7 +1466,7 @@ async function resolveRuntimeConfig({
           rl,
           stdin,
           stdout,
-          "How should setup get your Settld API key?",
+          "How should setup get your Nooterra API key?",
           keyOptions,
           { defaultValue: defaultKeyMode, color }
         );
@@ -1523,7 +1523,7 @@ async function resolveRuntimeConfig({
         }
         if (keyMode === "manual") {
           preferredKeyMode = "manual";
-          out.settldApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Settld API key");
+          out.nooterraApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Nooterra API key");
           break;
         }
         out.bootstrapApiKey = "";
@@ -1599,7 +1599,7 @@ async function resolveRuntimeConfig({
         "Run MCP smoke test?",
         out.smoke,
         {
-          trueLabel: "Yes - run settld.about probe",
+          trueLabel: "Yes - run nooterra.about probe",
           falseLabel: "No - skip smoke",
           color
         }
@@ -1690,12 +1690,12 @@ export async function runOnboard({
   });
   advanceOnboardingState(ONBOARDING_EVENTS.RESOLVE_CONFIG_OK);
   step += 1;
-  const normalizedBaseUrl = normalizeHttpUrl(mustString(config.baseUrl, "SETTLD_BASE_URL / --base-url"));
-  if (!normalizedBaseUrl) throw new Error(`invalid Settld base URL: ${config.baseUrl}`);
-  const tenantId = mustString(config.tenantId, "SETTLD_TENANT_ID / --tenant-id");
-  let settldApiKey = String(config.settldApiKey ?? "").trim();
+  const normalizedBaseUrl = normalizeHttpUrl(mustString(config.baseUrl, "NOOTERRA_BASE_URL / --base-url"));
+  if (!normalizedBaseUrl) throw new Error(`invalid Nooterra base URL: ${config.baseUrl}`);
+  const tenantId = mustString(config.tenantId, "NOOTERRA_TENANT_ID / --tenant-id");
+  let nooterraApiKey = String(config.nooterraApiKey ?? "").trim();
   let runtimeBootstrapEnv = null;
-  if (!settldApiKey) {
+  if (!nooterraApiKey) {
     if (showSteps) stdout.write("Generating tenant runtime API key via onboarding bootstrap/session...\n");
     runtimeBootstrapEnv = await requestRuntimeBootstrapMcpEnvImpl({
       baseUrl: normalizedBaseUrl,
@@ -1706,15 +1706,15 @@ export async function runOnboard({
       bootstrapScopes: parseScopes(config.bootstrapScopes),
       fetchImpl
     });
-    settldApiKey = mustString(runtimeBootstrapEnv?.SETTLD_API_KEY ?? "", "runtime bootstrap SETTLD_API_KEY");
+    nooterraApiKey = mustString(runtimeBootstrapEnv?.NOOTERRA_API_KEY ?? "", "runtime bootstrap NOOTERRA_API_KEY");
   }
   advanceOnboardingState(ONBOARDING_EVENTS.RUNTIME_KEY_OK);
   const runtimeBootstrapOptionalEnv = {};
-  if (runtimeBootstrapEnv?.SETTLD_PAID_TOOLS_BASE_URL) {
-    runtimeBootstrapOptionalEnv.SETTLD_PAID_TOOLS_BASE_URL = String(runtimeBootstrapEnv.SETTLD_PAID_TOOLS_BASE_URL);
+  if (runtimeBootstrapEnv?.NOOTERRA_PAID_TOOLS_BASE_URL) {
+    runtimeBootstrapOptionalEnv.NOOTERRA_PAID_TOOLS_BASE_URL = String(runtimeBootstrapEnv.NOOTERRA_PAID_TOOLS_BASE_URL);
   }
-  if (runtimeBootstrapEnv?.SETTLD_PAID_TOOLS_AGENT_PASSPORT) {
-    runtimeBootstrapOptionalEnv.SETTLD_PAID_TOOLS_AGENT_PASSPORT = String(runtimeBootstrapEnv.SETTLD_PAID_TOOLS_AGENT_PASSPORT);
+  if (runtimeBootstrapEnv?.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT) {
+    runtimeBootstrapOptionalEnv.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT = String(runtimeBootstrapEnv.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT);
   }
 
   if (showSteps) printStep(stdout, step, totalSteps, "Resolve wallet configuration");
@@ -1741,7 +1741,7 @@ export async function runOnboard({
       wallet = await requestRemoteWalletBootstrapImpl({
         baseUrl: normalizedBaseUrl,
         tenantId,
-        settldApiKey,
+        nooterraApiKey,
         bootstrapApiKey: config.bootstrapApiKey,
         sessionCookie: config.sessionCookie,
         walletProvider: config.walletProvider,
@@ -1771,7 +1771,7 @@ export async function runOnboard({
       config,
       normalizedBaseUrl,
       tenantId,
-      settldApiKey,
+      nooterraApiKey,
       hostHelper,
       walletEnv,
       fetchImpl,
@@ -1797,7 +1797,7 @@ export async function runOnboard({
         provider: config.walletProvider,
         details: wallet && typeof wallet === "object" ? wallet : null
       },
-      settld: {
+      nooterra: {
       baseUrl: normalizedBaseUrl,
       tenantId,
       authMode: config.authMode ?? "unknown",
@@ -1808,15 +1808,15 @@ export async function runOnboard({
       },
       preflight,
       onboarding: {
-        schemaVersion: "SettldOnboardingState.v1",
+        schemaVersion: "NooterraOnboardingState.v1",
         state: onboardingState
       },
       hostInstallDetected: Array.isArray(config.installedHosts) && config.installedHosts.includes(config.host),
       installedHosts: config.installedHosts,
       env: {
-        SETTLD_BASE_URL: normalizedBaseUrl,
-        SETTLD_TENANT_ID: tenantId,
-        SETTLD_API_KEY: settldApiKey,
+        NOOTERRA_BASE_URL: normalizedBaseUrl,
+        NOOTERRA_TENANT_ID: tenantId,
+        NOOTERRA_API_KEY: nooterraApiKey,
         ...runtimeBootstrapOptionalEnv,
         ...walletEnv
       },
@@ -1832,16 +1832,16 @@ export async function runOnboard({
       stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
     } else {
       const lines = [];
-      lines.push("Settld preflight completed.");
+      lines.push("Nooterra preflight completed.");
       lines.push(`Host: ${config.host}`);
-      lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
+      lines.push(`Nooterra: ${normalizedBaseUrl} (tenant=${tenantId})`);
       lines.push(`Wallet mode: ${config.walletMode}`);
       lines.push(`Wallet bootstrap mode: ${walletBootstrapMode}`);
       if (config.walletMode !== "none") {
         lines.push("Wallet next steps:");
-        lines.push("- settld wallet status");
-        lines.push("- settld wallet fund --method transfer");
-        lines.push("- settld wallet balance --watch --min-usdc 1");
+        lines.push("- nooterra wallet status");
+        lines.push("- nooterra wallet fund --method transfer");
+        lines.push("- nooterra wallet balance --watch --min-usdc 1");
       }
       if (args.outEnv) lines.push(`Wrote env file: ${args.outEnv}`);
       if (args.reportPath) lines.push(`Wrote report: ${args.reportPath}`);
@@ -1867,7 +1867,7 @@ export async function runOnboard({
     "--tenant-id",
     tenantId,
     "--api-key",
-    settldApiKey
+    nooterraApiKey
   ];
   if (config.skipProfileApply) wizardArgv.push("--skip-profile-apply");
   else wizardArgv.push("--profile-id", config.profileId || "engineering-spend");
@@ -1927,7 +1927,7 @@ export async function runOnboard({
       provider: config.walletProvider,
       details: wallet && typeof wallet === "object" ? wallet : null
     },
-    settld: {
+    nooterra: {
       baseUrl: normalizedBaseUrl,
       tenantId,
       authMode: config.authMode ?? "unknown",
@@ -1938,7 +1938,7 @@ export async function runOnboard({
     },
     preflight,
     onboarding: {
-      schemaVersion: "SettldOnboardingState.v1",
+      schemaVersion: "NooterraOnboardingState.v1",
       state: onboardingState
     },
     hostInstallDetected: Array.isArray(config.installedHosts) && config.installedHosts.includes(config.host),
@@ -1953,9 +1953,9 @@ export async function runOnboard({
     stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   } else {
     const lines = [];
-    lines.push("Settld onboard complete.");
+    lines.push("Nooterra onboard complete.");
     lines.push(`Host: ${config.host}`);
-    lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
+    lines.push(`Nooterra: ${normalizedBaseUrl} (tenant=${tenantId})`);
     lines.push(`Auth mode: ${config.authMode ?? "unknown"}`);
     lines.push(`Setup mode: ${config.setupMode}`);
     lines.push(`Preflight: ${config.preflight ? "passed" : "skipped"}`);
@@ -1989,11 +1989,11 @@ export async function runOnboard({
       step += 1;
     }
     if (config.walletMode !== "none") {
-      lines.push(`${step}. Run \`settld wallet status\` to confirm wallet wiring.`);
+      lines.push(`${step}. Run \`nooterra wallet status\` to confirm wallet wiring.`);
       step += 1;
-      lines.push(`${step}. Fund with \`settld wallet fund --method transfer\` (or \`--method card --open\` if hosted links are configured).`);
+      lines.push(`${step}. Fund with \`nooterra wallet fund --method transfer\` (or \`--method card --open\` if hosted links are configured).`);
       step += 1;
-      lines.push(`${step}. Confirm funds: \`settld wallet balance --watch --min-usdc 1\`.`);
+      lines.push(`${step}. Confirm funds: \`nooterra wallet balance --watch --min-usdc 1\`.`);
       step += 1;
     }
     lines.push(`${step}. Run \`npm run mcp:probe\` for an immediate health check.`);

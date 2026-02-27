@@ -69,7 +69,7 @@ function makeBaseClosepack({ agreementHash, holdHash, receiptHash, required }) {
 }
 
 async function buildClosepackZip({ required }) {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-closepack-zk-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-closepack-zk-"));
   const zipPath = path.join(tmpDir, "closepack.zip");
   const agreementHash = "1".repeat(64);
   const requestSha = "a".repeat(64);

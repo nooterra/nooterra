@@ -2,7 +2,7 @@
 
 ## Summary
 
-Sprint 22 makes Settld’s economic kernel *compound* and *portable* by:
+Sprint 22 makes Nooterra’s economic kernel *compound* and *portable* by:
 
 - emitting **facts-first, append-only** `ReputationDelta.v1` artifacts on key settlement/dispute lifecycle events,
 - introducing **`SettlementDecisionRecord.v2`** so every new decision pins replay-critical policy hashes,
@@ -24,7 +24,7 @@ This sprint does **not** replace existing computed reputation surfaces (AgentRep
 
 **Intent:** raw facts that accumulate over time; no magic single score.
 
-**Schema:** `docs/spec/ReputationDelta.v1.md` + `docs/spec/schemas/ReputationDelta.v1.schema.json`
+**Schema target:** `docs/spec/ReputationDelta.v1.md` + versioned JSON schema (`ReputationDelta.v1.schema.json`, added in this sprint).
 
 **Required fields (minimum):**
 
@@ -52,7 +52,7 @@ This sprint does **not** replace existing computed reputation surfaces (AgentRep
 
 This avoids exceeding identifier length bounds and prevents duplicates across retries and races.
 
-### 2) New: `SettlementDecisionRecord.v2` (do not mutate v1)
+### 2) New: `SettlementDecisionRecord.v2` (do not mutate `SettlementDecisionRecord.v1`)
 
 **Intent:** keep `v1` stable for historical artifacts, and make `v2` replay-complete.
 
@@ -266,4 +266,3 @@ For any future non-tool-call disputes, enforce uniqueness at the store/index lay
   - replay mismatches (should be 0)
   - disputes open rate spikes
   - holds blocked by disputes beyond threshold
-

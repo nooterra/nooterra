@@ -105,7 +105,7 @@ export function parseApiKeyToken(token) {
 
 export function hashAuthKeySecretLegacy(secret) {
   assertNonEmptyString(secret, "secret");
-  return sha256HexUtf8(`settld_auth_key_secret_v1:${secret}`);
+  return sha256HexUtf8(`nooterra_auth_key_secret_v1:${secret}`);
 }
 
 function scryptParamsFromEnv() {
@@ -138,7 +138,7 @@ export function hashAuthKeySecretScrypt(secret) {
   const { N, r, p, keyLen, saltBytes } = scryptParamsFromEnv();
   const salt = crypto.randomBytes(saltBytes);
   const maxmem = 32 * 1024 * 1024; // prevent pathological settings from exhausting memory
-  const derived = crypto.scryptSync(`settld_auth_key_secret_v2:${secret}`, salt, keyLen, { N, r, p, maxmem });
+  const derived = crypto.scryptSync(`nooterra_auth_key_secret_v2:${secret}`, salt, keyLen, { N, r, p, maxmem });
   return `scrypt$${N}$${r}$${p}$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 }
 
@@ -170,7 +170,7 @@ export function verifyAuthKeySecret({ secret, secretHash }) {
 
     try {
       const maxmem = 32 * 1024 * 1024;
-      const got = crypto.scryptSync(`settld_auth_key_secret_v2:${secret}`, salt, expected.length, { N, r, p, maxmem });
+      const got = crypto.scryptSync(`nooterra_auth_key_secret_v2:${secret}`, salt, expected.length, { N, r, p, maxmem });
       const ok = expected.length === got.length && crypto.timingSafeEqual(expected, got);
       return { ok, scheme: "scrypt", needsRehash: false };
     } catch {
@@ -178,7 +178,7 @@ export function verifyAuthKeySecret({ secret, secretHash }) {
     }
   }
 
-  // Legacy v1: sha256HexUtf8(`settld_auth_key_secret_v1:${secret}`)
+  // Legacy v1: sha256HexUtf8(`nooterra_auth_key_secret_v1:${secret}`)
   if (/^[0-9a-f]{64}$/i.test(stored)) {
     const presented = hashAuthKeySecretLegacy(secret);
     const ok = timingSafeEqualHex(presented, stored);

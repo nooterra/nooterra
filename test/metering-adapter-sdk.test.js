@@ -48,7 +48,7 @@ async function writeFilesToDir({ dir, files }) {
 }
 
 test("metering adapter sdk: sample adapters produce strict-verifiable ClosePack", async (t) => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-adapter-sdk-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-adapter-sdk-"));
   await t.after(() => fs.rm(tmp, { recursive: true, force: true }));
 
   const keypairs = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/keys/fixture_keypairs.json"), "utf8"));
@@ -69,16 +69,16 @@ test("metering adapter sdk: sample adapters produce strict-verifiable ClosePack"
 
   // Trust env for verifier.
   const trust = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"), "utf8"));
-  const oldGov = process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-  const oldPricing = process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON;
-  const oldTime = process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-  process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
-  process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
+  const oldGov = process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+  const oldPricing = process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON;
+  const oldTime = process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+  process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
   await t.after(() => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
-    process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
+    process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
   });
 
   for (const it of inputs) {

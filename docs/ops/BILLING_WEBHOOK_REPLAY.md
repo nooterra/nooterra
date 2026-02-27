@@ -6,9 +6,9 @@ Use this runbook when Stripe webhook ingestion shows replayable dead-letter volu
 
 - You have `finance_read` + `finance_write` scopes for the affected tenant.
 - Environment is set:
-  - `SETTLD_BASE_URL`
+  - `NOOTERRA_BASE_URL`
   - `PROXY_OPS_TOKEN`
-  - `SETTLD_TENANT_ID`
+  - `NOOTERRA_TENANT_ID`
 - `curl` and `jq` are available.
 
 ## Reproducible command set
@@ -18,8 +18,8 @@ Use this runbook when Stripe webhook ingestion shows replayable dead-letter volu
 ```bash
 curl -sS \
   -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-  -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
-  "$SETTLD_BASE_URL/ops/finance/billing/providers/stripe/reconcile/report?limit=200" | jq .
+  -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
+  "$NOOTERRA_BASE_URL/ops/finance/billing/providers/stripe/reconcile/report?limit=200" | jq .
 ```
 
 Focus on:
@@ -32,8 +32,8 @@ Focus on:
 ```bash
 curl -sS \
   -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-  -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
-  "$SETTLD_BASE_URL/ops/finance/billing/providers/stripe/dead-letter?limit=200" | jq .
+  -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
+  "$NOOTERRA_BASE_URL/ops/finance/billing/providers/stripe/dead-letter?limit=200" | jq .
 ```
 
 Optional filters:
@@ -44,10 +44,10 @@ Optional filters:
 ```bash
 curl -sS -X POST \
   -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-  -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+  -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
   -H "content-type: application/json" \
   -d '{"dryRun":true,"limit":200}' \
-  "$SETTLD_BASE_URL/ops/finance/billing/providers/stripe/dead-letter/replay" | jq .
+  "$NOOTERRA_BASE_URL/ops/finance/billing/providers/stripe/dead-letter/replay" | jq .
 ```
 
 ### 4) Execute replay
@@ -55,10 +55,10 @@ curl -sS -X POST \
 ```bash
 curl -sS -X POST \
   -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-  -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+  -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
   -H "content-type: application/json" \
   -d '{"dryRun":false,"limit":200}' \
-  "$SETTLD_BASE_URL/ops/finance/billing/providers/stripe/dead-letter/replay" | jq .
+  "$NOOTERRA_BASE_URL/ops/finance/billing/providers/stripe/dead-letter/replay" | jq .
 ```
 
 ### 5) Validate post-replay state
@@ -66,8 +66,8 @@ curl -sS -X POST \
 ```bash
 curl -sS \
   -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-  -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
-  "$SETTLD_BASE_URL/ops/finance/billing/providers/stripe/reconcile/report?limit=200" | jq .
+  -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
+  "$NOOTERRA_BASE_URL/ops/finance/billing/providers/stripe/reconcile/report?limit=200" | jq .
 ```
 
 ### 6) Scripted flow (recommended)

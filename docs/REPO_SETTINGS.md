@@ -17,9 +17,9 @@ These are GitHub-side settings we expect for a fail-closed kernel repo.
   - `tests / cli_cross_platform (macos-latest)`
   - `tests / cli_cross_platform (windows-latest)`
   - `tests / python_verifier_conformance`
-  - `tests / github_action_settld_verify (jobproof)`
-  - `tests / github_action_settld_verify (monthproof)`
-  - `tests / github_action_settld_verify (financepack)`
+  - `tests / github_action_nooterra_verify (jobproof)`
+  - `tests / github_action_nooterra_verify (monthproof)`
+  - `tests / github_action_nooterra_verify (financepack)`
 - Dismiss stale PR approvals when new commits are pushed.
 - Require linear history.
 - Block force pushes and deletions.

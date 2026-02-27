@@ -1,6 +1,6 @@
 # Protocol + Verifier Invariants (v1)
 
-This is the **invariants checklist** for the Settld artifact protocol and verifier.
+This is the **invariants checklist** for the Nooterra artifact protocol and verifier.
 
 Each invariant maps:
 
@@ -101,7 +101,7 @@ Each invariant maps:
 
 ### INV-009 (P0) — Strict mode requires trusted governance roots (out-of-band trust)
 
-- **Statement**: In strict mode, if verification requires governance-root signatures, the verifier MUST require trusted governance root keys via `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`.
+- **Statement**: In strict mode, if verification requires governance-root signatures, the verifier MUST require trusted governance root keys via `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`.
 - **Specified**: `TRUST_ANCHORS.md`
 - **Enforced**:
   - Proof bundles: `packages/artifact-verify/src/job-proof-bundle.js` (strict trust check)
@@ -144,7 +144,7 @@ Each invariant maps:
 - **Statement**: When `--fail-on-warnings` is set, any warnings MUST cause the CLI output to include `FAIL_ON_WARNINGS` and exit non-zero.
 - **Specified**: `VerifyCliOutput.v1.md`
 - **Enforced**:
-  - CLI: `packages/artifact-verify/bin/settld-verify.js:112`–`121`
+  - CLI: `packages/artifact-verify/bin/nooterra-verify.js:112`–`121`
 - **Evidence**:
   - Conformance: `financepack_strict_fail_on_warnings_tool_version_unknown`
 - **Failure codes**:
@@ -152,19 +152,19 @@ Each invariant maps:
 
 ### INV-013 (P1) — Verify CLI output is stable and machine-ingestible (`VerifyCliOutput.v1`)
 
-- **Statement**: `settld-verify --format json` MUST emit a `VerifyCliOutput.v1` object with stable top-level fields and deterministic ordering of `errors[]` and `warnings[]`.
+- **Statement**: `nooterra-verify --format json` MUST emit a `VerifyCliOutput.v1` object with stable top-level fields and deterministic ordering of `errors[]` and `warnings[]`.
 - **Specified**: `VerifyCliOutput.v1.md`
 - **Enforced**:
-  - CLI normalization: `packages/artifact-verify/bin/settld-verify.js:83`–`122`
+  - CLI normalization: `packages/artifact-verify/bin/nooterra-verify.js:83`–`122`
 - **Evidence**:
   - Tests: `test/verify-cli-determinism.test.js`
 
 ### INV-016 (P1) — Verify CLI `--explain` is deterministic and secret-free
 
-- **Statement**: `settld-verify --explain` MUST emit deterministic diagnostics to stderr and MUST NOT leak secrets (tokens, headers, private keys). `--format json` stdout MUST remain valid and deterministic.
+- **Statement**: `nooterra-verify --explain` MUST emit deterministic diagnostics to stderr and MUST NOT leak secrets (tokens, headers, private keys). `--format json` stdout MUST remain valid and deterministic.
 - **Specified**: `VerifyCliOutput.v1.md` (tooling contract)
 - **Enforced**:
-  - CLI explain writer: `packages/artifact-verify/bin/settld-verify.js:228`
+  - CLI explain writer: `packages/artifact-verify/bin/nooterra-verify.js:228`
 - **Evidence**:
   - Tests: `test/explain-snapshots.test.js`
 
@@ -177,7 +177,7 @@ Each invariant maps:
   - Verification report authorization (proof bundles): `packages/artifact-verify/src/job-proof-bundle.js:215`–`226`
   - Verification report authorization (FinancePack): `packages/artifact-verify/src/finance-pack-bundle.js:410`–`421`
 - **Evidence**:
-  - Conformance: `jobproof_strict_fail_unauthorized_signer`, `monthproof_strict_fail_unauthorized_signer`
+  - Conformance: `jobproof_strict_fail_unauthorized_signer`, `jobproof_strict_fail_revoked_at_or_after_with_timeproof`, `jobproof_strict_fail_revoked_before_without_timeproof`, `monthproof_strict_fail_unauthorized_signer`
 - **Failure codes**:
   - `attestation signer not authorized`
   - `verification report signer not authorized`
@@ -197,7 +197,7 @@ Each invariant maps:
 - **Specified**: `PricingMatrixSignatures.v2.md`, `PricingMatrixSignatures.v1.md`, `STRICTNESS.md`, `WARNINGS.md`, `TRUST_ANCHORS.md`
 - **Enforced**:
   - Node verifier: `packages/artifact-verify/src/invoice-bundle.js` (pricing terms signature enforcement)
-  - Python reference verifier: `reference/verifier-py/settld-verify-py` (InvoiceBundle pricing signature checks)
+  - Python reference verifier: `reference/verifier-py/nooterra-verify-py` (InvoiceBundle pricing signature checks)
 - **Evidence**:
   - Conformance: `invoicebundle_strict_fail_missing_pricing_matrix_signature`, `invoicebundle_strict_fail_invalid_pricing_matrix_signature`, `invoicebundle_nonstrict_pass_unsigned_pricing_matrix_warning`
 - **Failure codes**:
@@ -213,7 +213,7 @@ Each invariant maps:
 - **Specified**: This invariants checklist (security + portability guarantee).
 - **Enforced**:
   - Node verifier prevalidation: `packages/artifact-verify/src/bundle-path.js:29`
-  - Python reference verifier prevalidation: `reference/verifier-py/settld-verify-py` (manifest entry loop)
+  - Python reference verifier prevalidation: `reference/verifier-py/nooterra-verify-py` (manifest entry loop)
 - **Evidence**:
   - Conformance: `security_manifest_case_collision` in `conformance/v1/cases.json`
 - **Failure codes**:
@@ -278,7 +278,7 @@ These invariants cover the producer CLI/tooling surface (not bundle protocol obj
 
 ### PROD-001 (P0) — Produce CLI JSON output is safe and machine-ingestible
 
-- **Statement**: `settld-produce --format json` MUST emit a `ProduceCliOutput.v1` object whose `errors[]`/`warnings[]` are deterministic and MUST NOT embed arbitrary exception strings or secrets.
+- **Statement**: `nooterra-produce --format json` MUST emit a `ProduceCliOutput.v1` object whose `errors[]`/`warnings[]` are deterministic and MUST NOT embed arbitrary exception strings or secrets.
 - **Specified**: `ProduceCliOutput.v1.md`, `PRODUCER_ERRORS.md`
 - **Enforced**:
   - Error normalization: `packages/artifact-produce/src/cli/normalize-produce-error.js`
@@ -321,14 +321,14 @@ These invariants cover the producer CLI/tooling surface (not bundle protocol obj
 
 ### PROD-007 (P1) — Produce CLI `--explain` is deterministic and secret-free
 
-- **Statement**: `settld-produce --explain` MUST emit deterministic diagnostics to stderr and MUST NOT leak secrets (bearer tokens, header values, private keys). JSON stdout MUST remain schema-valid and MUST NOT embed arbitrary exception strings.
+- **Statement**: `nooterra-produce --explain` MUST emit deterministic diagnostics to stderr and MUST NOT leak secrets (bearer tokens, header values, private keys). JSON stdout MUST remain schema-valid and MUST NOT embed arbitrary exception strings.
 - **Specified**: `ProduceCliOutput.v1.md`, `PRODUCER_ERRORS.md`
 - **Evidence**:
   - Tests: `test/explain-snapshots.test.js`
 
 ### PROD-008 (P1) — Remote-only trust init yields a trust file that strict-verifies
 
-- **Statement**: `settld-trust init --mode remote-only` MUST be able to write a `trust.json` (no private keys on disk) that strict verification can consume for bundles produced with the corresponding remote signer.
+- **Statement**: `nooterra-trust init --mode remote-only` MUST be able to write a `trust.json` (no private keys on disk) that strict verification can consume for bundles produced with the corresponding remote signer.
 - **Specified**: `TRUST_ANCHORS.md`, `REMOTE_SIGNER.md`
 - **Evidence**:
   - Conformance (producer): `produce_trust_remote_only_init_then_remote_sign_strict_verify`
@@ -339,7 +339,7 @@ These invariants cover the release authenticity surface (ReleaseIndex + release 
 
 ### REL-001 (P0) — Release verification passes when signature and artifacts match
 
-- **Statement**: Given a trusted release root key, `settld-release verify --format json` MUST accept a release directory when `release_index_v1.json` signatures are valid and every artifact listed matches its recorded `sha256` and `sizeBytes`.
+- **Statement**: Given a trusted release root key, `nooterra-release verify --format json` MUST accept a release directory when `release_index_v1.json` signatures are valid and every artifact listed matches its recorded `sha256` and `sizeBytes`.
 - **Specified**: `ReleaseIndex.v1.md`, `ReleaseTrust.v2.md`, `SUPPLY_CHAIN.md`
 - **Evidence**:
   - Conformance (release): `release_pass`

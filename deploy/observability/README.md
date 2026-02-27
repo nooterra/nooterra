@@ -1,4 +1,4 @@
-# Settld Observability Pack
+# Nooterra Observability Pack
 
 This folder contains a minimal “pilot-safe” pack:
 
@@ -7,7 +7,7 @@ This folder contains a minimal “pilot-safe” pack:
 
 ## Scraping
 
-Settld exposes:
+Nooterra exposes:
 
 - `GET /metrics` (Prometheus text)
 - `GET /healthz` (readiness with signals)

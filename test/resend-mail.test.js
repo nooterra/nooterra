@@ -17,7 +17,7 @@ test("sendResendMail: sends expected payload", async () => {
 
   const out = await sendResendMail({
     apiKey: "re_test_123",
-    from: "onboarding@settld.work",
+    from: "onboarding@nooterra.work",
     to: "user@example.com",
     subject: "Test",
     text: "Hello",
@@ -41,7 +41,7 @@ test("sendResendMail: surfaces upstream error", async () => {
     () =>
       sendResendMail({
         apiKey: "bad",
-        from: "onboarding@settld.work",
+        from: "onboarding@nooterra.work",
         to: "user@example.com",
         subject: "Test",
         text: "Hello",

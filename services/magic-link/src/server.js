@@ -299,8 +299,8 @@ function resolveAutoDecisionPolicy({ tenantSettings, status, templateId }) {
   if (!decision) return { ok: true, apply: false, reason: "AUTO_DECISION_ACTION_NOT_CONFIGURED" };
 
   const actorName =
-    typeof cfg.actorName === "string" && cfg.actorName.trim() ? safeTruncate(cfg.actorName.trim(), { max: 200 }) : "Settld AutoDecision";
-  const actorEmail = normalizeEmailLower(cfg.actorEmail) ?? "automation@settld.local";
+    typeof cfg.actorName === "string" && cfg.actorName.trim() ? safeTruncate(cfg.actorName.trim(), { max: 200 }) : "Nooterra AutoDecision";
+  const actorEmail = normalizeEmailLower(cfg.actorEmail) ?? "automation@nooterra.local";
   return { ok: true, apply: true, decision, actorName, actorEmail };
 }
 
@@ -336,7 +336,7 @@ async function runAutoDecisionBestEffort({ token, tenantId, tenantSettings, cliO
   req.headers = {
     "content-type": "application/json",
     "content-length": String(body.length),
-    "user-agent": "settld-magic-link/internal-auto-decision"
+    "user-agent": "nooterra-magic-link/internal-auto-decision"
   };
   req.socket = { remoteAddress: "127.0.0.1" };
 
@@ -413,7 +413,7 @@ function formatVerifyCliOutput({ input, resolved, dir, strict, failOnWarnings, r
   const ok = errors.length === 0 && verificationOk;
   return {
     schemaVersion: "VerifyCliOutput.v1",
-    tool: { name: "settld-verify-hosted", version: toolVersion ?? null, commit: toolCommit ?? null },
+    tool: { name: "nooterra-verify-hosted", version: toolVersion ?? null, commit: toolCommit ?? null },
     mode: { strict, failOnWarnings },
     // Hosted outputs should not leak server filesystem paths or temp dirs.
     target: { kind: hostedTargetKindFromBundleType(hosted?.bundleType ?? null), input: null, resolved: null, dir: null },
@@ -728,7 +728,7 @@ const host = process.env.MAGIC_LINK_HOST ? String(process.env.MAGIC_LINK_HOST) :
 const socketPath = process.env.MAGIC_LINK_SOCKET_PATH ? path.resolve(String(process.env.MAGIC_LINK_SOCKET_PATH)) : null;
 const apiKey = process.env.MAGIC_LINK_API_KEY ?? null;
 const dataDirRaw = process.env.MAGIC_LINK_DATA_DIR ? String(process.env.MAGIC_LINK_DATA_DIR).trim() : "";
-const dataDir = dataDirRaw ? path.resolve(dataDirRaw) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDir = dataDirRaw ? path.resolve(dataDirRaw) : path.join(os.tmpdir(), "nooterra-magic-link");
 const dataDirLikelyEphemeral = isLikelyEphemeralDataDir(dataDir);
 const requireDurableDataDir = String(process.env.MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR ?? "0").trim() === "1";
 const maxUploadBytes = Number(process.env.MAGIC_LINK_MAX_UPLOAD_BYTES ?? String(50 * 1024 * 1024));
@@ -897,10 +897,10 @@ const paymentTriggerMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_
 const paymentTriggerRetryBackoffMs = Number.parseInt(String(process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_BACKOFF_MS ?? "5000"), 10);
 const settingsKey = getSettingsKeyFromEnv();
 const migrateOnStartup = String(process.env.MAGIC_LINK_MIGRATE_ON_STARTUP ?? "1").trim() !== "0";
-const settldApiBaseUrlRaw = process.env.MAGIC_LINK_SETTLD_API_BASE_URL ? String(process.env.MAGIC_LINK_SETTLD_API_BASE_URL).trim() : "";
-const settldApiBaseUrl = settldApiBaseUrlRaw ? normalizeHttpUrl(settldApiBaseUrlRaw) : null;
-const settldOpsToken = process.env.MAGIC_LINK_SETTLD_OPS_TOKEN ? String(process.env.MAGIC_LINK_SETTLD_OPS_TOKEN).trim() : "";
-const settldProtocol = String(process.env.MAGIC_LINK_SETTLD_PROTOCOL ?? "1.0").trim() || "1.0";
+const nooterraApiBaseUrlRaw = process.env.MAGIC_LINK_NOOTERRA_API_BASE_URL ? String(process.env.MAGIC_LINK_NOOTERRA_API_BASE_URL).trim() : "";
+const nooterraApiBaseUrl = nooterraApiBaseUrlRaw ? normalizeHttpUrl(nooterraApiBaseUrlRaw) : null;
+const nooterraOpsToken = process.env.MAGIC_LINK_NOOTERRA_OPS_TOKEN ? String(process.env.MAGIC_LINK_NOOTERRA_OPS_TOKEN).trim() : "";
+const nooterraProtocol = String(process.env.MAGIC_LINK_NOOTERRA_PROTOCOL ?? "1.0").trim() || "1.0";
 
 const smtpHost = process.env.MAGIC_LINK_SMTP_HOST ? String(process.env.MAGIC_LINK_SMTP_HOST).trim() : "";
 const smtpPort = Number.parseInt(String(process.env.MAGIC_LINK_SMTP_PORT ?? "587"), 10);
@@ -1039,11 +1039,11 @@ if (publicBaseUrl !== null && publicBaseUrl !== "") {
   // eslint-disable-next-line no-new
   new URL(publicBaseUrl);
 }
-if (settldApiBaseUrlRaw && !settldApiBaseUrl) throw new Error("MAGIC_LINK_SETTLD_API_BASE_URL must be a valid http(s) URL");
-if ((settldApiBaseUrl && !settldOpsToken) || (!settldApiBaseUrl && settldOpsToken)) {
-  throw new Error("MAGIC_LINK_SETTLD_API_BASE_URL and MAGIC_LINK_SETTLD_OPS_TOKEN must be set together");
+if (nooterraApiBaseUrlRaw && !nooterraApiBaseUrl) throw new Error("MAGIC_LINK_NOOTERRA_API_BASE_URL must be a valid http(s) URL");
+if ((nooterraApiBaseUrl && !nooterraOpsToken) || (!nooterraApiBaseUrl && nooterraOpsToken)) {
+  throw new Error("MAGIC_LINK_NOOTERRA_API_BASE_URL and MAGIC_LINK_NOOTERRA_OPS_TOKEN must be set together");
 }
-if (!settldProtocol) throw new Error("MAGIC_LINK_SETTLD_PROTOCOL must be a non-empty string");
+if (!nooterraProtocol) throw new Error("MAGIC_LINK_NOOTERRA_PROTOCOL must be a non-empty string");
 
 function parseSessionKeyHex(raw) {
   const s = String(raw ?? "").trim();
@@ -1143,7 +1143,7 @@ const verifyWorkerPath = fileURLToPath(new URL("./verify-worker.js", import.meta
 const samplesDir = fileURLToPath(new URL("../assets/samples/", import.meta.url));
 const sampleZipCache = new Map(); // key -> Buffer
 const repoRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const mcpServerScriptPath = path.join(repoRootDir, "scripts", "mcp", "settld-mcp-server.mjs");
+const mcpServerScriptPath = path.join(repoRootDir, "scripts", "mcp", "nooterra-mcp-server.mjs");
 
 async function readRepoFileUtf8BestEffort(relPath) {
   try {
@@ -1438,8 +1438,8 @@ async function stripeApiPostJson({ endpoint, formData }) {
   return json;
 }
 
-async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = null } = {}) {
-  if (!settldApiBaseUrl || !settldOpsToken) {
+async function callNooterraTenantBootstrap({ tenantId, payload, idempotencyKey = null } = {}) {
+  if (!nooterraApiBaseUrl || !nooterraOpsToken) {
     return {
       ok: false,
       statusCode: 503,
@@ -1447,12 +1447,12 @@ async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = n
       message: "runtime bootstrap is not configured on this control plane"
     };
   }
-  const target = new URL("/ops/tenants/bootstrap", `${settldApiBaseUrl}/`);
+  const target = new URL("/ops/tenants/bootstrap", `${nooterraApiBaseUrl}/`);
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": String(tenantId),
-    "x-proxy-ops-token": settldOpsToken,
-    "x-settld-protocol": settldProtocol
+    "x-proxy-ops-token": nooterraOpsToken,
+    "x-nooterra-protocol": nooterraProtocol
   };
   if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
 
@@ -1470,7 +1470,7 @@ async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = n
       ok: false,
       statusCode: 502,
       code: "RUNTIME_BOOTSTRAP_UPSTREAM_UNREACHABLE",
-      message: err?.message ?? "unable to reach Settld API"
+      message: err?.message ?? "unable to reach Nooterra API"
     };
   }
 
@@ -1485,7 +1485,7 @@ async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = n
       (json && typeof json?.message === "string" && json.message) ||
       (json && typeof json?.error === "string" && json.error) ||
       safeTruncate(text, { max: 800 }) ||
-      `Settld bootstrap failed (${response.status})`;
+      `Nooterra bootstrap failed (${response.status})`;
     return {
       ok: false,
       statusCode: response.status,
@@ -1498,14 +1498,14 @@ async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = n
       ok: false,
       statusCode: 502,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Settld bootstrap returned invalid JSON"
+      message: "Nooterra bootstrap returned invalid JSON"
     };
   }
   return { ok: true, response: json };
 }
 
-async function callSettldTenantApi({
-  apiBaseUrl = settldApiBaseUrl,
+async function callNooterraTenantApi({
+  apiBaseUrl = nooterraApiBaseUrl,
   tenantId,
   apiKey,
   method,
@@ -1518,15 +1518,15 @@ async function callSettldTenantApi({
     return {
       ok: false,
       statusCode: 503,
-      code: "SETTLD_API_UNCONFIGURED",
-      message: "Settld API base URL or API key is missing"
+      code: "NOOTERRA_API_UNCONFIGURED",
+      message: "Nooterra API base URL or API key is missing"
     };
   }
 
   const target = new URL(pathname, `${apiBaseUrl}/`);
   const headers = {
     "x-proxy-tenant-id": String(tenantId),
-    "x-settld-protocol": settldProtocol,
+    "x-nooterra-protocol": nooterraProtocol,
     authorization: `Bearer ${String(apiKey)}`
   };
   if (body !== undefined) headers["content-type"] = "application/json";
@@ -1546,8 +1546,8 @@ async function callSettldTenantApi({
     return {
       ok: false,
       statusCode: 502,
-      code: "SETTLD_API_UNREACHABLE",
-      message: err?.message ?? "unable to reach Settld API"
+      code: "NOOTERRA_API_UNREACHABLE",
+      message: err?.message ?? "unable to reach Nooterra API"
     };
   }
 
@@ -1563,11 +1563,11 @@ async function callSettldTenantApi({
       (json && typeof json?.message === "string" && json.message) ||
       (json && typeof json?.error === "string" && json.error) ||
       safeTruncate(text, { max: 800 }) ||
-      `Settld API call failed (${response.status})`;
+      `Nooterra API call failed (${response.status})`;
     return {
       ok: false,
       statusCode: response.status,
-      code: (json && typeof json?.code === "string" && json.code) || "SETTLD_API_CALL_FAILED",
+      code: (json && typeof json?.code === "string" && json.code) || "NOOTERRA_API_CALL_FAILED",
       message,
       response: json
     };
@@ -1577,8 +1577,8 @@ async function callSettldTenantApi({
     return {
       ok: false,
       statusCode: 502,
-      code: "SETTLD_API_INVALID_RESPONSE",
-      message: "Settld API returned invalid JSON"
+      code: "NOOTERRA_API_INVALID_RESPONSE",
+      message: "Nooterra API returned invalid JSON"
     };
   }
 
@@ -3067,8 +3067,8 @@ async function handleUploadToTenant(req, res, { url, tenantId, vendorMeta, authM
   const failOnWarnings = Boolean(policyEffective.failOnWarnings);
   const policySetHash = policyHashHex(policyEffective);
 
-  const trustInfo = governanceTrustInfo({ tenantSettings, envValue: process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
-  const pricingTrustInfo = pricingSignerTrustInfo({ tenantSettings, envValue: process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON ?? "" });
+  const trustInfo = governanceTrustInfo({ tenantSettings, envValue: process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
+  const pricingTrustInfo = pricingSignerTrustInfo({ tenantSettings, envValue: process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON ?? "" });
   const strictResolved = modeForVerification === "strict" ? true : modeForVerification === "compat" ? false : Boolean(trustInfo?.configured);
   const modeResolved = strictResolved ? "strict" : "compat";
   const trustSetHash = typeof trustInfo?.setHash === "string" ? trustInfo.setHash : null;
@@ -3555,13 +3555,13 @@ async function handleUploadToTenant(req, res, { url, tenantId, vendorMeta, authM
     const trustedPricingSignerKeyIdsJson = Array.isArray(tenantSettings?.trustedPricingSignerKeyIds) ? JSON.stringify(tenantSettings.trustedPricingSignerKeyIds) : "";
     const workerEnv = {
       ...process.env,
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: String(trustInfo?.json ?? ""),
-      SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: String(pricingTrustInfo?.json ?? ""),
-      SETTLD_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON: trustedPricingSignerKeyIdsJson
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: String(trustInfo?.json ?? ""),
+      NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: String(pricingTrustInfo?.json ?? ""),
+      NOOTERRA_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON: trustedPricingSignerKeyIdsJson
     };
     const verifyRun = await verifyQueue.submit({ dir: unzip.dir, strict: strictResolved, hashConcurrency: 16, timeoutMs: verifyTimeoutMs, env: workerEnv });
     const result = verifyRun.ok ? verifyRun.result : { ok: false, error: verifyRun.error, detail: verifyRun.detail, warnings: [] };
-    const bundleHeader = await readJsonIfExists(path.join(unzip.dir, "settld.json"));
+    const bundleHeader = await readJsonIfExists(path.join(unzip.dir, "nooterra.json"));
     const bundleType = typeof bundleHeader?.type === "string" ? bundleHeader.type : null;
     let cliOut = formatVerifyCliOutput({
       input: zipPath,
@@ -3936,7 +3936,7 @@ async function handleTenantSettingsGet(req, res, tenantId) {
 
   const settings = await loadTenantSettings({ dataDir, tenantId });
   const entitlements = resolveTenantEntitlementsFromSettings(settings);
-  const trust = governanceTrustInfo({ tenantSettings: settings, envValue: process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
+  const trust = governanceTrustInfo({ tenantSettings: settings, envValue: process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
   const safe = sanitizeTenantSettingsForApi(settings);
   const buyerNotificationsLatest = await loadLatestBuyerNotificationStatusBestEffort({ dataDir, tenantId });
   return sendJson(res, 200, {
@@ -5221,7 +5221,7 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
   delete requestPayload.paidToolsBaseUrl;
 
   const idempotencyKey = req.headers["x-idempotency-key"] ? String(req.headers["x-idempotency-key"]).trim() : "";
-  const upstream = await callSettldTenantBootstrap({
+  const upstream = await callNooterraTenantBootstrap({
     tenantId,
     payload: requestPayload,
     idempotencyKey: idempotencyKey || null
@@ -5233,17 +5233,17 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Settld bootstrap response missing bootstrap payload"
+      message: "Nooterra bootstrap response missing bootstrap payload"
     });
   }
 
-  const apiBaseUrl = typeof bootstrap.apiBaseUrl === "string" && bootstrap.apiBaseUrl.trim() ? bootstrap.apiBaseUrl.trim() : settldApiBaseUrl;
+  const apiBaseUrl = typeof bootstrap.apiBaseUrl === "string" && bootstrap.apiBaseUrl.trim() ? bootstrap.apiBaseUrl.trim() : nooterraApiBaseUrl;
   const normalizedApiBaseUrl = normalizeHttpUrl(apiBaseUrl);
   if (!normalizedApiBaseUrl) {
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Settld bootstrap response missing apiBaseUrl"
+      message: "Nooterra bootstrap response missing apiBaseUrl"
     });
   }
   const apiKeyToken = typeof bootstrap?.apiKey?.token === "string" && bootstrap.apiKey.token.trim() ? bootstrap.apiKey.token.trim() : null;
@@ -5251,23 +5251,23 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Settld bootstrap response missing runtime API key token"
+      message: "Nooterra bootstrap response missing runtime API key token"
     });
   }
   const mcpEnv = {};
-  mcpEnv.SETTLD_BASE_URL = normalizedApiBaseUrl;
-  mcpEnv.SETTLD_TENANT_ID = tenantId;
-  mcpEnv.SETTLD_API_KEY = apiKeyToken;
-  if (paidToolsBaseUrl) mcpEnv.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBaseUrl;
+  mcpEnv.NOOTERRA_BASE_URL = normalizedApiBaseUrl;
+  mcpEnv.NOOTERRA_TENANT_ID = tenantId;
+  mcpEnv.NOOTERRA_API_KEY = apiKeyToken;
+  if (paidToolsBaseUrl) mcpEnv.NOOTERRA_PAID_TOOLS_BASE_URL = paidToolsBaseUrl;
   const mcp = {
-    schemaVersion: "SettldMcpServerConfig.v1",
+    schemaVersion: "NooterraMcpServerConfig.v1",
     command: "npx",
-    args: ["-y", "--package", "settld", "settld-mcp"],
+    args: ["-y", "--package", "nooterra", "nooterra-mcp"],
     env: mcpEnv
   };
   const mcpConfigJson = {
     mcpServers: {
-      settld: {
+      nooterra: {
         command: mcp.command,
         args: mcp.args,
         env: mcp.env
@@ -5322,26 +5322,26 @@ async function handleTenantRuntimeBootstrapSmokeTest(req, res, tenantId) {
   const envRaw = isPlainObject(json?.env) ? json.env : isPlainObject(json?.mcp?.env) ? json.mcp.env : null;
   if (!envRaw) return sendJson(res, 400, { ok: false, code: "ENV_REQUIRED", message: "env object is required" });
 
-  const required = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
+  const required = ["NOOTERRA_BASE_URL", "NOOTERRA_TENANT_ID", "NOOTERRA_API_KEY"];
   const env = {};
   for (const key of required) {
     const value = typeof envRaw[key] === "string" ? envRaw[key].trim() : "";
     if (!value) return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: `${key} is required` });
     env[key] = value;
   }
-  if (!normalizeHttpUrl(env.SETTLD_BASE_URL)) {
-    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_BASE_URL must be a valid http(s) URL" });
+  if (!normalizeHttpUrl(env.NOOTERRA_BASE_URL)) {
+    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "NOOTERRA_BASE_URL must be a valid http(s) URL" });
   }
-  if (env.SETTLD_TENANT_ID !== tenantId) {
-    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_TENANT_ID must match tenant path" });
+  if (env.NOOTERRA_TENANT_ID !== tenantId) {
+    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "NOOTERRA_TENANT_ID must match tenant path" });
   }
-  const paidToolsBaseUrl = typeof envRaw.SETTLD_PAID_TOOLS_BASE_URL === "string" ? envRaw.SETTLD_PAID_TOOLS_BASE_URL.trim() : "";
+  const paidToolsBaseUrl = typeof envRaw.NOOTERRA_PAID_TOOLS_BASE_URL === "string" ? envRaw.NOOTERRA_PAID_TOOLS_BASE_URL.trim() : "";
   if (paidToolsBaseUrl) {
     const normalized = normalizeHttpUrl(paidToolsBaseUrl);
-    if (!normalized) return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_PAID_TOOLS_BASE_URL must be a valid http(s) URL" });
-    env.SETTLD_PAID_TOOLS_BASE_URL = normalized;
+    if (!normalized) return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "NOOTERRA_PAID_TOOLS_BASE_URL must be a valid http(s) URL" });
+    env.NOOTERRA_PAID_TOOLS_BASE_URL = normalized;
   }
-  env.SETTLD_PROTOCOL = settldProtocol;
+  env.NOOTERRA_PROTOCOL = nooterraProtocol;
 
   const timeoutMsRaw = Number.parseInt(String(json.timeoutMs ?? "10000"), 10);
   const timeoutMs = Number.isInteger(timeoutMsRaw) && timeoutMsRaw >= 1000 && timeoutMsRaw <= 30000 ? timeoutMsRaw : 10000;
@@ -5594,8 +5594,8 @@ async function runTenantFirstPaidCallFlow({
     : `ml_first_paid_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
   const agentSuffix = prefix.slice(-16);
   const runRequest = async ({ step, method, pathname, body = undefined, expectedPrevChainHash = null }) => {
-    const result = await callSettldTenantApi({
-      apiBaseUrl: settldApiBaseUrl,
+    const result = await callNooterraTenantApi({
+      apiBaseUrl: nooterraApiBaseUrl,
       tenantId,
       apiKey: runtimeApiKey,
       method,
@@ -5608,7 +5608,7 @@ async function runTenantFirstPaidCallFlow({
       return {
         ok: false,
         statusCode: result.statusCode ?? 502,
-        code: result.code ?? "SETTLD_API_CALL_FAILED",
+        code: result.code ?? "NOOTERRA_API_CALL_FAILED",
         step,
         message: `step ${step} failed: ${result.message ?? "request failed"}`
       };
@@ -5714,7 +5714,7 @@ async function runTenantFirstPaidCallFlow({
   if (!runId || !lastChainHash) {
     return {
       ok: false,
-      code: "SETTLD_API_INVALID_RESPONSE",
+      code: "NOOTERRA_API_INVALID_RESPONSE",
       statusCode: 502,
       step: "accept_bid",
       message: "accept response missing runId or lastChainHash"
@@ -5737,8 +5737,8 @@ async function runTenantFirstPaidCallFlow({
   });
   if (!runCompleted.ok) return runCompleted;
 
-  const verification = await callSettldTenantApi({
-    apiBaseUrl: settldApiBaseUrl,
+  const verification = await callNooterraTenantApi({
+    apiBaseUrl: nooterraApiBaseUrl,
     tenantId,
     apiKey: runtimeApiKey,
     method: "GET",
@@ -5749,13 +5749,13 @@ async function runTenantFirstPaidCallFlow({
       ok: false,
       step: "verification",
       statusCode: verification.statusCode ?? 502,
-      code: verification.code ?? "SETTLD_API_CALL_FAILED",
+      code: verification.code ?? "NOOTERRA_API_CALL_FAILED",
       message: `step verification failed: ${verification.message ?? "request failed"}`
     };
   }
 
-  const settlement = await callSettldTenantApi({
-    apiBaseUrl: settldApiBaseUrl,
+  const settlement = await callNooterraTenantApi({
+    apiBaseUrl: nooterraApiBaseUrl,
     tenantId,
     apiKey: runtimeApiKey,
     method: "GET",
@@ -5766,7 +5766,7 @@ async function runTenantFirstPaidCallFlow({
       ok: false,
       step: "settlement",
       statusCode: settlement.statusCode ?? 502,
-      code: settlement.code ?? "SETTLD_API_CALL_FAILED",
+      code: settlement.code ?? "NOOTERRA_API_CALL_FAILED",
       message: `step settlement failed: ${settlement.message ?? "request failed"}`
     };
   }
@@ -5862,7 +5862,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
   const startedAt = nowIso();
   const config = { payerCreditAmountCents, budgetCents, bidAmountCents, currency, source: "manual" };
 
-  const bootstrap = await callSettldTenantBootstrap({
+  const bootstrap = await callNooterraTenantBootstrap({
     tenantId,
     payload: {
       apiKey: {
@@ -5901,14 +5901,14 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
         error: {
           code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
           step: "bootstrap",
-          message: "Settld bootstrap response missing runtime API key token"
+          message: "Nooterra bootstrap response missing runtime API key token"
         }
       }
     });
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Settld bootstrap response missing runtime API key token",
+      message: "Nooterra bootstrap response missing runtime API key token",
       attemptId
     });
   }
@@ -5932,7 +5932,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
         completedAt: nowIso(),
         status: "failed",
         config,
-        error: { code: flow.code ?? "SETTLD_API_CALL_FAILED", step: flow.step ?? null, message: flow.message ?? "flow failed" }
+        error: { code: flow.code ?? "NOOTERRA_API_CALL_FAILED", step: flow.step ?? null, message: flow.message ?? "flow failed" }
       }
     });
     try {
@@ -6071,17 +6071,17 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
     });
   }
 
-  const targetsRaw = Array.isArray(json.targets) ? json.targets : ["codex", "claude", "cursor", "openclaw"];
+  const targetsRaw = Array.isArray(json.targets) ? json.targets : ["nooterra", "claude", "cursor", "openclaw"];
   const targets = [...new Set(
     targetsRaw
       .map((row) => String(row ?? "").trim().toLowerCase())
-      .filter((row) => row === "codex" || row === "claude" || row === "cursor" || row === "openclaw" || row === "openhands")
+      .filter((row) => row === "nooterra" || row === "claude" || row === "cursor" || row === "openclaw" || row === "openhands")
   )];
   if (!targets.length) {
     return sendJson(res, 400, {
       ok: false,
       code: "INVALID_TARGETS",
-      message: "targets must include codex|claude|cursor|openclaw|openhands"
+      message: "targets must include nooterra|claude|cursor|openclaw|openhands"
     });
   }
 
@@ -6091,7 +6091,7 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   let runtimeApiKey = null;
   let paidFlow = null;
 
-  const bootstrap = await callSettldTenantBootstrap({
+  const bootstrap = await callNooterraTenantBootstrap({
     tenantId,
     payload: {
       apiKey: {
@@ -6103,13 +6103,13 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   if (bootstrap.ok) {
     const apiBaseUrl = typeof bootstrap.response?.bootstrap?.apiBaseUrl === "string" && bootstrap.response.bootstrap.apiBaseUrl.trim()
       ? bootstrap.response.bootstrap.apiBaseUrl.trim()
-      : settldApiBaseUrl;
+      : nooterraApiBaseUrl;
     runtimeApiKey = typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
     mcpEnv = {
-      SETTLD_BASE_URL: apiBaseUrl,
-      SETTLD_TENANT_ID: tenantId,
-      SETTLD_API_KEY: runtimeApiKey,
-      SETTLD_PROTOCOL: settldProtocol
+      NOOTERRA_BASE_URL: apiBaseUrl,
+      NOOTERRA_TENANT_ID: tenantId,
+      NOOTERRA_API_KEY: runtimeApiKey,
+      NOOTERRA_PROTOCOL: nooterraProtocol
     };
     checks.push({
       checkId: "runtime_bootstrap",
@@ -6212,7 +6212,7 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   const smokeOk = checkById.get("mcp_smoke")?.status === "pass";
   const paidOk = checkById.get("first_paid_call")?.status === "pass";
   const targetRows = targets.map((target) => {
-    const serverConfig = mcpEnv ? { command: "npx", args: ["-y", "--package", "settld", "settld-mcp"], env: mcpEnv } : null;
+    const serverConfig = mcpEnv ? { command: "npx", args: ["-y", "--package", "nooterra", "nooterra-mcp"], env: mcpEnv } : null;
     let config;
     if (target === "openhands") {
       config = {
@@ -6223,11 +6223,11 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
     } else if (target === "openclaw") {
       config = {
         mcpServer: serverConfig,
-        mcpServers: serverConfig ? { settld: serverConfig } : null
+        mcpServers: serverConfig ? { nooterra: serverConfig } : null
       };
     } else {
       config = {
-        mcpServers: serverConfig ? { settld: serverConfig } : null
+        mcpServers: serverConfig ? { nooterra: serverConfig } : null
       };
     }
     return {
@@ -8432,7 +8432,7 @@ async function handlePricingPage(req, res) {
     "</style>",
     "</head><body><div class=\"shell\">",
     "<div class=\"hero\">",
-    "<h1>Settld Pricing</h1>",
+    "<h1>Nooterra Pricing</h1>",
     "<p>Usage-led plans for verified economic transactions. Billing surfaces are plan-aware and enforced in the runtime.</p>",
     "<div style=\"margin-top:10px\"><a class=\"btn\" href=\"/v1/tenants/tenant_a/onboarding\">Start onboarding</a></div>",
     "</div>",
@@ -9868,7 +9868,7 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "<div class=\"row\" style=\"margin-top:8px\">",
     "<div class=\"field\"><div class=\"muted\">API key ID (optional)</div><input id=\"runtimeApiKeyId\" placeholder=\"ak_mcp_runtime\"/></div>",
     "<div class=\"field\"><div class=\"muted\">Scopes (comma separated, optional)</div><input id=\"runtimeScopes\" value=\"\" placeholder=\"Leave blank for defaults (recommended)\"/></div>",
-    "<div class=\"field\"><div class=\"muted\">Paid tools base URL (optional)</div><input id=\"runtimePaidToolsBaseUrl\" placeholder=\"https://paid.tools.settld.work\"/></div>",
+    "<div class=\"field\"><div class=\"muted\">Paid tools base URL (optional)</div><input id=\"runtimePaidToolsBaseUrl\" placeholder=\"https://paid.tools.nooterra.work\"/></div>",
     "</div>",
     "<div class=\"row\" style=\"margin-top:8px\">",
     "<button class=\"btn\" id=\"runtimeBootstrapBtn\">Generate runtime config</button>",
@@ -9941,7 +9941,7 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "async function runFirstPaidCall(){ const status=document.getElementById('firstPaidCallStatus'); if(!status) return; status.className='status'; status.textContent='Running first paid call…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`, {}); state.firstPaidCall=out; renderFirstPaidCall(out); await refreshFirstPaidHistory(); await refreshChecklist(); } catch(e){ status.className='status bad'; status.textContent='First paid call failed: '+e.message; } }",
     "async function replayFirstPaidCall(){ const status=document.getElementById('firstPaidCallStatus'); const select=document.getElementById('firstPaidCallHistorySelect'); if(!status||!select) return; const attemptId=String(select.value||'').trim(); if(!attemptId){ status.className='status bad'; status.textContent='Select an attempt to replay.'; return; } status.className='status'; status.textContent='Replaying stored first paid call attempt…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`, { replayAttemptId: attemptId }); state.firstPaidCall=out; renderFirstPaidCall(out); } catch(e){ status.className='status bad'; status.textContent='Replay failed: '+e.message; } }",
     "function renderRuntimeConformance(out){ const status=document.getElementById('runtimeConformanceStatus'); const pre=document.getElementById('runtimeConformanceOutput'); if(!status||!pre) return; if(!out||typeof out!=='object'){ status.className='status'; status.textContent='Conformance matrix not run yet.'; pre.textContent='{}'; return; } const matrix=out&&out.matrix&&typeof out.matrix==='object'?out.matrix:null; const ready=Boolean(matrix&&matrix.ready); const runId=String(matrix&&matrix.runId?matrix.runId:'n/a'); const checks=Array.isArray(matrix&&matrix.checks)?matrix.checks:[]; const failed=checks.filter((c)=>String(c&&c.status||'').toLowerCase()!=='pass').map((c)=>String(c&&c.checkId||'unknown')); status.className='status '+(ready?'good':'warn'); status.textContent=ready?`Conformance passed. run=${runId}`:`Conformance incomplete. run=${runId}. failed=${failed.join(', ')||'unknown'}`; pre.textContent=JSON.stringify(out, null, 2); }",
-    "async function runRuntimeConformance(){ const status=document.getElementById('runtimeConformanceStatus'); if(!status) return; status.className='status'; status.textContent='Running conformance matrix…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`, { targets:['codex','claude','cursor','openclaw'] }); state.runtimeConformance=out; renderRuntimeConformance(out); await refreshFirstPaidHistory(); await refreshChecklist(); } catch(e){ status.className='status bad'; status.textContent='Conformance run failed: '+e.message; } }",
+    "async function runRuntimeConformance(){ const status=document.getElementById('runtimeConformanceStatus'); if(!status) return; status.className='status'; status.textContent='Running conformance matrix…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`, { targets:['nooterra','claude','cursor','openclaw'] }); state.runtimeConformance=out; renderRuntimeConformance(out); await refreshFirstPaidHistory(); await refreshChecklist(); } catch(e){ status.className='status bad'; status.textContent='Conformance run failed: '+e.message; } }",
     "function statusFromVerify(v){ const ok=!!(v&&v.ok); const verificationOk=!!(v&&v.verificationOk); const warnings=Array.isArray(v&&v.warnings)?v.warnings:[]; if(!ok||!verificationOk) return 'red'; if(warnings.length) return 'amber'; return 'green'; }",
     "function summarizeTemplate(t){ if(!t) return 'None selected'; return `${t.templateId} (${t.vertical})`; }",
     "function renderTemplateCards(){",
@@ -11091,7 +11091,7 @@ async function handlePublicReceiptSummary(req, res, token) {
     signature,
     badge: {
       badgeSvgUrl,
-      embedHtml: `<img src="${badgeSvgUrl}" alt="Settld verification ${status}" loading="lazy" decoding="async" />`
+      embedHtml: `<img src="${badgeSvgUrl}" alt="Nooterra verification ${status}" loading="lazy" decoding="async" />`
     }
   });
 }
@@ -11135,9 +11135,9 @@ async function handlePublicReceiptBadge(req, res, token, url) {
 
   const svg = [
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"520\" height=\"92\" role=\"img\" aria-label=\"Settld public receipt badge\">",
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"520\" height=\"92\" role=\"img\" aria-label=\"Nooterra public receipt badge\">",
     `  <rect x="1" y="1" width="518" height="90" rx="14" fill="${palette.background}" stroke="${palette.border}" stroke-width="2"/>`,
-    `  <text x="22" y="33" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif" font-size="15" font-weight="700" fill="${palette.text}">SETTLD VERIFIED</text>`,
+    `  <text x="22" y="33" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif" font-size="15" font-weight="700" fill="${palette.text}">NOOTERRA VERIFIED</text>`,
     `  <text x="22" y="55" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif" font-size="22" font-weight="800" fill="${palette.text}">${htmlEscape(statusLabel)}</text>`,
     `  <text x="22" y="75" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif" font-size="12" fill="${palette.text}">settlement ${htmlEscape(settlementLabel)} · receipt ${htmlEscape(receiptShort)}</text>`,
     `  <text x="365" y="55" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="${palette.text}">${htmlEscape(tokenShort)}</text>`,
@@ -11846,7 +11846,7 @@ async function handleTenantSecurityControlsPacketExport(req, res, tenantId, url)
 
   const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
   const safeSettings = sanitizeTenantSettingsForApi(tenantSettings);
-  const trust = governanceTrustInfo({ tenantSettings, envValue: process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
+  const trust = governanceTrustInfo({ tenantSettings, envValue: process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "" });
 
   const unzipBudgets = {
     maxEntries: 20_000,
@@ -11914,8 +11914,8 @@ async function handleTenantSecurityControlsPacketExport(req, res, tenantId, url)
     },
     versions: {
       node: process.version,
-      service: { name: "settld-magic-link", version: serviceVersion ?? null, commit: serviceCommit ?? null, env: String(process.env.NODE_ENV ?? "development") },
-      verifier: { name: "settld-verify", version: toolVersion ?? null, commit: toolCommit ?? null }
+      service: { name: "nooterra-magic-link", version: serviceVersion ?? null, commit: serviceCommit ?? null, env: String(process.env.NODE_ENV ?? "development") },
+      verifier: { name: "nooterra-verify", version: toolVersion ?? null, commit: toolCommit ?? null }
     },
     trust: {
       configured: Boolean(trust?.configured),
@@ -12152,7 +12152,7 @@ async function handleTenantSecurityControlsPacketExport(req, res, tenantId, url)
       tenantId,
       month,
       generatedAt: nowIso(),
-      service: { name: "settld-magic-link", version: serviceVersion ?? null, commit: serviceCommit ?? null },
+      service: { name: "nooterra-magic-link", version: serviceVersion ?? null, commit: serviceCommit ?? null },
       files: entries
     };
     files.set("packet_index.json", Buffer.from(JSON.stringify(packetIndex, null, 2) + "\n", "utf8"));
@@ -13960,9 +13960,9 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
   readmeLines.push(`  \"${ingestUrl}?mode=auto${contractId ? `&contractId=${encodeURIComponent(contractId)}` : ""}\"`);
   readmeLines.push("```");
   readmeLines.push("");
-  readmeLines.push("Using settld-magic-link:");
+  readmeLines.push("Using nooterra-magic-link:");
   readmeLines.push("```bash");
-  readmeLines.push(`settld-magic-link ingest InvoiceBundle.zip --url ${base || "http://host:port"} --tenant ${tenantId} --ingest-key $(cat ingest_key.txt) --mode auto${contractId ? ` --contract ${contractId}` : ""}`);
+  readmeLines.push(`nooterra-magic-link ingest InvoiceBundle.zip --url ${base || "http://host:port"} --tenant ${tenantId} --ingest-key $(cat ingest_key.txt) --mode auto${contractId ? ` --contract ${contractId}` : ""}`);
   readmeLines.push("```");
   readmeLines.push("");
   readmeLines.push("Keep `ingest_key.txt` secret.");
@@ -14016,7 +14016,7 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "",
         "## Produce a ClosePack from JSON inputs",
         "",
-        "If you already generate the underlying evidence bundle(s), you can assemble a ClosePack deterministically with `settld-produce closepack-from-json`.",
+        "If you already generate the underlying evidence bundle(s), you can assemble a ClosePack deterministically with `nooterra-produce closepack-from-json`.",
         "",
         "Inputs you will need:",
         "- A proof bundle directory (e.g. JobProof.v1): contains the evidence files you reference",
@@ -14025,7 +14025,7 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "",
         "Example (paths are illustrative):",
         "```bash",
-        "settld-produce closepack-from-json \\",
+        "nooterra-produce closepack-from-json \\",
         "  --format json \\",
         "  --out ./ClosePack \\",
         "  --tenant tenant_demo \\",
@@ -14040,7 +14040,7 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "",
         "Then zip your ClosePack (or use your existing bundler) and verify locally:",
         "```bash",
-        "settld-verify --strict --format json --close-pack ./ClosePack > /tmp/verify.json",
+        "nooterra-verify --strict --format json --close-pack ./ClosePack > /tmp/verify.json",
         "```",
         "",
         "## Upload",
@@ -14076,8 +14076,8 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
-        "if ! command -v settld-verify >/dev/null 2>&1; then",
-        "  echo \"missing: settld-verify (install via npm pack or use repo bin)\" >&2",
+        "if ! command -v nooterra-verify >/dev/null 2>&1; then",
+        "  echo \"missing: nooterra-verify (install via npm pack or use repo bin)\" >&2",
         "  exit 2",
         "fi",
         "",
@@ -14087,19 +14087,19 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "GOV=\"$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.governanceRoots||{}));' \"$TRUST_JSON\")\"",
         "PRICING=\"$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.pricingSigners||{}));' \"$TRUST_JSON\")\"",
         "",
-        "export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON=\"$GOV\"",
-        "export SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON=\"$PRICING\"",
+        "export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON=\"$GOV\"",
+        "export NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON=\"$PRICING\"",
         "",
         "echo \"verifying known-good ClosePack (strict)...\"",
-        "settld-verify --strict --format json --close-pack \"$ROOT/samples/known_good_closepack\" >/tmp/settld_known_good.json",
-        "echo \"ok: /tmp/settld_known_good.json\"",
+        "nooterra-verify --strict --format json --close-pack \"$ROOT/samples/known_good_closepack\" >/tmp/nooterra_known_good.json",
+        "echo \"ok: /tmp/nooterra_known_good.json\"",
         "",
         "echo \"verifying known-bad ClosePack (strict, expected to fail)...\"",
-        "if settld-verify --strict --format json --close-pack \"$ROOT/samples/known_bad_closepack\" >/tmp/settld_known_bad.json; then",
+        "if nooterra-verify --strict --format json --close-pack \"$ROOT/samples/known_bad_closepack\" >/tmp/nooterra_known_bad.json; then",
         "  echo \"unexpected success; expected failure\" >&2",
         "  exit 1",
         "fi",
-        "echo \"ok (failed as expected): /tmp/settld_known_bad.json\"",
+        "echo \"ok (failed as expected): /tmp/nooterra_known_bad.json\"",
         ""
       ].join("\n"),
       "utf8"
@@ -14116,7 +14116,7 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "  if (-not $cmd) { throw \"missing: $name\" }",
         "}",
         "",
-        "Require-Cmd settld-verify",
+        "Require-Cmd nooterra-verify",
         "Require-Cmd node",
         "",
         "$Root = Split-Path -Parent $MyInvocation.MyCommand.Path",
@@ -14125,19 +14125,19 @@ async function handleVendorOnboardingPack(req, res, tenantId, vendorId) {
         "$Gov = node -e \"const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.governanceRoots||{}));\" $Trust",
         "$Pricing = node -e \"const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.pricingSigners||{}));\" $Trust",
         "",
-        "$env:SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = $Gov",
-        "$env:SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = $Pricing",
+        "$env:NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = $Gov",
+        "$env:NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = $Pricing",
         "",
         "Write-Host 'verifying known-good ClosePack (strict)...'",
-        "settld-verify --strict --format json --close-pack (Join-Path $Root 'samples/known_good_closepack') | Out-File -Encoding utf8 (Join-Path $env:TEMP 'settld_known_good.json')",
-        "Write-Host \"ok: $env:TEMP\\settld_known_good.json\"",
+        "nooterra-verify --strict --format json --close-pack (Join-Path $Root 'samples/known_good_closepack') | Out-File -Encoding utf8 (Join-Path $env:TEMP 'nooterra_known_good.json')",
+        "Write-Host \"ok: $env:TEMP\\nooterra_known_good.json\"",
         "",
         "Write-Host 'verifying known-bad ClosePack (strict, expected to fail)...'",
         "try {",
-        "  settld-verify --strict --format json --close-pack (Join-Path $Root 'samples/known_bad_closepack') | Out-File -Encoding utf8 (Join-Path $env:TEMP 'settld_known_bad.json')",
+        "  nooterra-verify --strict --format json --close-pack (Join-Path $Root 'samples/known_bad_closepack') | Out-File -Encoding utf8 (Join-Path $env:TEMP 'nooterra_known_bad.json')",
         "  throw 'unexpected success; expected failure'",
         "} catch {",
-        "  Write-Host \"ok (failed as expected): $env:TEMP\\settld_known_bad.json\"",
+        "  Write-Host \"ok (failed as expected): $env:TEMP\\nooterra_known_bad.json\"",
         "}",
         ""
       ].join("\n"),
@@ -14329,7 +14329,7 @@ async function handleReport(req, res, token) {
 
   const banner = (() => {
     if (status === "red" && errors.some((e) => String(e?.code ?? "") === "strict requires trusted governance root keys")) {
-      return `<div class="banner red">Strict verification is not possible: missing trust anchors (<code>SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON</code>).</div>`;
+      return `<div class="banner red">Strict verification is not possible: missing trust anchors (<code>NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON</code>).</div>`;
     }
     if (hasTrustMissingWarning) {
       return `<div class="banner amber">Governance not anchored: verification ran in compat mode because trust anchors are missing. Provide trust roots to run strict verification.</div>`;
@@ -14882,7 +14882,7 @@ async function handleDecision(req, res, token, { internalAutoDecision = false } 
       warningCodes
     },
     tool: {
-      name: typeof cliOut?.tool?.name === "string" ? cliOut.tool.name : "settld-verify-hosted",
+      name: typeof cliOut?.tool?.name === "string" ? cliOut.tool.name : "nooterra-verify-hosted",
       version: typeof cliOut?.tool?.version === "string" ? cliOut.tool.version : null,
       commit: typeof cliOut?.tool?.commit === "string" ? cliOut.tool.commit : null
     },

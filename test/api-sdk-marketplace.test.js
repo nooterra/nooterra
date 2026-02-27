@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function makeJsonResponse(body, { status = 200, requestId = "req_sdk_market_1" } = {}) {
   return new Response(JSON.stringify(body), {
@@ -129,7 +129,7 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
     return makeJsonResponse({});
   };
 
-  const client = new SettldClient({ baseUrl: "https://api.settld.local", tenantId: "tenant_sdk", fetch: fetchStub });
+  const client = new NooterraClient({ baseUrl: "https://api.nooterra.local", tenantId: "tenant_sdk", fetch: fetchStub });
 
   await client.createMarketplaceRfq({
     rfqId: "rfq_1",
@@ -138,13 +138,13 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
     posterAgentId: "agt_1",
     budgetCents: 2000
   });
-  assert.equal(calls[0].url, "https://api.settld.local/marketplace/rfqs");
+  assert.equal(calls[0].url, "https://api.nooterra.local/marketplace/rfqs");
   assert.equal(calls[0].init?.method, "POST");
 
   await client.listMarketplaceRfqs({ status: "open", capability: "translate", posterAgentId: "agt_1", limit: 10, offset: 0 });
   assert.equal(
     calls[1].url,
-    "https://api.settld.local/marketplace/rfqs?status=open&capability=translate&posterAgentId=agt_1&limit=10&offset=0"
+    "https://api.nooterra.local/marketplace/rfqs?status=open&capability=translate&posterAgentId=agt_1&limit=10&offset=0"
   );
   assert.equal(calls[1].init?.method, "GET");
 
@@ -163,7 +163,7 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
       policyHash: "pol_hash_1"
     }
   });
-  assert.equal(calls[2].url, "https://api.settld.local/marketplace/rfqs/rfq_1/bids");
+  assert.equal(calls[2].url, "https://api.nooterra.local/marketplace/rfqs/rfq_1/bids");
   assert.equal(calls[2].init?.method, "POST");
   const submitBidBody = JSON.parse(String(calls[2].init?.body ?? "{}"));
   assert.equal(submitBidBody?.verificationMethod?.verificationMethodHash, "vm_hash_1");
@@ -172,12 +172,12 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
   await client.listMarketplaceBids("rfq_1", { status: "pending", bidderAgentId: "agt_2", limit: 10, offset: 0 });
   assert.equal(
     calls[3].url,
-    "https://api.settld.local/marketplace/rfqs/rfq_1/bids?status=pending&bidderAgentId=agt_2&limit=10&offset=0"
+    "https://api.nooterra.local/marketplace/rfqs/rfq_1/bids?status=pending&bidderAgentId=agt_2&limit=10&offset=0"
   );
   assert.equal(calls[3].init?.method, "GET");
 
   await client.applyMarketplaceBidCounterOffer("rfq_1", "bid_1", { proposerAgentId: "agt_1", amountCents: 900 });
-  assert.equal(calls[4].url, "https://api.settld.local/marketplace/rfqs/rfq_1/bids/bid_1/counter-offer");
+  assert.equal(calls[4].url, "https://api.nooterra.local/marketplace/rfqs/rfq_1/bids/bid_1/counter-offer");
   assert.equal(calls[4].init?.method, "POST");
 
   await client.acceptMarketplaceBid("rfq_1", {
@@ -209,7 +209,7 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
       signature: "sig_accept_1"
     }
   });
-  assert.equal(calls[5].url, "https://api.settld.local/marketplace/rfqs/rfq_1/accept");
+  assert.equal(calls[5].url, "https://api.nooterra.local/marketplace/rfqs/rfq_1/accept");
   assert.equal(calls[5].init?.method, "POST");
   const acceptBody = JSON.parse(String(calls[5].init?.body ?? "{}"));
   assert.equal(acceptBody?.acceptanceSignature?.actingOnBehalfOf?.principalAgentId, "agt_1");
@@ -224,7 +224,7 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
     reason: "scope changed",
     milestones: [{ milestoneId: "draft", releaseRatePct: 50 }]
   });
-  assert.equal(calls[6].url, "https://api.settld.local/runs/run_1/agreement/change-order");
+  assert.equal(calls[6].url, "https://api.nooterra.local/runs/run_1/agreement/change-order");
   assert.equal(calls[6].init?.method, "POST");
   assert.equal(JSON.parse(String(calls[6].init?.body ?? "{}")).acceptedByAgentId, "agt_2");
 
@@ -235,20 +235,20 @@ test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () =>
     reason: "buyer cancelled before start",
     evidenceRef: "evidence://run_1/cancel-note.json"
   });
-  assert.equal(calls[7].url, "https://api.settld.local/runs/run_1/agreement/cancel");
+  assert.equal(calls[7].url, "https://api.nooterra.local/runs/run_1/agreement/cancel");
   assert.equal(calls[7].init?.method, "POST");
   assert.equal(JSON.parse(String(calls[7].init?.body ?? "{}")).acceptedByAgentId, "agt_2");
 
   await client.getRunSettlementPolicyReplay("run_1");
-  assert.equal(calls[8].url, "https://api.settld.local/runs/run_1/settlement/policy-replay");
+  assert.equal(calls[8].url, "https://api.nooterra.local/runs/run_1/settlement/policy-replay");
   assert.equal(calls[8].init?.method, "GET");
 
   await client.getRunAgreement("run_1");
-  assert.equal(calls[9].url, "https://api.settld.local/runs/run_1/agreement");
+  assert.equal(calls[9].url, "https://api.nooterra.local/runs/run_1/agreement");
   assert.equal(calls[9].init?.method, "GET");
 
   await client.resolveRunSettlement("run_1", { status: "released", reason: "manual approve" });
-  assert.equal(calls[10].url, "https://api.settld.local/runs/run_1/settlement/resolve");
+  assert.equal(calls[10].url, "https://api.nooterra.local/runs/run_1/settlement/resolve");
   assert.equal(calls[10].init?.method, "POST");
 });
 
@@ -380,7 +380,7 @@ test("api-sdk: marketplace manual-review settlement and dispute lifecycle remain
     return makeJsonResponse({});
   };
 
-  const client = new SettldClient({ baseUrl: "https://api.settld.local", tenantId: "tenant_sdk", fetch: fetchStub });
+  const client = new NooterraClient({ baseUrl: "https://api.nooterra.local", tenantId: "tenant_sdk", fetch: fetchStub });
 
   const replay = await client.getRunSettlementPolicyReplay("run_manual_1");
   assert.equal(replay.body?.replay?.decision?.shouldAutoResolve, false);
@@ -431,12 +431,12 @@ test("api-sdk: marketplace manual-review settlement and dispute lifecycle remain
   assert.equal(closed.body?.settlement?.disputeStatus, "closed");
   assert.equal(closed.body?.settlement?.disputeResolution?.outcome, "partial");
 
-  assert.equal(calls[0].url, "https://api.settld.local/runs/run_manual_1/settlement/policy-replay");
-  assert.equal(calls[1].url, "https://api.settld.local/runs/run_manual_1/settlement/resolve");
-  assert.equal(calls[2].url, "https://api.settld.local/runs/run_manual_1/dispute/open");
-  assert.equal(calls[3].url, "https://api.settld.local/runs/run_manual_1/dispute/evidence");
-  assert.equal(calls[4].url, "https://api.settld.local/runs/run_manual_1/dispute/escalate");
-  assert.equal(calls[5].url, "https://api.settld.local/runs/run_manual_1/dispute/close");
+  assert.equal(calls[0].url, "https://api.nooterra.local/runs/run_manual_1/settlement/policy-replay");
+  assert.equal(calls[1].url, "https://api.nooterra.local/runs/run_manual_1/settlement/resolve");
+  assert.equal(calls[2].url, "https://api.nooterra.local/runs/run_manual_1/dispute/open");
+  assert.equal(calls[3].url, "https://api.nooterra.local/runs/run_manual_1/dispute/evidence");
+  assert.equal(calls[4].url, "https://api.nooterra.local/runs/run_manual_1/dispute/escalate");
+  assert.equal(calls[5].url, "https://api.nooterra.local/runs/run_manual_1/dispute/close");
 
   assert.equal(calls[0].init?.method, "GET");
   assert.equal(calls[1].init?.method, "POST");

@@ -8,7 +8,7 @@ import zlib from "node:zlib";
 import { unzipToTempSafe } from "../packages/artifact-verify/src/safe-unzip.js";
 
 async function withTempDir(fn) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-zip-test-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-zip-test-"));
   try {
     return await fn(dir);
   } finally {

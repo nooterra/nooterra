@@ -24,7 +24,7 @@ const MINIO_REGION = process.env.ACCEPTANCE_MINIO_REGION ?? "us-east-1";
 const MINIO_BUCKET = process.env.ACCEPTANCE_MINIO_BUCKET ?? "proxy-artifacts";
 const MINIO_ACCESS_KEY_ID = process.env.ACCEPTANCE_MINIO_ACCESS_KEY_ID ?? "proxy";
 const MINIO_SECRET_ACCESS_KEY = process.env.ACCEPTANCE_MINIO_SECRET_ACCESS_KEY ?? "proxysecret";
-const MINIO_PREFIX = process.env.ACCEPTANCE_MINIO_PREFIX ?? "settld/";
+const MINIO_PREFIX = process.env.ACCEPTANCE_MINIO_PREFIX ?? "nooterra/";
 const MINIO_FORCE_PATH_STYLE = process.env.ACCEPTANCE_MINIO_FORCE_PATH_STYLE === "0" ? false : true;
 
 const ART_DIR = process.env.ACCEPTANCE_ARTIFACT_DIR ?? null;
@@ -170,7 +170,7 @@ async function main() {
     const r = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: "/capabilities" }).catch(() => null);
     if (!r || r.status !== 200) return false;
     if (r.json?.protocol?.current !== PROTOCOL) return false;
-    if (r.headers?.get?.("x-settld-protocol") !== PROTOCOL) return false;
+    if (r.headers?.get?.("x-nooterra-protocol") !== PROTOCOL) return false;
     return true;
   });
   await waitFor(async () => {
@@ -182,7 +182,7 @@ async function main() {
     baseUrl: API_BASE_URL,
     method: "POST",
     path: "/ops/api-keys",
-    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-settld-protocol": PROTOCOL },
+    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-nooterra-protocol": PROTOCOL },
     body: { scopes: ["ops_read", "ops_write", "finance_read", "finance_write", "audit_read"] }
   });
   assert.equal(createKey.status, 201, createKey.text);
@@ -192,7 +192,7 @@ async function main() {
     JSON.stringify({ tenantId: TENANT_ID, protocol: PROTOCOL, apiBaseUrl: API_BASE_URL, receiverBaseUrl: RECEIVER_BASE_URL, bearer }, null, 2)
   );
 
-  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-settld-protocol": PROTOCOL };
+  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-nooterra-protocol": PROTOCOL };
 
   // Primitive checks: A2A discovery, agreement delegation CRUD, x402 verification gate.
   {
@@ -313,7 +313,7 @@ async function main() {
           ...process.env,
           PORT: String(upstreamPort),
           BIND_HOST: "127.0.0.1",
-          SETTLD_PAY_KEYSET_URL: `${API_BASE_URL}/.well-known/settld-keys.json`
+          NOOTERRA_PAY_KEYSET_URL: `${API_BASE_URL}/.well-known/nooterra-keys.json`
         }
       });
       services.push(upstream);
@@ -328,8 +328,8 @@ async function main() {
           ...process.env,
           PORT: String(gatewayPort),
           BIND_HOST: "127.0.0.1",
-          SETTLD_API_URL: API_BASE_URL,
-          SETTLD_API_KEY: apiKeyForGateway,
+          NOOTERRA_API_URL: API_BASE_URL,
+          NOOTERRA_API_KEY: apiKeyForGateway,
           UPSTREAM_URL: upstreamUrl,
           X402_AUTOFUND: "1"
         }
@@ -347,17 +347,17 @@ async function main() {
         headers: { "x-proxy-tenant-id": TENANT_ID }
       });
       assert.equal(first.status, 402, first.text);
-      const gateId = String(first.headers.get("x-settld-gate-id") ?? "").trim();
-      assert.ok(gateId, "gateway response missing x-settld-gate-id");
+      const gateId = String(first.headers.get("x-nooterra-gate-id") ?? "").trim();
+      assert.ok(gateId, "gateway response missing x-nooterra-gate-id");
 
       const paid = await httpJson({
         baseUrl: gatewayUrl,
         method: "GET",
         path: "/exa/search?q=acceptance+gateway+smoke",
-        headers: { "x-proxy-tenant-id": TENANT_ID, "x-settld-gate-id": gateId }
+        headers: { "x-proxy-tenant-id": TENANT_ID, "x-nooterra-gate-id": gateId }
       });
       assert.equal(paid.status, 200, paid.text);
-      const settlementStatus = String(paid.headers.get("x-settld-settlement-status") ?? "").toLowerCase();
+      const settlementStatus = String(paid.headers.get("x-nooterra-settlement-status") ?? "").toLowerCase();
       assert.ok(settlementStatus === "released" || settlementStatus === "resolved", `unexpected settlement status: ${settlementStatus}`);
 
       const gate = await httpJson({
@@ -380,7 +380,7 @@ async function main() {
             gateId,
             firstStatus: first.status,
             paidStatus: paid.status,
-            settlementStatus: paid.headers.get("x-settld-settlement-status") ?? null
+            settlementStatus: paid.headers.get("x-nooterra-settlement-status") ?? null
           },
           null,
           2
@@ -557,8 +557,26 @@ async function main() {
     throw new Error(`failed to append robot event ${type} after retry`);
   }
 
-  await postServerJobEvent("MATCHED", { robotId }, `m_${jobId}`);
-  await postServerJobEvent("RESERVED", { robotId, startAt: bookingStartAt, endAt: bookingEndAt, reservationId: `rsv_${jobId}` }, `r_${jobId}`);
+  // Dispatch transitions can be advanced by server-side flows (or prior idempotent events).
+  // Acceptance should be robust: only append transitions that are valid for the current job status.
+  let dispatchStatus = String(book.json?.job?.status ?? "").trim().toUpperCase();
+  if (!dispatchStatus) {
+    const latest = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: `/jobs/${jobId}/events`, headers: headersBase });
+    const events = Array.isArray(latest.json?.events) ? latest.json.events : [];
+    dispatchStatus = String(events.length ? events[events.length - 1]?.jobStatusAfter ?? "" : "").trim().toUpperCase();
+  }
+  if (!dispatchStatus) throw new Error("acceptance: dispatch status is missing after booking");
+  if (!["BOOKED", "MATCHED", "RESERVED", "EN_ROUTE", "ACCESS_GRANTED", "EXECUTING", "ASSISTED", "COMPLETED", "ABORTED"].includes(dispatchStatus)) {
+    throw new Error(`acceptance: unexpected dispatch status after booking: ${dispatchStatus}`);
+  }
+  if (dispatchStatus === "BOOKED") {
+    await postServerJobEvent("MATCHED", { robotId }, `m_${jobId}`);
+    dispatchStatus = "MATCHED";
+  }
+  if (dispatchStatus === "MATCHED") {
+    await postServerJobEvent("RESERVED", { robotId, startAt: bookingStartAt, endAt: bookingEndAt, reservationId: `rsv_${jobId}` }, `r_${jobId}`);
+    dispatchStatus = "RESERVED";
+  }
 
   const accessPlanId = `ap_${jobId}`;
   const nowIso = new Date().toISOString();
@@ -657,10 +675,10 @@ async function main() {
 
   // Also run verifier CLI on the exact stored bytes (ga-style smoke test).
   if (storedFp) {
-    const cli = spawnSync("node", ["packages/artifact-verify/bin/settld-verify.js", storedFp], { encoding: "utf8" });
-    await writeArtifactFile("settld-verify.stdout.txt", cli.stdout ?? "");
-    await writeArtifactFile("settld-verify.stderr.txt", cli.stderr ?? "");
-    assert.equal(cli.status, 0, `settld-verify failed: ${cli.stderr ?? cli.stdout ?? ""}`.trim());
+    const cli = spawnSync("node", ["packages/artifact-verify/bin/nooterra-verify.js", storedFp], { encoding: "utf8" });
+    await writeArtifactFile("nooterra-verify.stdout.txt", cli.stdout ?? "");
+    await writeArtifactFile("nooterra-verify.stderr.txt", cli.stderr ?? "");
+    assert.equal(cli.status, 0, `nooterra-verify failed: ${cli.stderr ?? cli.stdout ?? ""}`.trim());
   }
 
   // Month close: request and wait until closed with a statement artifact.
@@ -716,7 +734,7 @@ async function main() {
   assert.ok(status.json?.maintenance?.retentionCleanup?.at ?? null);
 
   // Basic protocol headers are present on responses.
-  assert.equal(status.headers.get("x-settld-protocol"), PROTOCOL);
+  assert.equal(status.headers.get("x-nooterra-protocol"), PROTOCOL);
 
   // Receiver readiness endpoint is alive.
   const rdy = await httpJson({ baseUrl: RECEIVER_BASE_URL, method: "GET", path: "/health" });

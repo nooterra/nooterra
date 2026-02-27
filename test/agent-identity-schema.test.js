@@ -24,7 +24,7 @@ test("AgentIdentity.v1 schema validates canonical shape", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/AgentIdentity.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/AgentIdentity.v1.schema.json");
   assert.ok(validate);
 
   const valid = {

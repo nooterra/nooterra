@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
 import {
-  SettldWebhookNoMatchingSignatureError,
-  SettldWebhookSignatureHeaderError,
-  SettldWebhookTimestampToleranceError,
-  verifySettldWebhookSignature
+  NooterraWebhookNoMatchingSignatureError,
+  NooterraWebhookSignatureHeaderError,
+  NooterraWebhookTimestampToleranceError,
+  verifyNooterraWebhookSignature
 } from "../packages/api-sdk/src/index.js";
 
 function sign(secret, timestamp, rawBody) {
@@ -23,7 +23,7 @@ test("api-sdk webhook verifier: verifies legacy signature header using external 
   const timestamp = "2026-02-19T22:00:00.000Z";
   const signature = sign(secret, timestamp, rawBody);
 
-  const ok = verifySettldWebhookSignature(rawBody, signature, secret, {
+  const ok = verifyNooterraWebhookSignature(rawBody, signature, secret, {
     timestamp,
     toleranceSeconds: 300,
     nowMs: Date.parse("2026-02-19T22:04:30.000Z")
@@ -39,7 +39,7 @@ test("api-sdk webhook verifier: verifies multi-signature header with embedded ti
   const bad = sign("whsec_other", timestamp, rawBody);
   const signatureHeader = `t=${timestamp},v1=${bad},v1=${good}`;
 
-  const ok = verifySettldWebhookSignature(rawBody, signatureHeader, secret, {
+  const ok = verifyNooterraWebhookSignature(rawBody, signatureHeader, secret, {
     toleranceSeconds: 300,
     nowMs: Date.parse("2026-02-19T22:10:05.000Z")
   });
@@ -53,7 +53,7 @@ test("api-sdk webhook verifier: accepts ArrayBuffer raw body", () => {
   const signature = sign(secret, timestamp, rawBody);
   const arrayBufferBody = rawBody.buffer.slice(rawBody.byteOffset, rawBody.byteOffset + rawBody.byteLength);
 
-  const ok = verifySettldWebhookSignature(arrayBufferBody, signature, secret, {
+  const ok = verifyNooterraWebhookSignature(arrayBufferBody, signature, secret, {
     timestamp,
     toleranceSeconds: 300,
     nowMs: Date.parse("2026-02-19T22:10:05.000Z")
@@ -70,11 +70,11 @@ test("api-sdk webhook verifier: rejects stale signatures outside tolerance", () 
 
   assert.throws(
     () =>
-      verifySettldWebhookSignature(rawBody, signatureHeader, secret, {
+      verifyNooterraWebhookSignature(rawBody, signatureHeader, secret, {
         toleranceSeconds: 60,
         nowMs: Date.parse("2026-02-19T22:12:30.000Z")
       }),
-    SettldWebhookTimestampToleranceError
+    NooterraWebhookTimestampToleranceError
   );
 });
 
@@ -86,11 +86,11 @@ test("api-sdk webhook verifier: rejects unmatched signatures", () => {
 
   assert.throws(
     () =>
-      verifySettldWebhookSignature(rawBody, signatureHeader, secret, {
+      verifyNooterraWebhookSignature(rawBody, signatureHeader, secret, {
         toleranceSeconds: 300,
         nowMs: Date.parse("2026-02-19T22:10:10.000Z")
       }),
-    SettldWebhookNoMatchingSignatureError
+    NooterraWebhookNoMatchingSignatureError
   );
 });
 
@@ -99,5 +99,5 @@ test("api-sdk webhook verifier: rejects missing timestamp when not provided exte
   const rawBody = "{\"event\":\"x402.escalation.created\"}";
   const signatureHeader = sign(secret, "2026-02-19T22:10:00.000Z", rawBody);
 
-  assert.throws(() => verifySettldWebhookSignature(rawBody, signatureHeader, secret, 300), SettldWebhookSignatureHeaderError);
+  assert.throws(() => verifyNooterraWebhookSignature(rawBody, signatureHeader, secret, 300), NooterraWebhookSignatureHeaderError);
 });

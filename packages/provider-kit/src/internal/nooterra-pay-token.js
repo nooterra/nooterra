@@ -1,0 +1,327 @@
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
+import { keyIdFromPublicKeyPem, sha256Hex, signHashHexEd25519, verifyHashHexEd25519 } from "./crypto.js";
+import { keyMapFromNooterraKeyset } from "./nooterra-keys.js";
+
+export const NOOTERRA_PAY_TOKEN_VERSION = 1;
+
+function assertNonEmptyString(value, name) {
+  if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
+  return String(value).trim();
+}
+
+function normalizeCurrency(value, name) {
+  const raw = typeof value === "string" && value.trim() !== "" ? value : "USD";
+  const out = raw.trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]{2,11}$/.test(out)) throw new TypeError(`${name} must match ^[A-Z][A-Z0-9_]{2,11}$`);
+  return out;
+}
+
+function normalizePositiveSafeInt(value, name) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n <= 0) throw new TypeError(`${name} must be a positive safe integer`);
+  return n;
+}
+
+function normalizeUnixSeconds(value, name) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n <= 0) throw new TypeError(`${name} must be a positive safe integer unix timestamp`);
+  return n;
+}
+
+function normalizeHexHash(value, name) {
+  const s = assertNonEmptyString(value, name).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(s)) throw new TypeError(`${name} must be a 64-hex sha256`);
+  return s;
+}
+
+function normalizeOptionalHexHash(value, name) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return normalizeHexHash(value, name);
+}
+
+function normalizeOptionalRequestBindingMode(value, name) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const mode = String(value).trim().toLowerCase();
+  if (mode !== "strict") throw new TypeError(`${name} must be strict when provided`);
+  return mode;
+}
+
+function normalizeOptionalId(value, name, { max = 200 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const out = String(value).trim();
+  if (out.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+  if (!/^[A-Za-z0-9:_-]+$/.test(out)) throw new TypeError(`${name} must match ^[A-Za-z0-9:_-]+$`);
+  return out;
+}
+
+function normalizeOptionalString(value, name, { max = 256 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const out = String(value).trim();
+  if (out.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+  return out;
+}
+
+function normalizeOptionalPositiveSafeInt(value, name) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return normalizePositiveSafeInt(value, name);
+}
+
+function decodeEnvelope(token) {
+  const raw = assertNonEmptyString(token, "token");
+  let decoded = null;
+  try {
+    decoded = Buffer.from(raw, "base64url").toString("utf8");
+  } catch (err) {
+    throw new TypeError(`token is not valid base64url: ${err?.message ?? String(err ?? "")}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch (err) {
+    throw new TypeError(`token is not valid JSON envelope: ${err?.message ?? String(err ?? "")}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new TypeError("token envelope must be an object");
+  if (Number(parsed.v) !== NOOTERRA_PAY_TOKEN_VERSION) throw new TypeError(`token envelope version must be ${NOOTERRA_PAY_TOKEN_VERSION}`);
+  const kid = assertNonEmptyString(parsed.kid, "token.kid");
+  if (!parsed.payload || typeof parsed.payload !== "object" || Array.isArray(parsed.payload)) {
+    throw new TypeError("token.payload must be an object");
+  }
+  const sig = assertNonEmptyString(parsed.sig, "token.sig");
+  return { envelope: parsed, kid, payload: parsed.payload, sig };
+}
+
+export function buildNooterraPayPayloadV1({
+  iss = "nooterra",
+  aud,
+  gateId,
+  authorizationRef,
+  amountCents,
+  currency = "USD",
+  payeeProviderId,
+  requestBindingMode = null,
+  requestBindingSha256 = null,
+  quoteId = null,
+  quoteSha256 = null,
+  idempotencyKey = null,
+  nonce = null,
+  sponsorRef = null,
+  sponsorWalletRef = null,
+  agentKeyId = null,
+  delegationRef = null,
+  policyVersion = null,
+  policyFingerprint = null,
+  spendAuthorizationVersion = null,
+  iat,
+  exp
+} = {}) {
+  const normalizedIat = normalizeUnixSeconds(iat, "iat");
+  const normalizedExp = normalizeUnixSeconds(exp, "exp");
+  if (normalizedExp <= normalizedIat) throw new TypeError("exp must be greater than iat");
+  const normalizedRequestBindingSha256 = normalizeOptionalHexHash(requestBindingSha256, "requestBindingSha256");
+  const normalizedRequestBindingMode =
+    normalizeOptionalRequestBindingMode(requestBindingMode, "requestBindingMode") ??
+    (normalizedRequestBindingSha256 ? "strict" : null);
+  if (normalizedRequestBindingMode === "strict" && !normalizedRequestBindingSha256) {
+    throw new TypeError("requestBindingSha256 is required when requestBindingMode=strict");
+  }
+  const normalizedQuoteId = normalizeOptionalId(quoteId, "quoteId", { max: 200 });
+  const normalizedQuoteSha256 = normalizeOptionalHexHash(quoteSha256, "quoteSha256");
+  const normalizedIdempotencyKey = normalizeOptionalString(idempotencyKey, "idempotencyKey", { max: 256 });
+  const normalizedNonce = normalizeOptionalString(nonce, "nonce", { max: 256 });
+  const normalizedSponsorRef = normalizeOptionalId(sponsorRef, "sponsorRef", { max: 200 });
+  const normalizedSponsorWalletRef = normalizeOptionalId(sponsorWalletRef, "sponsorWalletRef", { max: 200 });
+  const normalizedAgentKeyId = normalizeOptionalId(agentKeyId, "agentKeyId", { max: 200 });
+  const normalizedDelegationRef = normalizeOptionalId(delegationRef, "delegationRef", { max: 200 });
+  const normalizedPolicyVersion = normalizeOptionalPositiveSafeInt(policyVersion, "policyVersion");
+  const normalizedPolicyFingerprint = normalizeOptionalHexHash(policyFingerprint, "policyFingerprint");
+  const normalizedSpendAuthorizationVersion = normalizeOptionalString(spendAuthorizationVersion, "spendAuthorizationVersion", {
+    max: 64
+  });
+  const hasSpendAuthorizationClaims =
+    normalizedQuoteId !== null ||
+    normalizedQuoteSha256 !== null ||
+    normalizedIdempotencyKey !== null ||
+    normalizedNonce !== null ||
+    normalizedSponsorRef !== null ||
+    normalizedSponsorWalletRef !== null ||
+    normalizedAgentKeyId !== null ||
+    normalizedDelegationRef !== null ||
+    normalizedPolicyVersion !== null ||
+    normalizedPolicyFingerprint !== null ||
+    normalizedSpendAuthorizationVersion !== null;
+  const spendAuthorizationVersionOut = hasSpendAuthorizationClaims
+    ? normalizedSpendAuthorizationVersion ?? "SpendAuthorization.v1"
+    : null;
+
+  return normalizeForCanonicalJson(
+    {
+      iss: assertNonEmptyString(iss, "iss"),
+      aud: assertNonEmptyString(aud, "aud"),
+      gateId: assertNonEmptyString(gateId, "gateId"),
+      authorizationRef: assertNonEmptyString(authorizationRef, "authorizationRef"),
+      amountCents: normalizePositiveSafeInt(amountCents, "amountCents"),
+      currency: normalizeCurrency(currency, "currency"),
+      payeeProviderId: assertNonEmptyString(payeeProviderId, "payeeProviderId"),
+      ...(normalizedRequestBindingMode ? { requestBindingMode: normalizedRequestBindingMode } : {}),
+      ...(normalizedRequestBindingSha256 ? { requestBindingSha256: normalizedRequestBindingSha256 } : {}),
+      ...(normalizedQuoteId ? { quoteId: normalizedQuoteId } : {}),
+      ...(normalizedQuoteSha256 ? { quoteSha256: normalizedQuoteSha256 } : {}),
+      ...(normalizedIdempotencyKey ? { idempotencyKey: normalizedIdempotencyKey } : {}),
+      ...(normalizedNonce ? { nonce: normalizedNonce } : {}),
+      ...(normalizedSponsorRef ? { sponsorRef: normalizedSponsorRef } : {}),
+      ...(normalizedSponsorWalletRef ? { sponsorWalletRef: normalizedSponsorWalletRef } : {}),
+      ...(normalizedAgentKeyId ? { agentKeyId: normalizedAgentKeyId } : {}),
+      ...(normalizedDelegationRef ? { delegationRef: normalizedDelegationRef } : {}),
+      ...(normalizedPolicyVersion ? { policyVersion: normalizedPolicyVersion } : {}),
+      ...(normalizedPolicyFingerprint ? { policyFingerprint: normalizedPolicyFingerprint } : {}),
+      ...(spendAuthorizationVersionOut ? { spendAuthorizationVersion: spendAuthorizationVersionOut } : {}),
+      iat: normalizedIat,
+      exp: normalizedExp
+    },
+    { path: "$" }
+  );
+}
+
+export function computeNooterraPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256 } = {}) {
+  const normalizedMethod = assertNonEmptyString(method, "method").toUpperCase();
+  const normalizedHost = assertNonEmptyString(host, "host").toLowerCase();
+  const normalizedPathWithQuery = assertNonEmptyString(pathWithQuery, "pathWithQuery");
+  if (!normalizedPathWithQuery.startsWith("/")) {
+    throw new TypeError("pathWithQuery must start with /");
+  }
+  const normalizedBodySha256 = normalizeHexHash(bodySha256, "bodySha256");
+  return sha256Hex(`${normalizedMethod}\n${normalizedHost}\n${normalizedPathWithQuery}\n${normalizedBodySha256}`);
+}
+
+export function computeNooterraPayPayloadHashV1(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new TypeError("payload must be an object");
+  return sha256Hex(canonicalJsonStringify(payload));
+}
+
+export function computeNooterraPayTokenSha256(token) {
+  return sha256Hex(assertNonEmptyString(token, "token"));
+}
+
+export function mintNooterraPayTokenV1({ payload, keyId = null, publicKeyPem = null, privateKeyPem } = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new TypeError("payload must be an object");
+  const normalizedPayload = normalizeForCanonicalJson(payload, { path: "$" });
+  const privatePem = assertNonEmptyString(privateKeyPem, "privateKeyPem");
+  const publicPem = (() => {
+    if (publicKeyPem === null || publicKeyPem === undefined) return null;
+    if (typeof publicKeyPem !== "string" || publicKeyPem.trim() === "") throw new TypeError("publicKeyPem must be a non-empty string");
+    return publicKeyPem;
+  })();
+  const derivedKeyId = publicPem ? keyIdFromPublicKeyPem(publicPem) : null;
+  const normalizedKeyId = keyId === null || keyId === undefined || String(keyId).trim() === "" ? derivedKeyId : String(keyId).trim();
+  if (!normalizedKeyId) throw new TypeError("keyId is required (or provide publicKeyPem)");
+  if (derivedKeyId && normalizedKeyId !== derivedKeyId) throw new TypeError("keyId does not match publicKeyPem");
+
+  const payloadHashHex = computeNooterraPayPayloadHashV1(normalizedPayload);
+  const signatureBase64 = signHashHexEd25519(payloadHashHex, privatePem);
+  const envelope = normalizeForCanonicalJson(
+    {
+      v: NOOTERRA_PAY_TOKEN_VERSION,
+      kid: normalizedKeyId,
+      payload: normalizedPayload,
+      sig: Buffer.from(signatureBase64, "base64").toString("base64url")
+    },
+    { path: "$" }
+  );
+  const token = Buffer.from(canonicalJsonStringify(envelope), "utf8").toString("base64url");
+  return {
+    token,
+    envelope,
+    kid: normalizedKeyId,
+    payloadHashHex,
+    tokenSha256: computeNooterraPayTokenSha256(token)
+  };
+}
+
+export function parseNooterraPayTokenV1(token) {
+  const { envelope, kid, payload, sig } = decodeEnvelope(token);
+  return { envelope, kid, payload, sig };
+}
+
+export function verifyNooterraPayTokenV1({
+  token,
+  keyset,
+  nowUnixSeconds = Math.floor(Date.now() / 1000),
+  expectedAudience = null,
+  expectedPayeeProviderId = null,
+  expectedRequestBindingSha256 = null
+} = {}) {
+  const { envelope, kid, payload, sig } = decodeEnvelope(token);
+  const keyMap = keyMapFromNooterraKeyset(keyset);
+  const keyEntry = keyMap.get(kid) ?? null;
+  if (!keyEntry?.publicKeyPem) return { ok: false, code: "NOOTERRA_PAY_UNKNOWN_KID", kid };
+
+  const payloadHashHex = computeNooterraPayPayloadHashV1(payload);
+  const signatureBase64 = (() => {
+    try {
+      return Buffer.from(sig, "base64url").toString("base64");
+    } catch {
+      return null;
+    }
+  })();
+  if (!signatureBase64) return { ok: false, code: "NOOTERRA_PAY_SIGNATURE_INVALID", kid };
+
+  let signatureValid = false;
+  try {
+    signatureValid = verifyHashHexEd25519({ hashHex: payloadHashHex, signatureBase64, publicKeyPem: keyEntry.publicKeyPem });
+  } catch {
+    signatureValid = false;
+  }
+  if (!signatureValid) return { ok: false, code: "NOOTERRA_PAY_SIGNATURE_INVALID", kid };
+
+  let normalizedPayload;
+  try {
+    normalizedPayload = buildNooterraPayPayloadV1(payload);
+  } catch (err) {
+    return { ok: false, code: "NOOTERRA_PAY_PAYLOAD_INVALID", kid, message: err?.message ?? String(err ?? "") };
+  }
+
+  const nowSec = normalizeUnixSeconds(nowUnixSeconds, "nowUnixSeconds");
+  if (nowSec > Number(normalizedPayload.exp)) return { ok: false, code: "NOOTERRA_PAY_EXPIRED", kid, payload: normalizedPayload };
+  if (expectedAudience !== null && expectedAudience !== undefined && String(expectedAudience) !== String(normalizedPayload.aud)) {
+    return { ok: false, code: "NOOTERRA_PAY_AUDIENCE_MISMATCH", kid, payload: normalizedPayload };
+  }
+  if (
+    expectedPayeeProviderId !== null &&
+    expectedPayeeProviderId !== undefined &&
+    String(expectedPayeeProviderId) !== String(normalizedPayload.payeeProviderId)
+  ) {
+    return { ok: false, code: "NOOTERRA_PAY_PAYEE_MISMATCH", kid, payload: normalizedPayload };
+  }
+
+  const expectedRequestBinding =
+    expectedRequestBindingSha256 === null || expectedRequestBindingSha256 === undefined || String(expectedRequestBindingSha256).trim() === ""
+      ? null
+      : normalizeHexHash(expectedRequestBindingSha256, "expectedRequestBindingSha256");
+  const payloadRequestBindingMode =
+    typeof normalizedPayload.requestBindingMode === "string" ? String(normalizedPayload.requestBindingMode).trim().toLowerCase() : null;
+  const payloadRequestBindingSha256 =
+    typeof normalizedPayload.requestBindingSha256 === "string" ? String(normalizedPayload.requestBindingSha256).trim().toLowerCase() : null;
+  if (payloadRequestBindingMode === "strict") {
+    if (!payloadRequestBindingSha256 || !/^[0-9a-f]{64}$/.test(payloadRequestBindingSha256)) {
+      return { ok: false, code: "NOOTERRA_PAY_REQUEST_BINDING_MISSING", kid, payload: normalizedPayload };
+    }
+    if (!expectedRequestBinding) {
+      return { ok: false, code: "NOOTERRA_PAY_REQUEST_BINDING_REQUIRED", kid, payload: normalizedPayload };
+    }
+    if (payloadRequestBindingSha256 !== expectedRequestBinding) {
+      return { ok: false, code: "NOOTERRA_PAY_REQUEST_BINDING_MISMATCH", kid, payload: normalizedPayload };
+    }
+  } else if (expectedRequestBinding && payloadRequestBindingSha256 && payloadRequestBindingSha256 !== expectedRequestBinding) {
+    return { ok: false, code: "NOOTERRA_PAY_REQUEST_BINDING_MISMATCH", kid, payload: normalizedPayload };
+  }
+
+  return {
+    ok: true,
+    kid,
+    payload: normalizedPayload,
+    envelope,
+    payloadHashHex: normalizeHexHash(payloadHashHex, "payloadHashHex"),
+    tokenSha256: computeNooterraPayTokenSha256(token),
+    key: keyEntry
+  };
+}

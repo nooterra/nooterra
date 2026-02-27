@@ -1,13 +1,13 @@
-# Settld overview
+# Nooterra overview
 
-Settld (as shipped in this repo) is **two products** that deliberately share the same “truth engine”:
+Nooterra (as shipped in this repo) is **two products** that deliberately share the same “truth engine”:
 
-1. **Settld Protocol (open)**: a cryptographically verifiable artifact protocol (bundles + manifests + attestations + receipts) that can be verified offline by someone who does not trust the producer.
-2. **Settld Verify Cloud (commercial)**: a hosted workflow controller (“Magic Link”) that runs the same verifier server-side and turns verifiable artifacts into approvals, inbox views, exports, and automation hooks.
+1. **Nooterra Protocol (open)**: a cryptographically verifiable artifact protocol (bundles + manifests + attestations + receipts) that can be verified offline by someone who does not trust the producer.
+2. **Nooterra Verify Cloud (commercial)**: a hosted workflow controller (“Magic Link”) that runs the same verifier server-side and turns verifiable artifacts into approvals, inbox views, exports, and automation hooks.
 
 The core design principle is: the hosted product must never be “the only judge.” Everything it shows should be reproducible offline using the open verifier + explicit trust anchors.
 
-## What Settld solves
+## What Nooterra solves
 
 Delegated autonomous work (agents, automation services, and human-assisted workflows) produces disputes because evidence is messy and non-portable:
 
@@ -15,7 +15,7 @@ Delegated autonomous work (agents, automation services, and human-assisted workf
 - “We’re withholding payment until evidence and settlement terms are clear.”
 - “SLA breach—show deterministic evidence and evaluation outputs.”
 
-Settld makes the invoice and its evidence a self-contained, verifiable bundle:
+Nooterra makes the invoice and its evidence a self-contained, verifiable bundle:
 
 - Evidence artifacts are committed by hashes (integrity).
 - Pricing terms can be buyer-approved by signature (authorization over terms).
@@ -66,10 +66,10 @@ These are “directory-level protocols” with distinct manifest rules and verif
 
 ## Toolchain CLIs
 
-- `settld-produce`: deterministic bundle production (JobProof/MonthProof/FinancePack/InvoiceBundle/ClosePack).
-- `settld-verify`: bundle verification (strict/compat), emits deterministic JSON output.
-- `settld-release`: release authenticity verification for distribution artifacts.
-- `settld-trust`: bootstrap trust materials for local testing/dev flows.
+- `nooterra-produce`: deterministic bundle production (JobProof/MonthProof/FinancePack/InvoiceBundle/ClosePack).
+- `nooterra-verify`: bundle verification (strict/compat), emits deterministic JSON output.
+- `nooterra-release`: release authenticity verification for distribution artifacts.
+- `nooterra-trust`: bootstrap trust materials for local testing/dev flows.
 
 ## Verify Cloud (Magic Link)
 
@@ -102,21 +102,21 @@ Protocol and conformance:
 
 - `npm test`
 - `node scripts/fixtures/generate-bundle-fixtures.mjs`
-- `node conformance/v1/run.mjs --node-bin packages/artifact-verify/bin/settld-verify.js`
+- `node conformance/v1/run.mjs --node-bin packages/artifact-verify/bin/nooterra-verify.js`
 
 Local verify examples:
 
-- `node packages/artifact-verify/bin/settld-verify.js --about --format json`
-- `node packages/artifact-verify/bin/settld-verify.js --strict --format json --invoice-bundle <dir>`
-- `node packages/artifact-verify/bin/settld-verify.js --strict --format json --close-pack <dir>`
+- `node packages/artifact-verify/bin/nooterra-verify.js --about --format json`
+- `node packages/artifact-verify/bin/nooterra-verify.js --strict --format json --invoice-bundle <dir>`
+- `node packages/artifact-verify/bin/nooterra-verify.js --strict --format json --close-pack <dir>`
 
 Run Verify Cloud locally:
 
-- `MAGIC_LINK_API_KEY=dev_key MAGIC_LINK_DATA_DIR=/tmp/settld-magic-link MAGIC_LINK_PORT=8787 node services/magic-link/src/server.js`
+- `MAGIC_LINK_API_KEY=dev_key MAGIC_LINK_DATA_DIR=/tmp/nooterra-magic-link MAGIC_LINK_PORT=8787 node services/magic-link/src/server.js`
 
 Upload a bundle zip:
 
-- `node packages/magic-link-cli/bin/settld-magic-link.js upload <path-to-zip> --url http://localhost:8787 --mode auto --tenant <tenant>`
+- `node packages/magic-link-cli/bin/nooterra-magic-link.js upload <path-to-zip> --url http://localhost:8787 --mode auto --tenant <tenant>`
 
 ## Gotchas that surprise new engineers
 
@@ -139,7 +139,7 @@ Goal: understand the “truth engine,” then the hosted controller.
 4. `docs/spec/STRICTNESS.md`
 5. `docs/spec/VerifyCliOutput.v1.md`
 6. `conformance/v1/README.md`
-7. `packages/artifact-verify/bin/settld-verify.js`
+7. `packages/artifact-verify/bin/nooterra-verify.js`
 8. `packages/artifact-verify/src/invoice-bundle.js`
 9. `packages/artifact-verify/src/safe-unzip.js`
 10. `services/magic-link/README.md`
@@ -184,7 +184,7 @@ Goal: how do I generate bundles and integrate?
 4. `docs/spec/InvoiceClaim.v1.md`
 5. `docs/spec/PricingMatrix.v1.md`
 6. `docs/spec/MeteringReport.v1.md`
-7. `packages/artifact-produce/bin/settld-produce.js`
+7. `packages/artifact-produce/bin/nooterra-produce.js`
 8. `src/core/invoice-bundle.js`
-9. `packages/magic-link-cli/bin/settld-magic-link.js`
+9. `packages/magic-link-cli/bin/nooterra-magic-link.js`
 10. `docs/pilot-kit/README.md`

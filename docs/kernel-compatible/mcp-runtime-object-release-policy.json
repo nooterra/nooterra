@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "NooterraMcpRuntimeObjectReleasePolicy.v1",
+  "policyId": "nooterra-mcp-runtime-object-release-policy",
+  "updatedAt": "2026-02-27T00:00:00.000Z",
+  "runtime": {
+    "node": {
+      "minimumMajor": 20,
+      "maximumMajor": null
+    }
+  },
+  "objectRelease": {
+    "hostConfigSetupSummarySchemaVersion": "NooterraHostConfigSetupResult.v1",
+    "requiredServerCommand": "npx",
+    "requiredServerArgs": [
+      "-y",
+      "--package",
+      "nooterra",
+      "nooterra-mcp"
+    ],
+    "requiredServerEnvKeys": [
+      "NOOTERRA_API_KEY",
+      "NOOTERRA_BASE_URL",
+      "NOOTERRA_PAID_TOOLS_AGENT_PASSPORT",
+      "NOOTERRA_PAID_TOOLS_BASE_URL",
+      "NOOTERRA_TENANT_ID"
+    ],
+    "expectedHostKeyPaths": {
+      "nooterra": "mcpServers.nooterra",
+      "claude": "mcpServers.nooterra",
+      "cursor": "mcpServers.nooterra",
+      "openclaw": "root"
+    }
+  },
+  "hosts": [
+    {
+      "host": "nooterra",
+      "enabled": true
+    },
+    {
+      "host": "claude",
+      "enabled": true
+    },
+    {
+      "host": "cursor",
+      "enabled": true
+    },
+    {
+      "host": "openclaw",
+      "enabled": true
+    }
+  ]
+}

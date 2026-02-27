@@ -26,7 +26,7 @@ function keyIdFromPublicKeyPem(publicKeyPem) {
 }
 
 test("ReleaseIndex.v1 generation is deterministic and signature+hash verification detects tamper", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-index-test-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-index-test-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   // Create a tiny fake “release assets dir”.
@@ -61,8 +61,8 @@ test("ReleaseIndex.v1 generation is deterministic and signature+hash verificatio
   const keypair = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/keys/ed25519_test_keypair.json"), "utf8"));
   assert.equal(typeof keypair.privateKeyPem, "string");
 
-  process.env.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM = keypair.privateKeyPem;
-  sh(process.execPath, ["scripts/release/sign-release-index.mjs", "--index", idx1, "--out", path.join(tmp, "release_index_v1.sig"), "--private-key-env", "SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM"]);
+  process.env.NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM = keypair.privateKeyPem;
+  sh(process.execPath, ["scripts/release/sign-release-index.mjs", "--index", idx1, "--out", path.join(tmp, "release_index_v1.sig"), "--private-key-env", "NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM"]);
 
   // Trust file for the test keypair.
   const trustPath = path.join(tmp, "release-trust.json");

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/EvidenceIndex.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/EvidenceIndex.v1.schema.json",
   "title": "EvidenceIndex.v1",
   "type": "object",
   "required": ["schemaVersion", "generatedAt", "jobProof", "items"],

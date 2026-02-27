@@ -1,13 +1,13 @@
 const rawDocsBase =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_DOCS_BASE_URL
     ? String(import.meta.env.VITE_DOCS_BASE_URL).trim()
-    : "https://docs.settld.work";
+    : "https://docs.nooterra.work";
 
 export const docsBaseUrl = rawDocsBase.replace(/\/+$/, "");
 const rawGithubRepo =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_GITHUB_REPO_URL
     ? String(import.meta.env.VITE_GITHUB_REPO_URL).trim()
-    : "https://github.com/aidenlippert/settld";
+    : "https://github.com/nooterra/nooterra";
 
 export const ossLinks = {
   repo: rawGithubRepo.replace(/\/+$/, ""),

@@ -1,7 +1,7 @@
 # OpenClaw SOTA Onboarding Sprint Plan
 
 ## Objective
-Build the most advanced but simplest onboarding path: one command to connect OpenClaw + wallet + Settld trust layer, with deterministic proof and enterprise controls.
+Build the most advanced but simplest onboarding path: one command to connect OpenClaw + wallet + Nooterra trust layer, with deterministic proof and enterprise controls.
 
 ## Milestones
 - M1: Contracts and readiness baseline complete (end of S1)

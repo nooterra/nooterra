@@ -1,6 +1,6 @@
 # Summary
 
-- [Settld Docs](README.md)
+- [Nooterra Docs](README.md)
 - [Quickstart](quickstart.md)
 - [Core Primitives](core-primitives.md)
 - [API Reference](api-reference.md)

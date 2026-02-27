@@ -172,7 +172,7 @@ export async function sendSmtpMail({
   const greet = await readReply(reader);
   if (greet.code !== 220) throw new Error(`smtp bad greeting: ${greet.code}`);
 
-  const ehlo = async () => await sendCmd(socket, reader, `EHLO settld`, 250);
+  const ehlo = async () => await sendCmd(socket, reader, `EHLO nooterra`, 250);
   let ehloReply = await ehlo();
 
   const supportsStarttls = ehloReply.lines.some((l) => /STARTTLS/i.test(l));

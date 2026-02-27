@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NAME="${KIND_CLUSTER_NAME:-settld-magic-link}"
+NAME="${KIND_CLUSTER_NAME:-nooterra-magic-link}"
 NAMESPACE="${MAGIC_LINK_NAMESPACE:-magic-link-demo}"
 RELEASE="${MAGIC_LINK_HELM_RELEASE:-magic-link}"
 PORT_LOCAL="${MAGIC_LINK_LOCAL_PORT:-8787}"
@@ -24,9 +24,9 @@ if ! kind get clusters | grep -qx "${NAME}"; then
   kind create cluster --name "${NAME}"
 fi
 
-echo "building docker image settld:kind (this may take a minute)..."
-docker build -t settld:kind --build-arg SETTLD_VERSION=kind --build-arg GIT_SHA=kind .
-kind load docker-image --name "${NAME}" settld:kind
+echo "building docker image nooterra:kind (this may take a minute)..."
+docker build -t nooterra:kind --build-arg NOOTERRA_VERSION=kind --build-arg GIT_SHA=kind .
+kind load docker-image --name "${NAME}" nooterra:kind
 
 kubectl get ns "${NAMESPACE}" >/dev/null 2>&1 || kubectl create ns "${NAMESPACE}"
 
@@ -41,12 +41,12 @@ kubectl -n "${NAMESPACE}" delete secret magic-link-secrets >/dev/null 2>&1 || tr
 kubectl -n "${NAMESPACE}" create secret generic magic-link-secrets \
   --from-literal=MAGIC_LINK_API_KEY="${API_KEY}" \
   --from-literal=MAGIC_LINK_SETTINGS_KEY_HEX="${SETTINGS_KEY_HEX}" \
-  --from-literal=SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="${GOV_ROOTS_JSON}" \
-  --from-literal=SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON="${PRICING_KEYS_JSON}"
+  --from-literal=NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="${GOV_ROOTS_JSON}" \
+  --from-literal=NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON="${PRICING_KEYS_JSON}"
 
 cat > /tmp/values.magic-link.kind.yaml <<'YAML'
 image:
-  repository: settld
+  repository: nooterra
   tag: kind
 magicLink:
   env:
@@ -70,27 +70,27 @@ magicLink:
     - name: MAGIC_LINK_SETTINGS_KEY_HEX
       secretName: magic-link-secrets
       secretKey: MAGIC_LINK_SETTINGS_KEY_HEX
-    - name: SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON
+    - name: NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON
       secretName: magic-link-secrets
-      secretKey: SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON
-    - name: SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON
+      secretKey: NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON
+    - name: NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON
       secretName: magic-link-secrets
-      secretKey: SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON
+      secretKey: NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON
 YAML
 
 if ! helm upgrade --install "${RELEASE}" deploy/helm/magic-link -n "${NAMESPACE}" -f /tmp/values.magic-link.kind.yaml --wait --timeout "${HELM_TIMEOUT}"; then
   echo "helm upgrade failed; collecting diagnostics..." >&2
   kubectl -n "${NAMESPACE}" get pods,pvc,svc || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80 || true
-  kubectl -n "${NAMESPACE}" describe deploy "${RELEASE}-settld-magic-link" || true
+  kubectl -n "${NAMESPACE}" describe deploy "${RELEASE}-nooterra-magic-link" || true
   kubectl -n "${NAMESPACE}" describe pods || true
-  kubectl -n "${NAMESPACE}" logs "deploy/${RELEASE}-settld-magic-link" -c magic-link --tail=200 || true
-  kubectl -n "${NAMESPACE}" logs "deploy/${RELEASE}-settld-magic-link" -c maintenance --tail=200 || true
+  kubectl -n "${NAMESPACE}" logs "deploy/${RELEASE}-nooterra-magic-link" -c magic-link --tail=200 || true
+  kubectl -n "${NAMESPACE}" logs "deploy/${RELEASE}-nooterra-magic-link" -c maintenance --tail=200 || true
   exit 1
 fi
 
-echo "port-forwarding svc/${RELEASE}-settld-magic-link to localhost:${PORT_LOCAL}..."
-kubectl -n "${NAMESPACE}" port-forward "svc/${RELEASE}-settld-magic-link" "${PORT_LOCAL}:8787" >/tmp/magic-link.pf.log 2>&1 &
+echo "port-forwarding svc/${RELEASE}-nooterra-magic-link to localhost:${PORT_LOCAL}..."
+kubectl -n "${NAMESPACE}" port-forward "svc/${RELEASE}-nooterra-magic-link" "${PORT_LOCAL}:8787" >/tmp/magic-link.pf.log 2>&1 &
 PF_PID=$!
 trap 'kill "${PF_PID}" >/dev/null 2>&1 || true' EXIT
 
@@ -99,7 +99,7 @@ sleep 1
 MAGIC_LINK_SMOKE_URL="http://127.0.0.1:${PORT_LOCAL}" \
 MAGIC_LINK_SMOKE_API_KEY="${API_KEY}" \
 MAGIC_LINK_SMOKE_TENANT_ID="${MAGIC_LINK_DEMO_TENANT_ID:-tenant_example}" \
-MAGIC_LINK_SMOKE_BUYER_EMAIL="${MAGIC_LINK_DEMO_BUYER_EMAIL:-aiden@settld.work}" \
+MAGIC_LINK_SMOKE_BUYER_EMAIL="${MAGIC_LINK_DEMO_BUYER_EMAIL:-aiden@nooterra.work}" \
 MAGIC_LINK_SMOKE_VENDOR_ID="${MAGIC_LINK_DEMO_VENDOR_ID:-vendor_a}" \
 MAGIC_LINK_SMOKE_VENDOR_NAME="${MAGIC_LINK_DEMO_VENDOR_NAME:-Vendor A}" \
 MAGIC_LINK_SMOKE_CONTRACT_ID="${MAGIC_LINK_DEMO_CONTRACT_ID:-contract_1}" \

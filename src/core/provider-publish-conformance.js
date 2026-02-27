@@ -1,7 +1,7 @@
 import { canonicalJsonStringify } from "./canonical-json.js";
 import { keyIdFromPublicKeyPem, sha256Hex } from "./crypto.js";
 import { normalizePaidToolManifestV1, validatePaidToolManifestV1 } from "./paid-tool-manifest.js";
-import { buildSettldPayPayloadV1, computeSettldPayRequestBindingSha256V1, mintSettldPayTokenV1 } from "./settld-pay-token.js";
+import { buildNooterraPayPayloadV1, computeNooterraPayRequestBindingSha256V1, mintNooterraPayTokenV1 } from "./nooterra-pay-token.js";
 import { parseX402PaymentRequired } from "./x402-gate.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "./tool-provider-signature.js";
 import { checkUrlSafety } from "./url-safety.js";
@@ -22,7 +22,7 @@ function normalizeNonEmptyPem(value) {
 function requestInitForMethod(method, token = null) {
   const m = String(method ?? "GET").toUpperCase();
   const headers = { accept: "application/json" };
-  if (token) headers.authorization = `SettldPay ${token}`;
+  if (token) headers.authorization = `NooterraPay ${token}`;
   const hasBody = m !== "GET" && m !== "HEAD";
   if (!hasBody) return { method: m, headers };
   headers["content-type"] = "application/json";
@@ -71,7 +71,7 @@ async function resolveProviderSigningPublicKeyPem({ providerSigningPublicKeyPem,
   if (inlinePem) {
     return inlinePem;
   }
-  const url = new URL("/settld/provider-key", providerBaseUrl);
+  const url = new URL("/nooterra/provider-key", providerBaseUrl);
   const signal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
   const response = await fetchConformanceUrl({
     fetchFn,
@@ -144,7 +144,7 @@ function methodSupportsBody(method) {
 function computeConformanceRequestBindingSha256({ method, requestUrl, requestBody }) {
   const bodyBytes = requestBody === undefined || requestBody === null ? Buffer.from("", "utf8") : Buffer.from(String(requestBody), "utf8");
   const bodySha256 = sha256Hex(bodyBytes);
-  return computeSettldPayRequestBindingSha256V1({
+  return computeNooterraPayRequestBindingSha256V1({
     method: String(method ?? "GET").toUpperCase(),
     host: String(requestUrl?.host ?? "").toLowerCase(),
     pathWithQuery: `${requestUrl?.pathname ?? "/"}${requestUrl?.search ?? ""}`,
@@ -158,7 +158,7 @@ export async function runProviderConformanceV1({
   providerId = null,
   providerSigningPublicKeyPem = null,
   conformanceToolId = null,
-  settldSigner,
+  nooterraSigner,
   fetchFn = null,
   ttlSeconds = 300,
   timeoutMs = 5000
@@ -170,11 +170,11 @@ export async function runProviderConformanceV1({
   if (typeof fetchImpl !== "function") throw new TypeError("fetch implementation is required");
   const urlSafetyOptions = conformanceUrlSafetyOptions();
 
-  const signerPublicKeyPem = normalizeOptionalString(settldSigner?.publicKeyPem);
-  const signerKeyId = normalizeOptionalString(settldSigner?.keyId);
-  const signerPrivateKeyPem = normalizeOptionalString(settldSigner?.privateKeyPem);
+  const signerPublicKeyPem = normalizeOptionalString(nooterraSigner?.publicKeyPem);
+  const signerKeyId = normalizeOptionalString(nooterraSigner?.keyId);
+  const signerPrivateKeyPem = normalizeOptionalString(nooterraSigner?.privateKeyPem);
   if (!signerPrivateKeyPem || (!signerPublicKeyPem && !signerKeyId)) {
-    throw new TypeError("settldSigner.privateKeyPem and (settldSigner.keyId or settldSigner.publicKeyPem) are required");
+    throw new TypeError("nooterraSigner.privateKeyPem and (nooterraSigner.keyId or nooterraSigner.publicKeyPem) are required");
   }
 
   const manifestResult = validatePaidToolManifestV1(manifestInput);
@@ -347,8 +347,8 @@ export async function runProviderConformanceV1({
         requestBody: methodSupportsBody(tool.method) ? "{}" : ""
       })
     : null;
-  const payload = buildSettldPayPayloadV1({
-    iss: "settld",
+  const payload = buildNooterraPayPayloadV1({
+    iss: "nooterra",
     aud: effectiveProviderId,
     gateId,
     authorizationRef,
@@ -365,7 +365,7 @@ export async function runProviderConformanceV1({
     privateKeyPem: signerPrivateKeyPem
   };
   if (!signerKeyId && signerPublicKeyPem) mintArgs.publicKeyPem = signerPublicKeyPem;
-  const token = mintSettldPayTokenV1(mintArgs).token;
+  const token = mintNooterraPayTokenV1(mintArgs).token;
 
   const paidSignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
   const paidResponse = await fetchConformanceUrl({
@@ -377,7 +377,7 @@ export async function runProviderConformanceV1({
     },
     safetyOptions: urlSafetyOptions
   });
-  const paidPaymentError = headerValue(paidResponse.headers, "x-settld-payment-error");
+  const paidPaymentError = headerValue(paidResponse.headers, "x-nooterra-payment-error");
   checks.push(
     buildCheck("paid_retry_succeeds", paidResponse.status >= 200 && paidResponse.status < 300, {
       statusCode: paidResponse.status,
@@ -385,8 +385,8 @@ export async function runProviderConformanceV1({
       tokenKid
     })
   );
-  const requestBindingModeHeader = headerValue(paidResponse.headers, "x-settld-request-binding-mode");
-  const requestBindingSha256Header = headerValue(paidResponse.headers, "x-settld-request-binding-sha256");
+  const requestBindingModeHeader = headerValue(paidResponse.headers, "x-nooterra-request-binding-mode");
+  const requestBindingSha256Header = headerValue(paidResponse.headers, "x-nooterra-request-binding-sha256");
   checks.push(
     buildCheck(
       "strict_request_binding_enforced",
@@ -407,11 +407,11 @@ export async function runProviderConformanceV1({
 
   const paidBytes = Buffer.from(await paidResponse.arrayBuffer());
   const responseSha256 = sha256Hex(paidBytes);
-  const headerResponseSha256 = headerValue(paidResponse.headers, "x-settld-provider-response-sha256");
-  const providerKeyId = headerValue(paidResponse.headers, "x-settld-provider-key-id");
-  const providerSignedAt = headerValue(paidResponse.headers, "x-settld-provider-signed-at");
-  const providerNonce = headerValue(paidResponse.headers, "x-settld-provider-nonce");
-  const providerSignature = headerValue(paidResponse.headers, "x-settld-provider-signature");
+  const headerResponseSha256 = headerValue(paidResponse.headers, "x-nooterra-provider-response-sha256");
+  const providerKeyId = headerValue(paidResponse.headers, "x-nooterra-provider-key-id");
+  const providerSignedAt = headerValue(paidResponse.headers, "x-nooterra-provider-signed-at");
+  const providerNonce = headerValue(paidResponse.headers, "x-nooterra-provider-nonce");
+  const providerSignature = headerValue(paidResponse.headers, "x-nooterra-provider-signature");
   checks.push(
     buildCheck(
       "provider_signature_headers_present",
@@ -494,8 +494,8 @@ export async function runProviderConformanceV1({
     },
     safetyOptions: urlSafetyOptions
   });
-  const replayHeader = headerValue(replayResponse.headers, "x-settld-provider-replay");
-  const replayPaymentError = headerValue(replayResponse.headers, "x-settld-payment-error");
+  const replayHeader = headerValue(replayResponse.headers, "x-nooterra-provider-replay");
+  const replayPaymentError = headerValue(replayResponse.headers, "x-nooterra-payment-error");
   checks.push(
     buildCheck("replay_dedupe_behavior", replayResponse.status >= 200 && replayResponse.status < 300 && replayHeader === "duplicate", {
       statusCode: replayResponse.status,
@@ -509,7 +509,7 @@ export async function runProviderConformanceV1({
     schemaVersion: PROVIDER_CONFORMANCE_REPORT_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     startedAt: reportStartedAt,
-    settldSignerKeyId: tokenKid,
+    nooterraSignerKeyId: tokenKid,
     providerId: effectiveProviderId,
     providerBaseUrl: safeBaseUrl,
     tool: {

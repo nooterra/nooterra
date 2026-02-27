@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 
-import { SettldClient } from "../../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
 function generatePublicKeyPem() {
   const { publicKey } = generateKeyPairSync("ed25519");
@@ -12,16 +12,16 @@ function uniqueSuffix() {
 }
 
 async function main() {
-  const baseUrl = process.env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000";
-  const tenantId = process.env.SETTLD_TENANT_ID ?? "tenant_default";
-  const apiKey = process.env.SETTLD_API_KEY ?? "";
+  const baseUrl = process.env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000";
+  const tenantId = process.env.NOOTERRA_TENANT_ID ?? "tenant_default";
+  const apiKey = process.env.NOOTERRA_API_KEY ?? "";
 
   if (!apiKey) {
     // eslint-disable-next-line no-console
-    console.error("SETTLD_API_KEY is not set; the example will only work when API auth is disabled.");
+    console.error("NOOTERRA_API_KEY is not set; the example will only work when API auth is disabled.");
   }
 
-  const client = new SettldClient({
+  const client = new NooterraClient({
     baseUrl,
     tenantId,
     apiKey: apiKey || undefined
@@ -29,13 +29,13 @@ async function main() {
 
   const suffix = uniqueSuffix();
   const runId = `run_sdk_${suffix}`;
-  const disputeWindowDaysRaw = process.env.SETTLD_SDK_DISPUTE_WINDOW_DAYS ?? null;
+  const disputeWindowDaysRaw = process.env.NOOTERRA_SDK_DISPUTE_WINDOW_DAYS ?? null;
   const disputeWindowDays =
     disputeWindowDaysRaw === null || disputeWindowDaysRaw === undefined || String(disputeWindowDaysRaw).trim() === ""
       ? null
       : Number(disputeWindowDaysRaw);
   if (disputeWindowDays !== null && (!Number.isSafeInteger(disputeWindowDays) || disputeWindowDays < 0)) {
-    throw new TypeError("SETTLD_SDK_DISPUTE_WINDOW_DAYS must be a non-negative integer");
+    throw new TypeError("NOOTERRA_SDK_DISPUTE_WINDOW_DAYS must be a non-negative integer");
   }
 
   const result = await client.firstVerifiedRun({

@@ -1,9 +1,9 @@
 image:
-  repository: ghcr.io/settld/settld
+  repository: ghcr.io/nooterra/nooterra
   tag: "0.0.0"
   pullPolicy: IfNotPresent
 
-# Optional: surfaced as PROXY_BUILD and x-settld-build (when used by image code).
+# Optional: surfaced as PROXY_BUILD and x-nooterra-build (when used by image code).
 buildId: ""
 
 magicLink:

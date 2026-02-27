@@ -7,13 +7,13 @@ It is the Sprint 0 contract for `STLD-T001` and is intentionally provider-agnost
 
 ## Scope
 
-- Direction: `payout` (Settld -> external destination), `collection` (external source -> Settld).
+- Direction: `payout` (Nooterra -> external destination), `collection` (external source -> Nooterra).
 - Unit of execution: one money movement operation keyed by a stable idempotency key.
 - Out of scope: provider-specific payload formats and credential exchange.
 
 ## Canonical states
 
-- `initiated`: operation accepted by Settld with deterministic idempotency key.
+- `initiated`: operation accepted by Nooterra with deterministic idempotency key.
 - `submitted`: request accepted by external rail and a provider reference exists.
 - `confirmed`: external rail reports committed success (terminal unless reversed).
 - `failed`: external rail reports terminal failure.
@@ -38,7 +38,7 @@ Application logic MUST reject all transitions outside this set.
 
 ## Required operation fields
 
-- `operationId`: stable Settld operation identifier.
+- `operationId`: stable Nooterra operation identifier.
 - `direction`: `payout|collection`.
 - `idempotencyKey`: stable client/controller dedupe key.
 - `currency` and `amountCents`.

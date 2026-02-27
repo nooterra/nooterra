@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/FinancePackBundleManifest.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/FinancePackBundleManifest.v1.schema.json",
   "title": "FinancePackBundleManifest.v1",
   "type": "object",
   "required": ["schemaVersion", "type", "tenantId", "period", "createdAt", "protocol", "hashing", "files"],

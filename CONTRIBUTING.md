@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Settld.
+Thanks for helping improve Nooterra.
 
 This repo is a trust-and-settlement control plane. Please keep changes **small, deterministic, and fail-closed** where safety-critical.
 
@@ -34,7 +34,7 @@ If you change the API surface:
 
 ```sh
 npm run -s openapi:write
-git diff --exit-code -- openapi/settld.openapi.json
+git diff --exit-code -- openapi/nooterra.openapi.json
 ```
 
 ## PR Guidelines

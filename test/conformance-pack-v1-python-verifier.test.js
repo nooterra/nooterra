@@ -8,7 +8,7 @@ function pythonAvailable() {
 }
 
 test("conformance pack v1 (python reference verifier)", { skip: !pythonAvailable() }, () => {
-  const res = spawnSync(process.execPath, ["conformance/v1/run.mjs", "--bin", "reference/verifier-py/settld-verify-py"], { encoding: "utf8" });
+  const res = spawnSync(process.execPath, ["conformance/v1/run.mjs", "--bin", "reference/verifier-py/nooterra-verify-py"], { encoding: "utf8" });
   assert.equal(res.status, 0, `python conformance failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
 });
 

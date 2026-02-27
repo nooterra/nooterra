@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const DEFAULT_BASE_URL = typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_API_BASE_URL
-  ? String(import.meta.env.VITE_SETTLD_API_BASE_URL)
-  : "/__settld";
+const DEFAULT_BASE_URL = typeof import.meta !== "undefined" && import.meta.env?.VITE_NOOTERRA_API_BASE_URL
+  ? String(import.meta.env.VITE_NOOTERRA_API_BASE_URL)
+  : "/__nooterra";
 
-const STORAGE_KEY = "settld_operator_console_config_v1";
+const STORAGE_KEY = "nooterra_operator_console_config_v1";
 const STATUS_OPTIONS = ["all", "pending", "approved", "denied"];
 
 function loadSavedConfig() {
@@ -34,7 +34,7 @@ function headersFor({ tenantId, protocol, apiKey }) {
   const out = {
     "content-type": "application/json",
     "x-proxy-tenant-id": tenantId,
-    "x-settld-protocol": protocol
+    "x-nooterra-protocol": protocol
   };
   if (apiKey && apiKey.trim() !== "") out.authorization = `Bearer ${apiKey.trim()}`;
   return out;
@@ -202,7 +202,7 @@ export default function OperatorDashboard() {
 
       <header className="operator-topbar">
         <div>
-          <p className="operator-eyebrow">Settld Operator Console</p>
+          <p className="operator-eyebrow">Nooterra Operator Console</p>
           <h1>Escalation Inbox</h1>
           <p>Review blocked autonomous spend and issue signed override decisions.</p>
         </div>
@@ -223,7 +223,7 @@ export default function OperatorDashboard() {
           <input
             value={config.baseUrl}
             onChange={(e) => setConfig((prev) => ({ ...prev, baseUrl: e.target.value }))}
-            placeholder="/__settld or http://127.0.0.1:3000"
+            placeholder="/__nooterra or http://127.0.0.1:3000"
           />
         </label>
         <label>

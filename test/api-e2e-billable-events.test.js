@@ -172,3 +172,97 @@ test("API e2e: billable usage events are emitted and queryable by tenant+period"
   assert.equal(replay.statusCode, 200);
   assert.deepEqual(replay.json, allEvents.json);
 });
+
+test("API e2e: ops billable-events ingest is idempotent and fail-closed on immutable conflicts", async () => {
+  const api = createApi({
+    now: () => "2026-02-11T00:00:00.000Z",
+    opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";")
+  });
+
+  const tenantId = "tenant_billable_ops_ingest";
+  const period = "2026-02";
+  const baseBody = {
+    eventKey: "ops_ingest_ev_1",
+    eventType: "settled_volume",
+    occurredAt: "2026-02-11T10:00:00.000Z",
+    amountCents: 321,
+    currency: "USD",
+    quantity: 1,
+    sourceType: "ops_ingest",
+    sourceId: "source_ops_ingest_1"
+  };
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billable-events",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "ops_billable_ingest_create_1"
+    },
+    body: baseBody
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal(created.json?.ok, true);
+  assert.equal(created.json?.appended, true);
+  assert.equal(created.json?.event?.eventKey, "ops_ingest_ev_1");
+  assert.equal(created.json?.event?.eventType, "settled_volume");
+  assert.equal(created.json?.event?.amountCents, 321);
+
+  const idemReplay = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billable-events",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "ops_billable_ingest_create_1"
+    },
+    body: baseBody
+  });
+  assert.equal(idemReplay.statusCode, 201, idemReplay.body);
+  assert.deepEqual(idemReplay.json, created.json);
+
+  const deduped = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billable-events",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "ops_billable_ingest_create_2"
+    },
+    body: baseBody
+  });
+  assert.equal(deduped.statusCode, 200, deduped.body);
+  assert.equal(deduped.json?.ok, true);
+  assert.equal(deduped.json?.appended, false);
+  assert.equal(deduped.json?.event?.eventKey, "ops_ingest_ev_1");
+
+  const conflict = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billable-events",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "ops_billable_ingest_create_3"
+    },
+    body: {
+      ...baseBody,
+      amountCents: 999
+    }
+  });
+  assert.equal(conflict.statusCode, 409, conflict.body);
+  assert.equal(conflict.json?.code, "BILLABLE_USAGE_EVENT_CONFLICT");
+
+  const listed = await request(api, {
+    method: "GET",
+    path: `/ops/finance/billable-events?period=${encodeURIComponent(period)}&eventType=settled_volume&limit=50`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(listed.statusCode, 200, listed.body);
+  assert.equal(listed.json?.count, 1);
+  assert.equal(listed.json?.events?.[0]?.eventKey, "ops_ingest_ev_1");
+  assert.equal(listed.json?.events?.[0]?.amountCents, 321);
+});

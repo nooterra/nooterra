@@ -12,10 +12,10 @@ import {
   resolveThresholds,
   runOnboardingPolicySloGate
 } from "../scripts/ci/run-onboarding-policy-slo-gate.mjs";
-import { collectOperationalSloSummary, parsePrometheusText } from "../scripts/slo/check.mjs";
+import { buildMetricsRequestHeaders, collectOperationalSloSummary, parsePrometheusText } from "../scripts/slo/check.mjs";
 
 test("onboarding policy slo gate parser: uses env defaults and supports overrides", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
     ["--report", "artifacts/custom/gate.json", "--metrics-ext", ".metrics"],
     {
@@ -46,11 +46,11 @@ test("onboarding policy slo host readiness: passes when all thresholds are met",
   ].join("\n"));
 
   const row = evaluateHostReadiness({
-    host: "codex",
+    host: "nooterra",
     compatibilityOk: true,
     series,
     thresholds,
-    metricsPath: "/tmp/codex.prom"
+    metricsPath: "/tmp/nooterra.prom"
   });
 
   assert.equal(row.ready, true);
@@ -99,8 +99,27 @@ test("operational slo collector: sums multi-series DLQ and delivery states fail-
   assert.equal(summary.deliveriesFailed, 13);
 });
 
+test("operational slo check: metrics auth headers are explicit and trimmed", () => {
+  const headers = buildMetricsRequestHeaders({
+    SLO_METRICS_OPS_TOKEN: " dev ",
+    SLO_METRICS_TENANT_ID: " tenant_default ",
+    SLO_METRICS_PROTOCOL: " 1.0 "
+  });
+  assert.deepEqual(headers, {
+    "x-proxy-ops-token": "dev",
+    "x-proxy-tenant-id": "tenant_default",
+    "x-nooterra-protocol": "1.0"
+  });
+  const noHeaders = buildMetricsRequestHeaders({
+    SLO_METRICS_OPS_TOKEN: "   ",
+    SLO_METRICS_TENANT_ID: "",
+    SLO_METRICS_PROTOCOL: null
+  });
+  assert.deepEqual(noHeaders, {});
+});
+
 test("onboarding policy slo gate runner: emits per-host rows and fails closed on missing host metrics", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-policy-slo-gate-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-policy-slo-gate-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -114,9 +133,9 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
     matrixPath,
     JSON.stringify(
       {
-        schemaVersion: "SettldMcpHostCertMatrix.v1",
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
         checks: [
-          { host: "codex", ok: true },
+          { host: "nooterra", ok: true },
           { host: "claude", ok: true }
         ]
       },
@@ -127,7 +146,7 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
   );
 
   await fs.writeFile(
-    path.join(metricsDir, "codex.prom"),
+    path.join(metricsDir, "nooterra.prom"),
     [
       "onboarding_first_paid_call_runtime_ms_p95_gauge 1300",
       "policy_decision_latency_ms_p95_gauge 100",
@@ -156,7 +175,7 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
   assert.equal(report.schemaVersion, "OnboardingPolicySloGateReport.v1");
   assert.equal(Array.isArray(report.hosts), true);
   assert.equal(report.hosts.length, 2);
-  assert.equal(report.hosts.some((row) => row.host === "codex" && row.ready === true), true);
+  assert.equal(report.hosts.some((row) => row.host === "nooterra" && row.ready === true), true);
   assert.equal(report.hosts.some((row) => row.host === "claude" && row.ready === false), true);
   assert.equal(Array.isArray(report.blockingIssues), true);
   assert.equal(report.blockingIssues.some((issue) => issue.host === "claude"), true);
@@ -167,21 +186,61 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
 
 test("onboarding policy slo host extraction: fails closed on duplicate host rows", () => {
   const rows = extractHostRows({
-    schemaVersion: "SettldMcpHostCertMatrix.v1",
+    schemaVersion: "NooterraMcpHostCertMatrix.v1",
     checks: [
-      { host: "Codex", ok: true },
-      { host: "codex", ok: true },
+      { host: "Nooterra", ok: true },
+      { host: "nooterra", ok: true },
       { host: "claude", ok: true }
     ]
   });
   const byHost = new Map(rows.map((row) => [row.host, row]));
-  assert.equal(byHost.get("codex")?.compatibilityOk, false);
-  assert.match(String(byHost.get("codex")?.matrixDetail ?? ""), /duplicate rows/i);
+  assert.equal(byHost.get("nooterra")?.compatibilityOk, false);
+  assert.match(String(byHost.get("nooterra")?.matrixDetail ?? ""), /duplicate rows/i);
   assert.equal(byHost.get("claude")?.compatibilityOk, true);
 });
 
-test("onboarding policy slo artifact hash: stable across volatile report fields", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-slo-hash-"));
+test("onboarding policy slo host extraction: prefers compatibilityOkWithOverride when present", () => {
+  const rows = extractHostRows({
+    schemaVersion: "NooterraMcpHostCertMatrix.v1",
+    checks: [
+      {
+        host: "nooterra",
+        ok: true,
+        compatibilityOk: false,
+        compatibilityOkWithOverride: true
+      },
+      {
+        host: "claude",
+        ok: true,
+        compatibilityOk: true,
+        compatibilityOkWithOverride: true
+      }
+    ]
+  });
+  const byHost = new Map(rows.map((row) => [row.host, row]));
+  assert.equal(byHost.get("nooterra")?.compatibilityOk, true);
+  assert.match(String(byHost.get("nooterra")?.matrixDetail ?? ""), /override/i);
+  assert.equal(byHost.get("claude")?.compatibilityOk, true);
+});
+
+test("onboarding policy slo host extraction: fails closed when matrix drift gate fails", () => {
+  assert.throws(
+    () =>
+      extractHostRows({
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
+        driftGate: {
+          schemaVersion: "NooterraMcpHostCertMatrixDriftGate.v1",
+          ok: false,
+          blockingIssues: [{ id: "host:release_policy:object_release_server_args", reason: "server args drifted from policy" }]
+        },
+        checks: [{ host: "nooterra", ok: true }]
+      }),
+    /drift gate failed/i
+  );
+});
+
+test("onboarding policy slo gate runner: fails closed when matrix drift gate is not green", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-policy-slo-drift-gate-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -194,8 +253,67 @@ test("onboarding policy slo artifact hash: stable across volatile report fields"
     matrixPath,
     JSON.stringify(
       {
-        schemaVersion: "SettldMcpHostCertMatrix.v1",
-        checks: [{ host: "codex", ok: true }]
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
+        driftGate: {
+          schemaVersion: "NooterraMcpHostCertMatrixDriftGate.v1",
+          ok: false,
+          blockingIssues: [{ id: "host:release_policy:runtime_node_major_window", reason: "runtime major is outside policy window" }]
+        },
+        checks: [{ host: "nooterra", ok: true }]
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+  await fs.writeFile(
+    metricsPath,
+    [
+      "onboarding_first_paid_call_runtime_ms_p95_gauge 1300",
+      "policy_decision_latency_ms_p95_gauge 100",
+      'policy_decisions_total{outcome="allow"} 999',
+      'policy_decisions_total{outcome="error"} 1'
+    ].join("\n") + "\n",
+    "utf8"
+  );
+
+  await assert.rejects(
+    () =>
+      runOnboardingPolicySloGate(
+        {
+          help: false,
+          reportPath,
+          hostMatrixPath: matrixPath,
+          metricsDir: tmpRoot,
+          metricsFile: metricsPath,
+          metricsExt: ".prom"
+        },
+        {
+          SLO_ONBOARDING_FIRST_PAID_CALL_P95_MAX_MS: "2000",
+          SLO_POLICY_DECISION_LATENCY_P95_MAX_MS: "250",
+          SLO_POLICY_DECISION_ERROR_RATE_MAX_PCT: "1"
+        }
+      ),
+    /drift gate failed/i
+  );
+});
+
+test("onboarding policy slo artifact hash: stable across volatile report fields", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-slo-hash-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const matrixPath = path.join(tmpRoot, "mcp-host-cert-matrix.json");
+  const metricsPath = path.join(tmpRoot, "metrics.prom");
+  const reportPath = path.join(tmpRoot, "out", "gate.json");
+
+  await fs.writeFile(
+    matrixPath,
+    JSON.stringify(
+      {
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
+        checks: [{ host: "nooterra", ok: true }]
       },
       null,
       2

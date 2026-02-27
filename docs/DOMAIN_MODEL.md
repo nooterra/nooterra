@@ -1,4 +1,4 @@
-# Settld Domain Model (v0)
+# Nooterra Domain Model (v0)
 
 ## Actors
 
@@ -77,7 +77,7 @@ Claim: workflow for remediation/payout:
 Double-entry system of record for money movement:
 
 - escrow/holds
-- payout splits (owner, Settld fee, operator fee, developer royalty, reserve)
+- payout splits (owner, Nooterra fee, operator fee, developer royalty, reserve)
 - refunds, chargebacks, tips
 
 Invariant: every journal entry balances to zero.

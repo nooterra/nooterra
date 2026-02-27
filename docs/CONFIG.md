@@ -1,4 +1,4 @@
-# Settld Configuration (Runtime)
+# Nooterra Configuration (Runtime)
 
 This repo is intentionally “ops-first”: **safe defaults**, explicit hardening toggles, and predictable failure modes.
 
@@ -10,7 +10,7 @@ This repo is intentionally “ops-first”: **safe defaults**, explicit hardenin
 - `PROXY_PG_LOG_SLOW_MS` (default: `0` = disabled)  
   When nonzero, logs slow queries as `pg.query.slow` with duration + a best-effort query label (never logs query args).
 - `PROXY_MIGRATE_ON_STARTUP` (`1` | `0`, default: `1`)  
-  When `1`, Settld runs SQL migrations on startup (PG advisory-lock protected so concurrent instances are safe). Set `0` if you run migrations out-of-band.
+  When `1`, Nooterra runs SQL migrations on startup (PG advisory-lock protected so concurrent instances are safe). Set `0` if you run migrations out-of-band.
 - `PROXY_DATA_DIR` (memory mode durability via file tx-log; default: unset = purely in-memory)
 
 ## HTTP limits
@@ -20,7 +20,7 @@ This repo is intentionally “ops-first”: **safe defaults**, explicit hardenin
 
 ## Protocol / versioning
 
-Settld exposes a protocol version contract via `x-settld-protocol` and enforces compatibility windows.
+Nooterra exposes a protocol version contract via `x-nooterra-protocol` and enforces compatibility windows.
 
 - `PROXY_PROTOCOL_MIN` (default: current, e.g. `1.0`)  
   Requests below this return `426` with `code: PROTOCOL_TOO_OLD`.
@@ -38,7 +38,7 @@ Settld exposes a protocol version contract via `x-settld-protocol` and enforces 
 
 Production enforcement:
 
-- When `NODE_ENV=production`, `/ingest/proxy` and `POST /{jobs|robots|operators}/:id/events` require the request header `x-settld-protocol` (else `400` with `code: PROTOCOL_VERSION_REQUIRED`).
+- When `NODE_ENV=production`, `/ingest/proxy` and `POST /{jobs|robots|operators}/:id/events` require the request header `x-nooterra-protocol` (else `400` with `code: PROTOCOL_VERSION_REQUIRED`).
 
 ## Rate limiting
 
@@ -84,8 +84,8 @@ Delivery/worker tuning:
 
 ## Public onboarding routing
 
-- `PROXY_ONBOARDING_BASE_URL` (optional but required for public onboarding on `settld-api`)  
-  Absolute `http(s)` URL for the onboarding service (`services/magic-link`). When set, `settld-api` reverse-proxies public onboarding routes:
+- `PROXY_ONBOARDING_BASE_URL` (optional but required for public onboarding on `nooterra-api`)  
+  Absolute `http(s)` URL for the onboarding service (`services/magic-link`). When set, `nooterra-api` reverse-proxies public onboarding routes:
   - `/v1/public/auth-mode`
   - `/v1/public/signup`
   - `/v1/tenants/:tenantId/buyer/login/otp`

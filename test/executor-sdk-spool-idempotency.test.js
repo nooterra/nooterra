@@ -133,7 +133,7 @@ test("executor-sdk: disk spool survives retry without duplicating side-effects",
   assert.equal(jobAfterDispatch.statusCode, 200);
   assert.equal(jobAfterDispatch.json.job.status, "RESERVED");
 
-  const spoolDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld_spool_"));
+  const spoolDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra_spool_"));
 
   const sdkA = createExecutorSdk({
     baseUrl: "http://in-process",

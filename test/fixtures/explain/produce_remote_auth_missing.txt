@@ -1,10 +1,10 @@
-settld-produce explain
+nooterra-produce explain
 ok=false
 kind=jobproof
 out=<TMP>/jobproof
 signerMode=remote
 signerTransport=http
-signerAuth=bearer tokenSource=env:SETTLD_SIGNER_TOKEN
+signerAuth=bearer tokenSource=env:NOOTERRA_SIGNER_TOKEN
 signerHeaders=X-Secret
 error=SIGNER_AUTH_MISSING causeKind=signer causeCode=REMOTE_SIGNER_AUTH_MISSING
 hint: set --signer-token-env or --signer-token-file (see docs/spec/REMOTE_SIGNER.md)

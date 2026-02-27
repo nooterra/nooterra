@@ -1,7 +1,7 @@
 {
   "schemaVersion": "VerifyAboutOutput.v1",
   "tool": {
-    "name": "settld-verify",
+    "name": "nooterra-verify",
     "version": "0.0.0",
     "commit": "0123456789abcdef"
   },

@@ -87,6 +87,92 @@ function assertReasonCode(value, name) {
   return normalized;
 }
 
+function appendAgentCardToolDescriptorQueryParams(qs, params = {}) {
+  if (params.toolId) qs.set("toolId", String(params.toolId));
+  if (params.toolMcpName) qs.set("toolMcpName", String(params.toolMcpName));
+  if (params.toolRiskClass) qs.set("toolRiskClass", String(params.toolRiskClass));
+  if (params.toolSideEffecting !== undefined && params.toolSideEffecting !== null) {
+    qs.set("toolSideEffecting", String(Boolean(params.toolSideEffecting)));
+  }
+  if (params.toolMaxPriceCents !== undefined && params.toolMaxPriceCents !== null) {
+    qs.set("toolMaxPriceCents", String(params.toolMaxPriceCents));
+  }
+  if (params.toolRequiresEvidenceKind) qs.set("toolRequiresEvidenceKind", String(params.toolRequiresEvidenceKind));
+}
+
+function parseSseFrame(frameText) {
+  if (typeof frameText !== "string") return null;
+  const normalized = frameText.replace(/\r/g, "");
+  if (normalized.trim() === "") return null;
+  const lines = normalized.split("\n");
+  let eventName = "message";
+  let eventId = null;
+  const dataLines = [];
+  let sawCommentOnlyLine = false;
+  for (const line of lines) {
+    if (line === "") continue;
+    if (line.startsWith(":")) {
+      sawCommentOnlyLine = true;
+      continue;
+    }
+    const sepIndex = line.indexOf(":");
+    const field = sepIndex === -1 ? line : line.slice(0, sepIndex);
+    let value = sepIndex === -1 ? "" : line.slice(sepIndex + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "event") eventName = value.trim() || "message";
+    if (field === "id") eventId = value.trim() || null;
+    if (field === "data") dataLines.push(value);
+  }
+  if (dataLines.length === 0) {
+    if (sawCommentOnlyLine) return null;
+    return { event: eventName, id: eventId, rawData: "", data: null };
+  }
+  const rawData = dataLines.join("\n");
+  let data = rawData;
+  if (rawData === "null") data = null;
+  else {
+    try {
+      data = JSON.parse(rawData);
+    } catch {
+      data = rawData;
+    }
+  }
+  return { event: eventName, id: eventId, rawData, data };
+}
+
+async function* parseSseResponse(res) {
+  if (!res?.body || typeof res.body.getReader !== "function") {
+    throw new TypeError("response body is not a readable stream");
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (;;) {
+        const splitIndex = buffer.indexOf("\n\n");
+        if (splitIndex === -1) break;
+        const frame = buffer.slice(0, splitIndex);
+        buffer = buffer.slice(splitIndex + 2);
+        const parsed = parseSseFrame(frame);
+        if (parsed) yield parsed;
+      }
+    }
+    buffer += decoder.decode();
+    const parsed = parseSseFrame(buffer);
+    if (parsed) yield parsed;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // no-op
+    }
+  }
+}
+
 async function readJson(res) {
   const text = await res.text();
   if (!text) return null;
@@ -103,7 +189,287 @@ function headersToRecord(headers) {
   return out;
 }
 
-export class SettldClient {
+const PARITY_DEFAULT_RETRY_STATUS_CODES = Object.freeze([408, 409, 425, 429, 500, 502, 503, 504]);
+const PARITY_REASON_CODE = Object.freeze({
+  OPERATION_INVALID: "PARITY_OPERATION_INVALID",
+  PAYLOAD_REQUIRED: "PARITY_PAYLOAD_REQUIRED",
+  REQUIRED_FIELD_MISSING: "PARITY_REQUIRED_FIELD_MISSING",
+  SHA256_FIELD_INVALID: "PARITY_SHA256_FIELD_INVALID",
+  IDEMPOTENCY_KEY_REQUIRED: "PARITY_IDEMPOTENCY_KEY_REQUIRED",
+  EXPECTED_PREV_CHAIN_HASH_REQUIRED: "PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED",
+  MCP_CALL_REQUIRED: "PARITY_MCP_CALL_REQUIRED",
+  RESPONSE_INVALID: "PARITY_RESPONSE_INVALID",
+  TRANSPORT_ERROR: "PARITY_TRANSPORT_ERROR",
+  REQUEST_REJECTED: "PARITY_REQUEST_REJECTED"
+});
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function parseInteger(value, fallback, { min = 0 } = {}) {
+  if (value === undefined || value === null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) throw new TypeError("value must be an integer");
+  return parsed;
+}
+
+function normalizeRetryStatusCodes(value) {
+  if (value === undefined || value === null) return new Set(PARITY_DEFAULT_RETRY_STATUS_CODES);
+  if (!Array.isArray(value)) throw new TypeError("retryStatusCodes must be an array of status integers");
+  const out = new Set();
+  for (const raw of value) {
+    const status = Number(raw);
+    if (!Number.isInteger(status) || status < 100 || status > 599) {
+      throw new TypeError("retryStatusCodes must contain valid HTTP status integers");
+    }
+    out.add(status);
+  }
+  return out;
+}
+
+function normalizeRetryCodes(value) {
+  if (value === undefined || value === null) return new Set();
+  if (!Array.isArray(value)) throw new TypeError("retryCodes must be an array of non-empty strings");
+  const out = new Set();
+  for (const raw of value) {
+    const code = asNonEmptyStringOrNull(raw);
+    if (!code) throw new TypeError("retryCodes must contain non-empty strings");
+    out.add(code.toUpperCase());
+  }
+  return out;
+}
+
+function normalizeHeadersRecord(value) {
+  if (!value || typeof value !== "object") return {};
+  const out = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    if (rawValue === undefined || rawValue === null) continue;
+    out[String(rawKey).toLowerCase()] = String(rawValue);
+  }
+  return out;
+}
+
+function getValueAtPath(target, fieldPath) {
+  const parts = String(fieldPath).split(".").filter(Boolean);
+  let cursor = target;
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== "object" || !(part in cursor)) return undefined;
+    cursor = cursor[part];
+  }
+  return cursor;
+}
+
+function resolveRetryDelayMs(retryDelayMs, attempt) {
+  if (typeof retryDelayMs === "function") {
+    const computed = Number(retryDelayMs(attempt));
+    if (!Number.isFinite(computed) || computed < 0) throw new TypeError("retryDelayMs(attempt) must return a non-negative number");
+    return computed;
+  }
+  const raw = retryDelayMs === undefined || retryDelayMs === null ? 0 : Number(retryDelayMs);
+  if (!Number.isFinite(raw) || raw < 0) throw new TypeError("retryDelayMs must be a non-negative number");
+  return raw;
+}
+
+function sleepMs(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createParityError({
+  status = 500,
+  code = PARITY_REASON_CODE.REQUEST_REJECTED,
+  message = "request failed",
+  details = null,
+  requestId = null,
+  retryable = false,
+  attempts = 1,
+  idempotencyKey = null,
+  transport = "http",
+  operationId = null
+}) {
+  const normalizedStatus = Number.isInteger(Number(status)) ? Number(status) : 500;
+  const normalizedCode = asNonEmptyStringOrNull(code) ?? PARITY_REASON_CODE.REQUEST_REJECTED;
+  const normalizedMessage = asNonEmptyStringOrNull(message) ?? `request failed (${normalizedStatus})`;
+  const error = new Error(normalizedMessage);
+  error.nooterra = {
+    status: normalizedStatus,
+    code: normalizedCode,
+    message: normalizedMessage,
+    details,
+    requestId: asNonEmptyStringOrNull(requestId),
+    retryable: Boolean(retryable),
+    attempts: Number.isInteger(attempts) && attempts > 0 ? attempts : 1,
+    idempotencyKey: asNonEmptyStringOrNull(idempotencyKey),
+    transport,
+    operationId: asNonEmptyStringOrNull(operationId)
+  };
+  return error;
+}
+
+function throwParityValidation({ code, message, details, transport, operationId, idempotencyKey }) {
+  throw createParityError({
+    status: 400,
+    code,
+    message,
+    details,
+    retryable: false,
+    attempts: 1,
+    transport,
+    operationId,
+    idempotencyKey
+  });
+}
+
+function resolveParityOperation(operation, { transport }) {
+  if (!isPlainObject(operation)) {
+    throw new TypeError("operation must be an object");
+  }
+  const operationId = asNonEmptyStringOrNull(operation.operationId);
+  if (!operationId) throw new TypeError("operation.operationId is required");
+  const requiredFields = Array.isArray(operation.requiredFields) ? operation.requiredFields.map((field) => String(field)) : [];
+  const sha256Fields = Array.isArray(operation.sha256Fields) ? operation.sha256Fields.map((field) => String(field)) : [];
+  const idempotencyRequired =
+    operation.idempotencyRequired === undefined || operation.idempotencyRequired === null
+      ? true
+      : Boolean(operation.idempotencyRequired);
+  const expectedPrevChainHashRequired = Boolean(operation.expectedPrevChainHashRequired);
+  if (transport === "http") {
+    const method = asNonEmptyStringOrNull(operation.method);
+    const path = asNonEmptyStringOrNull(operation.path);
+    if (!method) throw new TypeError("operation.method is required for http parity adapter");
+    if (!path || !path.startsWith("/")) throw new TypeError("operation.path is required for http parity adapter");
+    return {
+      transport,
+      operationId,
+      method: method.toUpperCase(),
+      path,
+      toolName: null,
+      requiredFields,
+      sha256Fields,
+      idempotencyRequired,
+      expectedPrevChainHashRequired
+    };
+  }
+  const toolName = asNonEmptyStringOrNull(operation.toolName);
+  if (!toolName) throw new TypeError("operation.toolName is required for mcp parity adapter");
+  return {
+    transport,
+    operationId,
+    method: null,
+    path: null,
+    toolName,
+    requiredFields,
+    sha256Fields,
+    idempotencyRequired,
+    expectedPrevChainHashRequired
+  };
+}
+
+function validateParityPayload(payload, operation, { transport, idempotencyKey, expectedPrevChainHash }) {
+  if (!isPlainObject(payload)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.PAYLOAD_REQUIRED,
+      message: "payload must be an object",
+      transport,
+      operationId: operation.operationId,
+      idempotencyKey
+    });
+  }
+  for (const fieldPath of operation.requiredFields) {
+    if (!asNonEmptyStringOrNull(fieldPath)) continue;
+    const value = getValueAtPath(payload, fieldPath);
+    if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.REQUIRED_FIELD_MISSING,
+        message: `payload.${fieldPath} is required`,
+        details: { field: fieldPath },
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+  for (const fieldPath of operation.sha256Fields) {
+    if (!asNonEmptyStringOrNull(fieldPath)) continue;
+    const value = getValueAtPath(payload, fieldPath);
+    try {
+      assertSha256Hex(value, `payload.${fieldPath}`);
+    } catch {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.SHA256_FIELD_INVALID,
+        message: `payload.${fieldPath} must be sha256 hex`,
+        details: { field: fieldPath },
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+  if (operation.idempotencyRequired && !asNonEmptyStringOrNull(idempotencyKey)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.IDEMPOTENCY_KEY_REQUIRED,
+      message: "idempotencyKey is required",
+      transport,
+      operationId: operation.operationId
+    });
+  }
+  if (operation.expectedPrevChainHashRequired && !asNonEmptyStringOrNull(expectedPrevChainHash)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.EXPECTED_PREV_CHAIN_HASH_REQUIRED,
+      message: "expectedPrevChainHash is required",
+      transport,
+      operationId: operation.operationId,
+      idempotencyKey
+    });
+  }
+  if (asNonEmptyStringOrNull(expectedPrevChainHash)) {
+    try {
+      assertSha256Hex(expectedPrevChainHash, "expectedPrevChainHash");
+    } catch {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.EXPECTED_PREV_CHAIN_HASH_REQUIRED,
+        message: "expectedPrevChainHash must be sha256 hex",
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+}
+
+function coerceParityError(err, context) {
+  if (err?.nooterra && typeof err.nooterra === "object") {
+    return createParityError({
+      status: err.nooterra.status,
+      code: err.nooterra.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+      message: err.nooterra.message ?? err.message,
+      details: err.nooterra.details,
+      requestId: err.nooterra.requestId ?? context.requestId,
+      retryable: false,
+      attempts: context.attempt,
+      idempotencyKey: context.idempotencyKey,
+      transport: context.transport,
+      operationId: context.operationId
+    });
+  }
+  return createParityError({
+    status: 0,
+    code: PARITY_REASON_CODE.TRANSPORT_ERROR,
+    message: err?.message ?? "transport error",
+    details: { causeName: err?.name ?? null },
+    requestId: context.requestId,
+    retryable: false,
+    attempts: context.attempt,
+    idempotencyKey: context.idempotencyKey,
+    transport: context.transport,
+    operationId: context.operationId
+  });
+}
+
+export class NooterraClient {
   constructor(opts) {
     assertNonEmptyString(opts?.baseUrl, "baseUrl");
     assertNonEmptyString(opts?.tenantId, "tenantId");
@@ -117,6 +483,14 @@ export class SettldClient {
     this.userAgent = opts?.userAgent ? String(opts.userAgent) : null;
   }
 
+  createHttpParityAdapter(opts = {}) {
+    return new NooterraHttpParityAdapter(this, opts);
+  }
+
+  createMcpParityAdapter(opts = {}) {
+    return new NooterraMcpParityAdapter(this, opts);
+  }
+
   async request(method, pathname, { body, requestId, idempotencyKey, expectedPrevChainHash, signal } = {}) {
     const url = new URL(pathname, this.baseUrl);
     const rid = requestId ?? randomRequestId();
@@ -124,7 +498,7 @@ export class SettldClient {
     const headers = {
       "content-type": "application/json",
       "x-proxy-tenant-id": this.tenantId,
-      "x-settld-protocol": this.protocol,
+      "x-nooterra-protocol": this.protocol,
       "x-request-id": rid
     };
     if (this.userAgent) headers["user-agent"] = this.userAgent;
@@ -154,7 +528,7 @@ export class SettldClient {
         requestId: responseRequestId
       };
       const thrown = new Error(e.message);
-      thrown.settld = e;
+      thrown.nooterra = e;
       throw thrown;
     }
 
@@ -218,6 +592,200 @@ export class SettldClient {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     const { reputationVersion: _rVersion, reputationWindow: _rWindow, ...requestOpts } = opts ?? {};
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/reputation${suffix}`, requestOpts);
+  }
+
+  upsertAgentCard(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/agent-cards", { ...opts, body });
+  }
+
+  getAgentCard(agentId, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    return this.request("GET", `/agent-cards/${encodeURIComponent(agentId)}`, opts);
+  }
+
+  listAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agentId) qs.set("agentId", String(params.agentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agent-cards${suffix}`, opts);
+  }
+
+  discoverAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
+      qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
+    }
+    if (params.attestationMinLevel) qs.set("attestationMinLevel", String(params.attestationMinLevel));
+    if (params.attestationIssuerAgentId) qs.set("attestationIssuerAgentId", String(params.attestationIssuerAgentId));
+    if (params.includeAttestationMetadata !== undefined && params.includeAttestationMetadata !== null) {
+      qs.set("includeAttestationMetadata", String(Boolean(params.includeAttestationMetadata)));
+    }
+    if (params.minTrustScore !== undefined && params.minTrustScore !== null) qs.set("minTrustScore", String(params.minTrustScore));
+    if (params.riskTier) qs.set("riskTier", String(params.riskTier));
+    if (params.includeReputation !== undefined && params.includeReputation !== null) {
+      qs.set("includeReputation", String(Boolean(params.includeReputation)));
+    }
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.scoreStrategy) qs.set("scoreStrategy", String(params.scoreStrategy));
+    if (params.requesterAgentId) qs.set("requesterAgentId", String(params.requesterAgentId));
+    if (params.includeRoutingFactors !== undefined && params.includeRoutingFactors !== null) {
+      qs.set("includeRoutingFactors", String(Boolean(params.includeRoutingFactors)));
+    }
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agent-cards/discover${suffix}`, opts);
+  }
+
+  discoverPublicAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
+      qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
+    }
+    if (params.attestationMinLevel) qs.set("attestationMinLevel", String(params.attestationMinLevel));
+    if (params.attestationIssuerAgentId) qs.set("attestationIssuerAgentId", String(params.attestationIssuerAgentId));
+    if (params.includeAttestationMetadata !== undefined && params.includeAttestationMetadata !== null) {
+      qs.set("includeAttestationMetadata", String(Boolean(params.includeAttestationMetadata)));
+    }
+    if (params.minTrustScore !== undefined && params.minTrustScore !== null) qs.set("minTrustScore", String(params.minTrustScore));
+    if (params.riskTier) qs.set("riskTier", String(params.riskTier));
+    if (params.includeReputation !== undefined && params.includeReputation !== null) {
+      qs.set("includeReputation", String(Boolean(params.includeReputation)));
+    }
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.scoreStrategy) qs.set("scoreStrategy", String(params.scoreStrategy));
+    if (params.requesterAgentId) qs.set("requesterAgentId", String(params.requesterAgentId));
+    if (params.includeRoutingFactors !== undefined && params.includeRoutingFactors !== null) {
+      qs.set("includeRoutingFactors", String(Boolean(params.includeRoutingFactors)));
+    }
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/public/agent-cards/discover${suffix}`, opts);
+  }
+
+  async *streamPublicAgentCards(params = {}, opts = {}) {
+    const qs = new URLSearchParams();
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
+    if (params.toolId) qs.set("toolId", String(params.toolId));
+    if (params.toolMcpName) qs.set("toolMcpName", String(params.toolMcpName));
+    if (params.toolRiskClass) qs.set("toolRiskClass", String(params.toolRiskClass));
+    if (params.toolSideEffecting !== undefined && params.toolSideEffecting !== null) {
+      qs.set("toolSideEffecting", String(Boolean(params.toolSideEffecting)));
+    }
+    if (params.toolMaxPriceCents !== undefined && params.toolMaxPriceCents !== null) {
+      qs.set("toolMaxPriceCents", String(params.toolMaxPriceCents));
+    }
+    if (params.toolRequiresEvidenceKind) qs.set("toolRequiresEvidenceKind", String(params.toolRequiresEvidenceKind));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.sinceCursor) qs.set("sinceCursor", String(params.sinceCursor));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    const rid = opts.requestId ?? randomRequestId();
+    const headers = {
+      accept: "text/event-stream",
+      "x-proxy-tenant-id": this.tenantId,
+      "x-nooterra-protocol": this.protocol,
+      "x-request-id": rid
+    };
+    if (this.userAgent) headers["user-agent"] = this.userAgent;
+    if (this.apiKey) headers["authorization"] = `Bearer ${this.apiKey}`;
+    if (this.xApiKey) headers["x-api-key"] = this.xApiKey;
+    if (this.opsToken) headers["x-proxy-ops-token"] = this.opsToken;
+    if (opts.lastEventId) headers["last-event-id"] = String(opts.lastEventId);
+
+    const url = new URL(`/public/agent-cards/stream${suffix}`, this.baseUrl);
+    const res = await this.fetchImpl(url.toString(), { method: "GET", headers, signal: opts.signal });
+    const outHeaders = headersToRecord(res.headers);
+    const responseRequestId = outHeaders["x-request-id"] ?? null;
+    if (!res.ok) {
+      const parsed = await readJson(res);
+      const errBody = parsed && typeof parsed === "object" ? parsed : {};
+      const e = {
+        status: res.status,
+        code: errBody?.code ?? null,
+        message: errBody?.error ?? `request failed (${res.status})`,
+        details: errBody?.details,
+        requestId: responseRequestId
+      };
+      const thrown = new Error(e.message);
+      thrown.nooterra = e;
+      throw thrown;
+    }
+
+    for await (const event of parseSseResponse(res)) {
+      yield event;
+    }
+  }
+
+  getPublicAgentReputationSummary(agentId, params = {}, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    const qs = new URLSearchParams();
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.includeRelationships !== undefined && params.includeRelationships !== null) {
+      qs.set("includeRelationships", String(Boolean(params.includeRelationships)));
+    }
+    if (params.relationshipLimit !== undefined && params.relationshipLimit !== null) {
+      qs.set("relationshipLimit", String(params.relationshipLimit));
+    }
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/public/agents/${encodeURIComponent(agentId)}/reputation-summary${suffix}`, opts);
+  }
+
+  getAgentInteractionGraphPack(agentId, params = {}, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    const qs = new URLSearchParams();
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.counterpartyAgentId) qs.set("counterpartyAgentId", String(params.counterpartyAgentId));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.sign !== undefined && params.sign !== null) qs.set("sign", String(Boolean(params.sign)));
+    if (params.signerKeyId) qs.set("signerKeyId", String(params.signerKeyId));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agents/${encodeURIComponent(agentId)}/interaction-graph-pack${suffix}`, opts);
+  }
+
+  listRelationships(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agentId) qs.set("agentId", String(params.agentId));
+    if (params.counterpartyAgentId) qs.set("counterpartyAgentId", String(params.counterpartyAgentId));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/relationships${suffix}`, opts);
   }
 
   searchMarketplaceAgents(params = {}, opts) {
@@ -311,9 +879,416 @@ export class SettldClient {
     return this.request("POST", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`, { ...opts, body });
   }
 
+  createTaskQuote(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.buyerAgentId, "body.buyerAgentId");
+    assertNonEmptyString(body?.sellerAgentId, "body.sellerAgentId");
+    return this.request("POST", "/task-quotes", { ...opts, body });
+  }
+
+  listTaskQuotes(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.buyerAgentId) qs.set("buyerAgentId", String(params.buyerAgentId));
+    if (params.sellerAgentId) qs.set("sellerAgentId", String(params.sellerAgentId));
+    if (params.requiredCapability) qs.set("requiredCapability", String(params.requiredCapability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-quotes${suffix}`, opts);
+  }
+
+  getTaskQuote(quoteId, opts) {
+    assertNonEmptyString(quoteId, "quoteId");
+    return this.request("GET", `/task-quotes/${encodeURIComponent(quoteId)}`, opts);
+  }
+
+  createTaskOffer(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.buyerAgentId, "body.buyerAgentId");
+    assertNonEmptyString(body?.sellerAgentId, "body.sellerAgentId");
+    return this.request("POST", "/task-offers", { ...opts, body });
+  }
+
+  listTaskOffers(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.offerId) qs.set("offerId", String(params.offerId));
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.buyerAgentId) qs.set("buyerAgentId", String(params.buyerAgentId));
+    if (params.sellerAgentId) qs.set("sellerAgentId", String(params.sellerAgentId));
+    if (params.requiredCapability) qs.set("requiredCapability", String(params.requiredCapability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-offers${suffix}`, opts);
+  }
+
+  getTaskOffer(offerId, opts) {
+    assertNonEmptyString(offerId, "offerId");
+    return this.request("GET", `/task-offers/${encodeURIComponent(offerId)}`, opts);
+  }
+
+  createTaskAcceptance(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.quoteId, "body.quoteId");
+    assertNonEmptyString(body?.offerId, "body.offerId");
+    assertNonEmptyString(body?.acceptedByAgentId, "body.acceptedByAgentId");
+    return this.request("POST", "/task-acceptances", { ...opts, body });
+  }
+
+  listTaskAcceptances(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.offerId) qs.set("offerId", String(params.offerId));
+    if (params.acceptedByAgentId) qs.set("acceptedByAgentId", String(params.acceptedByAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-acceptances${suffix}`, opts);
+  }
+
+  getTaskAcceptance(acceptanceId, opts) {
+    assertNonEmptyString(acceptanceId, "acceptanceId");
+    return this.request("GET", `/task-acceptances/${encodeURIComponent(acceptanceId)}`, opts);
+  }
+
+  createWorkOrder(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/work-orders", { ...opts, body });
+  }
+
+  listWorkOrders(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.workOrderId) qs.set("workOrderId", String(params.workOrderId));
+    if (params.principalAgentId) qs.set("principalAgentId", String(params.principalAgentId));
+    if (params.subAgentId) qs.set("subAgentId", String(params.subAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders${suffix}`, opts);
+  }
+
+  getWorkOrder(workOrderId, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    return this.request("GET", `/work-orders/${encodeURIComponent(workOrderId)}`, opts);
+  }
+
+  acceptWorkOrder(workOrderId, body = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/accept`, { ...opts, body });
+  }
+
+  progressWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/progress`, { ...opts, body });
+  }
+
+  topUpWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/topup`, { ...opts, body });
+  }
+
+  getWorkOrderMetering(workOrderId, params = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    const qs = new URLSearchParams();
+    if (params.includeMeters !== undefined && params.includeMeters !== null) qs.set("includeMeters", String(Boolean(params.includeMeters)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders/${encodeURIComponent(workOrderId)}/metering${suffix}`, opts);
+  }
+
+  completeWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/complete`, { ...opts, body });
+  }
+
+  settleWorkOrder(workOrderId, body = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/settle`, { ...opts, body });
+  }
+
+  listWorkOrderReceipts(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.receiptId) qs.set("receiptId", String(params.receiptId));
+    if (params.workOrderId) qs.set("workOrderId", String(params.workOrderId));
+    if (params.principalAgentId) qs.set("principalAgentId", String(params.principalAgentId));
+    if (params.subAgentId) qs.set("subAgentId", String(params.subAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders/receipts${suffix}`, opts);
+  }
+
+  getWorkOrderReceipt(receiptId, opts) {
+    assertNonEmptyString(receiptId, "receiptId");
+    return this.request("GET", `/work-orders/receipts/${encodeURIComponent(receiptId)}`, opts);
+  }
+
+  createStateCheckpoint(body, opts) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    assertNonEmptyString(body?.ownerAgentId, "body.ownerAgentId");
+    if (!body.stateRef || typeof body.stateRef !== "object" || Array.isArray(body.stateRef)) {
+      throw new TypeError("body.stateRef is required");
+    }
+    assertNonEmptyString(body.stateRef?.artifactId, "body.stateRef.artifactId");
+    assertNonEmptyString(body.stateRef?.artifactHash, "body.stateRef.artifactHash");
+    if (!/^[0-9a-f]{64}$/i.test(String(body.stateRef.artifactHash))) {
+      throw new TypeError("body.stateRef.artifactHash must be a sha256 hex string");
+    }
+    if (body.diffRefs !== null && body.diffRefs !== undefined) {
+      if (!Array.isArray(body.diffRefs)) throw new TypeError("body.diffRefs must be an array");
+      for (let index = 0; index < body.diffRefs.length; index += 1) {
+        const ref = body.diffRefs[index];
+        if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
+          throw new TypeError(`body.diffRefs[${index}] must be an object`);
+        }
+        assertNonEmptyString(ref.artifactId, `body.diffRefs[${index}].artifactId`);
+        assertNonEmptyString(ref.artifactHash, `body.diffRefs[${index}].artifactHash`);
+        if (!/^[0-9a-f]{64}$/i.test(String(ref.artifactHash))) {
+          throw new TypeError(`body.diffRefs[${index}].artifactHash must be a sha256 hex string`);
+        }
+      }
+    }
+    return this.request("POST", "/state-checkpoints", { ...opts, body });
+  }
+
+  listStateCheckpoints(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.checkpointId) qs.set("checkpointId", String(params.checkpointId));
+    if (params.projectId) qs.set("projectId", String(params.projectId));
+    if (params.sessionId) qs.set("sessionId", String(params.sessionId));
+    if (params.ownerAgentId) qs.set("ownerAgentId", String(params.ownerAgentId));
+    if (params.traceId) qs.set("traceId", String(params.traceId));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/state-checkpoints${suffix}`, opts);
+  }
+
+  getStateCheckpoint(checkpointId, opts) {
+    assertNonEmptyString(checkpointId, "checkpointId");
+    return this.request("GET", `/state-checkpoints/${encodeURIComponent(checkpointId)}`, opts);
+  }
+
+  createSession(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/sessions", { ...opts, body });
+  }
+
+  listSessions(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.sessionId) qs.set("sessionId", String(params.sessionId));
+    if (params.participantAgentId) qs.set("participantAgentId", String(params.participantAgentId));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions${suffix}`, opts);
+  }
+
+  getSession(sessionId, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}`, opts);
+  }
+
+  listSessionEvents(sessionId, params = {}, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    const qs = new URLSearchParams();
+    if (params.eventType) qs.set("eventType", String(params.eventType));
+    if (params.sinceEventId) qs.set("sinceEventId", String(params.sinceEventId));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/events${suffix}`, opts);
+  }
+
+  appendSessionEvent(sessionId, body, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    if (!opts?.expectedPrevChainHash) throw new TypeError("expectedPrevChainHash is required for appendSessionEvent");
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.type, "body.type");
+    const resolvedOpts = { ...opts };
+    // Session event append is fail-closed on idempotency: default one for compatibility.
+    if (!resolvedOpts.idempotencyKey) resolvedOpts.idempotencyKey = randomRequestId();
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events`, { ...resolvedOpts, body });
+  }
+
+  getSessionReplayPack(sessionId, params = {}, opts = undefined) {
+    assertNonEmptyString(sessionId, "sessionId");
+    let query = params;
+    let requestOpts = opts;
+    if (
+      opts === undefined &&
+      params &&
+      typeof params === "object" &&
+      (params.requestId !== undefined || params.signal !== undefined)
+    ) {
+      query = {};
+      requestOpts = params;
+    }
+    const qs = new URLSearchParams();
+    if (query?.sign !== undefined && query?.sign !== null) qs.set("sign", String(Boolean(query.sign)));
+    if (query?.signerKeyId) qs.set("signerKeyId", String(query.signerKeyId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/replay-pack${suffix}`, requestOpts);
+  }
+
+  getSessionTranscript(sessionId, params = {}, opts = undefined) {
+    assertNonEmptyString(sessionId, "sessionId");
+    let query = params;
+    let requestOpts = opts;
+    if (
+      opts === undefined &&
+      params &&
+      typeof params === "object" &&
+      (params.requestId !== undefined || params.signal !== undefined)
+    ) {
+      query = {};
+      requestOpts = params;
+    }
+    const qs = new URLSearchParams();
+    if (query?.sign !== undefined && query?.sign !== null) qs.set("sign", String(Boolean(query.sign)));
+    if (query?.signerKeyId) qs.set("signerKeyId", String(query.signerKeyId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/transcript${suffix}`, requestOpts);
+  }
+
+  async *streamSessionEvents(sessionId, params = {}, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    const qs = new URLSearchParams();
+    if (params.eventType) qs.set("eventType", String(params.eventType));
+    if (params.sinceEventId) qs.set("sinceEventId", String(params.sinceEventId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    const rid = opts.requestId ?? randomRequestId();
+    const headers = {
+      accept: "text/event-stream",
+      "x-proxy-tenant-id": this.tenantId,
+      "x-nooterra-protocol": this.protocol,
+      "x-request-id": rid
+    };
+    if (this.userAgent) headers["user-agent"] = this.userAgent;
+    if (this.apiKey) headers["authorization"] = `Bearer ${this.apiKey}`;
+    if (this.xApiKey) headers["x-api-key"] = this.xApiKey;
+    if (this.opsToken) headers["x-proxy-ops-token"] = this.opsToken;
+    if (opts.lastEventId) headers["last-event-id"] = String(opts.lastEventId);
+
+    const url = new URL(`/sessions/${encodeURIComponent(sessionId)}/events/stream${suffix}`, this.baseUrl);
+    const res = await this.fetchImpl(url.toString(), { method: "GET", headers, signal: opts.signal });
+    const outHeaders = headersToRecord(res.headers);
+    const responseRequestId = outHeaders["x-request-id"] ?? null;
+    if (!res.ok) {
+      const parsed = await readJson(res);
+      const errBody = parsed && typeof parsed === "object" ? parsed : {};
+      const e = {
+        status: res.status,
+        code: errBody?.code ?? null,
+        message: errBody?.error ?? `request failed (${res.status})`,
+        details: errBody?.details,
+        requestId: responseRequestId
+      };
+      const thrown = new Error(e.message);
+      thrown.nooterra = e;
+      throw thrown;
+    }
+
+    for await (const event of parseSseResponse(res)) {
+      yield event;
+    }
+  }
+
   getAgentWallet(agentId, opts) {
     assertNonEmptyString(agentId, "agentId");
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/wallet`, opts);
+  }
+
+  createDelegationGrant(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.delegatorAgentId, "body.delegatorAgentId");
+    assertNonEmptyString(body?.delegateeAgentId, "body.delegateeAgentId");
+    return this.request("POST", "/delegation-grants", { ...opts, body });
+  }
+
+  issueDelegationGrant(body, opts) {
+    return this.createDelegationGrant(body, opts);
+  }
+
+  listDelegationGrants(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.grantId) qs.set("grantId", String(params.grantId));
+    if (params.grantHash) qs.set("grantHash", String(params.grantHash).toLowerCase());
+    if (params.delegatorAgentId) qs.set("delegatorAgentId", String(params.delegatorAgentId));
+    if (params.delegateeAgentId) qs.set("delegateeAgentId", String(params.delegateeAgentId));
+    if (params.includeRevoked !== undefined && params.includeRevoked !== null) qs.set("includeRevoked", String(Boolean(params.includeRevoked)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/delegation-grants${suffix}`, opts);
+  }
+
+  getDelegationGrant(grantId, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    return this.request("GET", `/delegation-grants/${encodeURIComponent(grantId)}`, opts);
+  }
+
+  revokeDelegationGrant(grantId, body = {}, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/delegation-grants/${encodeURIComponent(grantId)}/revoke`, { ...opts, body });
+  }
+
+  createAuthorityGrant(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    if (!body.principalRef || typeof body.principalRef !== "object" || Array.isArray(body.principalRef)) {
+      throw new TypeError("body.principalRef is required");
+    }
+    assertNonEmptyString(body?.granteeAgentId, "body.granteeAgentId");
+    return this.request("POST", "/authority-grants", { ...opts, body });
+  }
+
+  listAuthorityGrants(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.grantId) qs.set("grantId", String(params.grantId));
+    if (params.grantHash) qs.set("grantHash", String(params.grantHash).toLowerCase());
+    if (params.principalId) qs.set("principalId", String(params.principalId));
+    if (params.granteeAgentId) qs.set("granteeAgentId", String(params.granteeAgentId));
+    if (params.includeRevoked !== undefined && params.includeRevoked !== null) qs.set("includeRevoked", String(Boolean(params.includeRevoked)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/authority-grants${suffix}`, opts);
+  }
+
+  getAuthorityGrant(grantId, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    return this.request("GET", `/authority-grants/${encodeURIComponent(grantId)}`, opts);
+  }
+
+  revokeAuthorityGrant(grantId, body = {}, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/authority-grants/${encodeURIComponent(grantId)}/revoke`, { ...opts, body });
   }
 
   creditAgentWallet(agentId, body, opts) {
@@ -472,6 +1447,39 @@ export class SettldClient {
   getArtifact(artifactId, opts) {
     assertNonEmptyString(artifactId, "artifactId");
     return this.request("GET", `/artifacts/${encodeURIComponent(artifactId)}`, opts);
+  }
+
+  createCapabilityAttestation(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.subjectAgentId, "body.subjectAgentId");
+    assertNonEmptyString(body?.capability, "body.capability");
+    return this.request("POST", "/capability-attestations", { ...opts, body });
+  }
+
+  listCapabilityAttestations(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.attestationId) qs.set("attestationId", String(params.attestationId));
+    if (params.subjectAgentId) qs.set("subjectAgentId", String(params.subjectAgentId));
+    if (params.issuerAgentId) qs.set("issuerAgentId", String(params.issuerAgentId));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.includeInvalid !== undefined && params.includeInvalid !== null) qs.set("includeInvalid", String(Boolean(params.includeInvalid)));
+    if (params.at) qs.set("at", String(params.at));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/capability-attestations${suffix}`, opts);
+  }
+
+  getCapabilityAttestation(attestationId, opts) {
+    assertNonEmptyString(attestationId, "attestationId");
+    return this.request("GET", `/capability-attestations/${encodeURIComponent(attestationId)}`, opts);
+  }
+
+  revokeCapabilityAttestation(attestationId, body = {}, opts) {
+    assertNonEmptyString(attestationId, "attestationId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/capability-attestations/${encodeURIComponent(attestationId)}/revoke`, { ...opts, body });
   }
 
   async getArtifacts(params = {}, opts) {
@@ -1017,5 +2025,217 @@ export class SettldClient {
     if (params.includeUnchanged !== undefined && params.includeUnchanged !== null) qs.set("includeUnchanged", String(Boolean(params.includeUnchanged)));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return this.request("GET", `/v1/tenants/${encodeURIComponent(tenantId)}/trust-graph/diff${suffix}`, opts);
+  }
+}
+
+class NooterraParityAdapterBase {
+  constructor(client, { transport, maxAttempts = 3, retryStatusCodes, retryCodes, retryDelayMs = 0 } = {}) {
+    if (!client || typeof client.request !== "function") throw new TypeError("client with request() is required");
+    if (transport !== "http" && transport !== "mcp") throw new TypeError("transport must be http or mcp");
+    this.client = client;
+    this.transport = transport;
+    this.maxAttempts = parseInteger(maxAttempts, 3, { min: 1 });
+    this.retryStatusCodes = normalizeRetryStatusCodes(retryStatusCodes);
+    this.retryCodes = normalizeRetryCodes(retryCodes);
+    this.retryDelayMs = retryDelayMs;
+  }
+
+  isRetryable(error) {
+    const status = Number(error?.nooterra?.status);
+    const code = asNonEmptyStringOrNull(error?.nooterra?.code);
+    if (!Number.isInteger(status) || status <= 0) return true;
+    if (this.retryStatusCodes.has(status)) return true;
+    if (code && this.retryCodes.has(code.toUpperCase())) return true;
+    return false;
+  }
+
+  async invoke(operation, payload, opts = {}) {
+    let resolvedOperation;
+    try {
+      resolvedOperation = resolveParityOperation(operation, { transport: this.transport });
+    } catch (err) {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.OPERATION_INVALID,
+        message: err?.message ?? "operation is invalid",
+        transport: this.transport,
+        operationId: operation?.operationId
+      });
+    }
+    const requestId = asNonEmptyStringOrNull(opts?.requestId) ?? randomRequestId();
+    const idempotencyKey = asNonEmptyStringOrNull(opts?.idempotencyKey);
+    const expectedPrevChainHash = asNonEmptyStringOrNull(opts?.expectedPrevChainHash);
+    validateParityPayload(payload, resolvedOperation, {
+      transport: this.transport,
+      idempotencyKey,
+      expectedPrevChainHash
+    });
+
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      try {
+        const rawResponse = await this.invokeOnce(resolvedOperation, payload, {
+          requestId,
+          idempotencyKey,
+          expectedPrevChainHash,
+          signal: opts?.signal
+        });
+        const responseHeaders = normalizeHeadersRecord(rawResponse?.headers);
+        const requestIdFromResponse = asNonEmptyStringOrNull(rawResponse?.requestId) ?? asNonEmptyStringOrNull(responseHeaders["x-request-id"]);
+        const status = Number(rawResponse?.status);
+        if (!Number.isInteger(status) || status < 100 || status > 599) {
+          throw createParityError({
+            status: 502,
+            code: PARITY_REASON_CODE.RESPONSE_INVALID,
+            message: "transport response missing valid status",
+            requestId: requestIdFromResponse ?? requestId,
+            idempotencyKey,
+            transport: this.transport,
+            operationId: resolvedOperation.operationId
+          });
+        }
+        if (rawResponse?.ok === false || status >= 400) {
+          throw createParityError({
+            status,
+            code: rawResponse?.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+            message: rawResponse?.message ?? `request failed (${status})`,
+            details: rawResponse?.details,
+            requestId: requestIdFromResponse ?? requestId,
+            idempotencyKey,
+            transport: this.transport,
+            operationId: resolvedOperation.operationId
+          });
+        }
+        return {
+          ok: true,
+          status,
+          requestId: requestIdFromResponse ?? null,
+          body: rawResponse?.body ?? null,
+          headers: responseHeaders,
+          transport: this.transport,
+          operationId: resolvedOperation.operationId,
+          idempotencyKey,
+          attempts: attempt
+        };
+      } catch (err) {
+        const parityError = coerceParityError(err, {
+          attempt,
+          requestId,
+          idempotencyKey,
+          transport: this.transport,
+          operationId: resolvedOperation.operationId
+        });
+        const retryable = this.isRetryable(parityError);
+        parityError.nooterra.retryable = retryable;
+        parityError.nooterra.attempts = attempt;
+        if (!retryable || attempt >= this.maxAttempts) throw parityError;
+        await sleepMs(resolveRetryDelayMs(this.retryDelayMs, attempt));
+      }
+    }
+    throw createParityError({
+      status: 500,
+      code: PARITY_REASON_CODE.REQUEST_REJECTED,
+      message: "request failed",
+      idempotencyKey,
+      transport: this.transport,
+      operationId: resolvedOperation.operationId
+    });
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async invokeOnce() {
+    throw new Error("invokeOnce() must be implemented");
+  }
+}
+
+export class NooterraHttpParityAdapter extends NooterraParityAdapterBase {
+  constructor(client, opts = {}) {
+    super(client, { ...opts, transport: "http" });
+  }
+
+  async invokeOnce(operation, payload, { requestId, idempotencyKey, expectedPrevChainHash, signal }) {
+    return this.client.request(operation.method, operation.path, {
+      body: payload,
+      requestId,
+      idempotencyKey,
+      expectedPrevChainHash,
+      signal
+    });
+  }
+}
+
+export class NooterraMcpParityAdapter extends NooterraParityAdapterBase {
+  constructor(client, opts = {}) {
+    super(client, { ...opts, transport: "mcp" });
+    this.callTool = opts?.callTool ?? null;
+  }
+
+  async invokeOnce(operation, payload, { requestId, idempotencyKey, expectedPrevChainHash, signal }) {
+    if (typeof this.callTool !== "function") {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.MCP_CALL_REQUIRED,
+        message: "callTool function is required",
+        transport: this.transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+    const raw = await this.callTool(operation.toolName, {
+      operationId: operation.operationId,
+      payload,
+      requestId,
+      idempotencyKey,
+      expectedPrevChainHash,
+      signal,
+      headers: {
+        "x-request-id": requestId,
+        ...(idempotencyKey ? { "x-idempotency-key": idempotencyKey } : {}),
+        ...(expectedPrevChainHash ? { "x-proxy-expected-prev-chain-hash": expectedPrevChainHash } : {})
+      }
+    });
+    if (!isPlainObject(raw)) {
+      throw createParityError({
+        status: 502,
+        code: PARITY_REASON_CODE.RESPONSE_INVALID,
+        message: "mcp response must be an object",
+        requestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    const headers = normalizeHeadersRecord(raw.headers);
+    const responseRequestId = asNonEmptyStringOrNull(raw.requestId) ?? asNonEmptyStringOrNull(headers["x-request-id"]) ?? requestId;
+    const defaultStatus = raw.ok === false || raw.error !== undefined ? 500 : 200;
+    const rawStatus = raw.status === undefined || raw.status === null ? defaultStatus : Number(raw.status);
+    if (!Number.isInteger(rawStatus) || rawStatus < 100 || rawStatus > 599) {
+      throw createParityError({
+        status: 502,
+        code: PARITY_REASON_CODE.RESPONSE_INVALID,
+        message: "mcp response status must be a valid HTTP status integer",
+        requestId: responseRequestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    if (raw.ok === false || raw.error !== undefined || rawStatus >= 400) {
+      const errorBody = isPlainObject(raw.error) ? raw.error : {};
+      throw createParityError({
+        status: Number(errorBody.status) || rawStatus,
+        code: raw.code ?? errorBody.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+        message: raw.message ?? errorBody.message ?? errorBody.error ?? `request failed (${rawStatus})`,
+        details: raw.details ?? errorBody.details,
+        requestId: responseRequestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    return {
+      ok: true,
+      status: rawStatus,
+      requestId: responseRequestId,
+      headers,
+      body: raw.body ?? raw.result ?? raw.data ?? null
+    };
   }
 }

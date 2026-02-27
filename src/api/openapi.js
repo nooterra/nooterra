@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { SETTLD_PROTOCOL_CURRENT } from "../core/protocol.js";
+import { NOOTERRA_PROTOCOL_CURRENT } from "../core/protocol.js";
 
 function readRepoVersion() {
   try {
-    const p = path.resolve(process.cwd(), "SETTLD_VERSION");
+    const p = path.resolve(process.cwd(), "NOOTERRA_VERSION");
     const raw = fs.readFileSync(p, "utf8");
     const v = String(raw).trim();
     return v || "0.0.0";
@@ -26,10 +26,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   };
 
   const ProtocolHeader = {
-    name: "x-settld-protocol",
+    name: "x-nooterra-protocol",
     in: "header",
     required: true,
-    schema: { type: "string", example: SETTLD_PROTOCOL_CURRENT },
+    schema: { type: "string", example: NOOTERRA_PROTOCOL_CURRENT },
     description: "Client protocol version (major.minor). Required in production."
   };
 
@@ -47,6 +47,12 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: false,
     schema: { type: "string" },
     description: "Optional idempotency key. If reused, request body must match."
+  };
+
+  const RequiredIdempotencyHeader = {
+    ...IdempotencyHeader,
+    required: true,
+    description: "Required idempotency key. If reused, request body must match."
   };
 
   const ExpectedPrevChainHashHeader = {
@@ -407,6 +413,33 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const ToolDescriptorV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "toolId", "sideEffecting", "requiresEvidenceKinds"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["ToolDescriptor.v1"] },
+      toolId: { type: "string" },
+      mcpToolName: { type: "string", nullable: true },
+      name: { type: "string", nullable: true },
+      description: { type: "string", nullable: true },
+      riskClass: { type: "string", enum: ["read", "compute", "action", "financial"], nullable: true },
+      sideEffecting: { type: "boolean" },
+      pricing: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        properties: {
+          amountCents: { type: "integer", minimum: 0 },
+          currency: { type: "string" },
+          unit: { type: "string" }
+        }
+      },
+      requiresEvidenceKinds: { type: "array", items: { type: "string", enum: ["artifact", "hash", "verification_report"] } },
+      metadata: { type: "object", nullable: true, additionalProperties: true }
+    }
+  };
+
   const AgentCardV1 = {
     type: "object",
     additionalProperties: false,
@@ -434,6 +467,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       host: AgentCardHostV1,
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
+      tools: { type: "array", items: ToolDescriptorV1 },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", nullable: true, additionalProperties: true },
       identityRef: {
@@ -464,6 +498,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       host: AgentCardHostV1,
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
+      tools: { type: "array", items: ToolDescriptorV1 },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", additionalProperties: true }
     }
@@ -700,10 +735,12 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["status", "x402GateId", "x402RunId", "x402SettlementStatus", "completionReceiptId", "settledAt"],
     properties: {
       status: { type: "string", enum: ["released", "refunded"] },
+      traceId: { type: "string", nullable: true },
       x402GateId: { type: "string" },
       x402RunId: { type: "string" },
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string", nullable: true },
       completionReceiptId: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
     }
@@ -735,12 +772,16 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      traceId: { type: "string", nullable: true },
+      x402ToolId: { type: "string", nullable: true },
+      x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
       pricing: SubAgentWorkOrderPricingV1,
       constraints: SubAgentWorkOrderConstraintsV1,
       evidencePolicy: WorkOrderSettlementEvidencePolicyV1,
       attestationRequirement: WorkOrderCapabilityAttestationRequirementV1,
       delegationGrantRef: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string", nullable: true },
       status: {
         type: "string",
         enum: ["created", "accepted", "working", "completed", "failed", "settled", "cancelled", "disputed"]
@@ -782,6 +823,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       status: { type: "string", enum: ["success", "failed"] },
+      traceId: { type: "string", nullable: true },
       outputs: {
         nullable: true,
         oneOf: [{ type: "object", additionalProperties: true }, { type: "array", items: { type: "object", additionalProperties: true } }]
@@ -813,6 +855,9 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      traceId: { type: "string", nullable: true },
+      x402ToolId: { type: "string", nullable: true },
+      x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
       pricing: SubAgentWorkOrderPricingV1,
       constraints: SubAgentWorkOrderConstraintsV1,
@@ -822,6 +867,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       attestationMinLevel: { type: "string", enum: ["self_claim", "attested", "certified"], nullable: true },
       attestationIssuerAgentId: { type: "string", nullable: true },
       delegationGrantRef: { type: "string" },
+      authorityGrantRef: { type: "string" },
       metadata: { type: "object", additionalProperties: true }
     }
   };
@@ -859,6 +905,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       evidenceRefs: { type: "array", items: { type: "string" } },
       amountCents: { type: "integer", minimum: 0, nullable: true },
       currency: { type: "string", nullable: true },
+      traceId: { type: "string", nullable: true },
       deliveredAt: { type: "string", format: "date-time" },
       completedAt: { type: "string", format: "date-time" },
       metadata: { type: "object", additionalProperties: true }
@@ -877,7 +924,86 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string" },
       completionReceiptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      traceId: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const MeterV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "meterId",
+      "workOrderId",
+      "meterType",
+      "sourceType",
+      "quantity",
+      "amountCents",
+      "occurredAt",
+      "recordedAt",
+      "meterHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["Meter.v1"] },
+      meterId: { type: "string" },
+      workOrderId: { type: "string" },
+      meterType: { type: "string", enum: ["topup", "usage"] },
+      sourceType: { type: "string", enum: ["work_order_meter_topup", "work_order_meter_usage"] },
+      eventType: { type: "string", nullable: true },
+      sourceEventId: { type: "string", nullable: true },
+      quantity: { type: "integer", minimum: 0 },
+      amountCents: { type: "integer", minimum: 0 },
+      currency: { type: "string", nullable: true },
+      occurredAt: { type: "string", format: "date-time" },
+      recordedAt: { type: "string", format: "date-time" },
+      period: { type: "string", nullable: true },
+      eventHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      meterHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const WorkOrderMeteringSnapshotV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "meterSchemaVersion", "workOrderId", "summary", "meterCount", "meterDigest", "meters"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["WorkOrderMeteringSnapshot.v1"] },
+      meterSchemaVersion: { type: "string", enum: ["Meter.v1"] },
+      workOrderId: { type: "string" },
+      policy: { type: "object", additionalProperties: true, nullable: true },
+      summary: {
+        type: "object",
+        additionalProperties: false,
+        required: ["baseAmountCents", "topUpTotalCents", "usageTotalCents", "coveredAmountCents", "maxCostCents", "remainingCents"],
+        properties: {
+          baseAmountCents: { type: "integer", minimum: 0 },
+          topUpTotalCents: { type: "integer", minimum: 0 },
+          usageTotalCents: { type: "integer", minimum: 0 },
+          coveredAmountCents: { type: "integer", minimum: 0 },
+          maxCostCents: { type: "integer", minimum: 0, nullable: true },
+          remainingCents: { type: "integer", minimum: 0, nullable: true }
+        }
+      },
+      meterCount: { type: "integer", minimum: 0 },
+      meterDigest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      meters: { type: "array", items: MeterV1 }
+    }
+  };
+
+  const SubAgentWorkOrderTopUpRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["topUpId", "amountCents"],
+    properties: {
+      topUpId: { type: "string" },
+      amountCents: { type: "integer", minimum: 1 },
+      quantity: { type: "integer", minimum: 1, nullable: true },
+      currency: { type: "string", nullable: true },
+      eventKey: { type: "string", nullable: true },
+      occurredAt: { type: "string", format: "date-time", nullable: true }
     }
   };
 
@@ -1559,6 +1685,439 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
 
   const AgentReputationAny = {
     oneOf: [AgentReputationV1, AgentReputationV2]
+  };
+
+  const RelationshipEdgeV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "agentId",
+      "counterpartyAgentId",
+      "visibility",
+      "reputationWindow",
+      "asOf",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "workedWithCount",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "releaseRateAvg",
+      "settledCents",
+      "refundedCents",
+      "penalizedCents",
+      "autoReleasedCents",
+      "adjustmentAppliedCents",
+      "lastInteractionAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["RelationshipEdge.v1"] },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      counterpartyAgentId: { type: "string" },
+      visibility: { type: "string", enum: ["private", "public_summary"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      workedWithCount: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      releaseRateAvg: { type: "number", nullable: true },
+      settledCents: { type: "integer", minimum: 0 },
+      refundedCents: { type: "integer", minimum: 0 },
+      penalizedCents: { type: "integer", minimum: 0 },
+      autoReleasedCents: { type: "integer", minimum: 0 },
+      adjustmentAppliedCents: { type: "integer", minimum: 0 },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true },
+      minimumEconomicWeightCents: { type: "integer", minimum: 0 },
+      economicWeightCents: { type: "integer", minimum: 0 },
+      economicWeightQualified: { type: "boolean" },
+      microLoopEventCount: { type: "integer", minimum: 0 },
+      microLoopRate: { type: "number", nullable: true },
+      reciprocalDecisionCount: { type: "integer", minimum: 0 },
+      reciprocalEconomicSymmetryDeltaCents: { type: "integer", minimum: 0, nullable: true },
+      reciprocalMicroLoopRate: { type: "number", nullable: true },
+      collusionSuspected: { type: "boolean" },
+      dampened: { type: "boolean" },
+      reputationImpactMultiplier: { type: "number", minimum: 0, maximum: 1 },
+      antiGamingReasonCodes: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const PublicAgentReputationSummaryV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "trustScore",
+      "riskTier",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "lastInteractionAt",
+      "relationships"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["PublicAgentReputationSummary.v1"] },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      trustScore: { type: "integer", minimum: 0, maximum: 100 },
+      riskTier: { type: "string", enum: ["low", "guarded", "elevated", "high"] },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true },
+      relationships: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schemaVersion", "counterpartyAgentId", "workedWithCount", "successRate", "disputeRate", "lastInteractionAt"],
+          properties: {
+            schemaVersion: { type: "string", enum: ["RelationshipEdge.v1"] },
+            counterpartyAgentId: { type: "string" },
+            workedWithCount: { type: "integer", minimum: 0 },
+            successRate: { type: "number", nullable: true },
+            disputeRate: { type: "number", nullable: true },
+            lastInteractionAt: { type: "string", format: "date-time", nullable: true }
+          }
+        }
+      }
+    }
+  };
+
+  const InteractionGraphSummaryV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "trustScore",
+      "riskTier",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "settledCents",
+      "refundedCents",
+      "penalizedCents",
+      "autoReleasedCents",
+      "adjustmentAppliedCents",
+      "relationshipCount",
+      "economicallyQualifiedRelationshipCount",
+      "dampenedRelationshipCount",
+      "collusionSuspectedRelationshipCount",
+      "lastInteractionAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["InteractionGraphSummary.v1"] },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      trustScore: { type: "integer", minimum: 0, maximum: 100 },
+      riskTier: { type: "string", enum: ["low", "guarded", "elevated", "high"] },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      settledCents: { type: "integer", minimum: 0 },
+      refundedCents: { type: "integer", minimum: 0 },
+      penalizedCents: { type: "integer", minimum: 0 },
+      autoReleasedCents: { type: "integer", minimum: 0 },
+      adjustmentAppliedCents: { type: "integer", minimum: 0 },
+      relationshipCount: { type: "integer", minimum: 0 },
+      economicallyQualifiedRelationshipCount: { type: "integer", minimum: 0 },
+      dampenedRelationshipCount: { type: "integer", minimum: 0 },
+      collusionSuspectedRelationshipCount: { type: "integer", minimum: 0 },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const InteractionGraphVerificationV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "deterministicOrdering", "antiGamingSignalsPresent", "generatedBy"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["InteractionGraphVerification.v1"] },
+      deterministicOrdering: { type: "boolean" },
+      antiGamingSignalsPresent: { type: "boolean" },
+      generatedBy: { type: "string" }
+    }
+  };
+
+  const InteractionGraphPackSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["VerifiedInteractionGraphPackSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const VerifiedInteractionGraphPackV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "generatedAt",
+      "relationshipCount",
+      "relationshipsHash",
+      "summaryHash",
+      "verification",
+      "summary",
+      "relationships",
+      "packHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["VerifiedInteractionGraphPack.v1"] },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      generatedAt: { type: "string", format: "date-time" },
+      relationshipCount: { type: "integer", minimum: 0 },
+      relationshipsHash: { type: "string" },
+      summaryHash: { type: "string" },
+      verification: InteractionGraphVerificationV1,
+      summary: InteractionGraphSummaryV1,
+      relationships: { type: "array", items: RelationshipEdgeV1 },
+      packHash: { type: "string" },
+      signature: InteractionGraphPackSignatureV1
+    }
+  };
+
+  const SessionV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "sessionId", "tenantId", "visibility", "participants", "createdAt", "updatedAt", "revision"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["Session.v1"] },
+      sessionId: { type: "string" },
+      tenantId: { type: "string" },
+      visibility: { type: "string", enum: ["public", "tenant", "private"] },
+      participants: { type: "array", items: { type: "string" } },
+      policyRef: { type: "string", nullable: true },
+      metadata: { type: "object", nullable: true, additionalProperties: true },
+      createdAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" },
+      revision: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const SessionEventProvenanceV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "label", "derivedFromEventId", "isTainted", "taintDepth", "explicitTaint", "reasonCodes"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionEventProvenance.v1"] },
+      label: { type: "string", enum: ["trusted", "external", "tainted"] },
+      derivedFromEventId: { type: "string", nullable: true },
+      isTainted: { type: "boolean" },
+      taintDepth: { type: "integer", minimum: 0 },
+      explicitTaint: { type: "boolean" },
+      reasonCodes: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const SessionEventPayloadV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "sessionId", "eventType", "payload", "provenance", "traceId", "at"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionEvent.v1"] },
+      sessionId: { type: "string" },
+      eventType: {
+        type: "string",
+        enum: [
+          "MESSAGE",
+          "TASK_REQUESTED",
+          "QUOTE_ISSUED",
+          "TASK_ACCEPTED",
+          "TASK_PROGRESS",
+          "TASK_COMPLETED",
+          "SETTLEMENT_LOCKED",
+          "SETTLEMENT_RELEASED",
+          "SETTLEMENT_REFUNDED",
+          "POLICY_CHALLENGED",
+          "DISPUTE_OPENED"
+        ]
+      },
+      payload: { nullable: true },
+      provenance: { allOf: [SessionEventProvenanceV1], nullable: true },
+      traceId: { type: "string", nullable: true },
+      at: { type: "string", format: "date-time" }
+    }
+  };
+
+  const SessionEventEnvelopeV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["v", "id", "at", "streamId", "type", "actor", "payload", "payloadHash", "prevChainHash", "chainHash", "signature", "signerKeyId"],
+    properties: {
+      v: { type: "integer", enum: [1] },
+      id: { type: "string" },
+      at: { type: "string", format: "date-time" },
+      streamId: { type: "string" },
+      type: { type: "string" },
+      actor: { type: "object", nullable: true, additionalProperties: true },
+      payload: SessionEventPayloadV1,
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      prevChainHash: { type: "string", nullable: true },
+      chainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { type: "string", nullable: true },
+      signerKeyId: { type: "string", nullable: true }
+    }
+  };
+
+  const SessionReplayPackSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayPackSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const SessionReplayPackV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "generatedAt",
+      "sessionHash",
+      "eventChainHash",
+      "eventCount",
+      "headChainHash",
+      "verification",
+      "session",
+      "events",
+      "packHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayPack.v1"] },
+      tenantId: { type: "string" },
+      sessionId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      sessionHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventChainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventCount: { type: "integer", minimum: 0 },
+      headChainHash: { type: "string", nullable: true },
+      verification: { type: "object", additionalProperties: true },
+      session: SessionV1,
+      events: { type: "array", items: SessionEventEnvelopeV1 },
+      packHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { allOf: [SessionReplayPackSignatureV1], nullable: true }
+    }
+  };
+
+  const SessionTranscriptSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionTranscriptSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const SessionTranscriptDigestV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["eventId", "eventType", "at", "chainHash", "prevChainHash", "payloadHash", "signerKeyId", "actor", "traceId", "provenance"],
+    properties: {
+      eventId: { type: "string" },
+      eventType: { type: "string" },
+      at: { type: "string", format: "date-time" },
+      chainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      prevChainHash: { type: "string", nullable: true },
+      payloadHash: { type: "string", nullable: true },
+      signerKeyId: { type: "string", nullable: true },
+      actor: { type: "object", nullable: true, additionalProperties: true },
+      traceId: { type: "string", nullable: true },
+      provenance: { type: "object", nullable: true, additionalProperties: true }
+    }
+  };
+
+  const SessionTranscriptV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "generatedAt",
+      "sessionHash",
+      "transcriptEventDigestHash",
+      "eventCount",
+      "headChainHash",
+      "verification",
+      "session",
+      "eventDigests",
+      "transcriptHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionTranscript.v1"] },
+      tenantId: { type: "string" },
+      sessionId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      sessionHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      transcriptEventDigestHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventCount: { type: "integer", minimum: 0 },
+      headChainHash: { type: "string", nullable: true },
+      verification: { type: "object", additionalProperties: true },
+      session: SessionV1,
+      eventDigests: { type: "array", items: SessionTranscriptDigestV1 },
+      transcriptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { allOf: [SessionTranscriptSignatureV1], nullable: true }
+    }
   };
 
   const InteractionDirectionEntityType = {
@@ -4120,10 +4679,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const spec = {
     openapi: "3.0.3",
     info: {
-      title: "Settld API",
+      title: "Nooterra API",
       version,
-      description: "Settld system-of-record API (protocol-gated).",
-      "x-settld-protocol": SETTLD_PROTOCOL_CURRENT
+      description: "Nooterra system-of-record API (protocol-gated).",
+      "x-nooterra-protocol": NOOTERRA_PROTOCOL_CURRENT
     },
     servers: baseUrl ? [{ url: baseUrl }] : undefined,
     components: {
@@ -5804,6 +6363,17 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             ProtocolHeader,
             RequestIdHeader,
             { name: "capability", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolId", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolMcpName", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolRiskClass", in: "query", required: false, schema: { type: "string", enum: ["read", "compute", "action", "financial"] } },
+            { name: "toolSideEffecting", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "toolMaxPriceCents", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            {
+              name: "toolRequiresEvidenceKind",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+            },
             { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "suspended", "revoked", "all"] } },
             { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "tenant", "private", "all"] } },
             { name: "runtime", in: "query", required: false, schema: { type: "string" } },
@@ -6064,6 +6634,343 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/sessions": {
+        get: {
+          summary: "List Session.v1 records",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "query", required: false, schema: { type: "string" } },
+            { name: "participantAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "tenant", "private"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      sessions: { type: "array", items: SessionV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Create Session.v1 record",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["sessionId", "participants"],
+                  properties: {
+                    sessionId: { type: "string" },
+                    visibility: { type: "string", enum: ["public", "tenant", "private"] },
+                    participants: { type: "array", items: { type: "string" } },
+                    policyRef: { type: "string", nullable: true },
+                    metadata: { type: "object", nullable: true, additionalProperties: true },
+                    createdAt: { type: "string", format: "date-time", nullable: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}": {
+        get: {
+          summary: "Get Session.v1 by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1
+                    }
+                  }
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/events": {
+        get: {
+          summary: "List SessionEvent.v1 envelope records",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "eventType",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: [
+                  "MESSAGE",
+                  "TASK_REQUESTED",
+                  "QUOTE_ISSUED",
+                  "TASK_ACCEPTED",
+                  "TASK_PROGRESS",
+                  "TASK_COMPLETED",
+                  "SETTLEMENT_LOCKED",
+                  "SETTLEMENT_RELEASED",
+                  "SETTLEMENT_REFUNDED",
+                  "POLICY_CHALLENGED",
+                  "DISPUTE_OPENED"
+                ]
+              }
+            },
+            { name: "sinceEventId", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      sessionId: { type: "string" },
+                      events: { type: "array", items: SessionEventEnvelopeV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      currentPrevChainHash: { type: "string" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Append SessionEvent.v1 envelope record",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            RequiredIdempotencyHeader,
+            ExpectedPrevChainHashHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["eventType"],
+                  properties: {
+                    eventType: { type: "string" },
+                    payload: { nullable: true },
+                    provenance: { allOf: [SessionEventProvenanceV1], nullable: true },
+                    traceId: { type: "string", nullable: true },
+                    at: { type: "string", format: "date-time", nullable: true },
+                    actor: { type: "object", nullable: true, additionalProperties: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Appended",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1,
+                      event: SessionEventEnvelopeV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            428: { description: "Precondition Required", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/events/stream": {
+        get: {
+          summary: "Stream SessionEvent.v1 envelope records via SSE",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "eventType",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: [
+                  "MESSAGE",
+                  "TASK_REQUESTED",
+                  "QUOTE_ISSUED",
+                  "TASK_ACCEPTED",
+                  "TASK_PROGRESS",
+                  "TASK_COMPLETED",
+                  "SETTLEMENT_LOCKED",
+                  "SETTLEMENT_RELEASED",
+                  "SETTLEMENT_REFUNDED",
+                  "POLICY_CHALLENGED",
+                  "DISPUTE_OPENED"
+                ]
+              }
+            },
+            { name: "sinceEventId", in: "query", required: false, schema: { type: "string" } },
+            {
+              name: "Last-Event-ID",
+              in: "header",
+              required: false,
+              schema: { type: "string" },
+              description: "SSE cursor resume id."
+            }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "text/event-stream response" },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/replay-pack": {
+        get: {
+          summary: "Get SessionReplayPack.v1 export",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      replayPack: SessionReplayPackV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/transcript": {
+        get: {
+          summary: "Get SessionTranscript.v1 digest export",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      transcript: SessionTranscriptV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/work-orders": {
         get: {
           summary: "List SubAgentWorkOrder.v1 records",
@@ -6226,6 +7133,99 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 }
               }
             },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/work-orders/{workOrderId}/topup": {
+        post: {
+          summary: "Append a metering top-up event for SubAgentWorkOrder.v1",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "workOrderId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: SubAgentWorkOrderTopUpRequest } } },
+          responses: {
+            200: {
+              description: "Existing event reused",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      appended: { type: "boolean" },
+                      event: { type: "object", additionalProperties: true },
+                      metering: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              }
+            },
+            201: {
+              description: "Top-up event appended",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      appended: { type: "boolean" },
+                      event: { type: "object", additionalProperties: true },
+                      metering: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/work-orders/{workOrderId}/metering": {
+        get: {
+          summary: "Get WorkOrderMeteringSnapshot.v1 with Meter.v1 events",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "workOrderId", in: "path", required: true, schema: { type: "string" } },
+            { name: "includeMeters", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 1000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      workOrderId: { type: "string" },
+                      metering: WorkOrderMeteringSnapshotV1,
+                      totalMeters: { type: "integer", minimum: 0 },
+                      count: { type: "integer", minimum: 0 },
+                      limit: { type: "integer", minimum: 1 },
+                      offset: { type: "integer", minimum: 0 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
           }
@@ -6587,6 +7587,127 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               }
             },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/agents/{agentId}/interaction-graph-pack": {
+        get: {
+          summary: "Export deterministic interaction graph pack for an agent",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "reputationVersion", in: "query", required: false, schema: { type: "string", enum: ["v1", "v2"] } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "counterpartyAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["all", "private", "public_summary"] } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      graphPack: VerifiedInteractionGraphPackV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/public/agents/{agentId}/reputation-summary": {
+        get: {
+          summary: "Get public coarse reputation summary for an opted-in public agent",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "reputationVersion", in: "query", required: false, schema: { type: "string", enum: ["v1", "v2"] } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "includeRelationships", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "relationshipLimit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } }
+          ],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      summary: PublicAgentReputationSummaryV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/relationships": {
+        get: {
+          summary: "List pairwise relationship edges for an agent (tenant-scoped)",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "query", required: true, schema: { type: "string" } },
+            { name: "counterpartyAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["all", "private", "public_summary"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      agentId: { type: "string" },
+                      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+                      asOf: { type: "string", format: "date-time" },
+                      total: { type: "integer" },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      relationships: { type: "array", items: RelationshipEdgeV1 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
@@ -7053,7 +8174,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "artifactId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read", "audit_read", "finance_read"],
+          "x-nooterra-scopes": ["ops_read", "audit_read", "finance_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
@@ -7280,7 +8401,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops status summary",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -7302,7 +8423,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: lock a tool-call funding hold (holdback escrow)",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: {
             required: true,
             content: {
@@ -7347,7 +8468,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7385,7 +8506,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "agreementHash", in: "query", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7417,7 +8538,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "includeEvents", in: "query", required: false, schema: { type: "string", enum: ["1"] } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7438,7 +8559,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: get tool-call funding hold",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "holdHash", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7464,7 +8585,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: run tool-call holdback maintenance tick",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: {
             required: false,
             content: {
@@ -7502,7 +8623,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read", "audit_read"],
+          "x-nooterra-scopes": ["ops_read", "audit_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsJobsListResponse } } }
           }
@@ -7524,7 +8645,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: DelegationTraceListResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } }
@@ -7541,7 +8662,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "chainHash", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7570,7 +8691,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency revoke delegated marketplace authority",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: true, content: { "application/json": { schema: DelegationEmergencyRevokeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: DelegationEmergencyRevokeResponse } } },
@@ -7585,7 +8706,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency pause an agent for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyPauseRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -7601,7 +8722,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency quarantine an agent for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyQuarantineRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -7617,7 +8738,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency revoke delegated authority for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyRevokeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -7633,7 +8754,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Set emergency kill-switch state for high-risk execution",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyKillSwitchRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -7649,7 +8770,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Resume previously paused or quarantined emergency controls",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyResumeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -7679,7 +8800,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "kernelVerificationErrorThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsNetworkCommandCenterResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
@@ -7696,7 +8817,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "vertical", in: "query", required: false, schema: { type: "string", enum: ["delivery", "security"] } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
@@ -7721,7 +8842,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0, default: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          "x-nooterra-scopes": ["finance_read", "finance_write", "ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsArbitrationQueueResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -7735,7 +8856,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: get settlement adjustment record",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "adjustmentId", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -7767,7 +8888,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "slaHours", in: "query", required: false, schema: { type: "number", minimum: 1, maximum: 8760, default: 24 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          "x-nooterra-scopes": ["finance_read", "finance_write", "ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsArbitrationWorkspaceResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -7865,7 +8986,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Request month close",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: { required: true, content: { "application/json": { schema: MonthCloseRequest } } },
           responses: { 202: { description: "Accepted", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         },
@@ -7873,7 +8994,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Get month close state",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -7889,7 +9010,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "status", in: "query", required: false, schema: { type: "string", example: "CLOSED" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -7904,7 +9025,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "path", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -7920,7 +9041,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "path", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -7954,7 +9075,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } }
@@ -7973,7 +9094,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -8009,7 +9130,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: true,
             content: {
@@ -8052,7 +9173,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -8085,7 +9206,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "query", required: false, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -8117,14 +9238,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Get finance account map",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         },
         put: {
           summary: "Upsert finance account map (audited)",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
@@ -8139,7 +9260,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } }
@@ -8156,7 +9277,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           responses: {
             200: { description: "OK", content: { "text/csv": { schema: { type: "string" } } } },
             409: { description: "Not ready", content: { "application/json": { schema: ErrorResponse } } }
@@ -8174,7 +9295,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "persist", in: "query", required: false, schema: { type: "boolean", default: false } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsFinanceReconcileResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -8193,7 +9314,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "query", required: false, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -8213,7 +9334,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "persist", in: "query", required: false, schema: { type: "boolean", default: false } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -8227,7 +9348,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Execute escrow net-close when deterministic preconditions pass",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: true,
             content: {
@@ -8290,7 +9411,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: {
               description: "Bad Request",
-              "x-settld-known-error-codes": [...X402AuthorizePaymentBadRequestKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402AuthorizePaymentBadRequestKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402AuthorizePaymentBadRequestKnownErrorCodes)
@@ -8300,7 +9421,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: {
               description: "Conflict",
-              "x-settld-known-error-codes": [...X402AuthorizePaymentConflictKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402AuthorizePaymentConflictKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402AuthorizePaymentConflictKnownErrorCodes)
@@ -8327,7 +9448,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: {
               description: "Bad Request",
-              "x-settld-known-error-codes": [...X402GateVerifyBadRequestKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402GateVerifyBadRequestKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402GateVerifyBadRequestKnownErrorCodes)
@@ -8337,7 +9458,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: {
               description: "Conflict",
-              "x-settld-known-error-codes": [...X402GateVerifyConflictKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402GateVerifyConflictKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402GateVerifyConflictKnownErrorCodes)
@@ -8422,7 +9543,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                   additionalProperties: false,
                   required: ["url", "events"],
                   properties: {
-                    url: { type: "string", format: "uri", example: "https://principal.example.com/webhooks/settld" },
+                    url: { type: "string", format: "uri", example: "https://principal.example.com/webhooks/nooterra" },
                     events: {
                       type: "array",
                       minItems: 1,

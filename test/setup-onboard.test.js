@@ -14,10 +14,10 @@ test("onboard: rejects unsupported wallet mode", async () => {
         "--host",
         "openclaw",
         "--base-url",
-        "https://api.settld.work",
+        "https://api.nooterra.work",
         "--tenant-id",
         "tenant_default",
-        "--settld-api-key",
+        "--nooterra-api-key",
         "sk_live_x.y",
         "--wallet-mode",
         "nope",
@@ -31,8 +31,8 @@ test("onboard: rejects unsupported wallet mode", async () => {
 
 test("onboard: managed wallet auto uses remote bootstrap when circle key is not present", async () => {
   const calls = [];
-  const remoteStub = async ({ baseUrl, tenantId, settldApiKey, walletProvider }) => {
-    calls.push({ step: "remote", baseUrl, tenantId, settldApiKey, walletProvider });
+  const remoteStub = async ({ baseUrl, tenantId, nooterraApiKey, walletProvider }) => {
+    calls.push({ step: "remote", baseUrl, tenantId, nooterraApiKey, walletProvider });
     return {
       provider: "circle",
       mode: "sandbox",
@@ -61,9 +61,9 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
     return {
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y",
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y",
         ...extraEnv
       }
     };
@@ -73,15 +73,15 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
     argv: [
       "--non-interactive",
       "--host",
-      "codex",
+      "nooterra",
       "--wallet-mode",
       "managed",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--format",
       "json"
@@ -93,23 +93,23 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
   });
 
   assert.equal(out.ok, true);
-  assert.equal(out.host, "codex");
+  assert.equal(out.host, "nooterra");
   assert.equal(out.wallet.mode, "managed");
   assert.equal(out.wallet.bootstrapMode, "remote");
   assert.equal(out.env.CIRCLE_WALLET_ID_SPEND, "wid_remote_spend");
 
   const remoteCall = calls.find((row) => row.step === "remote");
   assert.ok(remoteCall);
-  assert.equal(remoteCall.baseUrl, "https://api.settld.work");
+  assert.equal(remoteCall.baseUrl, "https://api.nooterra.work");
   assert.equal(remoteCall.tenantId, "tenant_default");
-  assert.equal(remoteCall.settldApiKey, "sk_live_x.y");
+  assert.equal(remoteCall.nooterraApiKey, "sk_live_x.y");
   assert.equal(remoteCall.walletProvider, "circle");
 
   const wizardCall = wizardCalls[0];
   assert.ok(wizardCall);
   assert.ok(Array.isArray(wizardCall.argv));
   assert.ok(wizardCall.argv.includes("--host"));
-  assert.ok(wizardCall.argv.includes("codex"));
+  assert.ok(wizardCall.argv.includes("nooterra"));
   assert.equal(wizardCall.extraEnv.CIRCLE_WALLET_ID_SPEND, "wid_remote_spend");
 });
 
@@ -142,9 +142,9 @@ test("onboard: managed wallet local uses provider bootstrap", async () => {
   const wizardStub = async ({ extraEnv }) => ({
     ok: true,
     env: {
-      SETTLD_BASE_URL: "https://api.settld.work",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_live_x.y",
+      NOOTERRA_BASE_URL: "https://api.nooterra.work",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_live_x.y",
       ...extraEnv
     }
   });
@@ -160,10 +160,10 @@ test("onboard: managed wallet local uses provider bootstrap", async () => {
       "local",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--circle-api-key",
       "TEST_API_KEY:abc",
@@ -197,7 +197,7 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
       "remote",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
       "--bootstrap-api-key",
@@ -207,9 +207,9 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
     ],
     runtimeEnv: {},
     requestRuntimeBootstrapMcpEnvImpl: async () => ({
-      SETTLD_BASE_URL: "https://api.settld.work",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_runtime_limited"
+      NOOTERRA_BASE_URL: "https://api.nooterra.work",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_runtime_limited"
     }),
     fetchImpl: async (url, init = {}) => {
       if (!String(url).includes("/onboarding/wallet-bootstrap")) {
@@ -255,9 +255,9 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
     runWizardImpl: async ({ extraEnv }) => ({
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_runtime_limited",
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_runtime_limited",
         ...extraEnv
       }
     }),
@@ -285,7 +285,7 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
       "--bootstrap-api-key",
@@ -301,10 +301,10 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
     requestRuntimeBootstrapMcpEnvImpl: async (input) => {
       bootstrapCalls.push(input);
       return {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_bootstrap.generated",
-        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_bootstrap.generated",
+        NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.tools.nooterra.work"
       };
     },
     runWizardImpl: async ({ argv, extraEnv }) => {
@@ -314,9 +314,9 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
       return {
         ok: true,
         env: {
-          SETTLD_BASE_URL: "https://api.settld.work",
-          SETTLD_TENANT_ID: "tenant_default",
-          SETTLD_API_KEY: generatedApiKey,
+          NOOTERRA_BASE_URL: "https://api.nooterra.work",
+          NOOTERRA_TENANT_ID: "tenant_default",
+          NOOTERRA_API_KEY: generatedApiKey,
           ...extraEnv
         }
       };
@@ -325,8 +325,8 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
   });
 
   assert.equal(out.ok, true);
-  assert.equal(out.env.SETTLD_API_KEY, "sk_bootstrap.generated");
-  assert.equal(out.env.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work");
+  assert.equal(out.env.NOOTERRA_API_KEY, "sk_bootstrap.generated");
+  assert.equal(out.env.NOOTERRA_PAID_TOOLS_BASE_URL, "https://paid.tools.nooterra.work");
   assert.equal(bootstrapCalls.length, 1);
   assert.equal(bootstrapCalls[0].bootstrapApiKey, "ml_admin_bootstrap");
   assert.deepEqual(bootstrapCalls[0].bootstrapScopes, ["tenant:runtime", "mcp:invoke"]);
@@ -338,15 +338,15 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
 });
 
 test("onboard: non-interactive can mint tenant API key via saved login session", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboard-session-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboard-session-"));
   const sessionFile = path.join(tmpDir, "session.json");
   await fs.writeFile(
     sessionFile,
     `${JSON.stringify(
       {
-        schemaVersion: "SettldCliSession.v1",
+        schemaVersion: "NooterraCliSession.v1",
         savedAt: "2026-02-22T00:00:00.000Z",
-        baseUrl: "https://api.settld.work",
+        baseUrl: "https://api.nooterra.work",
         tenantId: "tenant_session",
         cookie: "ml_buyer_session=session_cookie_abc",
         email: "founder@example.com"
@@ -377,9 +377,9 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
       requestRuntimeBootstrapMcpEnvImpl: async (input) => {
         bootstrapCalls.push(input);
         return {
-          SETTLD_BASE_URL: "https://api.settld.work",
-          SETTLD_TENANT_ID: "tenant_session",
-          SETTLD_API_KEY: "sk_session.generated"
+          NOOTERRA_BASE_URL: "https://api.nooterra.work",
+          NOOTERRA_TENANT_ID: "tenant_session",
+          NOOTERRA_API_KEY: "sk_session.generated"
         };
       },
       runWizardImpl: async ({ argv, extraEnv }) => {
@@ -389,9 +389,9 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
         return {
           ok: true,
           env: {
-            SETTLD_BASE_URL: "https://api.settld.work",
-            SETTLD_TENANT_ID: "tenant_session",
-            SETTLD_API_KEY: generatedApiKey,
+            NOOTERRA_BASE_URL: "https://api.nooterra.work",
+            NOOTERRA_TENANT_ID: "tenant_session",
+            NOOTERRA_API_KEY: generatedApiKey,
             ...extraEnv
           }
         };
@@ -400,8 +400,8 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
     });
 
     assert.equal(out.ok, true);
-    assert.equal(out.settld.tenantId, "tenant_session");
-    assert.equal(out.env.SETTLD_API_KEY, "sk_session.generated");
+    assert.equal(out.nooterra.tenantId, "tenant_session");
+    assert.equal(out.env.NOOTERRA_API_KEY, "sk_session.generated");
     assert.equal(bootstrapCalls.length, 1);
     assert.equal(bootstrapCalls[0].bootstrapApiKey, "");
     assert.equal(bootstrapCalls[0].sessionCookie, "ml_buyer_session=session_cookie_abc");
@@ -418,9 +418,9 @@ test("onboard: non-interactive defaults host from detected installations", async
     return {
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y"
       }
     };
   };
@@ -432,10 +432,10 @@ test("onboard: non-interactive defaults host from detected installations", async
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--format",
       "json"
@@ -461,14 +461,14 @@ test("onboard: runs preflight by default", async () => {
     argv: [
       "--non-interactive",
       "--host",
-      "codex",
+      "nooterra",
       "--wallet-mode",
       "none",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--format",
       "json"
@@ -481,9 +481,9 @@ test("onboard: runs preflight by default", async () => {
     runWizardImpl: async () => ({
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y"
       }
     }),
     stdout: { write() {} }
@@ -492,7 +492,7 @@ test("onboard: runs preflight by default", async () => {
   assert.equal(out.ok, true);
   assert.equal(out.preflight?.ok, true);
   assert.equal(preflightCalls.length, 1);
-  assert.equal(preflightCalls[0].normalizedBaseUrl, "https://api.settld.work");
+  assert.equal(preflightCalls[0].normalizedBaseUrl, "https://api.nooterra.work");
 });
 
 test("onboard: preflight-only skips wizard and returns preflight payload", async () => {
@@ -506,10 +506,10 @@ test("onboard: preflight-only skips wizard and returns preflight payload", async
       "none",
       "--preflight-only",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--format",
       "json"
@@ -525,26 +525,26 @@ test("onboard: preflight-only skips wizard and returns preflight payload", async
 
   assert.equal(out.ok, true);
   assert.equal(out.preflightOnly, true);
-  assert.equal(out.settld.preflight, true);
+  assert.equal(out.nooterra.preflight, true);
   assert.equal(wizardCalled, false);
 });
 
 test("onboard: report-path writes payload json", async () => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboard-report-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboard-report-"));
   const reportPath = path.join(tmpRoot, "reports", "onboard.json");
   const out = await runOnboard({
     argv: [
       "--non-interactive",
       "--host",
-      "codex",
+      "nooterra",
       "--wallet-mode",
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--report-path",
       reportPath,
@@ -555,9 +555,9 @@ test("onboard: report-path writes payload json", async () => {
     runWizardImpl: async () => ({
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y"
       }
     }),
     stdout: { write() {} }
@@ -568,7 +568,7 @@ test("onboard: report-path writes payload json", async () => {
   assert.equal(out.reportPath, reportPath);
   assert.equal(written.ok, true);
   assert.equal(written.reportPath, reportPath);
-  assert.equal(written.host, "codex");
+  assert.equal(written.host, "nooterra");
 });
 
 test("onboard: BYO mode error references required key docs", async () => {
@@ -582,10 +582,10 @@ test("onboard: BYO mode error references required key docs", async () => {
         "byo",
         "--no-preflight",
         "--base-url",
-        "https://api.settld.work",
+        "https://api.nooterra.work",
         "--tenant-id",
         "tenant_default",
-        "--settld-api-key",
+        "--nooterra-api-key",
         "sk_live_x.y"
       ],
       runtimeEnv: {},

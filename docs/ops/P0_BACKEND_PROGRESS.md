@@ -35,7 +35,7 @@ P0 backend scope tracked here:
 - [x] Maintenance status surface now includes money-rail reconciliation state/result
 - [x] Money-rail controls surfaced through existing billing plan control-plane API
 - [x] Runtime billing catalog aligns with public pricing (including Growth $0.007/run via milli-cent accounting)
-- [x] CI smoke runs exact local tarball `npx --package ./settld-<version>.tgz` command path
+- [x] CI smoke runs exact local tarball `npx --package ./nooterra-<version>.tgz` command path
 
 Implemented in:
 
@@ -104,7 +104,7 @@ Executed and passing:
 
 ## Current hosted evidence snapshot (2026-02-13)
 
-- [x] `ops:hosted-baseline:evidence` passes against `https://api.settld.work` for:
+- [x] `ops:hosted-baseline:evidence` passes against `https://api.nooterra.work` for:
   - health/status
   - required metrics presence
   - billing catalog/quotas validation
@@ -113,13 +113,13 @@ Executed and passing:
   - Artifact: `artifacts/ops/hosted-baseline-prod.json`
   - `artifactHash`: `2a5833fd44e6b904ed87763e2d1212e02ffcd9583c4d50fdd5b2cffa3d99a597`
   - Backup/restore: `checks.backupRestore.ok=true`
-  - External archive path: `/home/aiden/ops-evidence/settld/hosted-baseline/2026-02-13`
+  - External archive path: `/home/aiden/ops-evidence/nooterra/hosted-baseline/2026-02-13`
 - [x] Staging hosted-baseline backup/restore evidence is now passing.
   - Captured at: `2026-02-13T02:26:37.785Z`
   - Artifact: `artifacts/ops/hosted-baseline-staging.json`
   - `artifactHash`: `354f339d1c668eccb000416a231309ed6f3a5614539d43448aad9f6f3ca0dc28`
   - Backup/restore: `checks.backupRestore.ok=true`
-  - External archive path: `/home/aiden/ops-evidence/settld/hosted-baseline/2026-02-13`
+  - External archive path: `/home/aiden/ops-evidence/nooterra/hosted-baseline/2026-02-13`
 
 ### Money-Rail Chargeback + Design-Partner Packet (2026-02-13)
 
@@ -135,7 +135,7 @@ Executed and passing:
   - Artifact: `artifacts/ops/design-partner-run-packet-tenant_p0_evidence_20260213_v9.json`
   - `artifactHash`: `c6eaa09b8ee4f662cb95403800d87cf89ace865bd6e7c29bfe09b5ab5a2b7e62`
   - Reconcile report hash: `36e8e5fb2ed0af3574aa41c8d72e66020fe19130bb185daa67af079983354cac`
-  - External archive path: `/home/aiden/ops-evidence/settld/p0/2026-02-13/tenant_p0_evidence_20260213_v9`
+  - External archive path: `/home/aiden/ops-evidence/nooterra/p0/2026-02-13/tenant_p0_evidence_20260213_v9`
 
 ## Remaining P0 work (outside this code drop)
 

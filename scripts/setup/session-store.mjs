@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const SESSION_SCHEMA_VERSION = "SettldCliSession.v1";
+const SESSION_SCHEMA_VERSION = "NooterraCliSession.v1";
 
 function normalizeCookieHeader(value) {
   const raw = String(value ?? "").trim();
@@ -20,7 +20,7 @@ function normalizeCookieHeader(value) {
 }
 
 export function defaultSessionPath({ homeDir = os.homedir() } = {}) {
-  return path.join(homeDir, ".settld", "session.json");
+  return path.join(homeDir, ".nooterra", "session.json");
 }
 
 export function normalizeSession(input) {

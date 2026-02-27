@@ -54,9 +54,9 @@ Use this command to capture a deterministic chargeback drill artifact that inclu
 
 ```bash
 npm run ops:money-rails:chargeback:evidence -- \
-  --base-url https://staging.api.settld.work \
+  --base-url https://staging.api.nooterra.work \
   --tenant-id tenant_design_partner_1 \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --provider-id stripe_prod_us \
   --operation-id op_example_123 \
   --period 2026-02 \
@@ -78,9 +78,9 @@ Use this command to generate one signed/hashable packet that chains:
 
 ```bash
 npm run ops:design-partner:run-packet -- \
-  --base-url https://staging.api.settld.work \
+  --base-url https://staging.api.nooterra.work \
   --tenant-id tenant_design_partner_1 \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --provider-id stripe_prod_us \
   --period 2026-02 \
   --chargeback-operation-id op_example_123 \

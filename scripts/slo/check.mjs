@@ -40,11 +40,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchTextWithTimeout(url, timeoutMs = 5000) {
+async function fetchTextWithTimeout(url, timeoutMs = 5000, { headers } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, headers });
     const text = await res.text();
     return { status: res.status, text };
   } finally {
@@ -188,17 +188,29 @@ export function assertOperationalSlo(summary, thresholds) {
   );
 }
 
+export function buildMetricsRequestHeaders(env = process.env) {
+  const headers = {};
+  const opsToken = normalizeOptionalString(env.SLO_METRICS_OPS_TOKEN);
+  const tenantId = normalizeOptionalString(env.SLO_METRICS_TENANT_ID);
+  const protocol = normalizeOptionalString(env.SLO_METRICS_PROTOCOL);
+  if (opsToken) headers["x-proxy-ops-token"] = opsToken;
+  if (tenantId) headers["x-proxy-tenant-id"] = tenantId;
+  if (protocol) headers["x-nooterra-protocol"] = protocol;
+  return headers;
+}
+
 export async function loadMetricsText({
   metricsFile = null,
   apiBaseUrl = "http://127.0.0.1:3000",
   metricsPath = "/metrics",
+  requestHeaders = {},
   flushDelayMs = 250
 } = {}) {
   if (metricsFile) {
     return await fs.readFile(metricsFile, "utf8");
   }
   await sleep(flushDelayMs);
-  const response = await fetchTextWithTimeout(`${apiBaseUrl}${metricsPath}`, 10_000);
+  const response = await fetchTextWithTimeout(`${apiBaseUrl}${metricsPath}`, 10_000, { headers: requestHeaders });
   assert.equal(response.status, 200, `GET ${metricsPath} failed: http ${response.status}`);
   return response.text;
 }
@@ -210,7 +222,8 @@ export async function runSloCheck({ env = process.env } = {}) {
   const metricsText = await loadMetricsText({
     metricsFile,
     apiBaseUrl: env.SLO_API_BASE_URL ?? "http://127.0.0.1:3000",
-    metricsPath: env.SLO_METRICS_PATH ?? "/metrics"
+    metricsPath: env.SLO_METRICS_PATH ?? "/metrics",
+    requestHeaders: buildMetricsRequestHeaders(env)
   });
   const series = parsePrometheusText(metricsText);
   const summary = collectOperationalSloSummary(series);

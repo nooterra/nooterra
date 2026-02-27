@@ -26,10 +26,10 @@ This page is the public contract for what is enforced now vs what is explicitly 
 ## Verification Entry Points
 
 - Kernel conformance:
-  - `./bin/settld.js conformance kernel --ops-token tok_ops`
+  - `./bin/nooterra.js conformance kernel --ops-token tok_ops`
 - Closepack export and offline verify:
-  - `./bin/settld.js closepack export --agreement-hash <sha256> --out /tmp/<agreementHash>.zip --ops-token tok_ops`
-  - `./bin/settld.js closepack verify /tmp/<agreementHash>.zip`
+  - `./bin/nooterra.js closepack export --agreement-hash <sha256> --out /tmp/<agreementHash>.zip --ops-token tok_ops`
+  - `./bin/nooterra.js closepack verify /tmp/<agreementHash>.zip`
 - Tool-call replay evaluate:
   - `GET /ops/tool-calls/replay-evaluate?agreementHash=<sha256>`
 

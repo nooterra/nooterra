@@ -22,27 +22,27 @@ test("mcp paid exa tool: retries x402 via autopay and returns search payload", a
   const paidGateway = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (req.method === "GET" && url.pathname === "/exa/search") {
-      const gateId = typeof req.headers["x-settld-gate-id"] === "string" ? req.headers["x-settld-gate-id"].trim() : "";
+      const gateId = typeof req.headers["x-nooterra-gate-id"] === "string" ? req.headers["x-nooterra-gate-id"].trim() : "";
       requests.push({ gateId, tenantHeader: req.headers["x-proxy-tenant-id"] });
       if (!gateId) {
         res.writeHead(402, {
           "content-type": "application/json; charset=utf-8",
           "x-payment-required": "amountCents=500; currency=USD; address=mock:exa; network=mocknet",
-          "x-settld-gate-id": "gate_exa_paid_1"
+          "x-nooterra-gate-id": "gate_exa_paid_1"
         });
         res.end(JSON.stringify({ ok: false, code: "PAYMENT_REQUIRED" }));
         return;
       }
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
-        "x-settld-gate-id": gateId,
-        "x-settld-settlement-status": "released",
-        "x-settld-verification-status": "green",
-        "x-settld-policy-decision": "allow",
-        "x-settld-policy-hash": "a".repeat(64),
-        "x-settld-policy-version": "1",
-        "x-settld-decision-id": "dec_mcp_paid_exa_1",
-        "x-settld-reason-code": "policy_auto_release_green"
+        "x-nooterra-gate-id": gateId,
+        "x-nooterra-settlement-status": "released",
+        "x-nooterra-verification-status": "green",
+        "x-nooterra-policy-decision": "allow",
+        "x-nooterra-policy-hash": "a".repeat(64),
+        "x-nooterra-policy-version": "1",
+        "x-nooterra-decision-id": "dec_mcp_paid_exa_1",
+        "x-nooterra-reason-code": "policy_auto_release_green"
       });
       res.end(
         JSON.stringify({
@@ -62,16 +62,16 @@ test("mcp paid exa tool: retries x402 via autopay and returns search payload", a
   const paidGatewayAddr = await listen(paidGateway);
   const paidGatewayBase = `http://${paidGatewayAddr.address}:${paidGatewayAddr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: "http://127.0.0.1:3000",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0",
-      SETTLD_PAID_TOOLS_BASE_URL: paidGatewayBase
+      NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0",
+      NOOTERRA_PAID_TOOLS_BASE_URL: paidGatewayBase
     }
   });
 
@@ -115,19 +115,19 @@ test("mcp paid exa tool: retries x402 via autopay and returns search payload", a
     clientInfo: { name: "node-test", version: "0" },
     capabilities: {}
   });
-  assert.equal(init.result?.serverInfo?.name, "settld-mcp-spike");
+  assert.equal(init.result?.serverInfo?.name, "nooterra-mcp-spike");
 
   const called = await rpc("tools/call", {
-    name: "settld.exa_search_paid",
+    name: "nooterra.exa_search_paid",
     arguments: { query: "dentist chicago", numResults: 3 }
   });
   assert.equal(called.result?.isError, false);
   const payload = JSON.parse(called.result?.content?.[0]?.text ?? "{}");
-  assert.equal(payload.tool, "settld.exa_search_paid");
+  assert.equal(payload.tool, "nooterra.exa_search_paid");
   assert.equal(payload.result?.ok, true);
   assert.equal(payload.result?.response?.provider, "exa-mock");
   assert.equal(payload.result?.response?.query, "dentist chicago");
-  assert.equal(payload.result?.headers?.["x-settld-settlement-status"], "released");
+  assert.equal(payload.result?.headers?.["x-nooterra-settlement-status"], "released");
   assert.equal(payload.result?.decision?.policyDecision, "allow");
   assert.equal(payload.result?.decision?.decisionId, "dec_mcp_paid_exa_1");
   assert.equal(payload.result?.decision?.policyVersion, 1);

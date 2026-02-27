@@ -1238,8 +1238,8 @@ export async function verifyJobProofBundleDir({ dir, strict = false, hashConcurr
 
   const warnings = [];
   if (!strict) {
-    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
-    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+    const rawTrusted = String(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
   }
 
   const manifestPath = path.join(dir, "manifest.json");
@@ -1344,7 +1344,7 @@ export async function verifyJobProofBundleDir({ dir, strict = false, hashConcurr
 
 	    trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
 	    if (trustedGovernanceRoots.size === 0) {
-	      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+	      return { ok: false, error: "strict requires trusted governance root keys", env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
 	    }
 
 	    const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
@@ -1638,8 +1638,8 @@ export async function verifyMonthProofBundleDir({ dir, strict = false, hashConcu
 
   const warnings = [];
   if (!strict) {
-    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
-    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+    const rawTrusted = String(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
   }
 
   const manifestPath = path.join(dir, "manifest.json");
@@ -1742,7 +1742,7 @@ export async function verifyMonthProofBundleDir({ dir, strict = false, hashConcu
 
 	    trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
 	    if (trustedGovernanceRoots.size === 0) {
-	      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+	      return { ok: false, error: "strict requires trusted governance root keys", env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
 	    }
 
 	    const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });

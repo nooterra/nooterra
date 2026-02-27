@@ -78,7 +78,7 @@ function unwrapSingleTopLevelDir(entries) {
   }
   if (!prefix) return entries;
 
-  // Avoid surprising behavior for general zips: only unwrap when it looks like a Settld bundle wrapper folder.
+  // Avoid surprising behavior for general zips: only unwrap when it looks like a Nooterra bundle wrapper folder.
   // (Bundles always have a root-level manifest.json; wrapper-folder zips have it at <prefix>/manifest.json.)
   if (!fileEntries.some((e) => e.name === `${prefix}/manifest.json`)) return entries;
 
@@ -239,7 +239,7 @@ export async function unzipToTempSafe({ zipPath, budgets }) {
       }
     }
 
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-unzip-"));
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-unzip-"));
     // Never overwrite: require extraction into an empty, unique directory.
 
     let totalProduced = 0;
@@ -284,17 +284,17 @@ export async function unzipToTempSafe({ zipPath, budgets }) {
           produced += chunk.length;
           totalProduced += chunk.length;
           if (produced > b.maxFileBytes) {
-            cb(Object.assign(new Error("file limit exceeded"), { _settldZipError: "ZIP_FILE_TOO_LARGE" }));
+            cb(Object.assign(new Error("file limit exceeded"), { _nooterraZipError: "ZIP_FILE_TOO_LARGE" }));
             return;
           }
           if (totalProduced > b.maxTotalBytes) {
-            cb(Object.assign(new Error("total limit exceeded"), { _settldZipError: "ZIP_TOTAL_UNCOMPRESSED_TOO_LARGE" }));
+            cb(Object.assign(new Error("total limit exceeded"), { _nooterraZipError: "ZIP_TOTAL_UNCOMPRESSED_TOO_LARGE" }));
             return;
           }
           if (e.method === 8) {
             const ratio = produced / Math.max(1, e.compressedSize);
             if (ratio > b.maxCompressionRatio) {
-              cb(Object.assign(new Error("compression ratio exceeded"), { _settldZipError: "ZIP_COMPRESSION_RATIO_TOO_HIGH" }));
+              cb(Object.assign(new Error("compression ratio exceeded"), { _nooterraZipError: "ZIP_COMPRESSION_RATIO_TOO_HIGH" }));
               return;
             }
           }
@@ -318,7 +318,7 @@ export async function unzipToTempSafe({ zipPath, budgets }) {
         // Best-effort cleanup of partial file
         try { await fs.rm(outPath, { force: true }); } catch { /* ignore */ }
 
-        const code = err?._settldZipError;
+        const code = err?._nooterraZipError;
         if (code === "ZIP_FILE_TOO_LARGE") return zipErr("ZIP_FILE_TOO_LARGE", { zipPath: resolvedZip, name: e.name, max: b.maxFileBytes });
         if (code === "ZIP_TOTAL_UNCOMPRESSED_TOO_LARGE") return zipErr("ZIP_TOTAL_UNCOMPRESSED_TOO_LARGE", { zipPath: resolvedZip, max: b.maxTotalBytes });
         if (code === "ZIP_COMPRESSION_RATIO_TOO_HIGH") return zipErr("ZIP_COMPRESSION_RATIO_TOO_HIGH", { zipPath: resolvedZip, name: e.name, max: b.maxCompressionRatio });

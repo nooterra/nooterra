@@ -148,7 +148,7 @@ describe("JobProofBundle.v1 verification (adversarial integrity)", () => {
     const manifestBytes = bytes(`${canonicalJsonStringify({ ...manifestCore, manifestHash })}\n`);
     files.set("manifest.json", manifestBytes);
 
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-adv-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-adv-"));
     const dir = path.join(tmp, "bundle");
     await writeFilesToDir({ files, outDir: dir });
 
@@ -177,7 +177,7 @@ describe("JobProofBundle.v1 verification (adversarial integrity)", () => {
     const manifestBytes = bytes(`${canonicalJsonStringify({ ...manifestCore, manifestHash })}\n`);
     files.set("manifest.json", manifestBytes);
 
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-adv2-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-adv2-"));
     const dir = path.join(tmp, "bundle");
     await writeFilesToDir({ files, outDir: dir });
 

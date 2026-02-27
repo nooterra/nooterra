@@ -31,7 +31,7 @@ test("api onboarding proxy: fails with actionable 503 when onboarding proxy URL 
 });
 
 test("api onboarding proxy: forwards onboarding requests to configured upstream", async () => {
-  const restore = withEnv("PROXY_ONBOARDING_BASE_URL", "https://onboarding.settld.test");
+  const restore = withEnv("PROXY_ONBOARDING_BASE_URL", "https://onboarding.nooterra.test");
   try {
     const calls = [];
     const api = createApi({
@@ -52,7 +52,7 @@ test("api onboarding proxy: forwards onboarding requests to configured upstream"
     const res = await request(api, {
       method: "POST",
       path: "/v1/tenants/tenant_default/buyer/login/otp",
-      body: { email: "aiden@settld.work" },
+      body: { email: "aiden@nooterra.work" },
       headers: { "x-request-id": "req_test_proxy_1" },
       auth: "none"
     });
@@ -60,9 +60,9 @@ test("api onboarding proxy: forwards onboarding requests to configured upstream"
     assert.equal(res.statusCode, 200);
     assert.equal(res.json?.ok, true);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://onboarding.settld.test/v1/tenants/tenant_default/buyer/login/otp");
+    assert.equal(calls[0].url, "https://onboarding.nooterra.test/v1/tenants/tenant_default/buyer/login/otp");
     assert.equal(calls[0].method, "POST");
-    assert.equal(calls[0].body, JSON.stringify({ email: "aiden@settld.work" }));
+    assert.equal(calls[0].body, JSON.stringify({ email: "aiden@nooterra.work" }));
     assert.equal(calls[0].headers?.get?.("x-request-id"), "req_test_proxy_1");
   } finally {
     restore();

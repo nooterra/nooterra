@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "SessionArtifactConformanceCases.v1",
+  "adapterProtocolVersion": "SessionArtifactConformanceRequest.v1",
+  "fixtures": {
+    "session_vectors_base_1": {
+      "tenantId": "tenant_vectors",
+      "session": {
+        "schemaVersion": "Session.v1",
+        "tenantId": "tenant_vectors",
+        "sessionId": "sess_vectors_inbox_1",
+        "visibility": "tenant",
+        "participants": [
+          "agt_orchestrator_1",
+          "agt_worker_1"
+        ],
+        "metadata": {
+          "workflowId": "wf_vectors_1",
+          "objective": "conformance replay transcript determinism"
+        },
+        "createdAt": "2026-02-01T00:00:00.000Z",
+        "updatedAt": "2026-02-01T00:00:03.000Z"
+      },
+      "events": [
+        {
+          "v": 1,
+          "id": "ev_vectors_1",
+          "at": "2026-02-01T00:00:01.000Z",
+          "streamId": "sess_vectors_inbox_1",
+          "type": "TASK_REQUESTED",
+          "actor": {
+            "type": "agent",
+            "id": "agt_orchestrator_1"
+          },
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED",
+            "at": "2026-02-01T00:00:01.000Z",
+            "traceId": "trace_vectors_1",
+            "provenance": {
+              "schemaVersion": "SessionEventProvenance.v1",
+              "label": "trusted",
+              "derivedFromEventId": null,
+              "isTainted": false,
+              "taintDepth": 0,
+              "explicitTaint": false,
+              "reasonCodes": []
+            },
+            "body": {
+              "taskId": "task_vectors_1",
+              "prompt": "summarize sprint blockers"
+            }
+          },
+          "payloadHash": "80bea1ea3129e79a1800aef831d8385b9ea9759915f17c0d851bf19f80e4f7bc",
+          "prevChainHash": null,
+          "chainHash": "49924e950c6fc553f565248e331f76860bd85d22b7b5ea058b9020754ebf291e",
+          "signature": "AyPCfdYzAXwl5SfofOsdl6HNMBGweVt1wLs0iC8Sb1Y9AjhWm5sEf9t1aMu5ZzVBtQn2Wg6lkPJs4AMfnBmFAA==",
+          "signerKeyId": "key_9ed38005b42d9364601ffab3"
+        },
+        {
+          "v": 1,
+          "id": "ev_vectors_2",
+          "at": "2026-02-01T00:00:02.000Z",
+          "streamId": "sess_vectors_inbox_1",
+          "type": "TASK_PROGRESS",
+          "actor": {
+            "type": "agent",
+            "id": "agt_worker_1"
+          },
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_PROGRESS",
+            "at": "2026-02-01T00:00:02.000Z",
+            "traceId": "trace_vectors_1",
+            "provenance": {
+              "schemaVersion": "SessionEventProvenance.v1",
+              "label": "trusted",
+              "derivedFromEventId": "ev_vectors_1",
+              "isTainted": false,
+              "taintDepth": 0,
+              "explicitTaint": false,
+              "reasonCodes": []
+            },
+            "body": {
+              "progressPct": 65,
+              "note": "gathered evidence refs"
+            }
+          },
+          "payloadHash": "0b0d48661cd6b74bd6d736aafee61fb9f9b4caecf5819ad944371d9b5a78bd09",
+          "prevChainHash": "49924e950c6fc553f565248e331f76860bd85d22b7b5ea058b9020754ebf291e",
+          "chainHash": "8a03365658dd2f25abbb6666fd72fed4342c705c2162b414ee30c64ecbea9bb7",
+          "signature": "dwCUD/T4C8HoBJ+DLorERJFqyIb0yOyTIIQshI+k6sNPLakvMVgqAhcjt5FSKhMqVXicjzSRelKaSE8ZOBGZAA==",
+          "signerKeyId": "key_9ed38005b42d9364601ffab3"
+        },
+        {
+          "v": 1,
+          "id": "ev_vectors_3",
+          "at": "2026-02-01T00:00:03.000Z",
+          "streamId": "sess_vectors_inbox_1",
+          "type": "TASK_COMPLETED",
+          "actor": {
+            "type": "agent",
+            "id": "agt_worker_1"
+          },
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_COMPLETED",
+            "at": "2026-02-01T00:00:03.000Z",
+            "traceId": "trace_vectors_1",
+            "provenance": {
+              "schemaVersion": "SessionEventProvenance.v1",
+              "label": "trusted",
+              "derivedFromEventId": "ev_vectors_2",
+              "isTainted": false,
+              "taintDepth": 0,
+              "explicitTaint": false,
+              "reasonCodes": []
+            },
+            "body": {
+              "outputRef": "artifact://vectors/output/summary.md",
+              "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          "payloadHash": "b214225d1fa5a84f6d151f29671646eb48a7da923753d54270fc34999c83ed3a",
+          "prevChainHash": "8a03365658dd2f25abbb6666fd72fed4342c705c2162b414ee30c64ecbea9bb7",
+          "chainHash": "059428149249fd44f9e9f27ef3731cd5b803c63a3ee289f86daf61f8bb4c7141",
+          "signature": "Vld72d9UwFgpNltjJVAUe/biMhPHP/sf87p6E8LlWV6NYztoovjhCSh42l8h+UdD+M5QqEWZpw3gVL58UOEiCg==",
+          "signerKeyId": "key_9ed38005b42d9364601ffab3"
+        }
+      ],
+      "verification": {
+        "chainOk": true,
+        "verifiedEventCount": 3,
+        "error": null,
+        "provenance": {
+          "ok": true,
+          "verifiedEventCount": 3,
+          "taintedEventCount": 0,
+          "error": null
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "session_artifacts_unsigned_deterministic",
+      "fixtureId": "session_vectors_base_1",
+      "invariantIds": [
+        "ACS-NS2-REPLAY-DETERMINISM",
+        "ACS-NS2-TRANSCRIPT-DETERMINISM"
+      ],
+      "signing": null,
+      "expected": {
+        "eventCount": 3,
+        "generatedAt": "2026-02-01T00:00:03.000Z",
+        "replayPackHash": "a0dd69f24ee702c8c921156acaaddefa2694f103f4bd5d458e7898c662bf05f9",
+        "transcriptHash": "f5c2ab75640612db1890cd22a94e1e19f883c1a77fbeb12afd5b91076ce0ae55",
+        "replaySignaturePresent": false,
+        "transcriptSignaturePresent": false
+      }
+    },
+    {
+      "id": "session_artifacts_signed_deterministic",
+      "fixtureId": "session_vectors_base_1",
+      "invariantIds": [
+        "ACS-NS2-REPLAY-DETERMINISM",
+        "ACS-NS2-TRANSCRIPT-DETERMINISM",
+        "ACS-NS2-SIGNED-ARTIFACT-VERIFY"
+      ],
+      "signing": {
+        "keyId": "key_9ed38005b42d9364601ffab3",
+        "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQ70D1FtwopWnvJeFsiKdThSP/9QADgSeaZYKip79KQI=\n-----END PUBLIC KEY-----\n",
+        "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEILP0SvKxPshPvhk7qDsIZPZTTQiy3RG+aX9dOG9+VL3F\n-----END PRIVATE KEY-----\n"
+      },
+      "expected": {
+        "eventCount": 3,
+        "generatedAt": "2026-02-01T00:00:03.000Z",
+        "replayPackHash": "a0dd69f24ee702c8c921156acaaddefa2694f103f4bd5d458e7898c662bf05f9",
+        "transcriptHash": "f5c2ab75640612db1890cd22a94e1e19f883c1a77fbeb12afd5b91076ce0ae55",
+        "replaySignaturePresent": true,
+        "transcriptSignaturePresent": true,
+        "replaySignatureBase64": "XyxiyukKIkjd6XYz2Ul8TktbBVml7VpVVy7jsNCA/ZqsLfTORp19DiNRpp8X7D9/TUBuBLJBKSfXpQjNUQzUCA==",
+        "transcriptSignatureBase64": "S2zWGzbyOFidpz5ULZwS8BmWmJ9W8jtw9DObmVFS/E3ncZxshWDbFH84X4q02iGpeaJcyZObq/rqb1GNZXVVDw=="
+      }
+    }
+  ]
+}

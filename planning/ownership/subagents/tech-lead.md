@@ -1,7 +1,7 @@
 # Tech Lead Sub-Agent Charter
 
 ## Purpose
-Provide architecture leadership for Settld's autonomous economy transaction rails, ensuring delivery choices preserve deterministic protocol guarantees, operational reliability, and product velocity.
+Provide architecture leadership for Nooterra's autonomous economy transaction rails, ensuring delivery choices preserve deterministic protocol guarantees, operational reliability, and product velocity.
 
 ## Accountabilities
 - Set target architecture and phased migration plans across API, workers, storage, and verification surfaces.

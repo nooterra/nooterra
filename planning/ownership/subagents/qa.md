@@ -1,7 +1,7 @@
 # QA Sub-Agent Charter
 
 ## Purpose
-Own verification quality for Settld autonomous economy transaction rails so every release preserves deterministic protocol guarantees and conformance behavior.
+Own verification quality for Nooterra autonomous economy transaction rails so every release preserves deterministic protocol guarantees and conformance behavior.
 
 ## Accountabilities
 - Build risk-based verification plans for protocol, CLI, backend, and fixture-impacting changes.

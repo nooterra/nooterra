@@ -1,6 +1,6 @@
 # Phase 1 Snapshot Triage (2026-02-22)
 
-Branch: `codex/phase1-snapshot-2026-02-22`  
+Branch: `acs/phase1-snapshot-2026-02-22`  
 Snapshot commit: `cd0904d`
 
 ## Classification Summary
@@ -82,8 +82,8 @@ Files:
 - `docs/spec/schemas/PolicyDecision.v1.schema.json`
 - `docs/spec/schemas/OperatorAction.v1.schema.json`
 - `docs/spec/README.md`
-- `docs/spec/x402-error-codes.v1.txt`
-- `openapi/settld.openapi.json`
+- `docs/spec/x402-error-codes.txt`
+- `openapi/nooterra.openapi.json`
 - `docs/RELEASE_CHECKLIST.md`
 - `docs/SLO.md`
 - `docs/ops/PRODUCTION_DEPLOYMENT_CHECKLIST.md`

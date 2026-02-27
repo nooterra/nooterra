@@ -1,12 +1,12 @@
-# Agent Substrate v1 Sprints (2026-02-23)
+# Agent Substrate Sprints (2026-02-23)
 
-This plan treats Settld as the trust substrate under any agent runtime.
+This plan treats Nooterra as the trust substrate under any agent runtime.
 
 ## Substrate model
 
 1. Transport layer: MCP, A2A, HTTP.
-2. Trust layer (Settld): identity, delegation, policy, escrow, verification, receipts.
-3. Runtime layer: OpenClaw, Codex, Claude, Cursor, custom hosts.
+2. Trust layer (Nooterra): identity, delegation, policy, escrow, verification, receipts.
+3. Runtime layer: OpenClaw, Nooterra, Claude, Cursor, custom hosts.
 
 The substrate payload format should stay canonical JSON with deterministic hashes and signatures, not transport-specific envelopes.
 
@@ -63,10 +63,10 @@ Detailed epics/tickets live in:
 
 ## Onboarding and distribution fit
 
-1. `settld setup` must output delegation-ready runtime context (not just API keys).
+1. `nooterra setup` must output delegation-ready runtime context (not just API keys).
 2. Host config helpers should write transport config and delegation defaults.
 3. First-run success path should be: delegated paid call with verification receipt.
-4. Distribution remains host-first (OpenClaw/Codex/Claude/Cursor), with Settld as trust control plane.
+4. Distribution remains host-first (OpenClaw/Nooterra/Claude/Cursor), with Nooterra as trust control plane.
 
 ## Test workflow
 
@@ -84,7 +84,7 @@ Release-gate loop (slower, required for public rollout):
 
 ```bash
 npm run -s test:ci:mcp-host-cert-matrix
-npm run -s mcp:probe -- --call settld.about '{}'
+npm run -s mcp:probe -- --call nooterra.about '{}'
 npm run -s mcp:probe -- --x402-smoke
 npm run -s test:ci:public-openclaw-npx-smoke
 ```

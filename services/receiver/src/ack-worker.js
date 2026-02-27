@@ -1,5 +1,5 @@
 import { hmacSignArtifact } from "../../../src/core/artifacts.js";
-import { SETTLD_PROTOCOL_CURRENT } from "../../../src/core/protocol.js";
+import { NOOTERRA_PROTOCOL_CURRENT } from "../../../src/core/protocol.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
@@ -78,7 +78,7 @@ export function createAckWorker({ cfg, dedupeStore, metrics, logger, fetchFn = n
         method: "POST",
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "x-settld-protocol": SETTLD_PROTOCOL_CURRENT,
+          "x-nooterra-protocol": NOOTERRA_PROTOCOL_CURRENT,
           "x-proxy-tenant-id": tenantId,
           "x-proxy-destination-id": destinationId,
           "x-proxy-timestamp": timestamp,
@@ -91,10 +91,10 @@ export function createAckWorker({ cfg, dedupeStore, metrics, logger, fetchFn = n
     );
 
     try {
-      const respProtocol = res.headers?.get?.("x-settld-protocol") ?? null;
-      if (respProtocol && String(respProtocol) !== String(SETTLD_PROTOCOL_CURRENT)) {
+      const respProtocol = res.headers?.get?.("x-nooterra-protocol") ?? null;
+      if (respProtocol && String(respProtocol) !== String(NOOTERRA_PROTOCOL_CURRENT)) {
         logger?.warn?.("receiver.ack.protocol_mismatch", {
-          expected: SETTLD_PROTOCOL_CURRENT,
+          expected: NOOTERRA_PROTOCOL_CURRENT,
           actual: String(respProtocol)
         });
       }

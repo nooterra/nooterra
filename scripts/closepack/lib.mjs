@@ -91,7 +91,7 @@ async function requestJson({ baseUrl, tenantId, protocol, apiKey, opsToken, meth
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": String(tenantId),
-    "x-settld-protocol": String(protocol),
+    "x-nooterra-protocol": String(protocol),
     "x-request-id": `closepack_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`
   };
   if (apiKey) headers.authorization = `Bearer ${String(apiKey)}`;

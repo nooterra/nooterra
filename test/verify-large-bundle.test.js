@@ -38,11 +38,11 @@ test("large JobProof bundle verifies with bounded hashing concurrency", async ()
   const trustPath = path.resolve(process.cwd(), "test", "fixtures", "bundles", "v1", "trust.json");
   const trust = JSON.parse(await fs.readFile(trustPath, "utf8"));
 
-  const prevTrustedGov = process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  const prevTrustedGov = process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
   await test.after(() => {
-    if (prevTrustedGov === undefined) delete process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-    else process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = prevTrustedGov;
+    if (prevTrustedGov === undefined) delete process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+    else process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = prevTrustedGov;
   });
 
   const govSigner = { keyId: keypairs.govRoot.keyId, privateKeyPem: keypairs.govRoot.privateKeyPem };
@@ -151,7 +151,7 @@ test("large JobProof bundle verifies with bounded hashing concurrency", async ()
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-large-jobproof-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-large-jobproof-"));
   await test.after(() => fs.rm(tmp, { recursive: true, force: true }));
   await writeFilesToDirSorted({ files, outDir: tmp });
 

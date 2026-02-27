@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 async function acquireListenLock({ timeoutMs = 15_000, pollMs = 25 } = {}) {
-  const lockPath = path.join(os.tmpdir(), "settld-test-listen.lock");
+  const lockPath = path.join(os.tmpdir(), "nooterra-test-listen.lock");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {

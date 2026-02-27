@@ -12,7 +12,7 @@ import { createEd25519Keypair, sha256Hex, signHashHexEd25519 } from "../src/core
 import { request } from "./api-test-harness.js";
 
 const execFileAsync = promisify(execFile);
-const PW_CLI_TIMEOUT_MS_RAW = Number(process.env.SETTLD_BROWSER_E2E_CLI_TIMEOUT_MS ?? 20_000);
+const PW_CLI_TIMEOUT_MS_RAW = Number(process.env.NOOTERRA_BROWSER_E2E_CLI_TIMEOUT_MS ?? 20_000);
 const PW_CLI_TIMEOUT_MS = Number.isFinite(PW_CLI_TIMEOUT_MS_RAW) && PW_CLI_TIMEOUT_MS_RAW > 0 ? Math.floor(PW_CLI_TIMEOUT_MS_RAW) : 20_000;
 
 async function registerAgent(api, { tenantId, agentId, ownerId = "svc_arb_workspace_browser_test", publicKeyPem: providedPublicKeyPem = null }) {
@@ -114,8 +114,8 @@ async function createArbitrationCaseFixture(
 }
 
 function makePwCliPath() {
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  return path.join(codexHome, "skills", "playwright", "scripts", "playwright_cli.sh");
+  const nooterraHome = process.env.NOOTERRA_HOME || path.join(os.homedir(), ".nooterra");
+  return path.join(nooterraHome, "skills", "playwright", "scripts", "playwright_cli.sh");
 }
 
 async function runPw({ session, args, env = {}, withSession = true }) {
@@ -140,7 +140,7 @@ async function runPw({ session, args, env = {}, withSession = true }) {
 
 test(
   "API browser e2e: arbitration workspace supports open -> verdict -> close -> appeal flow",
-  { skip: process.env.SETTLD_RUN_BROWSER_E2E !== "1" },
+  { skip: process.env.NOOTERRA_RUN_BROWSER_E2E !== "1" },
   async (t) => {
     let nowAt = "2026-02-10T14:00:00.000Z";
     const api = createApi({
@@ -158,8 +158,8 @@ test(
     const appealCaseId = "arb_case_browser_appeal_1";
     const evidenceRefs = ["evidence://arb/browser/1.json"];
     const arbiterKeypair = createEd25519Keypair();
-    const browser = typeof process.env.SETTLD_BROWSER_E2E_BROWSER === "string" && process.env.SETTLD_BROWSER_E2E_BROWSER.trim() !== ""
-      ? process.env.SETTLD_BROWSER_E2E_BROWSER.trim()
+    const browser = typeof process.env.NOOTERRA_BROWSER_E2E_BROWSER === "string" && process.env.NOOTERRA_BROWSER_E2E_BROWSER.trim() !== ""
+      ? process.env.NOOTERRA_BROWSER_E2E_BROWSER.trim()
       : "firefox";
     const session = `arb_ws_${Date.now()}`;
 

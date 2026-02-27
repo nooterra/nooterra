@@ -38,17 +38,17 @@ function parseTrustedKeyIdsJson(raw, name) {
 }
 
 export function trustedGovernanceRootKeysFromEnv() {
-  return parseTrustedKeysJson(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? null, "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON");
+  return parseTrustedKeysJson(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? null, "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON");
 }
 
 export function trustedPricingSignerKeysFromEnv() {
-  return parseTrustedKeysJson(process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON ?? null, "SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON");
+  return parseTrustedKeysJson(process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON ?? null, "NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON");
 }
 
 export function trustedPricingSignerKeyIdsFromEnv() {
-  return parseTrustedKeyIdsJson(process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON ?? null, "SETTLD_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON");
+  return parseTrustedKeyIdsJson(process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON ?? null, "NOOTERRA_TRUSTED_PRICING_SIGNER_KEY_IDS_JSON");
 }
 
 export function trustedTimeAuthorityKeysFromEnv() {
-  return parseTrustedKeysJson(process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON ?? null, "SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON");
+  return parseTrustedKeysJson(process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON ?? null, "NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON");
 }

@@ -1,16 +1,16 @@
 # Agent Spend Host Landscape (2026-02-21)
 
 ## Why this matters
-To get Settld adopted, we need to integrate where autonomous spend is already happening and where users already run agents day-to-day.
+To get Nooterra adopted, we need to integrate where autonomous spend is already happening and where users already run agents day-to-day.
 
 ## What users are running today
 
 ### 1) Coding-agent hosts with MCP support are the default surface
-- Codex exposes MCP server setup in CLI (`codex mcp add ...`) and shared config between CLI + IDE extension.
+- Nooterra exposes MCP server setup in CLI (`nooterra mcp add ...`) and shared config between CLI + IDE extension.
 - Claude Code has first-class MCP server management (`claude mcp add`, `list`, `get`) and scope controls.
 - Cursor supports MCP in editor + CLI (`cursor-agent mcp ...`) with stdio/SSE/HTTP transports.
 
-Implication for Settld:
+Implication for Nooterra:
 - MCP-first distribution is correct.
 - Setup must be one command, host-aware, and idempotent.
 
@@ -19,7 +19,7 @@ Implication for Settld:
 - Stripe + OpenAI announced Instant Checkout and ACP in ChatGPT (US rollout, Sept 29, 2025).
 - x402 continues to position HTTP-native pay-per-use flows as core agent payment rail.
 
-Implication for Settld:
+Implication for Nooterra:
 - We should not position as "just another wallet".
 - Differentiate with policy runtime, deterministic enforcement, dispute/evidence lifecycle, and cross-host operational safety.
 
@@ -28,12 +28,12 @@ Implication for Settld:
 - Community skill/marketplaces and wallet wrappers are growing quickly.
 - Security incidents around malicious skills have been reported in ecosystem media.
 
-Implication for Settld:
+Implication for Nooterra:
 - Keep OpenClaw as a target host, but treat it as higher-risk environment.
 - Emphasize signed policy packs, deterministic receipts, and strict tool/policy constraints.
 
 ## Build priorities derived from this landscape
-1. Make `settld setup` fully host-native for Codex/Claude/Cursor/OpenClaw.
+1. Make `nooterra setup` fully host-native for Nooterra/Claude/Cursor/OpenClaw.
 2. Make policy deployment one step from onboarding (starter profile apply + dry-run + live).
 3. Keep MCP smoke validation built in so users know setup is real immediately.
 4. Publish security posture for skill-hosted environments (verification, guardrails, audit proofs).

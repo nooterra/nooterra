@@ -261,14 +261,14 @@ const circleMockServer = http.createServer((req, res) => {
   });
 });
 
-const settldOpsBootstrapRequests = [];
-const settldOpsBootstrapState = { nextErrorStatus: null, nextErrorBody: null };
-const settldOpsApiRequests = [];
-const settldOpsFlowState = {
+const nooterraOpsBootstrapRequests = [];
+const nooterraOpsBootstrapState = { nextErrorStatus: null, nextErrorBody: null };
+const nooterraOpsApiRequests = [];
+const nooterraOpsFlowState = {
   walletBalances: new Map(),
   runs: new Map()
 };
-const settldOpsMockServer = http.createServer((req, res) => {
+const nooterraOpsMockServer = http.createServer((req, res) => {
   const chunks = [];
   req.on("data", (d) => chunks.push(d));
   req.on("end", () => {
@@ -286,7 +286,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
     }
 
     const tenantId = String(req.headers["x-proxy-tenant-id"] ?? "").trim() || "tenant_unknown";
-    const protocol = String(req.headers["x-settld-protocol"] ?? "").trim();
+    const protocol = String(req.headers["x-nooterra-protocol"] ?? "").trim();
     const requestRecord = {
       method: String(req.method ?? "GET").toUpperCase(),
       pathname,
@@ -297,11 +297,11 @@ const settldOpsMockServer = http.createServer((req, res) => {
       idempotencyKey: String(req.headers["x-idempotency-key"] ?? "").trim() || null,
       body
     };
-    settldOpsApiRequests.push(requestRecord);
+    nooterraOpsApiRequests.push(requestRecord);
 
     if (req.method === "POST" && pathname === "/ops/tenants/bootstrap") {
       const opsToken = String(req.headers["x-proxy-ops-token"] ?? "").trim();
-      settldOpsBootstrapRequests.push({
+      nooterraOpsBootstrapRequests.push({
         tenantId,
         protocol,
         opsToken,
@@ -309,11 +309,11 @@ const settldOpsMockServer = http.createServer((req, res) => {
         body
       });
 
-      if (Number.isInteger(settldOpsBootstrapState.nextErrorStatus)) {
-        const status = settldOpsBootstrapState.nextErrorStatus;
-        const errBody = settldOpsBootstrapState.nextErrorBody ?? { ok: false, code: "UPSTREAM_FAILURE", message: "mock upstream failure" };
-        settldOpsBootstrapState.nextErrorStatus = null;
-        settldOpsBootstrapState.nextErrorBody = null;
+      if (Number.isInteger(nooterraOpsBootstrapState.nextErrorStatus)) {
+        const status = nooterraOpsBootstrapState.nextErrorStatus;
+        const errBody = nooterraOpsBootstrapState.nextErrorBody ?? { ok: false, code: "UPSTREAM_FAILURE", message: "mock upstream failure" };
+        nooterraOpsBootstrapState.nextErrorStatus = null;
+        nooterraOpsBootstrapState.nextErrorBody = null;
         res.statusCode = status;
         res.setHeader("content-type", "application/json; charset=utf-8");
         res.end(JSON.stringify(errBody));
@@ -324,11 +324,11 @@ const settldOpsMockServer = http.createServer((req, res) => {
       const scopes = requestedScopes.length ? requestedScopes : ["runs:write", "runs:read"];
       const keyId = typeof body?.apiKey?.keyId === "string" && body.apiKey.keyId.trim() ? body.apiKey.keyId.trim() : "ak_runtime";
       const token = `${keyId}.secret_runtime`;
-      const apiBaseUrl = "https://api.mock.settld.work";
+      const apiBaseUrl = "https://api.mock.nooterra.work";
       const env = {
-        SETTLD_TENANT_ID: tenantId,
-        SETTLD_BASE_URL: apiBaseUrl,
-        SETTLD_API_KEY: token
+        NOOTERRA_TENANT_ID: tenantId,
+        NOOTERRA_BASE_URL: apiBaseUrl,
+        NOOTERRA_API_KEY: token
       };
       const exportCommands = Object.entries(env)
         .map(([name, value]) => `export ${name}=${JSON.stringify(String(value))}`)
@@ -399,9 +399,9 @@ const settldOpsMockServer = http.createServer((req, res) => {
         return;
       }
       const key = `${tenantId}:${agentId}:${currency}`;
-      const prior = Number(settldOpsFlowState.walletBalances.get(key) ?? 0);
+      const prior = Number(nooterraOpsFlowState.walletBalances.get(key) ?? 0);
       const next = prior + amountCents;
-      settldOpsFlowState.walletBalances.set(key, next);
+      nooterraOpsFlowState.walletBalances.set(key, next);
       sendJson(200, {
         ok: true,
         wallet: {
@@ -455,7 +455,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
       const rfqId = decodeURIComponent(rfqAcceptMatch[1]);
       const runId = `run_${rfqId}_${crypto.randomBytes(3).toString("hex")}`;
       const lastChainHash = crypto.createHash("sha256").update(`${tenantId}:${runId}:0`, "utf8").digest("hex");
-      settldOpsFlowState.runs.set(runId, {
+      nooterraOpsFlowState.runs.set(runId, {
         runId,
         tenantId,
         status: "running",
@@ -484,7 +484,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
     const runEventMatch = /^\/agents\/([^/]+)\/runs\/([^/]+)\/events$/.exec(pathname);
     if (req.method === "POST" && runEventMatch) {
       const runId = decodeURIComponent(runEventMatch[2]);
-      const runState = settldOpsFlowState.runs.get(runId);
+      const runState = nooterraOpsFlowState.runs.get(runId);
       if (!runState) {
         sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
         return;
@@ -499,7 +499,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
       runState.verificationStatus = "green";
       runState.settlementStatus = "released";
       runState.lastChainHash = nextChainHash;
-      settldOpsFlowState.runs.set(runId, runState);
+      nooterraOpsFlowState.runs.set(runId, runState);
       sendJson(200, {
         ok: true,
         event: {
@@ -521,7 +521,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
     const runVerificationMatch = /^\/runs\/([^/]+)\/verification$/.exec(pathname);
     if (req.method === "GET" && runVerificationMatch) {
       const runId = decodeURIComponent(runVerificationMatch[1]);
-      const runState = settldOpsFlowState.runs.get(runId);
+      const runState = nooterraOpsFlowState.runs.get(runId);
       if (!runState) {
         sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
         return;
@@ -541,7 +541,7 @@ const settldOpsMockServer = http.createServer((req, res) => {
     const runSettlementMatch = /^\/runs\/([^/]+)\/settlement$/.exec(pathname);
     if (req.method === "GET" && runSettlementMatch) {
       const runId = decodeURIComponent(runSettlementMatch[1]);
-      const runState = settldOpsFlowState.runs.get(runId);
+      const runState = nooterraOpsFlowState.runs.get(runId);
       if (!runState) {
         sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
         return;
@@ -1189,7 +1189,7 @@ async function getTrustGraphDiff({ tenantId, baseMonth = null, compareMonth = nu
 }
 
 test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", async (t) => {
-  dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-service-test-"));
+  dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-magic-link-service-test-"));
 
   const defaultRelayServer = http.createServer((_req, res) => {
     res.statusCode = 204;
@@ -1204,21 +1204,21 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   let stripePort = null;
   let relayPort = null;
   let alertPort = null;
-  let settldOpsPort = null;
+  let nooterraOpsPort = null;
   let circlePort = null;
-  settldOpsBootstrapRequests.length = 0;
-  settldOpsBootstrapState.nextErrorStatus = null;
-  settldOpsBootstrapState.nextErrorBody = null;
-  settldOpsApiRequests.length = 0;
-  settldOpsFlowState.walletBalances.clear();
-  settldOpsFlowState.runs.clear();
+  nooterraOpsBootstrapRequests.length = 0;
+  nooterraOpsBootstrapState.nextErrorStatus = null;
+  nooterraOpsBootstrapState.nextErrorBody = null;
+  nooterraOpsApiRequests.length = 0;
+  nooterraOpsFlowState.walletBalances.clear();
+  nooterraOpsFlowState.runs.clear();
   circleBootstrapRequests.length = 0;
   try {
     ({ port: oauthPort } = await listenOnEphemeralLoopback(oauthMockServer, { hosts: ["127.0.0.1"] }));
     ({ port: stripePort } = await listenOnEphemeralLoopback(stripeMockServer, { hosts: ["127.0.0.1"] }));
     ({ port: relayPort } = await listenOnEphemeralLoopback(defaultRelayServer, { hosts: ["127.0.0.1"] }));
     ({ port: alertPort } = await listenOnEphemeralLoopback(deadLetterAlertServer, { hosts: ["127.0.0.1"] }));
-    ({ port: settldOpsPort } = await listenOnEphemeralLoopback(settldOpsMockServer, { hosts: ["127.0.0.1"] }));
+    ({ port: nooterraOpsPort } = await listenOnEphemeralLoopback(nooterraOpsMockServer, { hosts: ["127.0.0.1"] }));
     ({ port: circlePort } = await listenOnEphemeralLoopback(circleMockServer, { hosts: ["127.0.0.1"] }));
   } catch (err) {
     const cause = err?.cause ?? err;
@@ -1233,7 +1233,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
         await closeIfListening(stripeMockServer);
         await closeIfListening(defaultRelayServer);
         await closeIfListening(deadLetterAlertServer);
-        await closeIfListening(settldOpsMockServer);
+        await closeIfListening(nooterraOpsMockServer);
         await closeIfListening(circleMockServer);
       } catch {
         // ignore
@@ -1311,9 +1311,9 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     MAGIC_LINK_ONRAMPER_NETWORK_ID: "base_sepolia",
     MAGIC_LINK_ONRAMPER_SIGNING_SECRET: "onramper_signing_secret_mock",
     MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
-    MAGIC_LINK_SETTLD_API_BASE_URL: `http://127.0.0.1:${settldOpsPort}`,
-    MAGIC_LINK_SETTLD_OPS_TOKEN: "ops_token_magic_link",
-    MAGIC_LINK_SETTLD_PROTOCOL: "1.0",
+    MAGIC_LINK_NOOTERRA_API_BASE_URL: `http://127.0.0.1:${nooterraOpsPort}`,
+    MAGIC_LINK_NOOTERRA_OPS_TOKEN: "ops_token_magic_link",
+    MAGIC_LINK_NOOTERRA_PROTOCOL: "1.0",
 
     CIRCLE_API_KEY: "TEST_API_KEY:mock_circle",
     CIRCLE_BASE_URL: `http://127.0.0.1:${circlePort}`,
@@ -1331,7 +1331,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     await closeIfListening(stripeMockServer);
     await closeIfListening(defaultRelayServer);
     await closeIfListening(deadLetterAlertServer);
-    await closeIfListening(settldOpsMockServer);
+    await closeIfListening(nooterraOpsMockServer);
     await closeIfListening(circleMockServer);
     await fs.rm(dataDir, { recursive: true, force: true });
     dataDir = null;
@@ -1368,7 +1368,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(page.statusCode, 200, page._body().toString("utf8"));
     assert.match(String(page.getHeader("content-type") ?? ""), /text\/html/);
     const html = page._body().toString("utf8");
-    assert.match(html, /Settld Pricing/);
+    assert.match(html, /Nooterra Pricing/);
     assert.match(html, /Free/);
     assert.match(html, /Builder/);
     assert.match(html, /Growth/);
@@ -1424,7 +1424,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
           keyId: "ak_runtime_test",
           scopes: ["runs:write", "runs:read", "inbox:read"]
         },
-        paidToolsBaseUrl: "https://paid.tools.settld.work"
+        paidToolsBaseUrl: "https://paid.tools.nooterra.work"
       }
     });
     assert.equal(out.statusCode, 201, JSON.stringify(out.json));
@@ -1434,14 +1434,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(out.json?.bootstrap?.apiKey?.keyId, "ak_runtime_test");
     assert.equal(out.json?.bootstrap?.apiKey?.token, "ak_runtime_test.secret_runtime");
     assert.equal(out.json?.mcp?.command, "npx");
-    assert.deepEqual(out.json?.mcp?.args, ["-y", "--package", "settld", "settld-mcp"]);
-    assert.equal(out.json?.mcp?.env?.SETTLD_TENANT_ID, tenantId);
-    assert.equal(out.json?.mcp?.env?.SETTLD_API_KEY, "ak_runtime_test.secret_runtime");
-    assert.equal(out.json?.mcp?.env?.SETTLD_BASE_URL, "https://api.mock.settld.work/");
-    assert.equal(out.json?.mcp?.env?.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work/");
-    assert.equal(out.json?.mcpConfigJson?.mcpServers?.settld?.command, "npx");
+    assert.deepEqual(out.json?.mcp?.args, ["-y", "--package", "nooterra", "nooterra-mcp"]);
+    assert.equal(out.json?.mcp?.env?.NOOTERRA_TENANT_ID, tenantId);
+    assert.equal(out.json?.mcp?.env?.NOOTERRA_API_KEY, "ak_runtime_test.secret_runtime");
+    assert.equal(out.json?.mcp?.env?.NOOTERRA_BASE_URL, "https://api.mock.nooterra.work/");
+    assert.equal(out.json?.mcp?.env?.NOOTERRA_PAID_TOOLS_BASE_URL, "https://paid.tools.nooterra.work/");
+    assert.equal(out.json?.mcpConfigJson?.mcpServers?.nooterra?.command, "npx");
 
-    const reqRecord = settldOpsBootstrapRequests[settldOpsBootstrapRequests.length - 1];
+    const reqRecord = nooterraOpsBootstrapRequests[nooterraOpsBootstrapRequests.length - 1];
     assert.ok(reqRecord);
     assert.equal(reqRecord.tenantId, tenantId);
     assert.equal(reqRecord.protocol, "1.0");
@@ -1499,7 +1499,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       tenantId,
       body: {
         apiKey: { keyId: "ak_runtime_parity", scopes: ["runs:write", "runs:read"] },
-        paidToolsBaseUrl: "https://paid.tools.settld.work"
+        paidToolsBaseUrl: "https://paid.tools.nooterra.work"
       }
     });
     assert.equal(bootstrapKeyOut.statusCode, 201, JSON.stringify(bootstrapKeyOut.json));
@@ -1510,14 +1510,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       headers: { "x-api-key": "", cookie: sessionCookie },
       body: {
         apiKey: { keyId: "ak_runtime_parity", scopes: ["runs:write", "runs:read"] },
-        paidToolsBaseUrl: "https://paid.tools.settld.work"
+        paidToolsBaseUrl: "https://paid.tools.nooterra.work"
       }
     });
     assert.equal(sessionOut.statusCode, 201, JSON.stringify(sessionOut.json));
     assert.equal(sessionOut.json?.ok, true);
     assert.equal(sessionOut.json?.bootstrap?.apiKey?.token, "ak_runtime_parity.secret_runtime");
     assert.deepEqual(sessionOut.json?.mcp?.env, bootstrapKeyOut.json?.mcp?.env);
-    assert.deepEqual(sessionOut.json?.mcpConfigJson?.mcpServers?.settld?.env, bootstrapKeyOut.json?.mcpConfigJson?.mcpServers?.settld?.env);
+    assert.deepEqual(sessionOut.json?.mcpConfigJson?.mcpServers?.nooterra?.env, bootstrapKeyOut.json?.mcpConfigJson?.mcpServers?.nooterra?.env);
   });
 
   await t.test("tenant onboarding runtime bootstrap: rejects upstream success payload missing runtime key token", async () => {
@@ -1529,12 +1529,12 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       billingEmail: "billing+runtime-missing-token@example.com"
     });
 
-    settldOpsBootstrapState.nextErrorStatus = 201;
-    settldOpsBootstrapState.nextErrorBody = {
+    nooterraOpsBootstrapState.nextErrorStatus = 201;
+    nooterraOpsBootstrapState.nextErrorBody = {
       tenantId,
       bootstrap: {
         tenantId,
-        apiBaseUrl: "https://api.mock.settld.work",
+        apiBaseUrl: "https://api.mock.nooterra.work",
         apiKey: { keyId: "ak_missing_token", token: "" }
       }
     };
@@ -1719,7 +1719,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(smoke.json?.schemaVersion, "MagicLinkRuntimeBootstrapSmokeTest.v1");
     assert.equal(smoke.json?.tenantId, tenantId);
     assert.equal(smoke.json?.smoke?.initialized, true);
-    assert.equal(smoke.json?.smoke?.serverInfo?.name, "settld-mcp-spike");
+    assert.equal(smoke.json?.smoke?.serverInfo?.name, "nooterra-mcp-spike");
     assert.ok(Number.isFinite(Number(smoke.json?.smoke?.toolsCount)));
     assert.ok(Number(smoke.json?.smoke?.toolsCount) > 0);
     assert.ok(Array.isArray(smoke.json?.smoke?.sampleTools));
@@ -1787,7 +1787,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       : null;
     assert.equal(Boolean(firstVerifiedStage?.reached), true);
 
-    const runCompletedReq = [...settldOpsApiRequests].reverse().find((row) => row.pathname.includes("/events"));
+    const runCompletedReq = [...nooterraOpsApiRequests].reverse().find((row) => row.pathname.includes("/events"));
     assert.ok(runCompletedReq, "expected run-completed event request");
     assert.ok(typeof runCompletedReq?.expectedPrevChainHash === "string" && runCompletedReq.expectedPrevChainHash.length > 0);
 
@@ -1807,7 +1807,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
     const out = await postTenantRuntimeConformanceMatrix({
       tenantId,
-      body: { targets: ["codex", "claude", "cursor", "openclaw"] }
+      body: { targets: ["nooterra", "claude", "cursor", "openclaw"] }
     });
     assert.equal(out.statusCode, 200, JSON.stringify(out.json));
     assert.equal(out.json?.ok, true);
@@ -1833,7 +1833,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const idem = await postTenantRuntimeConformanceMatrix({
       tenantId,
       headers: { "x-idempotency-key": "matrix_idem_1" },
-      body: { targets: ["codex"] }
+      body: { targets: ["nooterra"] }
     });
     assert.equal(idem.statusCode, 200, JSON.stringify(idem.json));
     assert.equal(idem.json?.ok, true);
@@ -1844,7 +1844,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const idemReplay = await postTenantRuntimeConformanceMatrix({
       tenantId,
       headers: { "x-idempotency-key": "matrix_idem_1" },
-      body: { targets: ["codex"] }
+      body: { targets: ["nooterra"] }
     });
     assert.equal(idemReplay.statusCode, 200, JSON.stringify(idemReplay.json));
     assert.equal(idemReplay.json?.ok, true);
@@ -1871,14 +1871,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
     const first = await postTenantRuntimeConformanceMatrix({
       tenantId,
-      body: { targets: ["codex"] }
+      body: { targets: ["nooterra"] }
     });
     assert.equal(first.statusCode, 200, JSON.stringify(first.json));
     assert.equal(first.json?.ok, true);
 
     const second = await postTenantRuntimeConformanceMatrix({
       tenantId,
-      body: { targets: ["codex"] }
+      body: { targets: ["nooterra"] }
     });
     assert.equal(second.statusCode, 429, JSON.stringify(second.json));
     assert.equal(second.json?.ok, false);
@@ -1895,8 +1895,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       billingEmail: "billing+runtime-fail@example.com"
     });
 
-    settldOpsBootstrapState.nextErrorStatus = 502;
-    settldOpsBootstrapState.nextErrorBody = {
+    nooterraOpsBootstrapState.nextErrorStatus = 502;
+    nooterraOpsBootstrapState.nextErrorBody = {
       ok: false,
       code: "BOOTSTRAP_DOWN",
       message: "ops unavailable"
@@ -1972,7 +1972,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const newRows = await Promise.all(newFiles.map(async (fp) => JSON.parse(await fs.readFile(fp, "utf8"))));
     const slackDelivery = newRows.find((row) => row?.tenantId === tenantId && row?.url === slackUrl && row?.event === "verification.completed");
     assert.ok(slackDelivery);
-    assert.equal(slackDelivery.headers?.["x-settld-event"], "verification.completed");
+    assert.equal(slackDelivery.headers?.["x-nooterra-event"], "verification.completed");
 
     const stateAfterSlackRes = await runReq({ method: "GET", url: `/v1/tenants/${tenantId}/integrations/state`, headers: { "x-api-key": "test_key" }, bodyChunks: [] });
     assert.equal(stateAfterSlackRes.statusCode, 200);
@@ -2783,7 +2783,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(badgeRes.statusCode, 200, badgeRes._body().toString("utf8"));
     assert.match(String(badgeRes.getHeader("content-type") ?? ""), /image\/svg\+xml/);
     const badgeSvg = badgeRes._body().toString("utf8");
-    assert.match(badgeSvg, /SETTLD VERIFIED/);
+    assert.match(badgeSvg, /NOOTERRA VERIFIED/);
     assert.match(badgeSvg, /settlement/i);
 
     const mismatch = await runReq({
@@ -2809,8 +2809,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   const zipCloseFail = await zipDir(fxCloseFailDir);
 
   await t.test("tenant onboarding self-service: signup, sample flow, activation metrics", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const createBody = Buffer.from(
       JSON.stringify({
@@ -2982,8 +2982,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("strict pass + downloads", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId: "tenant_a" });
     assert.equal(up.modeResolved, "strict");
@@ -3016,8 +3016,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("strict pass (closepack) + downloads", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const up = await uploadZip({ zipBuf: zipClose, mode: "strict", tenantId: "tenant_close" });
     assert.equal(up.modeResolved, "strict");
@@ -3053,8 +3053,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("tenant upload route: accepts template metadata and persists it", async () => {
     const tenantId = "tenant_wizard_upload";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const templateConfig = { metrics: { targetCompletionMinutes: 42, maxCheckpointGapMinutes: 9 } };
     const templateConfigEncoded = Buffer.from(JSON.stringify(templateConfig), "utf8").toString("base64url");
@@ -3084,8 +3084,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("idempotent upload returns same token", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const first = await uploadZip({ zipBuf: zip, mode: "strict", tenantId: "tenant_idem" });
     const second = await uploadZip({ zipBuf: zip, mode: "strict", tenantId: "tenant_idem" });
@@ -3094,8 +3094,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("auto mode without trust yields amber + warning code", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
     const up = await uploadZip({ zipBuf: zip, mode: "auto", tenantId: "tenant_auto" });
     assert.equal(up.modeResolved, "compat");
@@ -3112,8 +3112,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("strict mode without trust fails with clear code", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId: "tenant_strict_missing" });
     assert.equal(up.modeResolved, "strict");
@@ -3126,8 +3126,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("revoke makes link inaccessible", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId: "tenant_revoke" });
     const body = Buffer.from(JSON.stringify({ token: up.token }));
@@ -3144,8 +3144,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("tenant settings: switch Amber → Strict without redeploy (auto reruns)", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
     const tenantId = "tenant_switch";
 
     const first = await uploadZip({ zipBuf: zip, mode: "auto", tenantId });
@@ -3172,8 +3172,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("tenant defaultMode applies when mode is omitted", async () => {
     const tenantId = "tenant_default_mode";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({ tenantId, patch: { defaultMode: "compat" } });
 
     const up = await uploadZip({ zipBuf: zip, mode: null, tenantId });
@@ -3182,8 +3182,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("usage report: records verification runs for billing export", async () => {
     const tenantId = "tenant_usage";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
     assert.equal(up.modeResolved, "strict");
@@ -3206,8 +3206,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("billing usage threshold alerts emit once at 80% and 100% per month", async () => {
     const tenantId = "tenant_usage_threshold_alerts";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({ tenantId, patch: { maxVerificationsPerMonth: 5 } });
 
     const fxInvoiceFailA = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-evidence-sha-mismatch");
@@ -3284,8 +3284,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   await t.test("billing invoice export: computes totals from usage summary", async () => {
     const tenantId = "tenant_billing";
     const month = monthKeyUtcNow();
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
 
@@ -3315,8 +3315,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   await t.test("tenant plan endpoint updates invoice draft pricing", async () => {
     const tenantId = "tenant_plan_invoice";
     const month = monthKeyUtcNow();
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await setTenantPlan({ tenantId, plan: "growth" });
     await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
 
@@ -3392,8 +3392,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("quota: maxVerificationsPerMonth blocks new verifications but allows dedupe", async () => {
     const tenantId = "tenant_quota_month";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({ tenantId, patch: { maxVerificationsPerMonth: 1 } });
 
     const ok1 = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
@@ -3411,8 +3411,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("quota: maxStoredBundles blocks new bundles but allows dedupe", async () => {
     const tenantId = "tenant_quota_storage";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({ tenantId, patch: { maxStoredBundles: 1 } });
 
     const ok1 = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
@@ -3429,8 +3429,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   });
 
   await t.test("rate limits: upload/view/decision routes enforce tenant settings with retry-after", async () => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const tenantUpload = "tenant_rate_limit_upload";
     await putTenantSettings({ tenantId: tenantUpload, patch: { rateLimits: { uploadsPerHour: 1 } } });
@@ -3483,14 +3483,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("webhooks: secret encrypted-at-rest; deliveries are HMAC-signed", async () => {
     const tenantId = "tenant_webhook";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const secret = "whsec_test";
     await putTenantSettings({
       tenantId,
       patch: {
-        webhooks: [{ url: "https://example.invalid/settld-webhook", events: ["verification.completed", "verification.failed"], secret, enabled: true }]
+        webhooks: [{ url: "https://example.invalid/nooterra-webhook", events: ["verification.completed", "verification.failed"], secret, enabled: true }]
       }
     });
 
@@ -3508,25 +3508,25 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.ok(newFiles.length >= 1);
 
     const attempts = await Promise.all(newFiles.map(async (fp) => JSON.parse(await fs.readFile(fp, "utf8"))));
-    const attempt = attempts.find((row) => row?.url === "https://example.invalid/settld-webhook");
+    const attempt = attempts.find((row) => row?.url === "https://example.invalid/nooterra-webhook");
     assert.ok(attempt);
     assert.equal(attempt.schemaVersion, "MagicLinkWebhookAttempt.v1");
     assert.equal(attempt.event, "verification.completed");
-    assert.equal(attempt.url, "https://example.invalid/settld-webhook");
+    assert.equal(attempt.url, "https://example.invalid/nooterra-webhook");
     assert.ok(attempt.body);
-    assert.ok(attempt.headers["x-settld-timestamp"]);
-    assert.ok(attempt.headers["x-settld-signature"]);
+    assert.ok(attempt.headers["x-nooterra-timestamp"]);
+    assert.ok(attempt.headers["x-nooterra-signature"]);
 
-    const ts = attempt.headers["x-settld-timestamp"];
+    const ts = attempt.headers["x-nooterra-timestamp"];
     const expected = "v1=" + crypto.createHmac("sha256", secret).update(`${ts}.${attempt.body}`, "utf8").digest("hex");
-    assert.equal(attempt.headers["x-settld-signature"], expected);
+    assert.equal(attempt.headers["x-nooterra-signature"], expected);
   });
 
   await t.test("buyer notifications: delivery is idempotent per run and status appears in tenant settings", async () => {
     const tenantId = "tenant_buyer_notify";
     const runId = "run_notify_1";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     await putTenantSettings({
       tenantId,
@@ -3640,8 +3640,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("decision capture: buyer can approve/hold and export a record", async () => {
     const tenantId = "tenant_decision";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: { settlementDecisionSigner: { signerKeyId: buyerDecisionKeyId, privateKeyPem: buyerSigner.privateKeyPem } }
@@ -3677,7 +3677,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const keysPath = path.join(dataDir, `offline_${up.token}_buyer_keys.json`);
     await fs.writeFile(keysPath, JSON.stringify({ [buyerDecisionKeyId]: buyerSigner.publicKeyPem }, null, 2) + "\n", "utf8");
 
-    const nodeBin = path.join(REPO_ROOT, "packages", "artifact-verify", "bin", "settld-verify.js");
+    const nodeBin = path.join(REPO_ROOT, "packages", "artifact-verify", "bin", "nooterra-verify.js");
     const run = spawnSync(process.execPath, [nodeBin, "--format", "json", "--invoice-bundle", bundleZipPath, "--settlement-decision", decisionPath, "--trusted-buyer-keys", keysPath], {
       encoding: "utf8",
       env: { ...process.env, LANG: "C", LC_ALL: "C" }
@@ -3694,8 +3694,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("decision webhooks + lockout + auto closepack zip on approval", async () => {
     const tenantId = "tenant_decision_webhooks";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     const secret = "whsec_decision";
     await putTenantSettings({
       tenantId,
@@ -3766,8 +3766,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("auto decision: green approve with system actor + payment trigger outbox", async () => {
     const tenantId = "tenant_auto_decide_green";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: {
@@ -3780,7 +3780,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
           holdOnRed: false,
           templateIds: null,
           actorName: "Auto Decision Bot",
-          actorEmail: "auto@settld.example"
+          actorEmail: "auto@nooterra.example"
         },
         paymentTriggers: { enabled: true, deliveryMode: "record" }
       }
@@ -3798,7 +3798,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const repJson = JSON.parse(rep._body().toString("utf8"));
     assert.equal(repJson.decision, "approve");
     assert.equal(repJson.actor?.auth?.method, "system_auto_decision");
-    assert.equal(repJson.actor?.email, "auto@settld.example");
+    assert.equal(repJson.actor?.email, "auto@nooterra.example");
 
     const closePackZip = await runReq({ method: "GET", url: `/r/${up.token}/closepack.zip`, headers: {}, bodyChunks: [] });
     assert.equal(closePackZip.statusCode, 200, closePackZip._body().toString("utf8"));
@@ -3828,8 +3828,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("auto decision: red verification auto-holds", async () => {
     const tenantId = "tenant_auto_decide_red";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: {
@@ -3840,7 +3840,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
           approveOnAmber: false,
           holdOnRed: true,
           actorName: "Auto Hold Bot",
-          actorEmail: "auto-hold@settld.example"
+          actorEmail: "auto-hold@nooterra.example"
         }
       }
     });
@@ -3864,8 +3864,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("payment trigger retry ops: list, run-once, dead-letter replay", async () => {
     const tenantId = "tenant_payment_retry_ops";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: {
@@ -3994,8 +3994,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("webhook retry ops: list, run-once, dead-letter replay", async () => {
     const tenantId = "tenant_webhook_retry_ops";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await createTenant({
       tenantId,
       name: "Webhook Retry Tenant",
@@ -4238,8 +4238,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("decision auth: email OTP required when tenant allowlist is configured", async () => {
     const tenantId = "tenant_decision_otp";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: { decisionAuthEmailDomains: ["example.com"], settlementDecisionSigner: { signerKeyId: buyerDecisionKeyId, privateKeyPem: buyerSigner.privateKeyPem } }
@@ -4295,8 +4295,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("buyer pack: ingest keys → inbox → exports", async () => {
     const tenantId = "buyer_network";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
     await putTenantSettings({
       tenantId,
@@ -4351,8 +4351,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("inbox: run-record rows still load after index/meta/public files are removed", async () => {
     const tenantId = "tenant_inbox_run_record_only";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
     await putTenantSettings({
       tenantId,
@@ -4463,7 +4463,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
           endpoint: "https://s3.example.invalid",
           region: null,
           bucket: "demo-bucket",
-          prefix: "settld-demo",
+          prefix: "nooterra-demo",
           pathStyle: true,
           accessKeyId: "AKIA_TEST",
           secretAccessKey: "SECRET_TEST",
@@ -4505,8 +4505,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   await t.test("retention GC: deletes blobs + webhook records but keeps run record", async () => {
     const tenantId = "tenant_retention";
     await putTenantSettings({ tenantId, patch: { retentionDays: 1 } });
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
     const token = up.token;
@@ -4598,8 +4598,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   await t.test("vendor onboarding pack: generates ingest key + includes pricing terms (optional)", async () => {
     const tenantId = "tenant_vendor_pack";
     const vendorId = "vendor_pack";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
 
     const pricingMatrixJsonText = await fs.readFile(path.join(fxDir, "pricing", "pricing_matrix.json"), "utf8");
     const pricingMatrixSignaturesJsonText = await fs.readFile(path.join(fxDir, "pricing", "pricing_matrix_signatures.json"), "utf8");
@@ -4646,8 +4646,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("vendor policy: fail-on-warnings and amber approval gating", async () => {
     const tenantId = "tenant_vendor_policy";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
     const fxWarn = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "nonstrict-pass-missing-verification-report");
     const zipWarn = await zipDir(fxWarn);
@@ -4700,8 +4700,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("vendor policy: pricing matrix signer key allowlist", async () => {
     const tenantId = "tenant_policy_signer";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
     await putTenantSettings({ tenantId, patch: { governanceTrustRootsJson: trust.governanceRoots ?? {}, pricingSignerKeysJson: trust.pricingSigners ?? {} } });
 
     const key = await createIngestKey({ tenantId, vendorId: "vendor_sig", vendorName: "Vendor Sig" });
@@ -4723,8 +4723,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("buyer auth: OTP login establishes session and enforces roles", async () => {
     const tenantId = "tenant_buyer_rbac";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
     await putTenantSettings({
       tenantId,
       patch: {
@@ -4900,8 +4900,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       const mm = m === 1 ? 12 : m - 1;
       return `${String(yy).padStart(4, "0")}-${String(mm).padStart(2, "0")}`;
     })();
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({
       tenantId,
       patch: {
@@ -5021,8 +5021,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
   await t.test("audit log: records settings changes and ingest key creation", async () => {
     const tenantId = "tenant_audit";
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
     await putTenantSettings({ tenantId, patch: { defaultMode: "compat" } });
     await createIngestKey({ tenantId, vendorId: "vendor_x", vendorName: "Vendor X" });
 

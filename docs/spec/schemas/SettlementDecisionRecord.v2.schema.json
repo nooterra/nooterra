@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/SettlementDecisionRecord.v2.schema.json",
+  "$id": "https://nooterra.local/schemas/SettlementDecisionRecord.v2.schema.json",
   "title": "SettlementDecisionRecord.v2",
   "type": "object",
   "additionalProperties": false,

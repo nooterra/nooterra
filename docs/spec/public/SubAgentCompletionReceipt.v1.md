@@ -23,6 +23,7 @@ This receipt proves completion output, metrics, and evidence for a delegated tas
 
 ## Common fields
 
+- `traceId` (optional, inherited from work-order lineage when present)
 - `outputs` (object, optional)
 - `metrics` (object, optional)
 - `evidenceRefs` (array, optional)
@@ -35,6 +36,7 @@ This receipt proves completion output, metrics, and evidence for a delegated tas
 - `receiptHash` is deterministic over canonicalized receipt material.
 - work order completion must reference exactly one completion receipt.
 - receipts are append-only by identity; duplicate `receiptId` is rejected.
+- if trace lineage exists on work order, receipt `traceId` must match.
 
 ## API surface
 
@@ -44,7 +46,7 @@ This receipt proves completion output, metrics, and evidence for a delegated tas
 
 ## MCP surface
 
-- produced by `settld.work_order_complete`
+- produced by `nooterra.work_order_complete`
 
 ## Implementation references
 

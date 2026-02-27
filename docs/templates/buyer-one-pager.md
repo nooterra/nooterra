@@ -1,4 +1,4 @@
-# Settld Verified Invoice (Buyer one-pager)
+# Nooterra Verified Invoice (Buyer one-pager)
 
 This invoice link is backed by a **cryptographically verifiable bundle** (an `InvoiceBundle.v1`) that can be archived and re-verified later, offline.
 
@@ -18,7 +18,7 @@ This invoice link is backed by a **cryptographically verifiable bundle** (an `In
 ## Offline re-verification (recommended for audit)
 
 1. Download the **Bundle ZIP**.
-2. Verify locally using `settld-verify` (or another conforming verifier) under your trust policy.
+2. Verify locally using `nooterra-verify` (or another conforming verifier) under your trust policy.
 
 The verification JSON includes stable codes and hashes to support audit trails and replay.
 

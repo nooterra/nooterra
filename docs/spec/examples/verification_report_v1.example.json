@@ -1,7 +1,7 @@
 {
   "schemaVersion": "VerificationReport.v1",
   "profile": "strict",
-  "tool": { "name": "settld", "version": "0.0.0-example", "commit": "0123456789abcdef0123456789abcdef01234567" },
+  "tool": { "name": "nooterra", "version": "0.0.0-example", "commit": "0123456789abcdef0123456789abcdef01234567" },
   "warnings": [],
   "signer": { "keyId": "key_example", "scope": "global", "governanceEventRef": null },
   "bundleHeadAttestation": {

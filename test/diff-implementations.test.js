@@ -58,19 +58,19 @@ test("Node and Python verifiers emit identical VerifyCliOutput.v1 for conformanc
 
   const trust = await readJsonFile(path.join(packDir, String(casesDoc.trustFile ?? "trust.json")));
   const baseTrustEnv = {
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
-    SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
   };
 
-  const nodeBin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
-  const pyScript = path.resolve(process.cwd(), "reference", "verifier-py", "settld-verify-py");
+  const nodeBin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
+  const pyScript = path.resolve(process.cwd(), "reference", "verifier-py", "nooterra-verify-py");
 
   for (const c of cases) {
     const id = String(c?.id ?? "");
     const allowSkip = Boolean(c?.allowSkip);
 
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `settld-diff-${id}-`));
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `nooterra-diff-${id}-`));
     const bundleDir = path.join(tmpRoot, "bundle");
     try {
       const srcBundle = path.join(packDir, String(c?.bundlePath ?? ""));
@@ -86,8 +86,8 @@ test("Node and Python verifiers emit identical VerifyCliOutput.v1 for conformanc
         LANG: "C",
         LC_ALL: "C",
         // Stabilize tool provenance across implementations for byte-level diffs.
-        SETTLD_VERSION: "0.0.0",
-        SETTLD_COMMIT_SHA: "0123456789abcdef0123456789abcdef01234567"
+        NOOTERRA_VERSION: "0.0.0",
+        NOOTERRA_COMMIT_SHA: "0123456789abcdef0123456789abcdef01234567"
       };
 
       const args = buildVerifyArgs({

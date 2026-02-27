@@ -36,6 +36,28 @@
       "expectedFile": "expected/jobproof_strict_fail_unauthorized_signer.json"
     },
     {
+      "id": "jobproof_strict_fail_revoked_at_or_after_with_timeproof",
+      "description": "JobProof strict fail: signer revoked at/after boundary (timeproof does not override)",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-fail-revoked-at-or-after-with-timeproof",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-014"],
+      "expectedFile": "expected/jobproof_strict_fail_revoked_at_or_after_with_timeproof.json"
+    },
+    {
+      "id": "jobproof_strict_fail_revoked_before_without_timeproof",
+      "description": "JobProof strict fail: signer revoked but signing time is unprovable (missing timeproof)",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-fail-revoked-before-without-timeproof",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-014"],
+      "expectedFile": "expected/jobproof_strict_fail_revoked_before_without_timeproof.json"
+    },
+    {
       "id": "jobproof_nonstrict_pass_missing_verification_report",
       "description": "JobProof non-strict pass with warning: missing verification report",
       "kind": "job-proof",
@@ -121,7 +143,7 @@
       "failOnWarnings": false,
       "hashConcurrency": 8,
       "envOverrides": {
-        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": ""
+        "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": ""
       },
       "invariantIds": ["INV-009"],
       "expectedFile": "expected/financepack_strict_fail_trust_roots_missing.json"
@@ -135,7 +157,7 @@
       "failOnWarnings": false,
       "hashConcurrency": 8,
       "envOverrides": {
-        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}"
+        "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}"
       },
       "invariantIds": ["INV-009"],
       "expectedFile": "expected/financepack_strict_fail_trust_roots_wrong.json"

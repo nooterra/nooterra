@@ -56,7 +56,7 @@ function runGate(env) {
 }
 
 test("offline verification parity gate: passes when normalized outputs match", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-pass-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-pass-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -71,7 +71,7 @@ test("offline verification parity gate: passes when normalized outputs match", a
     JSON.stringify(
       {
         schemaVersion: "VerifyCliOutput.v1",
-        tool: { name: "settld-verify", version: "0.2.0", commit: "abc123" },
+        tool: { name: "nooterra-verify", version: "0.2.0", commit: "abc123" },
         mode: { strict: true, failOnWarnings: false },
         target: { kind: "job_proof_bundle", input: "bundle", resolved: "/tmp/local", dir: "/tmp/local" },
         ok: true,
@@ -94,7 +94,7 @@ test("offline verification parity gate: passes when normalized outputs match", a
     JSON.stringify(
       {
         schemaVersion: "VerifyCliOutput.v1",
-        tool: { name: "settld-verify", version: "9.9.9", commit: "different" },
+        tool: { name: "nooterra-verify", version: "9.9.9", commit: "different" },
         mode: { strict: true, failOnWarnings: false },
         target: { kind: "job_proof_bundle", input: "bundle", resolved: "/tmp/installed", dir: "/tmp/installed" },
         ok: true,
@@ -129,7 +129,7 @@ test("offline verification parity gate: passes when normalized outputs match", a
 });
 
 test("offline verification parity gate: fails closed when outputs diverge", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-mismatch-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-mismatch-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -190,7 +190,7 @@ test("offline verification parity gate: fails closed when outputs diverge", asyn
 });
 
 test("offline verification parity gate: fails closed when a verifier command exits non-zero", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-fail-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-fail-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -232,7 +232,7 @@ test("offline verification parity gate: fails closed when a verifier command exi
 });
 
 test("offline verification parity gate: fails closed when both verifiers return failed verification envelopes", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-envelope-fail-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-envelope-fail-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -276,7 +276,7 @@ test("offline verification parity gate: fails closed when both verifiers return 
 });
 
 test("offline verification parity gate: optionally signs report with Ed25519", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-sign-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-sign-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -334,7 +334,7 @@ test("offline verification parity gate: optionally signs report with Ed25519", a
 });
 
 test("offline verification parity gate: fails closed when signing config is partial", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-signing-config-fail-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-signing-config-fail-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -380,7 +380,7 @@ test("offline verification parity gate: fails closed when signing config is part
 });
 
 test("offline verification parity gate: artifact hash is deterministic across repeat runs and volatile fields", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-deterministic-hash-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-offline-parity-deterministic-hash-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });

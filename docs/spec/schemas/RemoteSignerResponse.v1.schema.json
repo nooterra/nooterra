@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/RemoteSignerResponse.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/RemoteSignerResponse.v1.schema.json",
   "title": "RemoteSignerResponse.v1",
   "oneOf": [
-    { "$ref": "https://settld.local/schemas/RemoteSignerPublicKeyResponse.v1.schema.json" },
-    { "$ref": "https://settld.local/schemas/RemoteSignerSignResponse.v1.schema.json" }
+    { "$ref": "https://nooterra.local/schemas/RemoteSignerPublicKeyResponse.v1.schema.json" },
+    { "$ref": "https://nooterra.local/schemas/RemoteSignerSignResponse.v1.schema.json" }
   ]
 }
 

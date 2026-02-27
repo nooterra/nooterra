@@ -1,8 +1,8 @@
 # API Surface
 
-This page summarizes the currently active public/control endpoints used by Settld workflows.
+This page summarizes the currently active public/control endpoints used by Nooterra workflows.
 
-## Core Settld API (typically `:3000`)
+## Core Nooterra API (typically `:3000`)
 
 Identity / runtime:
 
@@ -35,7 +35,7 @@ Ops:
 
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap`
   - Auth: `x-api-key` (bootstrap/admin key) or buyer session cookie (`ml_buyer_session`)
-  - Success contract: always returns `mcp.env` with `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`, `SETTLD_API_KEY`
+  - Success contract: always returns `mcp.env` with `NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap/smoke-test`
 - `POST /v1/tenants/{tenantId}/onboarding/first-paid-call`
 - `GET /v1/tenants/{tenantId}/onboarding/first-paid-call/history`
@@ -48,10 +48,10 @@ Common control-plane failure classes:
 - `RATE_LIMITED`
 - `INVALID_IDEMPOTENCY_KEY`
 - `MCP_SMOKE_TEST_FAILED`
-- `SETTLD_API_CALL_FAILED`
+- `NOOTERRA_API_CALL_FAILED`
 - x402 policy/verification specific fail-closed codes (returned by x402 endpoints)
 
 ## Contract source
 
-- Generated OpenAPI: `openapi/settld.openapi.json`
+- Generated OpenAPI: `openapi/nooterra.openapi.json`
 - Generator command: `npm run openapi:write`

@@ -16,13 +16,13 @@ Conformance catches high-impact regressions:
 Installed CLI:
 
 ```bash
-npx settld conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
+npx nooterra conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
+./bin/nooterra.js conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
 ```
 
 ## Minimum assertions expected

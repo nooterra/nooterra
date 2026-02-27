@@ -10,13 +10,13 @@ test("spawnCapture reliably drains stdout/stderr (repeat verify)", async () => {
   const trust = JSON.parse(await fs.readFile(trustPath, "utf8"));
   const env = {
     ...process.env,
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
     // stabilize tool identity surfaces for deterministic output (best-effort)
-    SETTLD_VERSION: "0.0.0",
-    SETTLD_COMMIT_SHA: "0000000000000000000000000000000000000000"
+    NOOTERRA_VERSION: "0.0.0",
+    NOOTERRA_COMMIT_SHA: "0000000000000000000000000000000000000000"
   };
 
-  const verifyBin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const verifyBin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const bundleDir = "test/fixtures/bundles/v1/jobproof/strict-pass";
 
   for (let i = 0; i < 10; i += 1) {

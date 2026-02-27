@@ -1,4 +1,4 @@
-import { SettldClient } from "../../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
 function monthKeyUtcNow() {
   const d = new Date();
@@ -20,19 +20,19 @@ function previousMonthKey(monthKey) {
 }
 
 async function main() {
-  const baseUrl = process.env.SETTLD_BASE_URL ?? "http://127.0.0.1:8787";
-  const tenantId = process.env.SETTLD_TENANT_ID ?? "tenant_default";
-  const apiKey = process.env.SETTLD_API_KEY ?? "";
-  const xApiKey = process.env.SETTLD_X_API_KEY ?? "";
-  const month = process.env.SETTLD_MONTH ?? monthKeyUtcNow();
-  const baseMonth = process.env.SETTLD_BASE_MONTH ?? previousMonthKey(month);
+  const baseUrl = process.env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:8787";
+  const tenantId = process.env.NOOTERRA_TENANT_ID ?? "tenant_default";
+  const apiKey = process.env.NOOTERRA_API_KEY ?? "";
+  const xApiKey = process.env.NOOTERRA_X_API_KEY ?? "";
+  const month = process.env.NOOTERRA_MONTH ?? monthKeyUtcNow();
+  const baseMonth = process.env.NOOTERRA_BASE_MONTH ?? previousMonthKey(month);
 
   if (!xApiKey) {
     // eslint-disable-next-line no-console
-    console.error("SETTLD_X_API_KEY is not set; calls will fail unless Magic Link auth is disabled.");
+    console.error("NOOTERRA_X_API_KEY is not set; calls will fail unless Magic Link auth is disabled.");
   }
 
-  const client = new SettldClient({
+  const client = new NooterraClient({
     baseUrl,
     tenantId,
     apiKey: apiKey || undefined,

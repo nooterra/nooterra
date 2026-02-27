@@ -1,27 +1,31 @@
-# Settld — Trust & Settlement OS for Agent Actions
+# Nooterra — Trust Kernel for the Agent Network
 
-[![CI](https://github.com/aidenlippert/settld/actions/workflows/tests.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/tests.yml)
-[![npm](https://img.shields.io/npm/v/settld)](https://www.npmjs.com/package/settld)
+[![CI](https://github.com/nooterra/nooterra/actions/workflows/tests.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/tests.yml)
+[![Nooterra Verified Collaboration](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-collaboration.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-collaboration.yml)
+[![Nooterra Verified Guardrails](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-guardrails.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-guardrails.yml)
+[![npm](https://img.shields.io/npm/v/nooterra)](https://www.npmjs.com/package/nooterra)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Node 20.x](https://img.shields.io/badge/node-20.x-brightgreen)](./.nvmrc)
+[![Node 22 LTS / 20 supported](https://img.shields.io/badge/node-22%20LTS%20%7C%2020%20supported-brightgreen)](./.nvmrc)
 
-Settld is a deterministic trust-and-settlement control plane for agent actions: **decision** (`allow|challenge|deny|escalate`) + **execution binding** + **verifiable receipts** + **recourse**.
+Nooterra builds a trust kernel that binds **policy + evidence + settlement**, then exposes open schemas and APIs so any agent runtime can discover, delegate, and settle work with replayable, verifiable receipts.
 
 Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
 
-Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
+Network layer term: **Nooterra Agent Network**.
+
+Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Naming](./docs/NAMING.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
 
 ## Highlights
 
 - Policy decisioning that fails closed by default (deny/challenge/escalate) for paid/high-risk actions
 - x402 verify-before-release: `402 -> hold -> verify -> release/refund`
-- Inter-agent delegation primitives: `AgentCard.v1` + `DelegationGrant.v1` + `SubAgentWorkOrder.v1` + `SubAgentCompletionReceipt.v1`
+- Inter-agent collaboration primitives: `AgentCard` + `DelegationGrant` + `SubAgentWorkOrder` + `SubAgentCompletionReceipt`
 - MCP tool surface + OpenClaw ClawHub distribution
-- “Settld Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
+- “Nooterra Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
 
 ## Get Started (Local x402 Demo)
 
-Prereqs: Node.js 20.x (install is fail-fast if you use a different major).
+Prereqs: Node.js 22 LTS recommended (`20.x` is supported).
 
 ```sh
 nvm use
@@ -32,51 +36,63 @@ npm run quickstart:x402
 CI-friendly one-shot run:
 
 ```sh
-SETTLD_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
+NOOTERRA_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
 ```
 
 Success: prints `OK`, a `gateId=...`, and a `gateStateUrl=...`.
 
 ## Preferred Setup (Agent Hosts)
 
-Onboard an agent host (Codex / Claude / Cursor / OpenClaw), with guided wallet + policy setup:
+Onboard an agent host (OpenClaw / Claude / Cursor / Nooterra), with guided wallet + policy setup:
 
 ```sh
-npx -y settld setup
+npx -y nooterra setup
 ```
+
+Internal naming uses ACS workstreams; host identifiers stay canonical for compatibility.
 
 ## OpenClaw (ClawHub Skill)
 
-Install the published skill and let your agent use Settld in natural language:
+Install the published skill and let your agent use Nooterra in natural language:
 
 ```sh
-npx -y clawhub@latest install settld-mcp-payments
+npx -y clawhub@latest install nooterra-mcp-payments
 ```
 
 Quick prompts:
 
-- “Use Settld to run a paid tool call and show me the receipt.”
-- “Use Settld to discover agents with capability X and create a work order under $Y.”
+- “Use Nooterra to run a paid tool call and show me the receipt.”
+- “Use Nooterra to discover agents with capability X and create a work order under $Y.”
 
 More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
 
 ## Repository Layout
 
-- Settld API + control plane: `./src/api/`
+- Nooterra API + control plane: `./src/api/`
 - x402 gateway proxy: `./services/x402-gateway/`
-- MCP stdio server (tool surface): `./scripts/mcp/settld-mcp-server.mjs`
-- CLI: `./bin/settld.js`
+- MCP stdio server (tool surface): `./scripts/mcp/nooterra-mcp-server.mjs`
+- CLI: `./bin/nooterra.js`
 - Magic Link onboarding service: `./services/magic-link/`
 - Conformance pack + verification tools: `./conformance/`
 
-## “Settld Verified” (Gates + Receipts)
+## “Nooterra Verified” (Gates + Receipts)
 
 The public conformance contract lives in `./docs/spec/public/` and is enforced via ops gates.
 
 ```sh
-npm run -s test:ops:settld-verified-gate -- --level guardrails
-npm run -s test:ops:settld-verified-gate -- --level collaboration
+npm run -s test:ops:nooterra-verified-gate -- --level guardrails
+npm run -s test:ops:nooterra-verified-gate -- --level collaboration
 ```
+
+CI collaboration gate (with uploaded JSON report artifacts):
+
+- [`.github/workflows/nooterra-verified-collaboration.yml`](./.github/workflows/nooterra-verified-collaboration.yml)
+- report path: `artifacts/gates/nooterra-verified-collaboration-gate.json`
+
+CI guardrails gate (with uploaded JSON report artifacts):
+
+- [`.github/workflows/nooterra-verified-guardrails.yml`](./.github/workflows/nooterra-verified-guardrails.yml)
+- report path: `artifacts/gates/nooterra-verified-guardrails-gate.json`
 
 ## Development
 
@@ -93,19 +109,19 @@ npm test
 Run local MCP host compatibility checks:
 
 ```sh
-./bin/settld.js doctor
+./bin/nooterra.js doctor
 ```
 
 No-clone registry flow:
 
 ```sh
-npx settld conformance kernel --ops-token tok_ops
+npx nooterra conformance kernel --ops-token tok_ops
 ```
 
-No-clone release artifact flow (download `settld-<version>.tgz` from GitHub Releases):
+No-clone release artifact flow (download `nooterra-<version>.tgz` from GitHub Releases):
 
 ```sh
-npx --yes --package ./settld-<version>.tgz settld conformance kernel --ops-token tok_ops
+npx --yes --package ./nooterra-<version>.tgz nooterra conformance kernel --ops-token tok_ops
 ```
 
 Ops workspaces (HTML):

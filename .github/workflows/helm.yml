@@ -27,7 +27,7 @@ jobs:
           version: v1.29.0
 
       - name: helm lint
-        run: helm lint deploy/helm/settld --strict
+        run: helm lint deploy/helm/nooterra --strict
 
       - name: helm template + kubectl dry-run
         run: |
@@ -39,15 +39,15 @@ jobs:
             echo "kubectl dry-run skipped: no reachable Kubernetes API server (expected in CI)."
           fi
           files=(
-            "deploy/helm/settld/values.yaml"
-            "deploy/helm/settld/values-minimal.yaml"
-            "deploy/helm/settld/values-prod-example.yaml"
-            "deploy/helm/settld/values-prod-receiver-example.yaml"
+            "deploy/helm/nooterra/values.yaml"
+            "deploy/helm/nooterra/values-minimal.yaml"
+            "deploy/helm/nooterra/values-prod-example.yaml"
+            "deploy/helm/nooterra/values-prod-receiver-example.yaml"
           )
           for f in "${files[@]}"; do
             echo "render: ${f}"
             out="/tmp/$(basename "${f}").rendered.yaml"
-            helm template settld deploy/helm/settld -f "${f}" > "${out}"
+            helm template nooterra deploy/helm/nooterra -f "${f}" > "${out}"
             if [[ "${has_apiserver}" -eq 1 ]]; then
               kubectl apply --dry-run=client --validate=false -f "${out}" >/dev/null
             fi
@@ -56,7 +56,7 @@ jobs:
       - name: schema gate (misconfig fails fast)
         run: |
           set -euo pipefail
-          if helm template settld deploy/helm/settld --set receiver.enabled=true >/dev/null 2>&1; then
+          if helm template nooterra deploy/helm/nooterra --set receiver.enabled=true >/dev/null 2>&1; then
             echo "expected helm template to fail when receiver.enabled=true but required fields are missing" >&2
             exit 1
           fi

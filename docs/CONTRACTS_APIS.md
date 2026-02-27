@@ -1,6 +1,6 @@
 # Contracts APIs (Legacy vs Contracts-as-Code)
 
-Settld exposes two separate “contracts” API families on purpose.
+Nooterra exposes two separate “contracts” API families on purpose.
 
 ## Legacy: `/ops/contracts` (policy upsert)
 
@@ -10,7 +10,7 @@ Settld exposes two separate “contracts” API families on purpose.
 
 Use this when you want to keep the existing quoting/booking contract behavior.
 
-## Contracts-as-Code: `/ops/contracts-v2` (hash-addressed documents)
+## Contracts-as-Code (hash-addressed documents)
 
 - Semantics: immutable, hash-addressed `ContractDocument.v1` documents with optional signatures and an activation step.
 - Output: v2 contract records that carry `contractHash`, `policyHash`, and `compilerId`.

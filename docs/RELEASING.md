@@ -1,4 +1,4 @@
-# Releasing Settld
+# Releasing Nooterra
 
 This repo treats the **protocol** (docs + schemas + vectors + fixtures) as an API. Releases must be repeatable and reviewable.
 
@@ -16,12 +16,12 @@ See `docs/RELEASE_CHECKLIST.md` for the definitive artifact completeness require
 4. Bump tool version(s) you ship:
    - `packages/artifact-verify/package.json` `version`
    - `packages/api-sdk-python/pyproject.toml` `project.version` (when shipping Python SDK changes)
-   - `SETTLD_VERSION` (repo/service version stamp)
+   - `NOOTERRA_VERSION` (repo/service version stamp)
 5. Run packaging smoke test:
    - `node scripts/ci/npm-pack-smoke.mjs`
    - `node scripts/ci/cli-pack-smoke.mjs`
    - `node scripts/ci/run-public-openclaw-npx-smoke.mjs`
-   - `python3 -m build packages/api-sdk-python --sdist --wheel --outdir /tmp/settld-python-dist-smoke`
+   - `python3 -m build packages/api-sdk-python --sdist --wheel --outdir /tmp/nooterra-python-dist-smoke`
    - Optionally generate full release artifacts locally: `npm run release:artifacts`
 6. Create a tag and push it:
    - Tag format: `vX.Y.Z`
@@ -31,10 +31,10 @@ See `docs/RELEASE_CHECKLIST.md` for the definitive artifact completeness require
 On tag push, GitHub Actions builds and publishes release artifacts (Docker image, Helm chart, npm tarballs, Python wheel/sdist artifacts, SHA256SUMS).
 If `NPM_TOKEN` is configured in repo secrets, the release lane also publishes:
 
-- `settld` (CLI, so `npx settld ...` works directly),
-- `settld-api-sdk` (JS SDK used by starter templates),
-- `@settld/provider-kit` (provider middleware package),
-- `create-settld-paid-tool` (scaffold CLI package).
+- `nooterra` (CLI, so `npx nooterra ...` works directly),
+- `nooterra-api-sdk` (JS SDK used by starter templates),
+- `@nooterra/provider-kit` (provider middleware package),
+- `create-nooterra-paid-tool` (scaffold CLI package).
   After publish, the workflow runs registry smoke checks and uploads `npm-postpublish-smoke-<version>` artifacts with command outputs + JSON summary evidence.
 The `release_gate` job also runs a staging billing smoke (`dev:billing:smoke:prod`) and uploads `billing-smoke-prod.log` + `billing-smoke-status.json` as gate artifacts.
 
@@ -69,7 +69,7 @@ Releases also publish a signed `ReleaseIndex.v1` (`release_index_v1.json` + `rel
 
 See `docs/spec/ReleaseIndex.v1.md` and `docs/spec/SUPPLY_CHAIN.md`.
 
-The release workflow expects a repo secret named `SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM` containing an Ed25519 private key PEM used only for signing release indexes.
+The release workflow expects a repo secret named `NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM` containing an Ed25519 private key PEM used only for signing release indexes.
 
 The corresponding public key (and quorum policy, if used) is pinned in `trust/release-trust.json` and should be treated as a security-sensitive change (PR + review).
 

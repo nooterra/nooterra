@@ -1,11 +1,11 @@
-# Settld Demo Dashboard
+# Nooterra Demo Dashboard
 
 This is a small React/Vite/Tailwind UI that turns the repo demos into a
 **clickable command center** (scenario picker + truth strip + replay + artifacts).
 
 ## Run (local)
 
-1) Generate fresh Settld demo outputs:
+1) Generate fresh Nooterra demo outputs:
 
 ```bash
 npm run demo:delivery
@@ -37,7 +37,7 @@ Or from repo root (after installing deps in `dashboard/`):
 npm run demo:ui
 ```
 
-By default the UI runs on `http://127.0.0.1:5173` (so it doesn’t conflict with the Settld API on port 3000).
+By default the UI runs on `http://127.0.0.1:5173` (so it doesn’t conflict with the Nooterra API on port 3000).
 
 ## Operator Inbox
 
@@ -53,7 +53,7 @@ It uses live API calls to:
 
 Configure API base URL, tenant, protocol, and bearer key in the page header.
 
-For local dev, default API base URL is `"/__settld"` which is proxied by Vite to `http://127.0.0.1:3000`.
+For local dev, default API base URL is `"/__nooterra"` which is proxied by Vite to `http://127.0.0.1:3000`.
 This avoids browser CORS issues between ports `5173` and `3000`.
 
 ## Site Auth (Auth0 primary)
@@ -63,18 +63,18 @@ Website auth is production-first via Auth0:
 - `VITE_AUTH0_DOMAIN`
 - `VITE_AUTH0_CLIENT_ID`
 - `VITE_AUTH0_AUDIENCE` (optional, recommended for API access tokens)
-- `VITE_SETTLD_API_BASE_URL` (for `/operator`, example `https://api.settld.work`)
+- `VITE_NOOTERRA_API_BASE_URL` (for `/operator`, example `https://api.nooterra.work`)
 
 In Auth0 application settings, use your real domains:
 
-- Allowed Callback URLs: `https://settld.work/app`
-- Allowed Logout URLs: `https://settld.work`
-- Allowed Web Origins: `https://settld.work`
+- Allowed Callback URLs: `https://nooterra.work/app`
+- Allowed Logout URLs: `https://nooterra.work`
+- Allowed Web Origins: `https://nooterra.work`
 
 Legacy OTP auth fallback still exists (for private environments / self-hosted auth service):
 
-- `VITE_SETTLD_AUTH_BASE_URL`
-- `VITE_SETTLD_AUTH_TENANT_ID`
+- `VITE_NOOTERRA_AUTH_BASE_URL`
+- `VITE_NOOTERRA_AUTH_TENANT_ID`
 - `POST /v1/public/signup`
 - `POST /v1/tenants/:tenantId/buyer/login/otp`
 - `POST /v1/tenants/:tenantId/buyer/login`

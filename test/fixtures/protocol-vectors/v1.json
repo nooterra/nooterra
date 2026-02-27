@@ -62,12 +62,12 @@
     "schemaVersion": "ToolManifest.v1",
     "toolId": "tool_vectors_echo",
     "toolVersion": "0.0.0-vectors",
-    "manifestHash": "26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b",
+    "manifestHash": "86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d",
     "signatureKeyId": "key_282c80df2381d6831a92e89b",
-    "canonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.settld.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"manifestHash\":\"26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b\",\"signature\":\"XVut9u44fLyN/hyfuFzTwxhdKRJwaTf53iag+QP5ss/d5ZyoUZDotAhQua/hvWhQIrVlA/f4OAaEwu+ynYsECg==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"signerPublicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
-    "sha256": "123e551498d2179d9b60b257469d1af9818ab9771510c810d7cb72c54573e579",
-    "coreCanonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.settld.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
-    "coreSha256": "26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b",
+    "canonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.nooterra.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"signature\":\"bAhwZnjCdDinTc8cP6aQJeA3lsnrYZYPraPaQv35a6CYu9dPiIoLCeUzB0gfEJ060Q1pmiKoBqTsixcTI7SoAg==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"signerPublicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "sha256": "bb9e6e656deb9bb51c13b88cbd64161c8222575229575898cc7eb51e4da4d74b",
+    "coreCanonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.nooterra.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "coreSha256": "86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d",
     "inputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"text\":{\"maxLength\":2000,\"minLength\":0,\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}",
     "inputSchemaSha256": "5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018",
     "outputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"length\":{\"minimum\":0,\"type\":\"integer\"},\"upper\":{\"type\":\"string\"}},\"required\":[\"upper\",\"length\"],\"type\":\"object\"}",
@@ -75,48 +75,48 @@
   },
   "toolCallAgreement": {
     "schemaVersion": "ToolCallAgreement.v1",
-    "agreementHash": "d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4",
+    "agreementHash": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
     "inputHash": "cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176",
-    "canonicalJson": "{\"acceptanceCriteria\":null,\"agreementHash\":\"d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4\",\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
-    "sha256": "32306cf76f8d7ebfa9722de69aadcfad4bdbd10ac5d3700a9f9f92021964bf2d",
-    "coreCanonicalJson": "{\"acceptanceCriteria\":null,\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
-    "coreSha256": "d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4",
+    "canonicalJson": "{\"acceptanceCriteria\":null,\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
+    "sha256": "283311ed5d13baf8cee25a58e2fba56b175e88934709ffd5ef7c8413a42dd1d9",
+    "coreCanonicalJson": "{\"acceptanceCriteria\":null,\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
+    "coreSha256": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
     "inputCanonicalJson": "{\"text\":\"hello\"}",
     "inputSha256": "cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176"
   },
   "toolCallEvidence": {
     "schemaVersion": "ToolCallEvidence.v1",
-    "agreementHash": "d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4",
-    "evidenceHash": "2ad3b6c3da47a172486ddc92d6074b4ee054ee4c04d07c000351f629aa3d15f0",
+    "agreementHash": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
+    "evidenceHash": "245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c",
     "outputHash": "55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047",
-    "canonicalJson": "{\"agreementHash\":\"d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"evidenceHash\":\"2ad3b6c3da47a172486ddc92d6074b4ee054ee4c04d07c000351f629aa3d15f0\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"evidenceHash\":\"2ad3b6c3da47a172486ddc92d6074b4ee054ee4c04d07c000351f629aa3d15f0\",\"signature\":\"FqYZYYEmPAUcxfBOG2jDr3zUaWBeZc+BZM8O8OdJs4Umt+07bW7JAHnm/Iv01yQJIefiI7YwMnOzzmv2KzguBw==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\"},\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
-    "sha256": "1353675759b023fc7d1569c6133a0973fd6661bf6b7e264d2af40987c7c2a367",
-    "coreCanonicalJson": "{\"agreementHash\":\"d718cc53ea3549ba5d7c49a1d5c456fe05c95f31c217ffaae71260457a7f0eb4\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
-    "coreSha256": "2ad3b6c3da47a172486ddc92d6074b4ee054ee4c04d07c000351f629aa3d15f0",
+    "canonicalJson": "{\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"evidenceHash\":\"245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"evidenceHash\":\"245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c\",\"signature\":\"Z5R79VNaWyFDt4q3wIV/drb/eAiO1gGH079jaAQ8lXOf9d8+Ywr37ZWxEakojq3YRsvWgOarehS4u6eHo1tDDA==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\"},\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
+    "sha256": "f9af0ea9182c26f170dd953c3c2cff808ca90a2d482aae67eb24f8ee78801d02",
+    "coreCanonicalJson": "{\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
+    "coreSha256": "245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c",
     "outputCanonicalJson": "{\"length\":5,\"upper\":\"HELLO\"}",
     "outputSha256": "55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047",
     "signatureKeyId": "key_282c80df2381d6831a92e89b",
-    "signature": "FqYZYYEmPAUcxfBOG2jDr3zUaWBeZc+BZM8O8OdJs4Umt+07bW7JAHnm/Iv01yQJIefiI7YwMnOzzmv2KzguBw=="
+    "signature": "Z5R79VNaWyFDt4q3wIV/drb/eAiO1gGH079jaAQ8lXOf9d8+Ywr37ZWxEakojq3YRsvWgOarehS4u6eHo1tDDA=="
   },
   "jobProof": {
     "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
     "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
-    "verificationReportHash": "7d20aee509f49addcc27d26fbeae64be0ab926732ffe72bb1209fcab45e70cf5"
+    "verificationReportHash": "9c4a01d8459858d6ffe896c8ac3ca0542c2a5b3c6f7a9b977211286e3638da0a"
   },
   "monthProof": {
     "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
     "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
-    "verificationReportHash": "eefc1420575e9c59eba7e55ee10a800922b18b9a75977ea27bf8f784b530b4bb"
+    "verificationReportHash": "a429df5f5d34f867adc489955fd218ef522fc4e6053ee41a5b3ee8f543978ce2"
   },
   "financePack": {
-    "manifestHash": "ff8ddc064ed54053a1ad3a9a21d2d953ec4a2bd984c20801f963e0d09df49345",
-    "headAttestationHash": "4473a431945b5b3f1f2b283128ca727492f4304d5212d6a789028588319ac6db",
-    "verificationReportHash": "a615f6097c087ba7040d2e6575588c8a99cda56d3afe15d1b3b4519520e2ca86"
+    "manifestHash": "0e6019adde7e535b82287cff22f3a8dc1010fd353be0097ca7a7676d89515df0",
+    "headAttestationHash": "0b6d014d667f347232d39a7c0bf15fbb26405f5e99e68c700b5b4a9307d7a4f8",
+    "verificationReportHash": "dfb49b635390f4a74c4a60466c4c0c9ae825abdb3c1496e96436f1ddcad025bc"
   },
   "invoice": {
-    "manifestHash": "ccb04d4801689ea6904b98c9ff56f4d701c49c702130ab26375cfc7cafabd9ae",
-    "headAttestationHash": "26072579d3b9a6a3dca25dbd3e94ea3c3efbd873bab1c30798dcc13f1487b6c4",
-    "verificationReportHash": "704a32f67f6c2ecf991bff929c3ef1c1da78c7a68b87ddeeb20db6bb7c541d52"
+    "manifestHash": "d94bfc975bf19ac734e0b08e46d6644561bb04de960c117bded20e5f9436ddb7",
+    "headAttestationHash": "48fdb8beae6e42b0b7b41335193b753d2cbc8fc8bfa0a2db8fc2f6fdfe284248",
+    "verificationReportHash": "ffedc5f800ae2e1b73d6da14a39b58584764ffe5050ac5870ae6226fcdddd2b0"
   },
   "agentIdentity": {
     "schemaVersion": "AgentIdentity.v1",
@@ -156,15 +156,15 @@
     "schemaVersion": "SettlementDecisionRecord.v1",
     "decisionId": "dec_run_vectors_0001_auto",
     "decisionStatus": "auto_resolved",
-    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"e2e8ebfcad644d3cd7e2c4ab985693ed5091c76a52d41f515a7f0c6f9c5924d4\",\"decisionId\":\"dec_run_vectors_0001_auto\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
-    "sha256": "b3027b2376020615cfc786c671765fcbaed02eb6280a4956a3953d2d060463d7"
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"1d27e84bc8af75d7785d534bfc18db64221f8a3c592054cbb9f0f71315922fe0\",\"decisionId\":\"dec_run_vectors_0001_auto\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"nooterra.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "3e7525b44b6c847dfbc4e93a0aec89674cb4a580707883013098482fb2908ae2"
   },
   "settlementDecisionRecordV2": {
     "schemaVersion": "SettlementDecisionRecord.v2",
     "decisionId": "dec_run_vectors_0001_auto_v2",
     "decisionStatus": "auto_resolved",
-    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"af53a2d3bdb30d57cab7b471d886add81d43cd158bacf720a0040703197de022\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"profileHashUsed\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
-    "sha256": "9dbf27048a1e27be3f917d7110373358a14af9b89124ba6512dfa232d0d3f6c5"
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"23f23c977e6e5712bb6986d67c20cb514a054deee128f5d993e83a7067b3507d\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"profileHashUsed\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"nooterra.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "08b236fd5e58a1d65cfa58f40f8fab10d5236b62c23cf2b9eb94ebf07de2d193"
   },
   "policyDecision": {
     "schemaVersion": "PolicyDecision.v1",
@@ -193,8 +193,8 @@
     "status": "released",
     "finalityProvider": "internal_ledger",
     "finalityState": "final",
-    "canonicalJson": "{\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"decisionRef\":{\"decisionHash\":\"e2e8ebfcad644d3cd7e2c4ab985693ed5091c76a52d41f515a7f0c6f9c5924d4\",\"decisionId\":\"dec_run_vectors_0001_auto\"},\"finalityProvider\":\"internal_ledger\",\"finalityState\":\"final\",\"receiptHash\":\"67216590704b604fe6633ce12403e03086b5bbc4fe5b90e1ada4b8a014c66025\",\"receiptId\":\"rcpt_run_vectors_0001_auto\",\"refundedAmountCents\":0,\"releaseRatePct\":100,\"releasedAmountCents\":1250,\"resolutionEventId\":\"ev_run_vectors_0003\",\"runId\":\"run_vectors_0001\",\"runStatus\":\"completed\",\"schemaVersion\":\"SettlementReceipt.v1\",\"settledAt\":\"2026-02-01T00:02:00.000Z\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"released\",\"tenantId\":\"tenant_vectors\"}",
-    "sha256": "e9959ac3d50f5c3f5796f3039872453d4ce306637ba2e214f8caef41f830e1b9"
+    "canonicalJson": "{\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"decisionRef\":{\"decisionHash\":\"1d27e84bc8af75d7785d534bfc18db64221f8a3c592054cbb9f0f71315922fe0\",\"decisionId\":\"dec_run_vectors_0001_auto\"},\"finalityProvider\":\"internal_ledger\",\"finalityState\":\"final\",\"receiptHash\":\"2a40a4fe210643e8ab026206689df9f1fdc35362fddb01216a7ed1ff92418411\",\"receiptId\":\"rcpt_run_vectors_0001_auto\",\"refundedAmountCents\":0,\"releaseRatePct\":100,\"releasedAmountCents\":1250,\"resolutionEventId\":\"ev_run_vectors_0003\",\"runId\":\"run_vectors_0001\",\"runStatus\":\"completed\",\"schemaVersion\":\"SettlementReceipt.v1\",\"settledAt\":\"2026-02-01T00:02:00.000Z\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"released\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "c65cb2757f4e58f69a85dff2237e9cfacfdaa1b122905117c6c76ab0411da074"
   },
   "marketplaceOffer": {
     "schemaVersion": "MarketplaceOffer.v2",

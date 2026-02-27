@@ -56,6 +56,12 @@ jobs:
             --ops-token "$PROD_OPS_TOKEN" \
             --protocol "${PROD_PROTOCOL:-1.0}" \
             --report artifacts/gates/production-cutover-gate-prod.json
+      - name: Assert production cutover required checks (live)
+        run: |
+          set -euo pipefail
+          node scripts/ci/assert-production-cutover-required-checks.mjs \
+            --in artifacts/gates/production-cutover-gate-prod.json \
+            --json-out artifacts/gates/production-cutover-required-checks-prod.json
 
       - name: Upload production cutover gate artifacts
         if: always()
@@ -64,6 +70,8 @@ jobs:
           name: production-cutover-gate-live-${{ github.run_id }}
           path: |
             artifacts/gates/production-cutover-gate-prod.json
+            artifacts/gates/production-cutover-required-checks-prod.json
+            artifacts/gates/nooterra-verified-collaboration-gate.json
             artifacts/ops/mcp-host-cert-matrix.json
             artifacts/ops/x402-hitl-smoke.json
           if-no-files-found: warn

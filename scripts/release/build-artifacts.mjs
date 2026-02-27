@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 function readVersionForIndex() {
-  const v = process.env.SETTLD_VERSION ?? null;
+  const v = process.env.NOOTERRA_VERSION ?? null;
   return typeof v === "string" && v.trim() ? v.trim() : "0.0.0-local";
 }
 
@@ -85,7 +85,7 @@ async function main() {
     "packages/executor-sdk",
     "packages/artifact-verify",
     "packages/provider-kit",
-    "packages/create-settld-paid-tool"
+    "packages/create-nooterra-paid-tool"
   ];
   const npmTgzs = [];
   for (const p of npmPackages) {
@@ -108,7 +108,7 @@ async function main() {
   });
   const outNames = await fs.readdir(outDir);
   const pythonArtifacts = outNames
-    .filter((name) => /^settld_api_sdk_python-.*\.(whl|tar\.gz)$/.test(name))
+    .filter((name) => /^nooterra_api_sdk_python-.*\.(whl|tar\.gz)$/.test(name))
     .sort()
     .map((name) => path.join(outDir, name));
   const hasWheel = pythonArtifacts.some((fp) => fp.endsWith(".whl"));
@@ -138,9 +138,9 @@ async function main() {
 
   // Audit packet zip (deterministic)
   sh(process.execPath, ["scripts/audit/build-audit-packet.mjs", "--out", outDir, "--packet-version", "v1"]);
-  const auditZip = path.join(outDir, "settld-audit-packet-v1.zip");
+  const auditZip = path.join(outDir, "nooterra-audit-packet-v1.zip");
   await fs.access(auditZip);
-  const auditChecksumsPath = path.join(outDir, "settld-audit-packet-v1.zip.sha256");
+  const auditChecksumsPath = path.join(outDir, "nooterra-audit-packet-v1.zip.sha256");
   await writeSha256File({ outPath: auditChecksumsPath, files: [auditZip] });
 
   const allArtifactsForGlobalChecksums = [
@@ -163,8 +163,8 @@ async function main() {
   const tag = `v${version}`;
   sh(process.execPath, ["scripts/release/generate-release-index.mjs", "--dir", outDir, "--tag", tag, "--version", version]);
   if (signReleaseIndex) {
-    if (!String(process.env.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM ?? "").trim()) {
-      throw new Error("missing SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM; required for --sign-release-index");
+    if (!String(process.env.NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM ?? "").trim()) {
+      throw new Error("missing NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM; required for --sign-release-index");
     }
     sh(process.execPath, [
       "scripts/release/sign-release-index.mjs",
@@ -173,7 +173,7 @@ async function main() {
       "--out",
       path.join(outDir, "release_index_v1.sig"),
       "--private-key-env",
-      "SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM"
+      "NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM"
     ]);
   }
 }

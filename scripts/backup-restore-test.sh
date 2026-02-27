@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== Settld Backup/Restore Verification ==="
+echo "=== Nooterra Backup/Restore Verification ==="
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   echo "DATABASE_URL is required" >&2
@@ -19,7 +19,7 @@ fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="${TMPDIR:-/tmp}"
-RUN_ID="settld_backup_restore_$(date +%s)"
+RUN_ID="nooterra_backup_restore_$(date +%s)"
 SQL_DUMP="${TMP}/${RUN_ID}.sql"
 EXPECTED_JSON="${TMP}/${RUN_ID}.expected.json"
 STEP_TIMEOUT_SECONDS="${STEP_TIMEOUT_SECONDS:-600}"
@@ -85,7 +85,7 @@ step() {
 dump_schema_to_file() {
   local out_file="$1"
   local err_file
-  err_file="$(mktemp "${TMP}/settld_pg_dump_err_${RUN_ID}_XXXX.txt")"
+  err_file="$(mktemp "${TMP}/nooterra_pg_dump_err_${RUN_ID}_XXXX.txt")"
 
   if command -v pg_dump >/dev/null 2>&1; then
     if pg_dump --schema="${PROXY_PG_SCHEMA}" --no-owner --no-privileges "${DATABASE_URL}" > "${out_file}" 2>"${err_file}"; then
@@ -158,7 +158,7 @@ if [[ "${VERIFY_FINANCE_PACK}" -eq 1 ]]; then
   FINANCE_OUT="${TMP}/${RUN_ID}.finance_pack"
   FP_ZIP="$(timeout "${STEP_TIMEOUT_SECONDS}" env DATABASE_URL="${DATABASE_URL}" TENANT_ID="${TENANT_ID}" PROXY_PG_SCHEMA="${PROXY_PG_SCHEMA}" node "${ROOT}/scripts/finance-pack/bundle.mjs" --period "${MONTH}" --out "${FINANCE_OUT}" --zip)"
   step "    strict verify source finance pack" \
-    node "${ROOT}/packages/artifact-verify/bin/settld-verify.js" --strict --finance-pack "${FP_ZIP}" >/dev/null
+    node "${ROOT}/packages/artifact-verify/bin/nooterra-verify.js" --strict --finance-pack "${FP_ZIP}" >/dev/null
   FP_SHA="$(node -e "import fs from 'node:fs'; import crypto from 'node:crypto'; const b=fs.readFileSync(process.argv[1]); console.log(crypto.createHash('sha256').update(b).digest('hex'))" "${FP_ZIP}")"
   echo "    -> ok ($(basename "${FP_ZIP}"))"
 else
@@ -201,7 +201,7 @@ if [[ "${VERIFY_FINANCE_PACK}" -eq 1 ]]; then
   RESTORED_OUT="${TMP}/${RUN_ID}.finance_pack_restored"
   FP_ZIP_RESTORED="$(timeout "${STEP_TIMEOUT_SECONDS}" env DATABASE_URL="${RESTORE_DATABASE_URL}" TENANT_ID="${TENANT_ID}" PROXY_PG_SCHEMA="${RESTORE_SCHEMA}" node "${ROOT}/scripts/finance-pack/bundle.mjs" --period "${MONTH}" --out "${RESTORED_OUT}" --zip)"
   step "    strict verify restored finance pack" \
-    node "${ROOT}/packages/artifact-verify/bin/settld-verify.js" --strict --finance-pack "${FP_ZIP_RESTORED}" >/dev/null
+    node "${ROOT}/packages/artifact-verify/bin/nooterra-verify.js" --strict --finance-pack "${FP_ZIP_RESTORED}" >/dev/null
   FP_SHA_RESTORED="$(node -e "import fs from 'node:fs'; import crypto from 'node:crypto'; const b=fs.readFileSync(process.argv[1]); console.log(crypto.createHash('sha256').update(b).digest('hex'))" "${FP_ZIP_RESTORED}")"
   if [[ "${FP_SHA}" != "${FP_SHA_RESTORED}" ]]; then
     echo "FinancePack zip hash mismatch after restore:" >&2

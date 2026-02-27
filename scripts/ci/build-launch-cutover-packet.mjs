@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { evaluateLighthouseTracker } from "./lib/lighthouse-tracker.mjs";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
@@ -12,6 +12,43 @@ const GO_LIVE_GATE_SCHEMA_VERSION = "GoLiveGateReport.v1";
 const THROUGHPUT_REPORT_SCHEMA_VERSION = "ThroughputDrill10xReport.v1";
 const INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION = "ThroughputIncidentRehearsalReport.v1";
 const LIGHTHOUSE_TRACKER_SCHEMA_VERSION = "LighthouseProductionTracker.v1";
+const NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION = "NooterraVerifiedGateReport.v1";
+const DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/nooterra-verified-collaboration-gate.json";
+const REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
+const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
+  {
+    requiredCheckId: "nooterra_verified_collaboration",
+    sourceCheckId: null
+  },
+  {
+    requiredCheckId: "openclaw_substrate_demo_lineage_verified",
+    sourceCheckId: "openclaw_substrate_demo_lineage_verified"
+  },
+  {
+    requiredCheckId: "openclaw_substrate_demo_transcript_verified",
+    sourceCheckId: "openclaw_substrate_demo_transcript_verified"
+  },
+  {
+    requiredCheckId: "checkpoint_grant_binding_verified",
+    sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
+  },
+  {
+    requiredCheckId: "work_order_metering_durability_verified",
+    sourceCheckId: "pg_work_order_metering_durability"
+  },
+  {
+    requiredCheckId: "sdk_acs_smoke_js_verified",
+    sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
+  },
+  {
+    requiredCheckId: "sdk_acs_smoke_py_verified",
+    sourceCheckId: "e2e_python_sdk_acs_substrate_smoke"
+  },
+  {
+    requiredCheckId: "sdk_python_contract_freeze_verified",
+    sourceCheckId: "e2e_python_sdk_contract_freeze"
+  }
+]);
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -40,16 +77,37 @@ function resolveGeneratedAtIso(env = process.env) {
 async function readJson(pathname) {
   try {
     const raw = await readFile(pathname, "utf8");
-    return { ok: true, value: JSON.parse(raw), errorCode: null, error: null };
+    return {
+      ok: true,
+      value: JSON.parse(raw),
+      sourceSha256: sha256Hex(raw),
+      errorCode: null,
+      error: null
+    };
   } catch (err) {
     const isMissing = err?.code === "ENOENT";
     return {
       ok: false,
       value: null,
+      sourceSha256: null,
       errorCode: isMissing ? "file_missing" : "json_read_or_parse_error",
       error: err?.message ?? "unable to read JSON file"
     };
   }
+}
+
+function deriveArtifactsRootFromPath(pathname) {
+  // Walk upward until we find an "artifacts" directory, then return its parent (workspace root).
+  // This makes relative artifact refs portable when the script is executed from a different cwd.
+  let cur = resolve(pathname);
+  let prev = null;
+  while (cur && cur !== prev) {
+    const dir = dirname(cur);
+    if (basename(dir) === "artifacts") return dirname(dir);
+    prev = cur;
+    cur = dir;
+  }
+  return null;
 }
 
 function checkFromGoLiveGate(gateReport) {
@@ -67,7 +125,76 @@ function checkFromGoLiveGate(gateReport) {
   };
 }
 
-function buildPacketCore({ sources, checks, gateReference, blockingIssues, signing }) {
+function toCheckStatus(ok) {
+  return ok === true ? "passed" : "failed";
+}
+
+function checkOk(row) {
+  return row?.ok === true || row?.status === "passed";
+}
+
+function buildRequiredCutoverChecksSummary({ nooterraVerifiedCollabRead, sourceReportPath }) {
+  const sourceReportSchemaVersion = nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.schemaVersion ?? null : null;
+  const sourceReportOk = nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.ok === true : false;
+  const sourceChecks = Array.isArray(nooterraVerifiedCollabRead?.value?.checks) ? nooterraVerifiedCollabRead.value.checks : [];
+  const checksById = new Map(
+    sourceChecks
+      .map((row) => {
+        const id = normalizeOptionalString(row?.id);
+        return id ? [id, row] : null;
+      })
+      .filter(Boolean)
+  );
+
+  const checks = REQUIRED_CUTOVER_CHECK_SPECS.map((spec) => {
+    if (!spec.sourceCheckId) {
+      const ok = sourceReportOk;
+      return {
+        id: spec.requiredCheckId,
+        status: toCheckStatus(ok),
+        ok,
+        source: {
+          type: "report_verdict",
+          reportPath: sourceReportPath,
+          reportSchemaVersion: sourceReportSchemaVersion,
+          sourceCheckId: null
+        },
+        failureCode: ok ? null : nooterraVerifiedCollabRead.ok ? "source_report_verdict_not_ok" : "source_report_missing"
+      };
+    }
+    const sourceRow = checksById.get(spec.sourceCheckId) ?? null;
+    const ok = checkOk(sourceRow);
+    return {
+      id: spec.requiredCheckId,
+      status: toCheckStatus(ok),
+      ok,
+      source: {
+        type: "collaboration_check",
+        reportPath: sourceReportPath,
+        reportSchemaVersion: sourceReportSchemaVersion,
+        sourceCheckId: spec.sourceCheckId
+      },
+      sourceStatus: sourceRow?.status ?? null,
+      sourceOk: sourceRow?.ok ?? null,
+      failureCode: ok ? null : sourceRow ? "source_check_not_passed" : "source_check_missing"
+    };
+  });
+
+  return {
+    schemaVersion: REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION,
+    sourceReportPath,
+    sourceReportSchemaVersion,
+    sourceReportOk,
+    checks,
+    summary: {
+      requiredChecks: checks.length,
+      passedChecks: checks.filter((row) => row.ok === true).length,
+      failedChecks: checks.filter((row) => row.ok !== true).length
+    }
+  };
+}
+
+function buildPacketCore({ sources, checks, gateReference, requiredCutoverChecks, blockingIssues, signing }) {
   const passedChecks = checks.filter((row) => row.ok === true).length;
   const checksOk = passedChecks === checks.length;
   return {
@@ -75,6 +202,7 @@ function buildPacketCore({ sources, checks, gateReference, blockingIssues, signi
     sources,
     checks,
     gateReference,
+    requiredCutoverChecks,
     blockingIssues,
     signing: {
       requested: signing.requested,
@@ -104,6 +232,13 @@ async function main() {
     process.cwd(),
     process.env.LIGHTHOUSE_TRACKER_PATH || "planning/launch/lighthouse-production-tracker.json"
   );
+  const nooterraVerifiedCollabReportPathRef = process.env.NOOTERRA_VERIFIED_COLLAB_REPORT_PATH || DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH;
+  const artifactsRoot =
+    deriveArtifactsRootFromPath(gateReportPath) ?? deriveArtifactsRootFromPath(packetPath) ?? process.cwd();
+  const nooterraVerifiedCollabReportPathFromArtifactsRoot = resolve(artifactsRoot, nooterraVerifiedCollabReportPathRef);
+  const nooterraVerifiedCollabReportPathFromCwd = resolve(process.cwd(), nooterraVerifiedCollabReportPathRef);
+  const preferArtifactsRoot = typeof nooterraVerifiedCollabReportPathRef === "string" && nooterraVerifiedCollabReportPathRef.startsWith("artifacts/");
+  const nooterraVerifiedCollabReportPath = preferArtifactsRoot ? nooterraVerifiedCollabReportPathFromArtifactsRoot : nooterraVerifiedCollabReportPathFromCwd;
   const signingConfig = resolveSigningConfig(process.env);
   const generatedAtIso = resolveGeneratedAtIso(process.env);
   await mkdir(dirname(packetPath), { recursive: true });
@@ -112,9 +247,20 @@ async function main() {
   const throughputRead = await readJson(throughputReportPath);
   const incidentRehearsalRead = await readJson(incidentRehearsalReportPath);
   const lighthouseRead = await readJson(lighthouseTrackerPath);
+  let nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPath);
+  if (!nooterraVerifiedCollabRead.ok && nooterraVerifiedCollabReportPathFromArtifactsRoot !== nooterraVerifiedCollabReportPath) {
+    nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPathFromArtifactsRoot);
+  }
+  if (!nooterraVerifiedCollabRead.ok && nooterraVerifiedCollabReportPathFromCwd !== nooterraVerifiedCollabReportPath) {
+    nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPathFromCwd);
+  }
   const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
+  const requiredCutoverChecks = buildRequiredCutoverChecksSummary({
+    nooterraVerifiedCollabRead,
+    sourceReportPath: nooterraVerifiedCollabReportPathRef
+  });
   const checks = [
     {
       id: "go_live_gate_report_present",
@@ -191,6 +337,60 @@ async function main() {
         : null
     },
     {
+      id: "nooterra_verified_collaboration_report_present",
+      ok: nooterraVerifiedCollabRead.ok,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok ? null : { code: nooterraVerifiedCollabRead.errorCode, message: nooterraVerifiedCollabRead.error }
+    },
+    {
+      id: "nooterra_verified_collaboration_schema_valid",
+      ok: nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.schemaVersion === NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION : false,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok
+        ? {
+            expected: NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION,
+            observed: nooterraVerifiedCollabRead.value?.schemaVersion ?? null
+          }
+        : null
+    },
+    {
+      id: "nooterra_verified_collaboration_verdict_ok",
+      ok: nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.ok === true : false,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok
+        ? {
+            level: nooterraVerifiedCollabRead.value?.level ?? null,
+            totalChecks: nooterraVerifiedCollabRead.value?.summary?.totalChecks ?? null,
+            passedChecks: nooterraVerifiedCollabRead.value?.summary?.passedChecks ?? null
+          }
+        : null
+    },
+    ...requiredCutoverChecks.checks.map((row) => ({
+      id: `required_cutover_check_${row.id}_passed`,
+      ok: row.ok === true,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: {
+        requiredCheckId: row.id,
+        status: row.status,
+        source: row.source,
+        sourceStatus: row.sourceStatus ?? null,
+        sourceOk: row.sourceOk ?? null,
+        failureCode: row.failureCode ?? null
+      }
+    })),
+    {
+      id: "required_cutover_check_summary_consistent",
+      ok:
+        requiredCutoverChecks.summary.requiredChecks === REQUIRED_CUTOVER_CHECK_SPECS.length &&
+        requiredCutoverChecks.summary.requiredChecks === requiredCutoverChecks.summary.passedChecks + requiredCutoverChecks.summary.failedChecks,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: {
+        requiredChecks: requiredCutoverChecks.summary.requiredChecks,
+        passedChecks: requiredCutoverChecks.summary.passedChecks,
+        failedChecks: requiredCutoverChecks.summary.failedChecks
+      }
+    },
+    {
       id: "lighthouse_tracker_present",
       ok: lighthouseRead.ok,
       path: lighthouseTrackerPath,
@@ -253,10 +453,13 @@ async function main() {
       goLiveGateReportPath: gateReportPath,
       throughputReportPath,
       incidentRehearsalReportPath,
-      lighthouseTrackerPath
+      lighthouseTrackerPath,
+      nooterraVerifiedCollaborationGateReportPath: nooterraVerifiedCollabReportPathRef,
+      nooterraVerifiedCollaborationGateReportSha256: nooterraVerifiedCollabRead.sourceSha256
     },
     checks,
     gateReference: gateCheckRefs,
+    requiredCutoverChecks,
     blockingIssues,
     signing
   });
@@ -278,6 +481,7 @@ async function main() {
         sources: packetCore.sources,
         checks,
         gateReference: gateCheckRefs,
+        requiredCutoverChecks,
         blockingIssues,
         signing
       });

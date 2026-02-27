@@ -1,4 +1,4 @@
-name: settld-verify (strict)
+name: nooterra-verify (strict)
 
 on:
   push:
@@ -10,22 +10,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Option A (recommended): reference the action by tag from the Settld repo.
+      # Option A (recommended): reference the action by tag from the Nooterra repo.
       # Replace vX.Y.Z with a released version.
       - name: Verify bundle (strict)
         id: verify
-        uses: settld/settld/.github/actions/settld-verify@vX.Y.Z
+        uses: nooterra/nooterra/.github/actions/nooterra-verify@vX.Y.Z
         with:
           bundle_path: examples/hello-auditor/bundle
           strict: "true"
           fail_on_warnings: "false"
           hash_concurrency: "4"
           trust_file: examples/hello-auditor/trust.json
-          output_json_path: settld-verify-output.json
+          output_json_path: nooterra-verify-output.json
 
       - name: Upload verification output JSON
         uses: actions/upload-artifact@v4
         with:
-          name: settld-verify-output
+          name: nooterra-verify-output
           path: ${{ steps.verify.outputs.output_json_path }}
 

@@ -133,7 +133,7 @@ async function main() {
     const rendered = renderSlaPolicyTemplate({ templateId: parsed.templateId, overrides });
     if (!rendered) throw new Error("template not found");
     const payload = {
-      schemaVersion: "SettldTrustWizardOutput.v1",
+      schemaVersion: "NooterraTrustWizardOutput.v1",
       templateId: rendered.templateId,
       config: rendered.defaults
     };

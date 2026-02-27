@@ -1,0 +1,29 @@
+{
+  "name": "create-nooterra-paid-tool",
+  "version": "0.2.0",
+  "private": false,
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nooterra/nooterra"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "create-nooterra-paid-tool": "./bin/create-nooterra-paid-tool.js"
+  },
+  "exports": {
+    ".": {
+      "default": "./src/lib.js"
+    }
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ]
+}

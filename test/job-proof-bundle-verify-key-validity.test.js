@@ -95,7 +95,7 @@ test("JobProofBundle.v1 verification rejects signatures made after signer key re
     ["manifest.json", bytes(`${canonicalJsonStringify(manifest)}\n`)]
   ]);
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-key-validity-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-key-validity-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 

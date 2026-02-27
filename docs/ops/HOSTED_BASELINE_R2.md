@@ -4,10 +4,10 @@ This is the minimum hosted setup for a real product surface.
 
 ## 1) Environment topology
 
-- `staging.app.settld.work` (frontend, Vercel)
-- `staging.api.settld.work` (API, Railway)
-- `app.settld.work` (frontend, Vercel)
-- `api.settld.work` (API, Railway)
+- `staging.app.nooterra.work` (frontend, Vercel)
+- `staging.api.nooterra.work` (API, Railway)
+- `app.nooterra.work` (frontend, Vercel)
+- `api.nooterra.work` (API, Railway)
 - Separate Postgres instances/schemas and separate secret sets for staging/prod.
 - Separate signing keys per environment (never reuse signer keys across staging/prod).
 
@@ -15,11 +15,11 @@ This is the minimum hosted setup for a real product surface.
 
 Create three Railway services from this repo per environment:
 
-- `settld-api`:
+- `nooterra-api`:
   - start command: `npm run start:prod`
-- `settld-magic-link`:
+- `nooterra-magic-link`:
   - start command: `npm run start:magic-link`
-- `settld-worker`:
+- `nooterra-worker`:
   - start command: `npm run start:maintenance`
 
 All services must point at the same environment DB and secret set for that environment.
@@ -61,7 +61,7 @@ The app should map Clerk identity/org to a tenant ID, then bootstrap that tenant
 
 Recommended server-side flow:
 
-1. User signs up/signs in via Clerk at `*.app.settld.work`.
+1. User signs up/signs in via Clerk at `*.app.nooterra.work`.
 2. App backend chooses tenant ID (for example: `tenant_<clerk_org_id>`).
 3. App backend calls:
    - `POST /ops/tenants/bootstrap` (with a privileged ops token, server-side only)
@@ -73,8 +73,8 @@ Use this command to prove onboarding is self-serve and conformance-ready:
 
 ```bash
 npm run ops:tenant:bootstrap:conformance -- \
-  --base-url https://staging.api.settld.work \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --base-url https://staging.api.nooterra.work \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --tenant-id "tenant_demo_$(date +%s)"
 ```
 
@@ -97,9 +97,9 @@ Use the ops command below to collect a deterministic hosted-baseline evidence ar
 
 ```bash
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://staging.api.settld.work \
+  --base-url https://staging.api.nooterra.work \
   --tenant-id tenant_default \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --environment staging \
   --rate-limit-mode optional \
   --rate-limit-probe-requests 20 \
@@ -110,9 +110,9 @@ If you want the command to execute the backup/restore drill inline:
 
 ```bash
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://staging.api.settld.work \
+  --base-url https://staging.api.nooterra.work \
   --tenant-id tenant_default \
-  --ops-token "$SETTLD_STAGING_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_STAGING_OPS_TOKEN" \
   --environment staging \
   --run-backup-restore true \
   --database-url "$DATABASE_URL" \

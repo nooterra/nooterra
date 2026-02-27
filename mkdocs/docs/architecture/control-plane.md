@@ -1,6 +1,6 @@
 # Control Plane
 
-Settld is the enforcement layer between autonomous actions and settlement.
+Nooterra is the enforcement layer between autonomous actions and settlement.
 
 ## Layer model
 
@@ -25,4 +25,4 @@ Settld is the enforcement layer between autonomous actions and settlement.
 ## Why this matters
 
 Payment rails can settle money.
-Settld makes agent settlement trustworthy, explainable, and operable under incident pressure.
+Nooterra makes agent settlement trustworthy, explainable, and operable under incident pressure.

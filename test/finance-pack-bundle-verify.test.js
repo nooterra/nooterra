@@ -27,7 +27,7 @@ async function writeFilesToDir({ files, outDir }) {
 }
 
 async function runCli(args) {
-  const proc = spawn("node", ["packages/artifact-verify/bin/settld-verify.js", ...args], {
+  const proc = spawn("node", ["packages/artifact-verify/bin/nooterra-verify.js", ...args], {
     cwd: process.cwd(),
     stdio: "pipe"
   });
@@ -90,7 +90,7 @@ describe("FinancePackBundle.v1 verification", () => {
       reconcileReportBytes: reconcileBytes
     });
 
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-verify-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-verify-"));
     const dir = path.join(tmp, "bundle");
     await writeFilesToDir({ files: built.files, outDir: dir });
 

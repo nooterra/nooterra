@@ -25,7 +25,7 @@ async function runNodeScript(scriptPath, env) {
 }
 
 test("self-serve benchmark report builder: composes launch + throughput + incident artifacts", async () => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-benchmark-report-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-benchmark-report-"));
   const gatePath = path.join(tmpRoot, "self-serve-gate.json");
   const throughputPath = path.join(tmpRoot, "throughput.json");
   const incidentPath = path.join(tmpRoot, "incident.json");

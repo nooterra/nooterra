@@ -31,7 +31,7 @@ function makeStripeSubscriptionUpdatedEvent({
               price: {
                 id: priceId,
                 metadata: {
-                  settldPlan: "growth"
+                  nooterraPlan: "growth"
                 }
               }
             }
@@ -243,7 +243,7 @@ test("API e2e: stripe webhook maps configured price IDs to billing plan when met
     customerId: "cus_price_map_001",
     priceId: "price_builder_cfg_001"
   });
-  // Simulate real Stripe subscription events that do not include settldPlan metadata.
+  // Simulate real Stripe subscription events that do not include nooterraPlan metadata.
   payload.data.object.items.data[0].price.metadata = {};
 
   const ingested = await request(api, {

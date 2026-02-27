@@ -28,8 +28,12 @@ A work order tracks deterministic lifecycle state for delegated execution:
 ## Key optional fields
 
 - `parentTaskId`
+- `traceId` (execution lineage trace across negotiation, completion, and settlement)
 - `constraints`
+- `x402ToolId`
+- `x402ProviderId`
 - `delegationGrantRef`
+- `authorityGrantRef`
 - `progressEvents`
 - `completionReceiptId`
 - `settlement`
@@ -44,6 +48,8 @@ When settled, binding includes:
 - `settlement.x402RunId`
 - `settlement.x402SettlementStatus`
 - `settlement.x402ReceiptId` (optional)
+- `settlement.traceId` (optional; must align with work-order/receipt trace lineage)
+- `settlement.authorityGrantRef` (optional)
 - `settlement.completionReceiptId`
 - `settlement.settledAt`
 
@@ -51,6 +57,8 @@ When settled, binding includes:
 
 - terminal work orders reject new progress events.
 - settlement requires an existing completion receipt.
+- when `x402ToolId`/`x402ProviderId` are set, settlement must use an `x402Gate` with matching tool/provider binding.
+- completion and settlement trace lineage must be consistent when `traceId` is present.
 - revision increments with each state mutation.
 
 ## API surface
@@ -65,11 +73,11 @@ When settled, binding includes:
 
 ## MCP surface
 
-- `settld.work_order_create`
-- `settld.work_order_accept`
-- `settld.work_order_progress`
-- `settld.work_order_complete`
-- `settld.work_order_settle`
+- `nooterra.work_order_create`
+- `nooterra.work_order_accept`
+- `nooterra.work_order_progress`
+- `nooterra.work_order_complete`
+- `nooterra.work_order_settle`
 
 ## Implementation references
 

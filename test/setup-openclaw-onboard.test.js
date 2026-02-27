@@ -8,10 +8,10 @@ test("openclaw onboard: rejects unsupported wallet provider", async () => {
     runOpenclawOnboard({
       argv: [
         "--base-url",
-        "https://api.settld.work",
+        "https://api.nooterra.work",
         "--tenant-id",
         "tenant_default",
-        "--settld-api-key",
+        "--nooterra-api-key",
         "sk_live_x.y",
         "--wallet-provider",
         "unknown",
@@ -56,9 +56,9 @@ test("openclaw onboard: orchestrates circle bootstrap + wizard and emits merged 
     return {
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y"
       }
     };
   };
@@ -66,10 +66,10 @@ test("openclaw onboard: orchestrates circle bootstrap + wizard and emits merged 
   const out = await runOpenclawOnboard({
     argv: [
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--circle-api-key",
       "TEST_API_KEY:abc",
@@ -87,9 +87,9 @@ test("openclaw onboard: orchestrates circle bootstrap + wizard and emits merged 
   assert.equal(out.walletBootstrap?.mode, "local");
   assert.equal(out.circle.mode, "sandbox");
   assert.equal(out.circle.tokenIdUsdc, "token_usdc_x");
-  assert.equal(out.settld.tenantId, "tenant_default");
+  assert.equal(out.nooterra.tenantId, "tenant_default");
   assert.equal(out.env.CIRCLE_WALLET_ID_SPEND, "wid_spend");
-  assert.equal(out.env.SETTLD_API_KEY, "sk_live_x.y");
+  assert.equal(out.env.NOOTERRA_API_KEY, "sk_live_x.y");
 
   const circleCall = calls.find((row) => row.step === "circle");
   const wizardCall = calls.find((row) => row.step === "wizard");
@@ -105,8 +105,8 @@ test("openclaw onboard: uses remote wallet bootstrap when no local circle key is
   const circleStub = async () => {
     throw new Error("local circle bootstrap should not be called");
   };
-  const remoteStub = async ({ baseUrl, tenantId, settldApiKey, walletProvider }) => {
-    calls.push({ step: "remote", baseUrl, tenantId, settldApiKey, walletProvider });
+  const remoteStub = async ({ baseUrl, tenantId, nooterraApiKey, walletProvider }) => {
+    calls.push({ step: "remote", baseUrl, tenantId, nooterraApiKey, walletProvider });
     return {
       provider: "circle",
       mode: "sandbox",
@@ -135,9 +135,9 @@ test("openclaw onboard: uses remote wallet bootstrap when no local circle key is
     return {
       ok: true,
       env: {
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_API_KEY: "sk_live_x.y"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_API_KEY: "sk_live_x.y"
       }
     };
   };
@@ -145,10 +145,10 @@ test("openclaw onboard: uses remote wallet bootstrap when no local circle key is
   const out = await runOpenclawOnboard({
     argv: [
       "--base-url",
-      "https://api.settld.work",
+      "https://api.nooterra.work",
       "--tenant-id",
       "tenant_default",
-      "--settld-api-key",
+      "--nooterra-api-key",
       "sk_live_x.y",
       "--format",
       "json"
@@ -163,12 +163,12 @@ test("openclaw onboard: uses remote wallet bootstrap when no local circle key is
   assert.equal(out.walletBootstrap?.mode, "remote");
   assert.equal(out.circle.mode, "sandbox");
   assert.equal(out.env.CIRCLE_WALLET_ID_SPEND, "wid_remote_spend");
-  assert.equal(out.env.SETTLD_API_KEY, "sk_live_x.y");
+  assert.equal(out.env.NOOTERRA_API_KEY, "sk_live_x.y");
 
   const remoteCall = calls.find((row) => row.step === "remote");
   assert.ok(remoteCall);
-  assert.equal(remoteCall.baseUrl, "https://api.settld.work");
+  assert.equal(remoteCall.baseUrl, "https://api.nooterra.work");
   assert.equal(remoteCall.tenantId, "tenant_default");
-  assert.equal(remoteCall.settldApiKey, "sk_live_x.y");
+  assert.equal(remoteCall.nooterraApiKey, "sk_live_x.y");
   assert.equal(remoteCall.walletProvider, "circle");
 });
