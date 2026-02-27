@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy filesystem scan (fail on critical)
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           scan-type: fs
           ignore-unfixed: true
@@ -39,7 +39,7 @@ jobs:
       - name: Build image
         run: docker build -t nooterra:ci --build-arg GIT_SHA=${{ github.sha }} --build-arg NOOTERRA_VERSION=ci .
       - name: Trivy image scan (fail on critical)
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: nooterra:ci
           ignore-unfixed: true
