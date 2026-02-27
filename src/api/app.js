@@ -48293,6 +48293,32 @@ export function createApi({
           }
 
           const quoteBinding = resolveX402GateQuoteBinding({ gate, settlement });
+          const reversalRequestSha256 = parseEvidenceRefSha256(reversalEvidenceRefs, "http:request_sha256:");
+          if (quoteBinding.requestSha256) {
+            if (!reversalRequestSha256) {
+              return sendError(
+                res,
+                409,
+                "reversal requires request hash evidence",
+                { gateId, action, expectedRequestSha256: quoteBinding.requestSha256 },
+                { code: "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED" }
+              );
+            }
+            if (reversalRequestSha256 !== quoteBinding.requestSha256) {
+              return sendError(
+                res,
+                409,
+                "reversal request hash evidence does not match gate binding",
+                {
+                  gateId,
+                  action,
+                  requestSha256: reversalRequestSha256,
+                  expectedRequestSha256: quoteBinding.requestSha256
+                },
+                { code: "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH" }
+              );
+            }
+          }
           const gateAgentPassport =
             gate?.agentPassport && typeof gate.agentPassport === "object" && !Array.isArray(gate.agentPassport) ? gate.agentPassport : null;
           let resolvedWalletPolicy = null;

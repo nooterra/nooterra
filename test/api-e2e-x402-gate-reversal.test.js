@@ -364,7 +364,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
-      evidenceRefs: ["provider:incident:001"],
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: refundRequestCommand
     }
   });
@@ -378,7 +378,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
-      evidenceRefs: ["provider:incident:001"],
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: refundRequestCommand
     }
   });
@@ -392,6 +392,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: refundRequestCommand
     }
   });
@@ -405,6 +406,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: refundRequestCommand
     }
   });
@@ -421,6 +423,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: mutatedRefundRequestCommand
     }
   });
@@ -434,6 +437,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "request_refund",
       reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:001"],
       command: mutatedRefundRequestCommand
     }
   });
@@ -460,6 +464,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       gateId,
       action: "resolve_refund",
       providerDecision: "accepted",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`],
       command: resolveCommandMissingArtifact
     }
   });
@@ -496,6 +501,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       action: "resolve_refund",
       providerDecision: "accepted",
       reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
       command: resolveCommand,
       providerDecisionArtifact
     }
@@ -518,6 +524,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
       action: "resolve_refund",
       providerDecision: "accepted",
       reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
       command: resolveCommand,
       providerDecisionArtifact
     }
@@ -551,6 +558,109 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(latest.eventType, "refund_resolved");
   assert.equal(prior.eventType, "refund_requested");
   assert.equal(latest.prevEventHash, prior.eventHash);
+});
+
+test("API e2e: x402 reversal fails closed when request-hash evidence is missing or mismatched", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_refund_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_refund_binding_payee_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_refund_binding_1" });
+
+  const gateId = "x402gate_refund_binding_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_refund_binding_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 600,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_refund_binding_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_refund_binding_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"c".repeat(64)}`, `http:response_sha256:${"d".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  assert.ok(bindings.requestSha256);
+
+  const missingEvidenceCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_binding_missing_1",
+    idempotencyKey: "idem_refund_binding_missing_1",
+    nonce: "nonce_refund_binding_missing_1"
+  });
+  const missingEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_binding_missing_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      evidenceRefs: ["provider:incident:missing_request_hash"],
+      command: missingEvidenceCommand
+    }
+  });
+  assert.equal(missingEvidence.statusCode, 409, missingEvidence.body);
+  assert.equal(missingEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED");
+
+  const mismatchEvidenceCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_binding_mismatch_1",
+    idempotencyKey: "idem_refund_binding_mismatch_1",
+    nonce: "nonce_refund_binding_mismatch_1"
+  });
+  const mismatchEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_binding_mismatch_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${"e".repeat(64)}`],
+      command: mismatchEvidenceCommand
+    }
+  });
+  assert.equal(mismatchEvidence.statusCode, 409, mismatchEvidence.body);
+  assert.equal(mismatchEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
 });
 
 test("API e2e: x402 reversal enforces wallet policy allowedReversalActions", async () => {
