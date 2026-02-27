@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "NooterraNs3EvidenceBindingCoveragePolicy.v1",
+  "policyId": "nooterra-ns3-evidence-binding-coverage-policy",
+  "updatedAt": "2026-02-27T00:00:00.000Z",
+  "operations": [
+    {
+      "operationId": "runArbitrationAppeal",
+      "route": "/runs/{runId}/arbitration/appeal",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runArbitrationAssign",
+      "route": "/runs/{runId}/arbitration/assign",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runArbitrationClose",
+      "route": "/runs/{runId}/arbitration/close",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runArbitrationEvidence",
+      "route": "/runs/{runId}/arbitration/evidence",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runArbitrationOpen",
+      "route": "/runs/{runId}/arbitration/open",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runArbitrationVerdict",
+      "route": "/runs/{runId}/arbitration/verdict",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runDisputeClose",
+      "route": "/runs/{runId}/dispute/close",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runDisputeEscalate",
+      "route": "/runs/{runId}/dispute/escalate",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runDisputeEvidence",
+      "route": "/runs/{runId}/dispute/evidence",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runDisputeOpen",
+      "route": "/runs/{runId}/dispute/open",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "runSettlementResolve",
+      "route": "/runs/{runId}/settlement/resolve",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "x402GateReversal",
+      "route": "/x402/gate/reversal",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "x402GateVerify",
+      "route": "/x402/gate/verify",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_REQUEST_BINDING_REQUIRED",
+        "X402_REQUEST_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
+      ]
+    }
+  ]
+}

@@ -83914,6 +83914,260 @@
         }
       }
     },
+    "/x402/gate/reversal": {
+      "post": {
+        "summary": "Apply or resolve x402 settlement reversal commands",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "x-nooterra-known-error-codes": [
+              "SCHEMA_INVALID"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "SCHEMA_INVALID"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_GATE_INVALID",
+              "X402_REVERSAL_RECEIPT_MISSING",
+              "X402_REVERSAL_COMMAND_KEY_MISSING",
+              "X402_PROVIDER_DECISION_KEY_MISSING",
+              "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED",
+              "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH",
+              "X402_WALLET_POLICY_REFERENCE_INVALID",
+              "X402_WALLET_POLICY_DISABLED",
+              "X402_WALLET_POLICY_REVERSAL_ACTION_NOT_ALLOWED",
+              "X402_REVERSAL_COMMAND_SIGNER_MISMATCH",
+              "X402_REVERSAL_COMMAND_INVALID",
+              "X402_REVERSAL_COMMAND_REPLAY",
+              "X402_REVERSAL_NONCE_REPLAY",
+              "X402_REVERSAL_INVALID_STATE",
+              "WALLET_MISSING",
+              "INSUFFICIENT_FUNDS",
+              "X402_PROVIDER_DECISION_INVALID"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_GATE_INVALID",
+                                "X402_REVERSAL_RECEIPT_MISSING",
+                                "X402_REVERSAL_COMMAND_KEY_MISSING",
+                                "X402_PROVIDER_DECISION_KEY_MISSING",
+                                "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED",
+                                "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH",
+                                "X402_WALLET_POLICY_REFERENCE_INVALID",
+                                "X402_WALLET_POLICY_DISABLED",
+                                "X402_WALLET_POLICY_REVERSAL_ACTION_NOT_ALLOWED",
+                                "X402_REVERSAL_COMMAND_SIGNER_MISMATCH",
+                                "X402_REVERSAL_COMMAND_INVALID",
+                                "X402_REVERSAL_COMMAND_REPLAY",
+                                "X402_REVERSAL_NONCE_REPLAY",
+                                "X402_REVERSAL_INVALID_STATE",
+                                "WALLET_MISSING",
+                                "INSUFFICIENT_FUNDS",
+                                "X402_PROVIDER_DECISION_INVALID"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/x402/zk/verification-keys": {
       "post": {
         "summary": "Register an immutable x402 zk verification key",

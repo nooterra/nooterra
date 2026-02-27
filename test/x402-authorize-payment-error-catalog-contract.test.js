@@ -17,9 +17,13 @@ const REQUIRED_VERIFY_ERROR_CODES = [
   "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
 ];
 
-const REQUIRED_BINDING_INTEGRITY_ERROR_CODES = [
+const REQUIRED_REVERSAL_ERROR_CODES = [
   "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED",
-  "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH",
+  "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH"
+];
+
+const REQUIRED_BINDING_INTEGRITY_ERROR_CODES = [
+  ...REQUIRED_REVERSAL_ERROR_CODES,
   "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
   "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH",
   "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
@@ -173,6 +177,18 @@ test("openapi + sdk expose verify known error codes for x402 verify", () => {
   assert.match(dts, /export type X402GateVerifyErrorCode\s*=/);
   for (const code of REQUIRED_VERIFY_ERROR_CODES) {
     assert.match(dts, new RegExp(code));
+  }
+});
+
+test("openapi exposes reversal known error codes for x402 reversal", () => {
+  const spec = buildOpenApiSpec();
+  const operation = spec?.paths?.["/x402/gate/reversal"]?.post ?? null;
+  assert.ok(operation, "missing POST /x402/gate/reversal");
+
+  const known409 = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(known409), "409 response must expose x-nooterra-known-error-codes");
+  for (const code of REQUIRED_REVERSAL_ERROR_CODES) {
+    assert.ok(known409.includes(code), `OpenAPI 409 known codes missing ${code}`);
   }
 });
 

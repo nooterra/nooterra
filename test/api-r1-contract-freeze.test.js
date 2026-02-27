@@ -124,6 +124,17 @@ test("R1 API contract freeze: x402 verify publishes known request-binding confli
   assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_MISMATCH"));
 });
 
+test("R1 API contract freeze: x402 reversal publishes known reversal binding conflict error codes", () => {
+  const spec = buildOpenApiSpec();
+  const operation = spec?.paths?.["/x402/gate/reversal"]?.post ?? null;
+  assert.ok(operation, "missing POST /x402/gate/reversal");
+
+  const knownConflictCodes = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(knownConflictCodes), "x402 reversal 409 must expose known error codes");
+  assert.ok(knownConflictCodes.includes("X402_REVERSAL_BINDING_EVIDENCE_REQUIRED"));
+  assert.ok(knownConflictCodes.includes("X402_REVERSAL_BINDING_EVIDENCE_MISMATCH"));
+});
+
 test("R1 API contract freeze: dispute/arbitration routes publish binding integrity conflict error codes", () => {
   const spec = buildOpenApiSpec();
   const checks = [

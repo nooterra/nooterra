@@ -140,6 +140,7 @@
     "test:ci:mcp-host-smoke": "node scripts/ci/run-mcp-host-smoke.mjs",
     "test:ci:mcp-runtime-binding-fail-closed": "node --test test/mcp-runtime-work-order-binding-fail-closed.test.js",
     "test:ci:mcp-host-cert-matrix": "node scripts/ci/run-mcp-host-cert-matrix.mjs",
+    "test:ci:ns3-evidence-binding-coverage-matrix": "node scripts/ci/run-ns3-evidence-binding-coverage-matrix.mjs",
     "test:ci:openclaw-clawhub-install-smoke": "node scripts/ci/run-openclaw-clawhub-install-smoke.mjs --force --bootstrap-local",
     "test:x402:circle:sandbox:batch-e2e": "node --test test/circle-sandbox-batch-settlement-e2e.test.js",
     "test:x402:circle:sandbox:smoke": "node scripts/ci/run-circle-sandbox-smoke.mjs",

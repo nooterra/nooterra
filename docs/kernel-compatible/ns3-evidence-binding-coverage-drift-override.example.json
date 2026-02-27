@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "NooterraNs3EvidenceBindingCoverageDriftOverride.v1",
+  "ticket": "NOO-275",
+  "reason": "Temporary NS3 evidence-binding coverage drift accepted for an audited remediation window",
+  "approvedBy": "ops.release-owner",
+  "approvedAt": "2026-02-27T00:00:00.000Z",
+  "expiresAt": "2026-12-31T23:59:59.000Z"
+}

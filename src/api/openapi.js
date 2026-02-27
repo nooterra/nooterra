@@ -200,6 +200,28 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
   ]);
 
+  const X402GateReversalBadRequestKnownErrorCodes = Object.freeze(["SCHEMA_INVALID"]);
+
+  const X402GateReversalConflictKnownErrorCodes = Object.freeze([
+    "X402_GATE_INVALID",
+    "X402_REVERSAL_RECEIPT_MISSING",
+    "X402_REVERSAL_COMMAND_KEY_MISSING",
+    "X402_PROVIDER_DECISION_KEY_MISSING",
+    "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED",
+    "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH",
+    "X402_WALLET_POLICY_REFERENCE_INVALID",
+    "X402_WALLET_POLICY_DISABLED",
+    "X402_WALLET_POLICY_REVERSAL_ACTION_NOT_ALLOWED",
+    "X402_REVERSAL_COMMAND_SIGNER_MISMATCH",
+    "X402_REVERSAL_COMMAND_INVALID",
+    "X402_REVERSAL_COMMAND_REPLAY",
+    "X402_REVERSAL_NONCE_REPLAY",
+    "X402_REVERSAL_INVALID_STATE",
+    "WALLET_MISSING",
+    "INSUFFICIENT_FUNDS",
+    "X402_PROVIDER_DECISION_INVALID"
+  ]);
+
   const X402DisputeCloseConflictKnownErrorCodes = Object.freeze([
     "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
     "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
@@ -9723,6 +9745,45 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 }
               }
             }
+          }
+        }
+      },
+      "/x402/gate/reversal": {
+        post: {
+          summary: "Apply or resolve x402 settlement reversal commands",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            202: { description: "Accepted", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: {
+              description: "Bad Request",
+              "x-nooterra-known-error-codes": [...X402GateReversalBadRequestKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402GateReversalBadRequestKnownErrorCodes)
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402GateReversalConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402GateReversalConflictKnownErrorCodes)
+                }
+              }
+            },
+            503: { description: "Service Unavailable", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
