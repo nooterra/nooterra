@@ -4125,6 +4125,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function agreementDelegationSnapshotRowToRecord(row) {
+    const delegation = row?.snapshot_json ?? null;
+    if (!delegation || typeof delegation !== "object" || Array.isArray(delegation)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? delegation?.tenantId ?? DEFAULT_TENANT_ID);
+    const delegationId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof delegation?.delegationId === "string" && delegation.delegationId.trim() !== ""
+          ? delegation.delegationId.trim()
+          : null;
+    if (!delegationId) return null;
+    return {
+      ...delegation,
+      tenantId,
+      delegationId
+    };
+  }
+
   function delegationGrantSnapshotRowToRecord(row) {
     const delegationGrant = row?.snapshot_json ?? null;
     if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) return null;
@@ -5040,6 +5058,98 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.agentCards.values()));
+    }
+  };
+
+  store.getAgreementDelegation = async function getAgreementDelegation({ tenantId = DEFAULT_TENANT_ID, delegationId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(delegationId, "delegationId");
+    const normalizedDelegationId = String(delegationId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agreement_delegation' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedDelegationId]
+      );
+      return res.rows.length ? agreementDelegationSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agreementDelegations.get(makeScopedKey({ tenantId, id: normalizedDelegationId })) ?? null;
+    }
+  };
+
+  store.listAgreementDelegations = async function listAgreementDelegations({
+    tenantId = DEFAULT_TENANT_ID,
+    parentAgreementHash = null,
+    childAgreementHash = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (parentAgreementHash !== null && (typeof parentAgreementHash !== "string" || parentAgreementHash.trim() === "")) {
+      throw new TypeError("parentAgreementHash must be null or a non-empty string");
+    }
+    if (childAgreementHash !== null && (typeof childAgreementHash !== "string" || childAgreementHash.trim() === "")) {
+      throw new TypeError("childAgreementHash must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) {
+      throw new TypeError("status must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const parentFilter = parentAgreementHash ? String(parentAgreementHash).trim().toLowerCase() : null;
+    const childFilter = childAgreementHash ? String(childAgreementHash).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (parentFilter && String(row.parentAgreementHash ?? "").toLowerCase() !== parentFilter) continue;
+        if (childFilter && String(row.childAgreementHash ?? "").toLowerCase() !== childFilter) continue;
+        if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.delegationId ?? "").localeCompare(String(right.delegationId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'agreement_delegation'"];
+      if (parentFilter !== null) {
+        params.push(parentFilter);
+        where.push(`lower(snapshot_json->>'parentAgreementHash') = $${params.length}`);
+      }
+      if (childFilter !== null) {
+        params.push(childFilter);
+        where.push(`lower(snapshot_json->>'childAgreementHash') = $${params.length}`);
+      }
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(snapshot_json->>'status') = $${params.length}`);
+      }
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE ${where.join(" AND ")}
+          ORDER BY aggregate_id ASC
+        `,
+        params
+      );
+      return applyFilters(res.rows.map(agreementDelegationSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.agreementDelegations.values()));
     }
   };
 

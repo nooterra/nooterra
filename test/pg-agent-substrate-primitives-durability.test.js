@@ -151,6 +151,9 @@ async function createTerminalRun({
   const quoteId = "pg_sub_quote_1";
   const offerId = "pg_sub_offer_1";
   const acceptanceId = "pg_sub_acceptance_1";
+  const agreementDelegationId = "pg_sub_agreement_delegation_1";
+  const agreementDelegationParentHash = "e".repeat(64);
+  const agreementDelegationChildHash = "f".repeat(64);
   let replayPackHashBeforeRestart = null;
   let transcriptHashBeforeRestart = null;
   let memoryExportBeforeRestart = null;
@@ -401,6 +404,43 @@ async function createTerminalRun({
     });
     assert.equal(reactivateWorker.statusCode, 200, reactivateWorker.body);
     assert.equal(reactivateWorker.json?.lifecycle?.status, "active");
+
+    const issueAgreementDelegation = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: `/agreements/${agreementDelegationParentHash}/delegations`,
+      headers: { "x-idempotency-key": "pg_sub_agreement_delegation_issue_1" },
+      body: {
+        delegationId: agreementDelegationId,
+        childAgreementHash: agreementDelegationChildHash,
+        delegatorAgentId: principalA,
+        delegateeAgentId: workerA,
+        budgetCapCents: 1_000,
+        currency: "USD",
+        delegationDepth: 0,
+        maxDelegationDepth: 1
+      }
+    });
+    assert.equal(issueAgreementDelegation.statusCode, 201, issueAgreementDelegation.body);
+    assert.equal(issueAgreementDelegation.json?.delegation?.delegationId, agreementDelegationId);
+
+    const getAgreementDelegationBeforeRestart = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/delegations/${encodeURIComponent(agreementDelegationId)}`
+    });
+    assert.equal(getAgreementDelegationBeforeRestart.statusCode, 200, getAgreementDelegationBeforeRestart.body);
+    assert.equal(getAgreementDelegationBeforeRestart.json?.delegation?.delegationId, agreementDelegationId);
+    assert.equal(getAgreementDelegationBeforeRestart.json?.delegation?.parentAgreementHash, agreementDelegationParentHash);
+    assert.equal(getAgreementDelegationBeforeRestart.json?.delegation?.childAgreementHash, agreementDelegationChildHash);
+
+    const listAgreementDelegationsBeforeRestart = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/agreements/${agreementDelegationParentHash}/delegations?status=active`
+    });
+    assert.equal(listAgreementDelegationsBeforeRestart.statusCode, 200, listAgreementDelegationsBeforeRestart.body);
+    assert.equal(listAgreementDelegationsBeforeRestart.json?.delegations?.some((row) => row.delegationId === agreementDelegationId), true);
 
     const issueAttestationA = await tenantRequest(apiA, {
       tenantId: tenantA,
@@ -754,6 +794,24 @@ async function createTerminalRun({
     });
     assert.equal(listGrants.statusCode, 200, listGrants.body);
     assert.equal(listGrants.json?.grants?.some((row) => row.grantId === "pg_sub_grant_1"), true);
+
+    const getAgreementDelegationAfterRestart = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/delegations/${encodeURIComponent(agreementDelegationId)}`
+    });
+    assert.equal(getAgreementDelegationAfterRestart.statusCode, 200, getAgreementDelegationAfterRestart.body);
+    assert.equal(getAgreementDelegationAfterRestart.json?.delegation?.delegationId, agreementDelegationId);
+    assert.equal(getAgreementDelegationAfterRestart.json?.delegation?.parentAgreementHash, agreementDelegationParentHash);
+    assert.equal(getAgreementDelegationAfterRestart.json?.delegation?.childAgreementHash, agreementDelegationChildHash);
+
+    const listAgreementDelegationsAfterRestart = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/agreements/${agreementDelegationParentHash}/delegations?status=active`
+    });
+    assert.equal(listAgreementDelegationsAfterRestart.statusCode, 200, listAgreementDelegationsAfterRestart.body);
+    assert.equal(listAgreementDelegationsAfterRestart.json?.delegations?.some((row) => row.delegationId === agreementDelegationId), true);
 
     const listAuthorityGrants = await tenantRequest(apiB, {
       tenantId: tenantA,
