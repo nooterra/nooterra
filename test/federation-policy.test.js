@@ -117,3 +117,8 @@ test("federation policy: validate envelope bad-request codes stay aligned with s
   assert.deepEqual([...invokeCodes].sort(), [...invokeExpected].sort());
   assert.deepEqual([...resultCodes].sort(), [...resultExpected].sort());
 });
+
+test("federation policy: explicit fallback denied code is documented in 403 catalogs", () => {
+  assert.ok(FEDERATION_OPENAPI_ERROR_CODES.invoke[403].includes(FEDERATION_ERROR_CODE.REQUEST_DENIED));
+  assert.ok(FEDERATION_OPENAPI_ERROR_CODES.result[403].includes(FEDERATION_ERROR_CODE.REQUEST_DENIED));
+});
