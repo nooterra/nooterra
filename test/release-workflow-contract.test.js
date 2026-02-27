@@ -58,3 +58,24 @@ test("release workflow contract: upload release notes artifact step is present",
   assert.match(text, /\/tmp\/release-notes\.md/);
   assert.match(text, /\/tmp\/release-notes\.json/);
 });
+
+test("release workflow contract: release gate includes protocol drift gate command and pinned outputs", async () => {
+  const text = await readWorkflow();
+  assert.match(text, /name: Enforce protocol compatibility drift gate/);
+  assert.match(text, /node scripts\/ci\/run-protocol-compatibility-drift-gate\.mjs/);
+  assert.match(text, /--matrix-report artifacts\/gates\/protocol-compatibility-matrix-release-gate\.json/);
+  assert.match(text, /--report artifacts\/gates\/protocol-compatibility-drift-gate-release-gate\.json/);
+  assert.match(text, /name: release-deploy-safety-\$\{\{ github\.run_id \}\}/);
+  assert.match(text, /artifacts\/gates\/protocol-compatibility-matrix-release-gate\.json/);
+  assert.match(text, /artifacts\/gates\/protocol-compatibility-drift-gate-release-gate\.json/);
+});
+
+test("release workflow contract: release gate readiness guard waits for healthz before hosted baseline evidence", async () => {
+  const text = await readWorkflow();
+  assert.match(text, /name: Wait for readiness/);
+  assert.match(text, /curl -fsS "http:\/\/127\.0\.0\.1:3000\/healthz"/);
+  assert.match(text, /echo "server did not become ready" >&2/);
+  assert.match(text, /name: Run hosted baseline evidence gate \(backup\/restore required\)/);
+  assert.match(text, /npm run -s ops:hosted-baseline:evidence -- \\/);
+  assert.match(text, /--out artifacts\/ops\/hosted-baseline-release-gate\.json/);
+});
