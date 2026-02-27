@@ -92,6 +92,51 @@
       "invariantIds": ["REL-005"]
     },
     {
+      "id": "release_fail_signer_not_yet_valid",
+      "description": "Release verification fail: signer not valid yet for release signatureTime",
+      "releaseDir": "releases/release_pass",
+      "trustFile": "release-trust-not-yet-valid.json",
+      "expected": {
+        "exitCode": 4,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_SIGNER_UNAUTHORIZED", "RELEASE_SIGNATURE_QUORUM_NOT_SATISFIED"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-007"]
+    },
+    {
+      "id": "release_fail_rotated_out_signer",
+      "description": "Release verification fail: old signer rotated out by trust time window",
+      "releaseDir": "releases/release_pass",
+      "trustFile": "release-trust-rotation-window.json",
+      "expected": {
+        "exitCode": 4,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_SIGNER_UNAUTHORIZED", "RELEASE_SIGNATURE_QUORUM_NOT_SATISFIED"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-007"]
+    },
+    {
+      "id": "release_pass_rotated_signer",
+      "description": "Release verification pass: rotated-in signer accepted in trust time window",
+      "releaseDir": "releases/release_pass_rotated_signer",
+      "trustFile": "release-trust-rotation-window.json",
+      "expected": {
+        "exitCode": 0,
+        "ok": true,
+        "signatureOk": true,
+        "artifactsOk": true,
+        "errors": [],
+        "warnings": []
+      },
+      "invariantIds": ["REL-001", "REL-007"]
+    },
+    {
       "id": "release_fail_quorum_not_satisfied",
       "description": "Release verification fail: signature quorum not satisfied",
       "releaseDir": "releases/release_pass",
@@ -108,4 +153,3 @@
     }
   ]
 }
-

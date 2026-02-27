@@ -376,6 +376,15 @@ These invariants cover the release authenticity surface (ReleaseIndex + release 
 - **Evidence**:
   - Conformance (release): `release_fail_quorum_not_satisfied`
 
+### REL-007 (P0) — Release signer time windows enforce rotation cutovers deterministically
+
+- **Statement**: If a release signer key is outside its `notBeforeEpochSeconds`/`notAfterEpochSeconds` trust window at `ReleaseIndex.v1.toolchain.buildEpochSeconds`, verification MUST fail with `RELEASE_SIGNER_UNAUTHORIZED`; rotated-in keys that are valid at that time MUST pass.
+- **Specified**: `ReleaseTrust.v2.md`, `ReleaseIndex.v1.md`
+- **Evidence**:
+  - Conformance (release): `release_fail_signer_not_yet_valid`
+  - Conformance (release): `release_fail_rotated_out_signer`
+  - Conformance (release): `release_pass_rotated_signer`
+
 ## Warning code checklist (closed set)
 
 Warning codes are a **contract** (stable identifiers). See `WARNINGS.md`.

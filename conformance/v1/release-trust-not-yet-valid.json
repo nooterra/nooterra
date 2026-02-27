@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "ReleaseTrust.v2",
+  "policy": {
+    "minSignatures": 1
+  },
+  "keys": [
+    {
+      "keyId": "key_282c80df2381d6831a92e89b",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\n-----END PUBLIC KEY-----\n",
+      "notBeforeEpochSeconds": 1700000100,
+      "comment": "signer key not yet valid at release signatureTime"
+    }
+  ]
+}
