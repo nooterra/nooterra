@@ -72,6 +72,50 @@ async function setX402AgentLifecycle(
   return response;
 }
 
+async function createTaintedSession(api, { sessionId, participantAgentId }) {
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": `session_create_${sessionId}`,
+      "x-proxy-principal-id": participantAgentId
+    },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [participantAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const tainted = await request(api, {
+    method: "POST",
+    path: `/sessions/${encodeURIComponent(sessionId)}/events`,
+    headers: {
+      "x-idempotency-key": `session_taint_event_${sessionId}`,
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": participantAgentId
+    },
+    body: {
+      eventType: "MESSAGE",
+      payload: { text: "untrusted payload for work-order settlement risk path" },
+      provenance: { label: "external" }
+    }
+  });
+  assert.equal(tainted.statusCode, 201, tainted.body);
+  assert.equal(tainted.json?.event?.payload?.provenance?.isTainted, true);
+
+  const eventId = typeof tainted.json?.event?.id === "string" ? tainted.json.event.id : null;
+  const chainHash = typeof tainted.json?.event?.chainHash === "string" ? tainted.json.event.chainHash : null;
+  const evidenceRefs = [];
+  if (eventId) evidenceRefs.push(`session:event:${eventId}`);
+  if (chainHash) evidenceRefs.push(`session:chain:${chainHash}`);
+  return {
+    sessionRef: sessionId,
+    evidenceRefs
+  };
+}
+
 test("API e2e: SubAgentWorkOrder.v1 lifecycle create->accept->progress->complete->settle", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -869,4 +913,136 @@ test("API e2e: work-order settlement evidence binding blocks missing/mismatched 
   assert.equal(settleValid.statusCode, 200, settleValid.body);
   assert.equal(settleValid.json?.workOrder?.status, "settled");
   assert.equal(settleValid.json?.workOrder?.settlement?.status, "released");
+});
+
+test("API e2e: work-order settlement enforces taint-aware prompt-risk gates without a stored x402 gate record", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    x402SessionTaintEscalateAmountCents: 1_000
+  });
+  const principalAgentId = "agt_workord_taint_principal_1";
+  const subAgentId = "agt_workord_taint_worker_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["code.generation", "orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+  const taintedSession = await createTaintedSession(api, {
+    sessionId: "sess_workord_taint_1",
+    participantAgentId: principalAgentId
+  });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_taint_1" },
+    body: {
+      workOrderId: "workord_taint_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 700, currency: "USD" }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_taint_1/accept",
+    headers: { "x-idempotency-key": "work_order_accept_taint_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-24T03:10:00.000Z"
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_taint_1/complete",
+    headers: { "x-idempotency-key": "work_order_complete_taint_1" },
+    body: {
+      receiptId: "worec_taint_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://code/workord/taint/1" },
+      evidenceRefs: ["artifact://code/workord/taint/1", "report://verification/workord/taint/1"],
+      amountCents: 700,
+      currency: "USD",
+      deliveredAt: "2026-02-24T03:20:00.000Z",
+      completedAt: "2026-02-24T03:21:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+
+  const blockedChallenge = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_taint_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_taint_challenge_block_1" },
+    body: {
+      completionReceiptId: "worec_taint_1",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_workord_taint_1",
+      x402RunId: "run_workord_taint_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_workord_taint_1",
+      sessionRef: taintedSession.sessionRef,
+      settledAt: "2026-02-24T03:30:00.000Z"
+    }
+  });
+  assert.equal(blockedChallenge.statusCode, 409, blockedChallenge.body);
+  assert.equal(blockedChallenge.json?.code, "X402_PROMPT_RISK_FORCE_CHALLENGE");
+
+  const blockedMissingProvenanceEvidence = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_taint_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_taint_evidence_block_1" },
+    body: {
+      completionReceiptId: "worec_taint_1",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_workord_taint_1",
+      x402RunId: "run_workord_taint_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_workord_taint_1",
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "manual review complete for tainted work order settlement",
+        ticketRef: "INC-WORKORD-TAINT-1"
+      },
+      settledAt: "2026-02-24T03:31:00.000Z"
+    }
+  });
+  assert.equal(blockedMissingProvenanceEvidence.statusCode, 409, blockedMissingProvenanceEvidence.body);
+  assert.equal(blockedMissingProvenanceEvidence.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(blockedMissingProvenanceEvidence.json?.details?.reasonCode, "WORK_ORDER_PROMPT_RISK_EVIDENCE_REQUIRED");
+  assert.deepEqual(
+    [...(blockedMissingProvenanceEvidence.json?.details?.missingEvidenceRefs ?? [])].sort((a, b) => a.localeCompare(b)),
+    [...taintedSession.evidenceRefs].sort((a, b) => a.localeCompare(b))
+  );
+
+  const settled = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_taint_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_taint_pass_1" },
+    body: {
+      completionReceiptId: "worec_taint_1",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_workord_taint_1",
+      x402RunId: "run_workord_taint_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_workord_taint_1",
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "manual review complete for tainted work order settlement",
+        ticketRef: "INC-WORKORD-TAINT-2"
+      },
+      evidenceRefs: [...taintedSession.evidenceRefs],
+      settledAt: "2026-02-24T03:32:00.000Z"
+    }
+  });
+  assert.equal(settled.statusCode, 200, settled.body);
+  assert.equal(settled.json?.workOrder?.status, "settled");
+  assert.equal(settled.json?.workOrder?.settlement?.status, "released");
 });

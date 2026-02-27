@@ -56686,14 +56686,15 @@ export function createApi({
 	            }
 	          }
 	          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
-          const sessionPromptRisk = linkedX402Gate
+          const promptRiskSessionRef =
+            sessionRef ??
+            (typeof linkedX402Gate?.sessionRef === "string" && linkedX402Gate.sessionRef.trim() !== ""
+              ? linkedX402Gate.sessionRef.trim()
+              : null);
+          const sessionPromptRisk = promptRiskSessionRef
             ? await resolveSessionPromptRiskSignalsForX402({
                 tenantId,
-                sessionRef:
-                  sessionRef ??
-                  (typeof linkedX402Gate?.sessionRef === "string" && linkedX402Gate.sessionRef.trim() !== ""
-                    ? linkedX402Gate.sessionRef.trim()
-                    : null),
+                sessionRef: promptRiskSessionRef,
                 amountCents: settlementAmountCentsForRisk
               })
             : {
@@ -56713,21 +56714,19 @@ export function createApi({
           }
 	          const promptRiskEvaluationAt = nowIso();
           const effectivePromptRiskSignals = mergeX402PromptRiskSignals(promptRiskSignals, sessionPromptRisk.promptRiskSignals);
-	          const promptRiskEvaluation = linkedX402Gate
-	            ? evaluateX402PromptRiskGuardrail({
-	                gate: linkedX402Gate,
-                principalId,
-                promptRiskSignals: effectivePromptRiskSignals,
-                promptRiskOverride,
-                forcedModeOverride: sessionPromptRisk.forcedMode,
-                at: promptRiskEvaluationAt
-              })
-            : null;
+	          const promptRiskEvaluation = evaluateX402PromptRiskGuardrail({
+              gate: linkedX402Gate ?? null,
+              principalId,
+              promptRiskSignals: effectivePromptRiskSignals,
+              promptRiskOverride,
+              forcedModeOverride: sessionPromptRisk.forcedMode,
+              at: promptRiskEvaluationAt
+            });
           if (
             settlementStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED &&
-            promptRiskEvaluation?.blocked
+            promptRiskEvaluation.blocked
           ) {
-            if (promptRiskEvaluation.changed && promptRiskEvaluation.nextState) {
+            if (linkedX402Gate && promptRiskEvaluation.changed && promptRiskEvaluation.nextState) {
               const blockedGate = normalizeForCanonicalJson(
                 {
                   ...linkedX402Gate,
@@ -56749,8 +56748,8 @@ export function createApi({
               {
                 gateId: x402GateId,
                 workOrderId,
-                forcedMode: promptRiskEvaluation?.forcedMode ?? null,
-                suspicious: promptRiskEvaluation?.suspicious === true,
+                forcedMode: promptRiskEvaluation.forcedMode ?? null,
+                suspicious: promptRiskEvaluation.suspicious === true,
                 overrideRequired: true
               },
               { code: promptRiskEvaluation.code }
