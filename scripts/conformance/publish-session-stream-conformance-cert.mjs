@@ -152,6 +152,9 @@ function validateConformanceArtifacts({ report, certBundle, caseId }) {
   if (certCore.pack !== CONFORMANCE_PACK) {
     throw new Error(`conformance certCore pack mismatch: expected ${CONFORMANCE_PACK} got ${String(certCore.pack ?? "null")}`);
   }
+  if (String(certCore.reportSchemaVersion ?? "") !== String(report.schemaVersion ?? "")) {
+    throw new Error("conformance certCore.reportSchemaVersion mismatch with report schemaVersion");
+  }
 
   const computedReportHash = sha256Hex(canonicalJsonStringify(reportCore));
   if (String(report.reportHash ?? "") !== computedReportHash) {
@@ -198,7 +201,7 @@ function buildConformanceRunnerArgs(args, reportPath, certPath) {
     runnerArgs.push("--adapter-bin", args.adapterBin);
   }
   if (args.caseId) runnerArgs.push("--case", args.caseId);
-  runnerArgs.push("--json-out", reportPath, "--cert-bundle-out", certPath);
+  runnerArgs.push("--json-out", reportPath, "--cert-bundle-out", certPath, "--strict-artifacts");
   return runnerArgs;
 }
 
