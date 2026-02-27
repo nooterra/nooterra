@@ -16,6 +16,12 @@ This repo contains multiple verifier implementations that are expected to agree 
 - Adapter contract runner: `node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs`
 - This validates deterministic `SessionReplayPack.v1` + `SessionTranscript.v1` materialization/signing against fixed vectors and emits hash-bound cert bundles.
 
+### Session stream adapter conformance (Node reference)
+
+- Adapter contract runner: `node conformance/session-stream-v1/run.mjs --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs`
+- Publication runner (normalized report/cert + publication manifest):
+  - `node scripts/conformance/publish-session-stream-conformance-cert.mjs --runtime-id nooterra-reference-node --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs`
+
 ## Python
 
 - CLI: `reference/verifier-py/nooterra-verify-py`

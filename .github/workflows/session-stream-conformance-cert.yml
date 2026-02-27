@@ -1,0 +1,39 @@
+name: session_stream_conformance_cert
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_id:
+        description: Runtime identifier for publication artifacts
+        required: true
+        default: nooterra-reference-node
+
+jobs:
+  publish_session_stream_conformance_cert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build session stream conformance publication artifacts
+        run: |
+          set -euo pipefail
+          node scripts/conformance/publish-session-stream-conformance-cert.mjs \
+            --runtime-id "${{ inputs.runtime_id }}" \
+            --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs \
+            --out-dir "artifacts/conformance/session-stream-v1/${{ inputs.runtime_id }}"
+
+      - name: Upload session stream conformance publication artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-stream-conformance-cert-${{ inputs.runtime_id }}-${{ github.run_id }}
+          path: artifacts/conformance/session-stream-v1/${{ inputs.runtime_id }}
+          if-no-files-found: error

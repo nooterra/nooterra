@@ -25,6 +25,13 @@ Repo checkout:
 ./bin/nooterra.js conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
 ```
 
+Session stream adapter conformance + cert publication:
+
+```bash
+npm run conformance:session-stream:v1
+npm run conformance:session-stream:v1:publish
+```
+
 ## Minimum assertions expected
 
 - kernel artifact chain is complete

@@ -54,3 +54,39 @@ node conformance/session-stream-v1/run.mjs \
   --json-out /tmp/nooterra-session-stream-conformance-report.json \
   --cert-bundle-out /tmp/nooterra-session-stream-conformance-cert.json
 ```
+
+## Third-Party Onboarding + Cert Publication
+
+Use this when integrating a non-Nooterra runtime adapter.
+
+1. Implement adapter stdin/stdout contract:
+   - input: `SessionStreamConformanceRequest.v1`
+   - output: `SessionStreamConformanceResponse.v1`
+2. Run the pack until all vectors pass.
+3. Publish normalized conformance artifacts bound by hashes:
+
+```sh
+node scripts/conformance/publish-session-stream-conformance-cert.mjs \
+  --runtime-id <runtime-id> \
+  --adapter-node-bin <path/to/adapter.mjs> \
+  --out-dir artifacts/conformance/session-stream-v1/<runtime-id>
+```
+
+Repo-hosted publication lane (manual):
+
+- GitHub Actions workflow: `.github/workflows/session-stream-conformance-cert.yml`
+- Input: `runtime_id`
+- Output artifact: `session-stream-conformance-cert-<runtime_id>-<run_id>`
+
+Generated files:
+
+- `session-stream-conformance-report.json`
+- `session-stream-conformance-cert.json`
+- `session-stream-conformance-publication.json`
+
+Fail-closed guarantees:
+
+- report/cert schema versions must match expected versions,
+- `reportHash`/`certHash` must match canonical cores,
+- cert bundle must bind the same `reportCore`/`reportHash`,
+- run summary must be `ok=true`.

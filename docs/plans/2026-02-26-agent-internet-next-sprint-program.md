@@ -108,7 +108,18 @@ Completed slice:
 - `node --test test/release-promotion-guard-script.test.js test/release-promotion-guard-e2e-materialized.test.js`
 - `node --test test/build-release-notes-from-gates-script.test.js test/release-cutover-audit-view-script.test.js test/release-workflow-contract.test.js`
 
+Completed slice:
+1. `NOO-221` ACS-NS2 third-party adapter onboarding + cert publication workflow (Done).
+2. Delivered:
+- `scripts/conformance/publish-session-stream-conformance-cert.mjs`: fail-closed publication script that runs `session-stream-v1`, validates hash/core bindings, and emits normalized report/cert/publication artifacts.
+- `test/session-stream-conformance-publication-script.test.js`: deterministic publication + fail-closed argument validation coverage.
+- `.github/workflows/session-stream-conformance-cert.yml`: manual publication lane emitting runtime-scoped cert artifacts.
+- `conformance/session-stream-v1/README.md`: onboarding + publication procedure.
+- `docs/spec/REFERENCE_IMPLEMENTATIONS.md` and `docs/gitbook/conformance.md`: operator-facing commands for publication workflow.
+3. Validation:
+- `node --test test/session-stream-conformance-publication-script.test.js`
+
 ## 7) Immediate Next Build Items
-1. NS2: add third-party adapter onboarding docs + cert publication workflow for `conformance/session-stream-v1`.
-2. NS3: tighten settlement/dispute evidence binding checks for edge-case reversals.
-3. NS3: add dispute-time replay/lineage parity checks for reversal adjudication.
+1. NS3: tighten settlement/dispute evidence binding checks for edge-case reversals.
+2. NS3: add dispute-time replay/lineage parity checks for reversal adjudication.
+3. NS3: add settlement/dispute cert-bundle publication checks into release note and cutover summaries.
