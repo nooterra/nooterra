@@ -57847,6 +57847,35 @@ export function createApi({
           }
           return { arbitrationCase };
         };
+        const enforceArbitrationSettlementBindingEvidence = ({
+          operation,
+          evidenceRefs,
+          disputeIdOverride = null,
+          caseIdOverride = null,
+          requiredCode,
+          mismatchCode
+        }) => {
+          const bindingCheck = evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs });
+          if (bindingCheck.ok) return false;
+          const mismatchDetails = {
+            operation,
+            runId,
+            disputeId: disputeIdOverride ?? disputeId ?? settlement?.disputeId ?? null,
+            expectedRequestSha256: bindingCheck.expectedRequestSha256
+          };
+          if (caseIdOverride) mismatchDetails.caseId = caseIdOverride;
+          if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+          sendError(
+            res,
+            409,
+            bindingCheck.reason === "required"
+              ? "request-hash evidence required for settlement binding"
+              : "request-hash evidence mismatch for settlement binding",
+            mismatchDetails,
+            { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
+          );
+          return true;
+        };
 
         if (action === "open") {
           if (String(settlement?.disputeStatus ?? "").toLowerCase() !== AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.OPEN) {
@@ -57906,6 +57935,14 @@ export function createApi({
             arbiterAgentId
           });
           if (openLifecycleGuardError) return;
+          const openBindingBlocked = enforceArbitrationSettlementBindingEvidence({
+            operation: "run_arbitration.open",
+            evidenceRefs,
+            caseIdOverride: caseId,
+            requiredCode: "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (openBindingBlocked) return;
 
           const arbitrationCase = normalizeForCanonicalJson(
             {
@@ -58031,6 +58068,15 @@ export function createApi({
             arbiterAgentId
           });
           if (assignLifecycleGuardError) return;
+          const assignBindingBlocked = enforceArbitrationSettlementBindingEvidence({
+            operation: "run_arbitration.assign",
+            evidenceRefs: Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : [],
+            disputeIdOverride: arbitrationCase?.disputeId ?? disputeId,
+            caseIdOverride: caseId,
+            requiredCode: "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (assignBindingBlocked) return;
 
           let nextStatus;
           try {
@@ -58099,6 +58145,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid arbitration evidence", { message: err?.message });
           }
+          const evidenceBindingBlocked = enforceArbitrationSettlementBindingEvidence({
+            operation: "run_arbitration.evidence",
+            evidenceRefs: mergeUniqueStringArrays([evidenceRef], Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : []),
+            disputeIdOverride: arbitrationCase?.disputeId ?? disputeId,
+            caseIdOverride: caseId,
+            requiredCode: "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (evidenceBindingBlocked) return;
           let nextStatus = arbitrationCase.status;
           try {
             nextStatus = ensureArbitrationCaseStatusTransition({
@@ -58769,6 +58824,27 @@ export function createApi({
             resolutionInput.closedByAgentId = signedArbitrationVerdict.arbiterAgentId ?? null;
           }
         }
+        const enforceDisputeSettlementBindingEvidence = ({ operation, evidenceRefs, requiredCode, mismatchCode }) => {
+          const bindingCheck = evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs });
+          if (bindingCheck.ok) return false;
+          const mismatchDetails = {
+            operation,
+            runId,
+            disputeId: body?.disputeId ?? settlement?.disputeId ?? null,
+            expectedRequestSha256: bindingCheck.expectedRequestSha256
+          };
+          if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+          sendError(
+            res,
+            409,
+            bindingCheck.reason === "required"
+              ? "request-hash evidence required for settlement binding"
+              : "request-hash evidence mismatch for settlement binding",
+            mismatchDetails,
+            { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
+          );
+          return true;
+        };
         if (action === "open") {
           const openLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
             tenantId,
@@ -58788,6 +58864,13 @@ export function createApi({
               { code: openLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
             );
           }
+          const openBindingBlocked = enforceDisputeSettlementBindingEvidence({
+            operation: "run_dispute.open",
+            evidenceRefs: Array.isArray(disputeContextInput?.evidenceRefs) ? disputeContextInput.evidenceRefs : [],
+            requiredCode: "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (openBindingBlocked) return;
         }
 
         if (action === "open" || action === "close") {
@@ -58895,6 +58978,13 @@ export function createApi({
               { code: evidenceLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
             );
           }
+          const evidenceBindingBlocked = enforceDisputeSettlementBindingEvidence({
+            operation: "run_dispute.evidence",
+            evidenceRefs: mergeUniqueStringArrays([evidenceRef], Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : []),
+            requiredCode: "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (evidenceBindingBlocked) return;
           try {
             settlement = patchAgentRunSettlementDisputeContext({
               settlement,
@@ -58982,6 +59072,13 @@ export function createApi({
               { code: escalateLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
             );
           }
+          const escalateBindingBlocked = enforceDisputeSettlementBindingEvidence({
+            operation: "run_dispute.escalate",
+            evidenceRefs: Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : [],
+            requiredCode: "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (escalateBindingBlocked) return;
           try {
             settlement = patchAgentRunSettlementDisputeContext({
               settlement,

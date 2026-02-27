@@ -31951,20 +31951,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+              "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+                                "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -32709,20 +32738,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+              "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+                                "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -33001,20 +33059,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
+              "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
+                                "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -33291,20 +33378,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+              "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+                                "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -35171,20 +35287,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED",
+              "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED",
+                                "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -36345,20 +36490,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+              "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+                                "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -36835,20 +37009,49 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED",
+              "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED",
+                                "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

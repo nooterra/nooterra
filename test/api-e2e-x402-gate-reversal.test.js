@@ -179,6 +179,65 @@ function signProviderRefundDecision({
   });
 }
 
+function assertBindingEvidenceConflict(response, { code, operation, expectedRequestSha256, requestSha256 = null }) {
+  assert.equal(response.statusCode, 409, response.body);
+  assert.equal(response.json?.code, code);
+  assert.equal(response.json?.details?.operation, operation);
+  assert.equal(response.json?.details?.expectedRequestSha256, expectedRequestSha256);
+  if (requestSha256 === null) {
+    assert.equal(response.json?.details?.requestSha256 ?? null, null);
+  } else {
+    assert.equal(response.json?.details?.requestSha256, requestSha256);
+  }
+}
+
+function overwriteArbitrationCaseEvidenceRefs(api, { caseId, evidenceRefs }) {
+  assert.ok(api?.store?.arbitrationCases instanceof Map, "arbitrationCases map is required for test setup");
+  let scopedCaseKey = null;
+  for (const [candidateKey, row] of api.store.arbitrationCases.entries()) {
+    if (row && typeof row === "object" && String(row.caseId ?? "") === String(caseId)) {
+      scopedCaseKey = candidateKey;
+      break;
+    }
+  }
+  assert.ok(scopedCaseKey, `arbitration case not found for setup: ${caseId}`);
+  const prior = api.store.arbitrationCases.get(scopedCaseKey);
+  const next = normalizeForCanonicalJson(
+    {
+      ...prior,
+      evidenceRefs: Array.isArray(evidenceRefs) ? evidenceRefs.slice() : []
+    },
+    { path: "$" }
+  );
+  api.store.arbitrationCases.set(scopedCaseKey, next);
+}
+
+function overwriteSettlementDisputeEvidenceRefs(api, { runId, evidenceRefs }) {
+  assert.ok(api?.store?.agentRunSettlements instanceof Map, "agentRunSettlements map is required for test setup");
+  let scopedSettlementKey = null;
+  for (const [candidateKey, row] of api.store.agentRunSettlements.entries()) {
+    if (row && typeof row === "object" && String(row.runId ?? "") === String(runId)) {
+      scopedSettlementKey = candidateKey;
+      break;
+    }
+  }
+  assert.ok(scopedSettlementKey, `run settlement not found for setup: ${runId}`);
+  const prior = api.store.agentRunSettlements.get(scopedSettlementKey);
+  const priorDisputeContext =
+    prior?.disputeContext && typeof prior.disputeContext === "object" && !Array.isArray(prior.disputeContext) ? prior.disputeContext : {};
+  const next = normalizeForCanonicalJson(
+    {
+      ...prior,
+      disputeContext: {
+        ...priorDisputeContext,
+        evidenceRefs: Array.isArray(evidenceRefs) ? evidenceRefs.slice() : []
+      }
+    },
+    { path: "$" }
+  );
+  api.store.agentRunSettlements.set(scopedSettlementKey, next);
+}
+
 test("API e2e: x402 reversal void_authorization refunds locked gate before execution", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const payer = await registerAgent(api, { agentId: "agt_x402_void_payer_1" });
@@ -733,7 +792,7 @@ test("API e2e: run dispute close fails closed on missing or mismatched settlemen
       escalationLevel: "l1_counterparty",
       openedByAgentId: operator.agentId,
       reason: "binding validation",
-      evidenceRefs: ["evidence://x402/dispute-binding/context.json"]
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "evidence://x402/dispute-binding/context.json"]
     }
   });
   assert.equal(openDispute.statusCode, 200, openDispute.body);
@@ -782,6 +841,574 @@ test("API e2e: run dispute close fails closed on missing or mismatched settlemen
   });
   assert.equal(closeSuccess.statusCode, 200, closeSuccess.body);
   assert.equal(closeSuccess.json?.settlement?.disputeStatus, "closed");
+});
+
+test("API e2e: run arbitration open/assign/evidence fail closed on missing or mismatched settlement request-hash evidence", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_arb_ops_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_arb_ops_binding_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_arb_ops_binding_operator_1" });
+  const arbiter = await registerAgent(api, { agentId: "agt_x402_arb_ops_binding_arbiter_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 60000, idempotencyKey: "wallet_credit_x402_arb_ops_binding_1" });
+
+  async function setupRun({ seed, verifyRequestSha256 }) {
+    const gateId = `x402gate_arb_ops_binding_${seed}`;
+    const created = await request(api, {
+      method: "POST",
+      path: "/x402/gate/create",
+      headers: { "x-idempotency-key": `x402_gate_create_arb_ops_binding_${seed}` },
+      body: {
+        gateId,
+        payerAgentId: payer.agentId,
+        payeeAgentId: payee.agentId,
+        amountCents: 650,
+        currency: "USD",
+        toolId: "mock_search",
+        disputeWindowDays: 2
+      }
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const authorized = await request(api, {
+      method: "POST",
+      path: "/x402/gate/authorize-payment",
+      headers: { "x-idempotency-key": `x402_gate_authorize_arb_ops_binding_${seed}` },
+      body: { gateId }
+    });
+    assert.equal(authorized.statusCode, 200, authorized.body);
+    const verify = await request(api, {
+      method: "POST",
+      path: "/x402/gate/verify",
+      headers: { "x-idempotency-key": `x402_gate_verify_arb_ops_binding_${seed}` },
+      body: {
+        gateId,
+        verificationStatus: "green",
+        runStatus: "completed",
+        policy: autoPolicy100(),
+        verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+        evidenceRefs: [`http:request_sha256:${verifyRequestSha256}`, `http:response_sha256:${"c".repeat(64)}`]
+      }
+    });
+    assert.equal(verify.statusCode, 200, verify.body);
+    const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+    assert.equal(gateRead.statusCode, 200, gateRead.body);
+    const runId = gateRead.json?.settlement?.runId;
+    assert.ok(typeof runId === "string" && runId.length > 0);
+    const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+    assert.ok(bindings.requestSha256);
+    return {
+      runId,
+      disputeId: `dsp_x402_arb_ops_binding_${seed}`,
+      caseId: `arb_case_x402_arb_ops_binding_${seed}`,
+      requestSha256: bindings.requestSha256
+    };
+  }
+
+  async function openDispute({ runId, disputeId, idempotencyKey, reason, evidenceRefs }) {
+    return await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+      headers: { "x-idempotency-key": idempotencyKey },
+      body: {
+        disputeId,
+        disputeType: "quality",
+        disputePriority: "high",
+        disputeChannel: "arbiter",
+        escalationLevel: "l2_arbiter",
+        openedByAgentId: operator.agentId,
+        reason,
+        evidenceRefs
+      }
+    });
+  }
+
+  async function openArbitrationCase({ runId, disputeId, caseId, idempotencyKey, evidenceRefs }) {
+    return await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/arbitration/open`,
+      headers: { "x-idempotency-key": idempotencyKey },
+      body: {
+        caseId,
+        disputeId,
+        arbiterAgentId: arbiter.agentId,
+        evidenceRefs
+      }
+    });
+  }
+
+  const arbOpenRequired = await setupRun({
+    seed: "open_required_1",
+    verifyRequestSha256: "1".repeat(64)
+  });
+  const arbOpenRequiredContextRef = "evidence://x402/arb-open-required/context.json";
+  const openDisputeForArbOpenRequired = await openDispute({
+    runId: arbOpenRequired.runId,
+    disputeId: arbOpenRequired.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_open_required_1",
+    reason: "prepare arbitration open required check",
+    evidenceRefs: [`http:request_sha256:${arbOpenRequired.requestSha256}`, arbOpenRequiredContextRef]
+  });
+  assert.equal(openDisputeForArbOpenRequired.statusCode, 200, openDisputeForArbOpenRequired.body);
+  const arbitrationOpenRequired = await openArbitrationCase({
+    runId: arbOpenRequired.runId,
+    disputeId: arbOpenRequired.disputeId,
+    caseId: arbOpenRequired.caseId,
+    idempotencyKey: "x402_arb_open_required_1",
+    evidenceRefs: [arbOpenRequiredContextRef]
+  });
+  assertBindingEvidenceConflict(arbitrationOpenRequired, {
+    code: "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_arbitration.open",
+    expectedRequestSha256: arbOpenRequired.requestSha256
+  });
+
+  const arbOpenMismatch = await setupRun({
+    seed: "open_mismatch_1",
+    verifyRequestSha256: "2".repeat(64)
+  });
+  const arbOpenMismatchSha = "3".repeat(64);
+  const arbOpenMismatchContextRef = "evidence://x402/arb-open-mismatch/context.json";
+  const openDisputeForArbOpenMismatch = await openDispute({
+    runId: arbOpenMismatch.runId,
+    disputeId: arbOpenMismatch.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_open_mismatch_1",
+    reason: "prepare arbitration open mismatch check",
+    evidenceRefs: [
+      `http:request_sha256:${arbOpenMismatch.requestSha256}`,
+      `http:request_sha256:${arbOpenMismatchSha}`,
+      arbOpenMismatchContextRef
+    ]
+  });
+  assert.equal(openDisputeForArbOpenMismatch.statusCode, 200, openDisputeForArbOpenMismatch.body);
+  const arbitrationOpenMismatch = await openArbitrationCase({
+    runId: arbOpenMismatch.runId,
+    disputeId: arbOpenMismatch.disputeId,
+    caseId: arbOpenMismatch.caseId,
+    idempotencyKey: "x402_arb_open_mismatch_1",
+    evidenceRefs: [`http:request_sha256:${arbOpenMismatchSha}`]
+  });
+  assertBindingEvidenceConflict(arbitrationOpenMismatch, {
+    code: "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_arbitration.open",
+    expectedRequestSha256: arbOpenMismatch.requestSha256,
+    requestSha256: arbOpenMismatchSha
+  });
+
+  const arbAssignRequired = await setupRun({
+    seed: "assign_required_1",
+    verifyRequestSha256: "4".repeat(64)
+  });
+  const openDisputeForArbAssignRequired = await openDispute({
+    runId: arbAssignRequired.runId,
+    disputeId: arbAssignRequired.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_assign_required_1",
+    reason: "prepare arbitration assign required check",
+    evidenceRefs: [`http:request_sha256:${arbAssignRequired.requestSha256}`, "evidence://x402/arb-assign-required/context.json"]
+  });
+  assert.equal(openDisputeForArbAssignRequired.statusCode, 200, openDisputeForArbAssignRequired.body);
+  const openCaseForArbAssignRequired = await openArbitrationCase({
+    runId: arbAssignRequired.runId,
+    disputeId: arbAssignRequired.disputeId,
+    caseId: arbAssignRequired.caseId,
+    idempotencyKey: "x402_arb_open_assign_required_1",
+    evidenceRefs: [`http:request_sha256:${arbAssignRequired.requestSha256}`]
+  });
+  assert.equal(openCaseForArbAssignRequired.statusCode, 201, openCaseForArbAssignRequired.body);
+  overwriteArbitrationCaseEvidenceRefs(api, {
+    caseId: arbAssignRequired.caseId,
+    evidenceRefs: ["evidence://x402/arb-assign-required/no-request-hash.json"]
+  });
+  const arbitrationAssignRequired = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(arbAssignRequired.runId)}/arbitration/assign`,
+    headers: { "x-idempotency-key": "x402_arb_assign_required_1" },
+    body: {
+      caseId: arbAssignRequired.caseId,
+      arbiterAgentId: arbiter.agentId
+    }
+  });
+  assertBindingEvidenceConflict(arbitrationAssignRequired, {
+    code: "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_arbitration.assign",
+    expectedRequestSha256: arbAssignRequired.requestSha256
+  });
+
+  const arbAssignMismatch = await setupRun({
+    seed: "assign_mismatch_1",
+    verifyRequestSha256: "5".repeat(64)
+  });
+  const arbAssignMismatchSha = "6".repeat(64);
+  const openDisputeForArbAssignMismatch = await openDispute({
+    runId: arbAssignMismatch.runId,
+    disputeId: arbAssignMismatch.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_assign_mismatch_1",
+    reason: "prepare arbitration assign mismatch check",
+    evidenceRefs: [`http:request_sha256:${arbAssignMismatch.requestSha256}`, `http:request_sha256:${arbAssignMismatchSha}`]
+  });
+  assert.equal(openDisputeForArbAssignMismatch.statusCode, 200, openDisputeForArbAssignMismatch.body);
+  const openCaseForArbAssignMismatch = await openArbitrationCase({
+    runId: arbAssignMismatch.runId,
+    disputeId: arbAssignMismatch.disputeId,
+    caseId: arbAssignMismatch.caseId,
+    idempotencyKey: "x402_arb_open_assign_mismatch_1",
+    evidenceRefs: [`http:request_sha256:${arbAssignMismatch.requestSha256}`]
+  });
+  assert.equal(openCaseForArbAssignMismatch.statusCode, 201, openCaseForArbAssignMismatch.body);
+  overwriteArbitrationCaseEvidenceRefs(api, {
+    caseId: arbAssignMismatch.caseId,
+    evidenceRefs: [`http:request_sha256:${arbAssignMismatchSha}`]
+  });
+  const arbitrationAssignMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(arbAssignMismatch.runId)}/arbitration/assign`,
+    headers: { "x-idempotency-key": "x402_arb_assign_mismatch_1" },
+    body: {
+      caseId: arbAssignMismatch.caseId,
+      arbiterAgentId: arbiter.agentId
+    }
+  });
+  assertBindingEvidenceConflict(arbitrationAssignMismatch, {
+    code: "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_arbitration.assign",
+    expectedRequestSha256: arbAssignMismatch.requestSha256,
+    requestSha256: arbAssignMismatchSha
+  });
+
+  const arbEvidenceRequired = await setupRun({
+    seed: "evidence_required_1",
+    verifyRequestSha256: "7".repeat(64)
+  });
+  const arbEvidenceRequiredContextA = "evidence://x402/arb-evidence-required/context-a.json";
+  const arbEvidenceRequiredContextB = "evidence://x402/arb-evidence-required/context-b.json";
+  const openDisputeForArbEvidenceRequired = await openDispute({
+    runId: arbEvidenceRequired.runId,
+    disputeId: arbEvidenceRequired.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_evidence_required_1",
+    reason: "prepare arbitration evidence required check",
+    evidenceRefs: [
+      `http:request_sha256:${arbEvidenceRequired.requestSha256}`,
+      arbEvidenceRequiredContextA,
+      arbEvidenceRequiredContextB
+    ]
+  });
+  assert.equal(openDisputeForArbEvidenceRequired.statusCode, 200, openDisputeForArbEvidenceRequired.body);
+  const openCaseForArbEvidenceRequired = await openArbitrationCase({
+    runId: arbEvidenceRequired.runId,
+    disputeId: arbEvidenceRequired.disputeId,
+    caseId: arbEvidenceRequired.caseId,
+    idempotencyKey: "x402_arb_open_evidence_required_1",
+    evidenceRefs: [`http:request_sha256:${arbEvidenceRequired.requestSha256}`, arbEvidenceRequiredContextA]
+  });
+  assert.equal(openCaseForArbEvidenceRequired.statusCode, 201, openCaseForArbEvidenceRequired.body);
+  overwriteArbitrationCaseEvidenceRefs(api, {
+    caseId: arbEvidenceRequired.caseId,
+    evidenceRefs: [arbEvidenceRequiredContextA]
+  });
+  const arbitrationEvidenceRequired = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(arbEvidenceRequired.runId)}/arbitration/evidence`,
+    headers: { "x-idempotency-key": "x402_arb_evidence_required_1" },
+    body: {
+      caseId: arbEvidenceRequired.caseId,
+      evidenceRef: arbEvidenceRequiredContextB
+    }
+  });
+  assertBindingEvidenceConflict(arbitrationEvidenceRequired, {
+    code: "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_arbitration.evidence",
+    expectedRequestSha256: arbEvidenceRequired.requestSha256
+  });
+
+  const arbEvidenceMismatch = await setupRun({
+    seed: "evidence_mismatch_1",
+    verifyRequestSha256: "8".repeat(64)
+  });
+  const arbEvidenceMismatchSha = "9".repeat(64);
+  const arbEvidenceMismatchContextRef = "evidence://x402/arb-evidence-mismatch/context.json";
+  const openDisputeForArbEvidenceMismatch = await openDispute({
+    runId: arbEvidenceMismatch.runId,
+    disputeId: arbEvidenceMismatch.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_evidence_mismatch_1",
+    reason: "prepare arbitration evidence mismatch check",
+    evidenceRefs: [
+      `http:request_sha256:${arbEvidenceMismatch.requestSha256}`,
+      `http:request_sha256:${arbEvidenceMismatchSha}`,
+      arbEvidenceMismatchContextRef
+    ]
+  });
+  assert.equal(openDisputeForArbEvidenceMismatch.statusCode, 200, openDisputeForArbEvidenceMismatch.body);
+  const openCaseForArbEvidenceMismatch = await openArbitrationCase({
+    runId: arbEvidenceMismatch.runId,
+    disputeId: arbEvidenceMismatch.disputeId,
+    caseId: arbEvidenceMismatch.caseId,
+    idempotencyKey: "x402_arb_open_evidence_mismatch_1",
+    evidenceRefs: [`http:request_sha256:${arbEvidenceMismatch.requestSha256}`, arbEvidenceMismatchContextRef]
+  });
+  assert.equal(openCaseForArbEvidenceMismatch.statusCode, 201, openCaseForArbEvidenceMismatch.body);
+  const arbitrationEvidenceMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(arbEvidenceMismatch.runId)}/arbitration/evidence`,
+    headers: { "x-idempotency-key": "x402_arb_evidence_mismatch_1" },
+    body: {
+      caseId: arbEvidenceMismatch.caseId,
+      evidenceRef: `http:request_sha256:${arbEvidenceMismatchSha}`
+    }
+  });
+  assertBindingEvidenceConflict(arbitrationEvidenceMismatch, {
+    code: "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_arbitration.evidence",
+    expectedRequestSha256: arbEvidenceMismatch.requestSha256,
+    requestSha256: arbEvidenceMismatchSha
+  });
+});
+
+test("API e2e: run dispute open/evidence/escalate fail closed on missing or mismatched settlement request-hash evidence", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_dispute_ops_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_dispute_ops_binding_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_dispute_ops_binding_operator_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 60000, idempotencyKey: "wallet_credit_x402_dispute_ops_binding_1" });
+
+  async function setupRun({ seed, verifyRequestSha256 }) {
+    const gateId = `x402gate_dispute_ops_binding_${seed}`;
+    const created = await request(api, {
+      method: "POST",
+      path: "/x402/gate/create",
+      headers: { "x-idempotency-key": `x402_gate_create_dispute_ops_binding_${seed}` },
+      body: {
+        gateId,
+        payerAgentId: payer.agentId,
+        payeeAgentId: payee.agentId,
+        amountCents: 625,
+        currency: "USD",
+        toolId: "mock_search",
+        disputeWindowDays: 2
+      }
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const authorized = await request(api, {
+      method: "POST",
+      path: "/x402/gate/authorize-payment",
+      headers: { "x-idempotency-key": `x402_gate_authorize_dispute_ops_binding_${seed}` },
+      body: { gateId }
+    });
+    assert.equal(authorized.statusCode, 200, authorized.body);
+    const verify = await request(api, {
+      method: "POST",
+      path: "/x402/gate/verify",
+      headers: { "x-idempotency-key": `x402_gate_verify_dispute_ops_binding_${seed}` },
+      body: {
+        gateId,
+        verificationStatus: "green",
+        runStatus: "completed",
+        policy: autoPolicy100(),
+        verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+        evidenceRefs: [`http:request_sha256:${verifyRequestSha256}`, `http:response_sha256:${"d".repeat(64)}`]
+      }
+    });
+    assert.equal(verify.statusCode, 200, verify.body);
+    const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+    assert.equal(gateRead.statusCode, 200, gateRead.body);
+    const runId = gateRead.json?.settlement?.runId;
+    assert.ok(typeof runId === "string" && runId.length > 0);
+    const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+    assert.ok(bindings.requestSha256);
+    return {
+      runId,
+      disputeId: `dsp_x402_dispute_ops_binding_${seed}`,
+      requestSha256: bindings.requestSha256
+    };
+  }
+
+  async function openDispute({ runId, disputeId, idempotencyKey, reason, evidenceRefs }) {
+    return await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+      headers: { "x-idempotency-key": idempotencyKey },
+      body: {
+        disputeId,
+        disputeType: "quality",
+        disputePriority: "high",
+        disputeChannel: "counterparty",
+        escalationLevel: "l1_counterparty",
+        openedByAgentId: operator.agentId,
+        reason,
+        evidenceRefs
+      }
+    });
+  }
+
+  const disputeOpenRequired = await setupRun({
+    seed: "open_required_1",
+    verifyRequestSha256: "a".repeat(64)
+  });
+  const issueDisputeOpenRequired = await openDispute({
+    runId: disputeOpenRequired.runId,
+    disputeId: disputeOpenRequired.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_required_1",
+    reason: "missing request hash should fail",
+    evidenceRefs: ["evidence://x402/dispute-open-required/context.json"]
+  });
+  assertBindingEvidenceConflict(issueDisputeOpenRequired, {
+    code: "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_dispute.open",
+    expectedRequestSha256: disputeOpenRequired.requestSha256
+  });
+
+  const disputeOpenMismatch = await setupRun({
+    seed: "open_mismatch_1",
+    verifyRequestSha256: "b".repeat(64)
+  });
+  const disputeOpenMismatchSha = "c".repeat(64);
+  const issueDisputeOpenMismatch = await openDispute({
+    runId: disputeOpenMismatch.runId,
+    disputeId: disputeOpenMismatch.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_mismatch_1",
+    reason: "mismatched request hash should fail",
+    evidenceRefs: [`http:request_sha256:${disputeOpenMismatchSha}`, "evidence://x402/dispute-open-mismatch/context.json"]
+  });
+  assertBindingEvidenceConflict(issueDisputeOpenMismatch, {
+    code: "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_dispute.open",
+    expectedRequestSha256: disputeOpenMismatch.requestSha256,
+    requestSha256: disputeOpenMismatchSha
+  });
+
+  const disputeEvidenceRequired = await setupRun({
+    seed: "evidence_required_1",
+    verifyRequestSha256: "d".repeat(64)
+  });
+  const disputeEvidenceRequiredContextRef = "evidence://x402/dispute-evidence-required/context.json";
+  const openForDisputeEvidenceRequired = await openDispute({
+    runId: disputeEvidenceRequired.runId,
+    disputeId: disputeEvidenceRequired.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_for_evidence_required_1",
+    reason: "prepare dispute evidence required check",
+    evidenceRefs: [`http:request_sha256:${disputeEvidenceRequired.requestSha256}`, disputeEvidenceRequiredContextRef]
+  });
+  assert.equal(openForDisputeEvidenceRequired.statusCode, 200, openForDisputeEvidenceRequired.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: disputeEvidenceRequired.runId,
+    evidenceRefs: [disputeEvidenceRequiredContextRef]
+  });
+  const issueDisputeEvidenceRequired = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(disputeEvidenceRequired.runId)}/dispute/evidence`,
+    headers: { "x-idempotency-key": "x402_dispute_evidence_required_1" },
+    body: {
+      disputeId: disputeEvidenceRequired.disputeId,
+      submittedByAgentId: operator.agentId,
+      reason: "missing request hash should fail",
+      evidenceRef: disputeEvidenceRequiredContextRef
+    }
+  });
+  assertBindingEvidenceConflict(issueDisputeEvidenceRequired, {
+    code: "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_dispute.evidence",
+    expectedRequestSha256: disputeEvidenceRequired.requestSha256
+  });
+
+  const disputeEvidenceMismatch = await setupRun({
+    seed: "evidence_mismatch_1",
+    verifyRequestSha256: "e".repeat(64)
+  });
+  const disputeEvidenceMismatchSha = "f".repeat(64);
+  const openForDisputeEvidenceMismatch = await openDispute({
+    runId: disputeEvidenceMismatch.runId,
+    disputeId: disputeEvidenceMismatch.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_for_evidence_mismatch_1",
+    reason: "prepare dispute evidence mismatch check",
+    evidenceRefs: [`http:request_sha256:${disputeEvidenceMismatch.requestSha256}`, "evidence://x402/dispute-evidence-mismatch/context.json"]
+  });
+  assert.equal(openForDisputeEvidenceMismatch.statusCode, 200, openForDisputeEvidenceMismatch.body);
+  const issueDisputeEvidenceMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(disputeEvidenceMismatch.runId)}/dispute/evidence`,
+    headers: { "x-idempotency-key": "x402_dispute_evidence_mismatch_1" },
+    body: {
+      disputeId: disputeEvidenceMismatch.disputeId,
+      submittedByAgentId: operator.agentId,
+      reason: "mismatched request hash should fail",
+      evidenceRef: `http:request_sha256:${disputeEvidenceMismatchSha}`
+    }
+  });
+  assertBindingEvidenceConflict(issueDisputeEvidenceMismatch, {
+    code: "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_dispute.evidence",
+    expectedRequestSha256: disputeEvidenceMismatch.requestSha256,
+    requestSha256: disputeEvidenceMismatchSha
+  });
+
+  const disputeEscalateRequired = await setupRun({
+    seed: "escalate_required_1",
+    verifyRequestSha256: "1".repeat(64)
+  });
+  const disputeEscalateRequiredContextRef = "evidence://x402/dispute-escalate-required/context.json";
+  const openForDisputeEscalateRequired = await openDispute({
+    runId: disputeEscalateRequired.runId,
+    disputeId: disputeEscalateRequired.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_for_escalate_required_1",
+    reason: "prepare dispute escalate required check",
+    evidenceRefs: [`http:request_sha256:${disputeEscalateRequired.requestSha256}`, disputeEscalateRequiredContextRef]
+  });
+  assert.equal(openForDisputeEscalateRequired.statusCode, 200, openForDisputeEscalateRequired.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: disputeEscalateRequired.runId,
+    evidenceRefs: [disputeEscalateRequiredContextRef]
+  });
+  const issueDisputeEscalateRequired = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(disputeEscalateRequired.runId)}/dispute/escalate`,
+    headers: { "x-idempotency-key": "x402_dispute_escalate_required_1" },
+    body: {
+      disputeId: disputeEscalateRequired.disputeId,
+      escalationLevel: "l2_arbiter",
+      channel: "arbiter",
+      reason: "missing request hash should fail",
+      escalatedByAgentId: operator.agentId
+    }
+  });
+  assertBindingEvidenceConflict(issueDisputeEscalateRequired, {
+    code: "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED",
+    operation: "run_dispute.escalate",
+    expectedRequestSha256: disputeEscalateRequired.requestSha256
+  });
+
+  const disputeEscalateMismatch = await setupRun({
+    seed: "escalate_mismatch_1",
+    verifyRequestSha256: "2".repeat(64)
+  });
+  const disputeEscalateMismatchSha = "3".repeat(64);
+  const disputeEscalateMismatchContextRef = "evidence://x402/dispute-escalate-mismatch/context.json";
+  const openForDisputeEscalateMismatch = await openDispute({
+    runId: disputeEscalateMismatch.runId,
+    disputeId: disputeEscalateMismatch.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_for_escalate_mismatch_1",
+    reason: "prepare dispute escalate mismatch check",
+    evidenceRefs: [`http:request_sha256:${disputeEscalateMismatch.requestSha256}`, disputeEscalateMismatchContextRef]
+  });
+  assert.equal(openForDisputeEscalateMismatch.statusCode, 200, openForDisputeEscalateMismatch.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: disputeEscalateMismatch.runId,
+    evidenceRefs: [`http:request_sha256:${disputeEscalateMismatchSha}`, disputeEscalateMismatchContextRef]
+  });
+  const issueDisputeEscalateMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(disputeEscalateMismatch.runId)}/dispute/escalate`,
+    headers: { "x-idempotency-key": "x402_dispute_escalate_mismatch_1" },
+    body: {
+      disputeId: disputeEscalateMismatch.disputeId,
+      escalationLevel: "l2_arbiter",
+      channel: "arbiter",
+      reason: "mismatched request hash should fail",
+      escalatedByAgentId: operator.agentId
+    }
+  });
+  assertBindingEvidenceConflict(issueDisputeEscalateMismatch, {
+    code: "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_dispute.escalate",
+    expectedRequestSha256: disputeEscalateMismatch.requestSha256,
+    requestSha256: disputeEscalateMismatchSha
+  });
 });
 
 test("API e2e: run arbitration verdict fails closed on missing or mismatched settlement request-hash evidence", async () => {
@@ -882,8 +1509,12 @@ test("API e2e: run arbitration verdict fails closed on missing or mismatched set
   const requiredScenario = await setupCase({
     seed: "required_1",
     verifyRequestSha256: "6".repeat(64),
-    disputeEvidenceRefs: ["evidence://x402/arb-verdict-binding-required/context.json"],
-    arbitrationCaseEvidenceRefs: ["evidence://x402/arb-verdict-binding-required/context.json"]
+    disputeEvidenceRefs: [`http:request_sha256:${"6".repeat(64)}`, "evidence://x402/arb-verdict-binding-required/context.json"],
+    arbitrationCaseEvidenceRefs: [`http:request_sha256:${"6".repeat(64)}`, "evidence://x402/arb-verdict-binding-required/context.json"]
+  });
+  overwriteArbitrationCaseEvidenceRefs(api, {
+    caseId: requiredScenario.caseId,
+    evidenceRefs: ["evidence://x402/arb-verdict-binding-required/context.json"]
   });
   const requiredIssuedAt = "2026-02-06T00:00:00.000Z";
   const requiredVerdictCore = normalizeForCanonicalJson(
@@ -933,8 +1564,12 @@ test("API e2e: run arbitration verdict fails closed on missing or mismatched set
   const mismatchScenario = await setupCase({
     seed: "mismatch_1",
     verifyRequestSha256: "7".repeat(64),
-    disputeEvidenceRefs: [`http:request_sha256:${"8".repeat(64)}`],
-    arbitrationCaseEvidenceRefs: [`http:request_sha256:${"8".repeat(64)}`]
+    disputeEvidenceRefs: [`http:request_sha256:${"7".repeat(64)}`, `http:request_sha256:${"8".repeat(64)}`],
+    arbitrationCaseEvidenceRefs: [`http:request_sha256:${"7".repeat(64)}`]
+  });
+  overwriteArbitrationCaseEvidenceRefs(api, {
+    caseId: mismatchScenario.caseId,
+    evidenceRefs: [`http:request_sha256:${"8".repeat(64)}`]
   });
   const mismatchIssuedAt = "2026-02-06T00:00:00.000Z";
   const mismatchVerdictCore = normalizeForCanonicalJson(

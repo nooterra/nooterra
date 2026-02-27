@@ -128,6 +128,48 @@ test("R1 API contract freeze: dispute/arbitration routes publish binding integri
   const spec = buildOpenApiSpec();
   const checks = [
     {
+      path: "/runs/{runId}/arbitration/open",
+      codes: [
+        "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/assign",
+      codes: [
+        "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_ASSIGN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/evidence",
+      codes: [
+        "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/dispute/open",
+      codes: [
+        "X402_DISPUTE_OPEN_BINDING_EVIDENCE_REQUIRED",
+        "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/dispute/evidence",
+      codes: [
+        "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_REQUIRED",
+        "X402_DISPUTE_EVIDENCE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/dispute/escalate",
+      codes: [
+        "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_REQUIRED",
+        "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
       path: "/runs/{runId}/dispute/close",
       codes: [
         "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
