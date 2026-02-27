@@ -108,6 +108,26 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
     });
     assert.equal(toppedUp.statusCode, 201, toppedUp.body);
 
+    const duplicateTopUpId = await tenantRequest(apiA, {
+      tenantId,
+      method: "POST",
+      path: `/work-orders/${workOrderId}/topup`,
+      headers: {
+        "x-idempotency-key": "pg_workord_meter_topup_duplicate_source_event_1",
+        "x-nooterra-protocol": "1.0"
+      },
+      body: {
+        topUpId: "topup_pg_meter_1",
+        amountCents: 120,
+        quantity: 1,
+        currency: "USD",
+        eventKey: `work_order_topup:${workOrderId}:topup_pg_meter_1:duplicate`,
+        occurredAt: "2026-02-26T00:01:00.000Z"
+      }
+    });
+    assert.equal(duplicateTopUpId.statusCode, 400, duplicateTopUpId.body);
+    assert.equal(duplicateTopUpId.json?.code, "SCHEMA_INVALID");
+
     const meteringBeforeRestart = await tenantRequest(apiA, {
       tenantId,
       method: "GET",
@@ -145,6 +165,35 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
     assert.equal(meteringAfterRestart.json?.metering?.summary?.remainingCents, 80);
     assert.equal(meteringAfterRestart.json?.metering?.meterDigest, meterDigestBeforeRestart);
     assert.equal(meteringAfterRestart.json?.metering?.meters?.[0]?.meterHash, meterHashBeforeRestart);
+
+    const duplicateAfterRestart = await tenantRequest(apiB, {
+      tenantId,
+      method: "POST",
+      path: `/work-orders/${workOrderId}/topup`,
+      headers: {
+        "x-idempotency-key": "pg_workord_meter_topup_duplicate_source_event_2",
+        "x-nooterra-protocol": "1.0"
+      },
+      body: {
+        topUpId: "topup_pg_meter_1",
+        amountCents: 120,
+        quantity: 1,
+        currency: "USD",
+        eventKey: `work_order_topup:${workOrderId}:topup_pg_meter_1:duplicate_after_restart`,
+        occurredAt: "2026-02-26T00:02:00.000Z"
+      }
+    });
+    assert.equal(duplicateAfterRestart.statusCode, 400, duplicateAfterRestart.body);
+    assert.equal(duplicateAfterRestart.json?.code, "SCHEMA_INVALID");
+
+    const meteringAfterDuplicateReplay = await tenantRequest(apiB, {
+      tenantId,
+      method: "GET",
+      path: `/work-orders/${workOrderId}/metering?includeMeters=true&limit=10&offset=0`
+    });
+    assert.equal(meteringAfterDuplicateReplay.statusCode, 200, meteringAfterDuplicateReplay.body);
+    assert.equal(meteringAfterDuplicateReplay.json?.metering?.summary?.topUpTotalCents, 120);
+    assert.equal(meteringAfterDuplicateReplay.json?.metering?.meterDigest, meterDigestBeforeRestart);
 
     const invalidQuery = await tenantRequest(apiB, {
       tenantId,
