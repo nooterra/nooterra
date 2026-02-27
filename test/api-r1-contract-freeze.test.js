@@ -32,6 +32,10 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/marketplace/rfqs", "get");
   assertOperation(spec, "/marketplace/rfqs/{rfqId}/bids", "post");
   assertOperation(spec, "/marketplace/rfqs/{rfqId}/accept", "post");
+  assertOperation(spec, "/authority-grants", "post");
+  assertOperation(spec, "/authority-grants", "get");
+  assertOperation(spec, "/authority-grants/{grantId}", "get");
+  assertOperation(spec, "/authority-grants/{grantId}/revoke", "post");
 
   assertOperation(spec, "/runs/{runId}/settlement", "get");
   assertOperation(spec, "/runs/{runId}/settlement/policy-replay", "get");

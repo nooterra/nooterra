@@ -6004,6 +6004,408 @@
           }
         }
       },
+      "AuthorityGrantV1": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "grantId",
+          "tenantId",
+          "principalRef",
+          "granteeAgentId",
+          "scope",
+          "spendEnvelope",
+          "chainBinding",
+          "validity",
+          "revocation",
+          "createdAt",
+          "grantHash"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "AuthorityGrant.v1"
+            ]
+          },
+          "grantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "principalRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "principalType",
+              "principalId"
+            ],
+            "properties": {
+              "principalType": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "org",
+                  "service",
+                  "agent"
+                ]
+              },
+              "principalId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "granteeAgentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allowedRiskClasses",
+              "sideEffectingAllowed"
+            ],
+            "properties": {
+              "allowedProviderIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "allowedToolIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "allowedRiskClasses": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "compute",
+                    "action",
+                    "financial"
+                  ]
+                }
+              },
+              "sideEffectingAllowed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "spendEnvelope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "currency",
+              "maxPerCallCents",
+              "maxTotalCents"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 12
+              },
+              "maxPerCallCents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxTotalCents": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "chainBinding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rootGrantHash",
+              "parentGrantHash",
+              "depth",
+              "maxDelegationDepth"
+            ],
+            "properties": {
+              "rootGrantHash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "parentGrantHash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "nullable": true
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxDelegationDepth": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "validity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "issuedAt",
+              "notBefore",
+              "expiresAt"
+            ],
+            "properties": {
+              "issuedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "notBefore": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "revocation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "revocable",
+              "revokedAt",
+              "revocationReasonCode"
+            ],
+            "properties": {
+              "revocable": {
+                "type": "boolean"
+              },
+              "revokedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "revocationReasonCode": {
+                "type": "string",
+                "maxLength": 120,
+                "nullable": true
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "grantHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "AuthorityGrantIssueRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "principalRef",
+          "granteeAgentId"
+        ],
+        "properties": {
+          "grantId": {
+            "type": "string"
+          },
+          "principalRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "principalType",
+              "principalId"
+            ],
+            "properties": {
+              "principalType": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "org",
+                  "service",
+                  "agent"
+                ]
+              },
+              "principalId": {
+                "type": "string"
+              }
+            }
+          },
+          "granteeAgentId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "allowedProviderIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allowedToolIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allowedRiskClasses": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "compute",
+                    "action",
+                    "financial"
+                  ]
+                }
+              },
+              "sideEffectingAllowed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "spendEnvelope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "maxPerCallCents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxTotalCents": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "spendLimit": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Alias accepted by runtime for spendEnvelope.",
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "maxPerCallCents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxTotalCents": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "chainBinding": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rootGrantHash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "parentGrantHash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "nullable": true
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxDelegationDepth": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "validity": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "issuedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "notBefore": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "revocation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "revocable": {
+                "type": "boolean"
+              },
+              "revokedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "revocationReasonCode": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AuthorityGrantRevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revocationReasonCode": {
+            "type": "string"
+          },
+          "reasonCode": {
+            "type": "string",
+            "description": "Alias accepted by runtime for revocationReasonCode."
+          }
+        }
+      },
       "DelegationEmergencyRevokeRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -37059,6 +37461,1675 @@
                       }
                     }
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/authority-grants": {
+      "post": {
+        "summary": "Issue authority grant",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "principalRef",
+                  "granteeAgentId"
+                ],
+                "properties": {
+                  "grantId": {
+                    "type": "string"
+                  },
+                  "principalRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "principalType",
+                      "principalId"
+                    ],
+                    "properties": {
+                      "principalType": {
+                        "type": "string",
+                        "enum": [
+                          "human",
+                          "org",
+                          "service",
+                          "agent"
+                        ]
+                      },
+                      "principalId": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "granteeAgentId": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "allowedProviderIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "allowedToolIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "allowedRiskClasses": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "compute",
+                            "action",
+                            "financial"
+                          ]
+                        }
+                      },
+                      "sideEffectingAllowed": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "spendEnvelope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "currency": {
+                        "type": "string"
+                      },
+                      "maxPerCallCents": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "maxTotalCents": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "spendLimit": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Alias accepted by runtime for spendEnvelope.",
+                    "properties": {
+                      "currency": {
+                        "type": "string"
+                      },
+                      "maxPerCallCents": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "maxTotalCents": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "chainBinding": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "rootGrantHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "parentGrantHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                        "nullable": true
+                      },
+                      "depth": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "maxDelegationDepth": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "validity": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "issuedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "notBefore": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  "revocation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "revocable": {
+                        "type": "boolean"
+                      },
+                      "revokedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "revocationReasonCode": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "authorityGrant"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "authorityGrant": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "grantId",
+                        "tenantId",
+                        "principalRef",
+                        "granteeAgentId",
+                        "scope",
+                        "spendEnvelope",
+                        "chainBinding",
+                        "validity",
+                        "revocation",
+                        "createdAt",
+                        "grantHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AuthorityGrant.v1"
+                          ]
+                        },
+                        "grantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "tenantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "principalRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalType",
+                            "principalId"
+                          ],
+                          "properties": {
+                            "principalType": {
+                              "type": "string",
+                              "enum": [
+                                "human",
+                                "org",
+                                "service",
+                                "agent"
+                              ]
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          }
+                        },
+                        "granteeAgentId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowedRiskClasses",
+                            "sideEffectingAllowed"
+                          ],
+                          "properties": {
+                            "allowedProviderIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedToolIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedRiskClasses": {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ]
+                              }
+                            },
+                            "sideEffectingAllowed": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendEnvelope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerCallCents",
+                            "maxTotalCents"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "minLength": 3,
+                              "maxLength": 12
+                            },
+                            "maxPerCallCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxTotalCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "chainBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "rootGrantHash",
+                            "parentGrantHash",
+                            "depth",
+                            "maxDelegationDepth"
+                          ],
+                          "properties": {
+                            "rootGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "parentGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "depth": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxDelegationDepth": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "validity": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "issuedAt",
+                            "notBefore",
+                            "expiresAt"
+                          ],
+                          "properties": {
+                            "issuedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "notBefore": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        "revocation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "revocable",
+                            "revokedAt",
+                            "revocationReasonCode"
+                          ],
+                          "properties": {
+                            "revocable": {
+                              "type": "boolean"
+                            },
+                            "revokedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "revocationReasonCode": {
+                              "type": "string",
+                              "maxLength": 120,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "grantHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List authority grants",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "grantId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "grantHash",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "principalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "granteeAgentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "grants",
+                    "limit",
+                    "offset"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "grants": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "grantId",
+                          "tenantId",
+                          "principalRef",
+                          "granteeAgentId",
+                          "scope",
+                          "spendEnvelope",
+                          "chainBinding",
+                          "validity",
+                          "revocation",
+                          "createdAt",
+                          "grantHash"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "AuthorityGrant.v1"
+                            ]
+                          },
+                          "grantId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "tenantId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "principalRef": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "principalType",
+                              "principalId"
+                            ],
+                            "properties": {
+                              "principalType": {
+                                "type": "string",
+                                "enum": [
+                                  "human",
+                                  "org",
+                                  "service",
+                                  "agent"
+                                ]
+                              },
+                              "principalId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            }
+                          },
+                          "granteeAgentId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "scope": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "allowedRiskClasses",
+                              "sideEffectingAllowed"
+                            ],
+                            "properties": {
+                              "allowedProviderIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "allowedToolIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                }
+                              },
+                              "allowedRiskClasses": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "read",
+                                    "compute",
+                                    "action",
+                                    "financial"
+                                  ]
+                                }
+                              },
+                              "sideEffectingAllowed": {
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "spendEnvelope": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "currency",
+                              "maxPerCallCents",
+                              "maxTotalCents"
+                            ],
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "minLength": 3,
+                                "maxLength": 12
+                              },
+                              "maxPerCallCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "maxTotalCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "chainBinding": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "rootGrantHash",
+                              "parentGrantHash",
+                              "depth",
+                              "maxDelegationDepth"
+                            ],
+                            "properties": {
+                              "rootGrantHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "parentGrantHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "nullable": true
+                              },
+                              "depth": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "maxDelegationDepth": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "validity": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "issuedAt",
+                              "notBefore",
+                              "expiresAt"
+                            ],
+                            "properties": {
+                              "issuedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "notBefore": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "expiresAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          },
+                          "revocation": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "revocable",
+                              "revokedAt",
+                              "revocationReasonCode"
+                            ],
+                            "properties": {
+                              "revocable": {
+                                "type": "boolean"
+                              },
+                              "revokedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              },
+                              "revocationReasonCode": {
+                                "type": "string",
+                                "maxLength": 120,
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "metadata": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "grantHash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not Implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/authority-grants/{grantId}": {
+      "get": {
+        "summary": "Get authority grant by id",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "authorityGrant"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "authorityGrant": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "grantId",
+                        "tenantId",
+                        "principalRef",
+                        "granteeAgentId",
+                        "scope",
+                        "spendEnvelope",
+                        "chainBinding",
+                        "validity",
+                        "revocation",
+                        "createdAt",
+                        "grantHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AuthorityGrant.v1"
+                          ]
+                        },
+                        "grantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "tenantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "principalRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalType",
+                            "principalId"
+                          ],
+                          "properties": {
+                            "principalType": {
+                              "type": "string",
+                              "enum": [
+                                "human",
+                                "org",
+                                "service",
+                                "agent"
+                              ]
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          }
+                        },
+                        "granteeAgentId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowedRiskClasses",
+                            "sideEffectingAllowed"
+                          ],
+                          "properties": {
+                            "allowedProviderIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedToolIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedRiskClasses": {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ]
+                              }
+                            },
+                            "sideEffectingAllowed": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendEnvelope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerCallCents",
+                            "maxTotalCents"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "minLength": 3,
+                              "maxLength": 12
+                            },
+                            "maxPerCallCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxTotalCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "chainBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "rootGrantHash",
+                            "parentGrantHash",
+                            "depth",
+                            "maxDelegationDepth"
+                          ],
+                          "properties": {
+                            "rootGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "parentGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "depth": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxDelegationDepth": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "validity": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "issuedAt",
+                            "notBefore",
+                            "expiresAt"
+                          ],
+                          "properties": {
+                            "issuedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "notBefore": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        "revocation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "revocable",
+                            "revokedAt",
+                            "revocationReasonCode"
+                          ],
+                          "properties": {
+                            "revocable": {
+                              "type": "boolean"
+                            },
+                            "revokedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "revocationReasonCode": {
+                              "type": "string",
+                              "maxLength": 120,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "grantHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not Implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/authority-grants/{grantId}/revoke": {
+      "post": {
+        "summary": "Revoke authority grant",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          },
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "revocationReasonCode": {
+                    "type": "string"
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "description": "Alias accepted by runtime for revocationReasonCode."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "authorityGrant"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "authorityGrant": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "grantId",
+                        "tenantId",
+                        "principalRef",
+                        "granteeAgentId",
+                        "scope",
+                        "spendEnvelope",
+                        "chainBinding",
+                        "validity",
+                        "revocation",
+                        "createdAt",
+                        "grantHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AuthorityGrant.v1"
+                          ]
+                        },
+                        "grantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "tenantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "principalRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalType",
+                            "principalId"
+                          ],
+                          "properties": {
+                            "principalType": {
+                              "type": "string",
+                              "enum": [
+                                "human",
+                                "org",
+                                "service",
+                                "agent"
+                              ]
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          }
+                        },
+                        "granteeAgentId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowedRiskClasses",
+                            "sideEffectingAllowed"
+                          ],
+                          "properties": {
+                            "allowedProviderIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedToolIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "allowedRiskClasses": {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ]
+                              }
+                            },
+                            "sideEffectingAllowed": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendEnvelope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerCallCents",
+                            "maxTotalCents"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "minLength": 3,
+                              "maxLength": 12
+                            },
+                            "maxPerCallCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxTotalCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "chainBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "rootGrantHash",
+                            "parentGrantHash",
+                            "depth",
+                            "maxDelegationDepth"
+                          ],
+                          "properties": {
+                            "rootGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "parentGrantHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "depth": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxDelegationDepth": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "validity": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "issuedAt",
+                            "notBefore",
+                            "expiresAt"
+                          ],
+                          "properties": {
+                            "issuedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "notBefore": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        "revocation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "revocable",
+                            "revokedAt",
+                            "revocationReasonCode"
+                          ],
+                          "properties": {
+                            "revocable": {
+                              "type": "boolean"
+                            },
+                            "revokedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "revocationReasonCode": {
+                              "type": "string",
+                              "maxLength": 120,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "grantHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "X402_AUTHORITY_GRANT_REVOKE_BLOCKED"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_AUTHORITY_GRANT_REVOKE_BLOCKED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not Implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
                 }
               }
             }

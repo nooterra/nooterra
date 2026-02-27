@@ -40,3 +40,21 @@ test("API: /public/agent-cards/discover visibility query contract is public-only
   assert.ok(visibilityParam, "missing visibility query parameter for /public/agent-cards/discover");
   assert.deepEqual(visibilityParam?.schema?.enum ?? [], ["public"]);
 });
+
+test("API: /authority-grants OpenAPI contract includes authority grant query filters", async () => {
+  const api = createApi();
+  const res = await request(api, {
+    method: "GET",
+    path: "/openapi.json",
+    headers: { "x-nooterra-protocol": "1.0" }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+
+  const operation = res.json?.paths?.["/authority-grants"]?.get ?? null;
+  assert.ok(operation, "missing GET /authority-grants");
+  const params = operation?.parameters ?? [];
+  const queryNames = new Set(params.filter((row) => row?.in === "query").map((row) => row?.name));
+  for (const name of ["grantId", "grantHash", "principalId", "granteeAgentId", "includeRevoked", "limit", "offset"]) {
+    assert.equal(queryNames.has(name), true, `missing ${name} query parameter`);
+  }
+});

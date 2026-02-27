@@ -49,7 +49,7 @@ These specs are written so an independent implementer can build a verifier witho
 - `AgentIdentity.v1.md` — portable autonomous agent identity contract.
 - `AgentPassport.v1.md` — delegated identity envelope binding principal, keyset anchors, delegation root, and policy envelope.
 - `DelegationGrant.v1.md` — deterministic delegated-authority grant contract (scope + spend + chain + validity).
-- `AuthorityGrant.v1.md` — deterministic principal-to-agent authority grant contract (scope + spend + chain + validity).
+- `public/AuthorityGrant.v1.md` — deterministic principal-to-agent authority grant contract (scope + spend + chain + validity).
 - `ExecutionIntent.v1.md` — canonical pre-execution intent contract binding request fingerprint, risk profile, and policy/spend envelope.
 - `PolicyDecision.v1.md` — hash-addressable policy outcome artifact with normalized decision results and optional signature.
 - `OperatorAction.v1.md` — canonical operator decision audit artifact with deterministic hash binding and optional signature.

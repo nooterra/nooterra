@@ -633,6 +633,185 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const AuthorityGrantV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "grantId",
+      "tenantId",
+      "principalRef",
+      "granteeAgentId",
+      "scope",
+      "spendEnvelope",
+      "chainBinding",
+      "validity",
+      "revocation",
+      "createdAt",
+      "grantHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AuthorityGrant.v1"] },
+      grantId: { type: "string", minLength: 1, maxLength: 200 },
+      tenantId: { type: "string", minLength: 1, maxLength: 200 },
+      principalRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["principalType", "principalId"],
+        properties: {
+          principalType: { type: "string", enum: ["human", "org", "service", "agent"] },
+          principalId: { type: "string", minLength: 1, maxLength: 200 }
+        }
+      },
+      granteeAgentId: { type: "string", minLength: 1, maxLength: 200 },
+      scope: {
+        type: "object",
+        additionalProperties: false,
+        required: ["allowedRiskClasses", "sideEffectingAllowed"],
+        properties: {
+          allowedProviderIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 } },
+          allowedToolIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 } },
+          allowedRiskClasses: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", enum: ["read", "compute", "action", "financial"] }
+          },
+          sideEffectingAllowed: { type: "boolean" }
+        }
+      },
+      spendEnvelope: {
+        type: "object",
+        additionalProperties: false,
+        required: ["currency", "maxPerCallCents", "maxTotalCents"],
+        properties: {
+          currency: { type: "string", minLength: 3, maxLength: 12 },
+          maxPerCallCents: { type: "integer", minimum: 0 },
+          maxTotalCents: { type: "integer", minimum: 0 }
+        }
+      },
+      chainBinding: {
+        type: "object",
+        additionalProperties: false,
+        required: ["rootGrantHash", "parentGrantHash", "depth", "maxDelegationDepth"],
+        properties: {
+          rootGrantHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          parentGrantHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+          depth: { type: "integer", minimum: 0 },
+          maxDelegationDepth: { type: "integer", minimum: 0 }
+        }
+      },
+      validity: {
+        type: "object",
+        additionalProperties: false,
+        required: ["issuedAt", "notBefore", "expiresAt"],
+        properties: {
+          issuedAt: { type: "string", format: "date-time" },
+          notBefore: { type: "string", format: "date-time" },
+          expiresAt: { type: "string", format: "date-time" }
+        }
+      },
+      revocation: {
+        type: "object",
+        additionalProperties: false,
+        required: ["revocable", "revokedAt", "revocationReasonCode"],
+        properties: {
+          revocable: { type: "boolean" },
+          revokedAt: { type: "string", format: "date-time", nullable: true },
+          revocationReasonCode: { type: "string", maxLength: 120, nullable: true }
+        }
+      },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      grantHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const AuthorityGrantIssueRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["principalRef", "granteeAgentId"],
+    properties: {
+      grantId: { type: "string" },
+      principalRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["principalType", "principalId"],
+        properties: {
+          principalType: { type: "string", enum: ["human", "org", "service", "agent"] },
+          principalId: { type: "string" }
+        }
+      },
+      granteeAgentId: { type: "string" },
+      scope: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          allowedProviderIds: { type: "array", items: { type: "string" } },
+          allowedToolIds: { type: "array", items: { type: "string" } },
+          allowedRiskClasses: { type: "array", items: { type: "string", enum: ["read", "compute", "action", "financial"] } },
+          sideEffectingAllowed: { type: "boolean" }
+        }
+      },
+      spendEnvelope: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          currency: { type: "string" },
+          maxPerCallCents: { type: "integer", minimum: 0 },
+          maxTotalCents: { type: "integer", minimum: 0 }
+        }
+      },
+      spendLimit: {
+        type: "object",
+        additionalProperties: false,
+        description: "Alias accepted by runtime for spendEnvelope.",
+        properties: {
+          currency: { type: "string" },
+          maxPerCallCents: { type: "integer", minimum: 0 },
+          maxTotalCents: { type: "integer", minimum: 0 }
+        }
+      },
+      chainBinding: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          rootGrantHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          parentGrantHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+          depth: { type: "integer", minimum: 0 },
+          maxDelegationDepth: { type: "integer", minimum: 0 }
+        }
+      },
+      validity: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          issuedAt: { type: "string", format: "date-time" },
+          notBefore: { type: "string", format: "date-time" },
+          expiresAt: { type: "string", format: "date-time" }
+        }
+      },
+      revocation: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          revocable: { type: "boolean" },
+          revokedAt: { type: "string", format: "date-time", nullable: true },
+          revocationReasonCode: { type: "string", nullable: true }
+        }
+      },
+      metadata: { type: "object", additionalProperties: true }
+    }
+  };
+
+  const AuthorityGrantRevokeRequest = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      revocationReasonCode: { type: "string" },
+      reasonCode: { type: "string", description: "Alias accepted by runtime for revocationReasonCode." }
+    }
+  };
+
   const CapabilityAttestationRuntime = {
     type: "object",
     additionalProperties: false,
@@ -5012,6 +5191,9 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         AgentActingOnBehalfOfV1,
         DelegationTraceV1,
         DelegationTraceListResponse,
+        AuthorityGrantV1,
+        AuthorityGrantIssueRequest,
+        AuthorityGrantRevokeRequest,
         DelegationEmergencyRevokeRequest,
         DelegationEmergencyRevokeResponse,
         OpsEmergencyPauseRequest,
@@ -6574,6 +6756,162 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 }
               }
             }
+          }
+        }
+      },
+      "/authority-grants": {
+        post: {
+          summary: "Issue authority grant",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: AuthorityGrantIssueRequest
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["ok", "authorityGrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      authorityGrant: AuthorityGrantV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        get: {
+          summary: "List authority grants",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "grantId", in: "query", required: false, schema: { type: "string" } },
+            { name: "grantHash", in: "query", required: false, schema: { type: "string" } },
+            { name: "principalId", in: "query", required: false, schema: { type: "string" } },
+            { name: "granteeAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "includeRevoked", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["ok", "grants", "limit", "offset"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      grants: { type: "array", items: AuthorityGrantV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/authority-grants/{grantId}": {
+        get: {
+          summary: "Get authority grant by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "grantId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["ok", "authorityGrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      authorityGrant: AuthorityGrantV1
+                    }
+                  }
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/authority-grants/{grantId}/revoke": {
+        post: {
+          summary: "Revoke authority grant",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "grantId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: AuthorityGrantRevokeRequest
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Revoked",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["ok", "authorityGrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      authorityGrant: AuthorityGrantV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": ["X402_AUTHORITY_GRANT_REVOKE_BLOCKED"],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(["X402_AUTHORITY_GRANT_REVOKE_BLOCKED"])
+                }
+              }
+            },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
