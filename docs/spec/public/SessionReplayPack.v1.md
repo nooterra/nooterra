@@ -101,6 +101,18 @@ Identity continuity lifecycle checks can be enforced with
 - `GET /sessions/:sessionId/replay-pack`
   - optional query: `sign=true`
   - optional query: `signerKeyId=<keyId>` (requires `sign=true`)
+- `GET /sessions/:sessionId/replay-export`
+  - optional query: `sign=true`
+  - optional query: `signerKeyId=<keyId>` (requires `sign=true`)
+  - optional query: `includeTranscript=true|false` (default `true`)
+  - response includes:
+    - `replayPack`
+    - optional `transcript`
+    - `memoryExport` + `memoryExportRef`
+    - `exportMetadata` (`SessionReplayExportMetadata.v1`)
+- `POST /sessions/replay-verify`
+  - offline verification contract input (`memoryExport`, `replayPack`, optional transcript/keys/expected settlement policy)
+  - response includes deterministic `SessionReplayVerificationVerdict.v1` payload
 
 ## MCP surface
 

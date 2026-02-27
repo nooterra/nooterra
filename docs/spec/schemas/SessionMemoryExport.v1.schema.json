@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionMemoryExport.v1.schema.json",
+  "title": "SessionMemoryExport.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "sessionId",
+    "exportedAt",
+    "replayPackHash",
+    "replayPackRef",
+    "eventCount",
+    "continuity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SessionMemoryExport.v1" },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "exportId": { "type": ["string", "null"] },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "replayPackHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "replayPackRef": {
+      "$ref": "https://nooterra.local/schemas/ArtifactRef.v1.schema.json"
+    },
+    "transcriptHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "transcriptRef": {
+      "anyOf": [
+        { "$ref": "https://nooterra.local/schemas/ArtifactRef.v1.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "eventCount": { "type": "integer", "minimum": 0 },
+    "firstEventId": { "type": ["string", "null"] },
+    "lastEventId": { "type": ["string", "null"] },
+    "firstPrevChainHash": { "type": ["string", "null"] },
+    "headChainHash": { "type": ["string", "null"] },
+    "continuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["previousHeadChainHash", "previousPackHash"],
+      "properties": {
+        "previousHeadChainHash": { "type": ["string", "null"] },
+        "previousPackHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

@@ -48456,6 +48456,951 @@
         }
       }
     },
+    "/sessions/{sessionId}/replay-export": {
+      "get": {
+        "summary": "Get deterministic replay export bundle with dependency metadata",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sign",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "signerKeyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeTranscript",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "replayPack": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "sessionId",
+                        "generatedAt",
+                        "sessionHash",
+                        "eventChainHash",
+                        "eventCount",
+                        "headChainHash",
+                        "verification",
+                        "session",
+                        "events",
+                        "packHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "SessionReplayPack.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "sessionHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "eventChainHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "eventCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "headChainHash": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "verification": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "session": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "sessionId",
+                            "tenantId",
+                            "visibility",
+                            "participants",
+                            "createdAt",
+                            "updatedAt",
+                            "revision"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "Session.v1"
+                              ]
+                            },
+                            "sessionId": {
+                              "type": "string"
+                            },
+                            "tenantId": {
+                              "type": "string"
+                            },
+                            "visibility": {
+                              "type": "string",
+                              "enum": [
+                                "public",
+                                "tenant",
+                                "private"
+                              ]
+                            },
+                            "participants": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "policyRef": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "nullable": true,
+                              "additionalProperties": true
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "events": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "v",
+                              "id",
+                              "at",
+                              "streamId",
+                              "type",
+                              "actor",
+                              "payload",
+                              "payloadHash",
+                              "prevChainHash",
+                              "chainHash",
+                              "signature",
+                              "signerKeyId"
+                            ],
+                            "properties": {
+                              "v": {
+                                "type": "integer",
+                                "enum": [
+                                  1
+                                ]
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "streamId": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "actor": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
+                              },
+                              "payload": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "sessionId",
+                                  "eventType",
+                                  "payload",
+                                  "provenance",
+                                  "traceId",
+                                  "at"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "SessionEvent.v1"
+                                    ]
+                                  },
+                                  "sessionId": {
+                                    "type": "string"
+                                  },
+                                  "eventType": {
+                                    "type": "string",
+                                    "enum": [
+                                      "MESSAGE",
+                                      "TASK_REQUESTED",
+                                      "QUOTE_ISSUED",
+                                      "TASK_ACCEPTED",
+                                      "TASK_PROGRESS",
+                                      "TASK_COMPLETED",
+                                      "SETTLEMENT_LOCKED",
+                                      "SETTLEMENT_RELEASED",
+                                      "SETTLEMENT_REFUNDED",
+                                      "POLICY_CHALLENGED",
+                                      "DISPUTE_OPENED"
+                                    ]
+                                  },
+                                  "payload": {
+                                    "nullable": true
+                                  },
+                                  "provenance": {
+                                    "allOf": [
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": [
+                                          "schemaVersion",
+                                          "label",
+                                          "derivedFromEventId",
+                                          "isTainted",
+                                          "taintDepth",
+                                          "explicitTaint",
+                                          "reasonCodes"
+                                        ],
+                                        "properties": {
+                                          "schemaVersion": {
+                                            "type": "string",
+                                            "enum": [
+                                              "SessionEventProvenance.v1"
+                                            ]
+                                          },
+                                          "label": {
+                                            "type": "string",
+                                            "enum": [
+                                              "trusted",
+                                              "external",
+                                              "tainted"
+                                            ]
+                                          },
+                                          "derivedFromEventId": {
+                                            "type": "string",
+                                            "nullable": true
+                                          },
+                                          "isTainted": {
+                                            "type": "boolean"
+                                          },
+                                          "taintDepth": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "explicitTaint": {
+                                            "type": "boolean"
+                                          },
+                                          "reasonCodes": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "nullable": true
+                                  },
+                                  "traceId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              },
+                              "payloadHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "prevChainHash": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "chainHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "signature": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "signerKeyId": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            }
+                          }
+                        },
+                        "packHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "signature": {
+                          "allOf": [
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "schemaVersion",
+                                "algorithm",
+                                "keyId",
+                                "signedAt",
+                                "payloadHash",
+                                "signatureBase64"
+                              ],
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "string",
+                                  "enum": [
+                                    "SessionReplayPackSignature.v1"
+                                  ]
+                                },
+                                "algorithm": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ed25519"
+                                  ]
+                                },
+                                "keyId": {
+                                  "type": "string"
+                                },
+                                "signedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "payloadHash": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "signatureBase64": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ],
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "transcript": {
+                      "allOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "tenantId",
+                            "sessionId",
+                            "generatedAt",
+                            "sessionHash",
+                            "transcriptEventDigestHash",
+                            "eventCount",
+                            "headChainHash",
+                            "verification",
+                            "session",
+                            "eventDigests",
+                            "transcriptHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "SessionTranscript.v1"
+                              ]
+                            },
+                            "tenantId": {
+                              "type": "string"
+                            },
+                            "sessionId": {
+                              "type": "string"
+                            },
+                            "generatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "sessionHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "transcriptEventDigestHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "eventCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "headChainHash": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "verification": {
+                              "type": "object",
+                              "additionalProperties": true
+                            },
+                            "session": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "schemaVersion",
+                                "sessionId",
+                                "tenantId",
+                                "visibility",
+                                "participants",
+                                "createdAt",
+                                "updatedAt",
+                                "revision"
+                              ],
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "string",
+                                  "enum": [
+                                    "Session.v1"
+                                  ]
+                                },
+                                "sessionId": {
+                                  "type": "string"
+                                },
+                                "tenantId": {
+                                  "type": "string"
+                                },
+                                "visibility": {
+                                  "type": "string",
+                                  "enum": [
+                                    "public",
+                                    "tenant",
+                                    "private"
+                                  ]
+                                },
+                                "participants": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "policyRef": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "metadata": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "additionalProperties": true
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "updatedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "revision": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              }
+                            },
+                            "eventDigests": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "eventId",
+                                  "eventType",
+                                  "at",
+                                  "chainHash",
+                                  "prevChainHash",
+                                  "payloadHash",
+                                  "signerKeyId",
+                                  "actor",
+                                  "traceId",
+                                  "provenance"
+                                ],
+                                "properties": {
+                                  "eventId": {
+                                    "type": "string"
+                                  },
+                                  "eventType": {
+                                    "type": "string"
+                                  },
+                                  "at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "chainHash": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  },
+                                  "prevChainHash": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "payloadHash": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "signerKeyId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "actor": {
+                                    "type": "object",
+                                    "nullable": true,
+                                    "additionalProperties": true
+                                  },
+                                  "traceId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "provenance": {
+                                    "type": "object",
+                                    "nullable": true,
+                                    "additionalProperties": true
+                                  }
+                                }
+                              }
+                            },
+                            "transcriptHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signature": {
+                              "allOf": [
+                                {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "schemaVersion",
+                                    "algorithm",
+                                    "keyId",
+                                    "signedAt",
+                                    "payloadHash",
+                                    "signatureBase64"
+                                  ],
+                                  "properties": {
+                                    "schemaVersion": {
+                                      "type": "string",
+                                      "enum": [
+                                        "SessionTranscriptSignature.v1"
+                                      ]
+                                    },
+                                    "algorithm": {
+                                      "type": "string",
+                                      "enum": [
+                                        "ed25519"
+                                      ]
+                                    },
+                                    "keyId": {
+                                      "type": "string"
+                                    },
+                                    "signedAt": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    "payloadHash": {
+                                      "type": "string",
+                                      "pattern": "^[0-9a-f]{64}$"
+                                    },
+                                    "signatureBase64": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              ],
+                              "nullable": true
+                            }
+                          }
+                        }
+                      ],
+                      "nullable": true
+                    },
+                    "memoryExport": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "sessionId",
+                        "exportedAt",
+                        "replayPackHash",
+                        "replayPackRef",
+                        "eventCount",
+                        "continuity"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "SessionMemoryExport.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "exportId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "exportedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "replayPackHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "replayPackRef": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "transcriptHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "transcriptRef": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "eventCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "firstEventId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "lastEventId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "firstPrevChainHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "headChainHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "continuity": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "previousHeadChainHash",
+                            "previousPackHash"
+                          ],
+                          "properties": {
+                            "previousHeadChainHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "previousPackHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "pattern": "^[0-9a-f]{64}$"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "memoryExportRef": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "exportMetadata": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "sessionId",
+                        "replayPackHash",
+                        "memoryExportHash",
+                        "memoryExportRefHash",
+                        "dependencyChecks",
+                        "exportHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "SessionReplayExportMetadata.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sessionId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "replayPackHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "transcriptHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "memoryExportHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "memoryExportRefHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "dependencyChecks": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "replayPackPresent",
+                            "transcriptPresent",
+                            "memoryExportPresent",
+                            "memoryExportRefPresent",
+                            "importVerified",
+                            "importReasonCode"
+                          ],
+                          "properties": {
+                            "replayPackPresent": {
+                              "type": "boolean"
+                            },
+                            "transcriptPresent": {
+                              "type": "boolean"
+                            },
+                            "memoryExportPresent": {
+                              "type": "boolean"
+                            },
+                            "memoryExportRefPresent": {
+                              "type": "boolean"
+                            },
+                            "importVerified": {
+                              "type": "boolean"
+                            },
+                            "importReasonCode": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        "exportHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions/{sessionId}/transcript": {
       "get": {
         "summary": "Get SessionTranscript.v1 digest export",
@@ -48810,6 +49755,999 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/replay-verify": {
+      "post": {
+        "summary": "Verify replay export bundle offline with deterministic verdict output",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "memoryExport",
+                  "replayPack"
+                ],
+                "properties": {
+                  "memoryExport": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "tenantId",
+                      "sessionId",
+                      "exportedAt",
+                      "replayPackHash",
+                      "replayPackRef",
+                      "eventCount",
+                      "continuity"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "SessionMemoryExport.v1"
+                        ]
+                      },
+                      "tenantId": {
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "type": "string"
+                      },
+                      "exportId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "exportedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "replayPackHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "replayPackRef": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "transcriptHash": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "transcriptRef": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": true
+                      },
+                      "eventCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "firstEventId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "lastEventId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "firstPrevChainHash": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "headChainHash": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "continuity": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "previousHeadChainHash",
+                          "previousPackHash"
+                        ],
+                        "properties": {
+                          "previousHeadChainHash": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "previousPackHash": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "replayPack": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "tenantId",
+                      "sessionId",
+                      "generatedAt",
+                      "sessionHash",
+                      "eventChainHash",
+                      "eventCount",
+                      "headChainHash",
+                      "verification",
+                      "session",
+                      "events",
+                      "packHash"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "SessionReplayPack.v1"
+                        ]
+                      },
+                      "tenantId": {
+                        "type": "string"
+                      },
+                      "sessionId": {
+                        "type": "string"
+                      },
+                      "generatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "sessionHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "eventChainHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "eventCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "headChainHash": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "verification": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "session": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "sessionId",
+                          "tenantId",
+                          "visibility",
+                          "participants",
+                          "createdAt",
+                          "updatedAt",
+                          "revision"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "Session.v1"
+                            ]
+                          },
+                          "sessionId": {
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "type": "string"
+                          },
+                          "visibility": {
+                            "type": "string",
+                            "enum": [
+                              "public",
+                              "tenant",
+                              "private"
+                            ]
+                          },
+                          "participants": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "policyRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "metadata": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "events": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "v",
+                            "id",
+                            "at",
+                            "streamId",
+                            "type",
+                            "actor",
+                            "payload",
+                            "payloadHash",
+                            "prevChainHash",
+                            "chainHash",
+                            "signature",
+                            "signerKeyId"
+                          ],
+                          "properties": {
+                            "v": {
+                              "type": "integer",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "at": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "streamId": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string"
+                            },
+                            "actor": {
+                              "type": "object",
+                              "nullable": true,
+                              "additionalProperties": true
+                            },
+                            "payload": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "schemaVersion",
+                                "sessionId",
+                                "eventType",
+                                "payload",
+                                "provenance",
+                                "traceId",
+                                "at"
+                              ],
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "string",
+                                  "enum": [
+                                    "SessionEvent.v1"
+                                  ]
+                                },
+                                "sessionId": {
+                                  "type": "string"
+                                },
+                                "eventType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "MESSAGE",
+                                    "TASK_REQUESTED",
+                                    "QUOTE_ISSUED",
+                                    "TASK_ACCEPTED",
+                                    "TASK_PROGRESS",
+                                    "TASK_COMPLETED",
+                                    "SETTLEMENT_LOCKED",
+                                    "SETTLEMENT_RELEASED",
+                                    "SETTLEMENT_REFUNDED",
+                                    "POLICY_CHALLENGED",
+                                    "DISPUTE_OPENED"
+                                  ]
+                                },
+                                "payload": {
+                                  "nullable": true
+                                },
+                                "provenance": {
+                                  "allOf": [
+                                    {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "required": [
+                                        "schemaVersion",
+                                        "label",
+                                        "derivedFromEventId",
+                                        "isTainted",
+                                        "taintDepth",
+                                        "explicitTaint",
+                                        "reasonCodes"
+                                      ],
+                                      "properties": {
+                                        "schemaVersion": {
+                                          "type": "string",
+                                          "enum": [
+                                            "SessionEventProvenance.v1"
+                                          ]
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "enum": [
+                                            "trusted",
+                                            "external",
+                                            "tainted"
+                                          ]
+                                        },
+                                        "derivedFromEventId": {
+                                          "type": "string",
+                                          "nullable": true
+                                        },
+                                        "isTainted": {
+                                          "type": "boolean"
+                                        },
+                                        "taintDepth": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "explicitTaint": {
+                                          "type": "boolean"
+                                        },
+                                        "reasonCodes": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ],
+                                  "nullable": true
+                                },
+                                "traceId": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "at": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              }
+                            },
+                            "payloadHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "prevChainHash": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "chainHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signature": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "signerKeyId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      },
+                      "packHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "signature": {
+                        "allOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "algorithm",
+                              "keyId",
+                              "signedAt",
+                              "payloadHash",
+                              "signatureBase64"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "SessionReplayPackSignature.v1"
+                                ]
+                              },
+                              "algorithm": {
+                                "type": "string",
+                                "enum": [
+                                  "ed25519"
+                                ]
+                              },
+                              "keyId": {
+                                "type": "string"
+                              },
+                              "signedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "payloadHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "signatureBase64": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ],
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "transcript": {
+                    "allOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "tenantId",
+                          "sessionId",
+                          "generatedAt",
+                          "sessionHash",
+                          "transcriptEventDigestHash",
+                          "eventCount",
+                          "headChainHash",
+                          "verification",
+                          "session",
+                          "eventDigests",
+                          "transcriptHash"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "SessionTranscript.v1"
+                            ]
+                          },
+                          "tenantId": {
+                            "type": "string"
+                          },
+                          "sessionId": {
+                            "type": "string"
+                          },
+                          "generatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "sessionHash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "transcriptEventDigestHash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "eventCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "headChainHash": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "verification": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "session": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "sessionId",
+                              "tenantId",
+                              "visibility",
+                              "participants",
+                              "createdAt",
+                              "updatedAt",
+                              "revision"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "Session.v1"
+                                ]
+                              },
+                              "sessionId": {
+                                "type": "string"
+                              },
+                              "tenantId": {
+                                "type": "string"
+                              },
+                              "visibility": {
+                                "type": "string",
+                                "enum": [
+                                  "public",
+                                  "tenant",
+                                  "private"
+                                ]
+                              },
+                              "participants": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "policyRef": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "eventDigests": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "eventId",
+                                "eventType",
+                                "at",
+                                "chainHash",
+                                "prevChainHash",
+                                "payloadHash",
+                                "signerKeyId",
+                                "actor",
+                                "traceId",
+                                "provenance"
+                              ],
+                              "properties": {
+                                "eventId": {
+                                  "type": "string"
+                                },
+                                "eventType": {
+                                  "type": "string"
+                                },
+                                "at": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "chainHash": {
+                                  "type": "string",
+                                  "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "prevChainHash": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "payloadHash": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "signerKeyId": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "actor": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "additionalProperties": true
+                                },
+                                "traceId": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "provenance": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "additionalProperties": true
+                                }
+                              }
+                            }
+                          },
+                          "transcriptHash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "signature": {
+                            "allOf": [
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "algorithm",
+                                  "keyId",
+                                  "signedAt",
+                                  "payloadHash",
+                                  "signatureBase64"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "SessionTranscriptSignature.v1"
+                                    ]
+                                  },
+                                  "algorithm": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ed25519"
+                                    ]
+                                  },
+                                  "keyId": {
+                                    "type": "string"
+                                  },
+                                  "signedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "payloadHash": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  },
+                                  "signatureBase64": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            ],
+                            "nullable": true
+                          }
+                        }
+                      }
+                    ],
+                    "nullable": true
+                  },
+                  "memoryExportRef": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": true
+                  },
+                  "expectedTenantId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expectedSessionId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expectedPreviousHeadChainHash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expectedPreviousPackHash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "replayPackPublicKeyPem": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "transcriptPublicKeyPem": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "requireReplayPackSignature": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "requireTranscriptSignature": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "expectedPolicyDecisionHash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "settlement": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": true
+                  },
+                  "expectedSettlement": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "schemaVersion",
+                    "verdict"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "schemaVersion": {
+                      "type": "string",
+                      "enum": [
+                        "SessionReplayVerificationVerdict.v1"
+                      ]
+                    },
+                    "verdict": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "ok",
+                        "code",
+                        "error",
+                        "checks",
+                        "summary",
+                        "verdictHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "SessionReplayVerificationVerdict.v1"
+                          ]
+                        },
+                        "ok": {
+                          "type": "boolean"
+                        },
+                        "code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "error": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "replayPackHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "memoryExportHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "transcriptHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "policyDecisionHash": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "checks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "ok",
+                              "code",
+                              "error",
+                              "details"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "code": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "error": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "details": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "additionalProperties": true
+                              }
+                            }
+                          }
+                        },
+                        "summary": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "checkCount",
+                            "failureCount"
+                          ],
+                          "properties": {
+                            "checkCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failureCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "verdictHash": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {

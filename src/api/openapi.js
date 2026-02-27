@@ -2422,6 +2422,132 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const SessionMemoryExportV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "exportedAt",
+      "replayPackHash",
+      "replayPackRef",
+      "eventCount",
+      "continuity"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionMemoryExport.v1"] },
+      tenantId: { type: "string" },
+      sessionId: { type: "string" },
+      exportId: { type: ["string", "null"] },
+      exportedAt: { type: "string", format: "date-time" },
+      replayPackHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      replayPackRef: { type: "object", additionalProperties: true },
+      transcriptHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      transcriptRef: { type: ["object", "null"], additionalProperties: true },
+      eventCount: { type: "integer", minimum: 0 },
+      firstEventId: { type: ["string", "null"] },
+      lastEventId: { type: ["string", "null"] },
+      firstPrevChainHash: { type: ["string", "null"] },
+      headChainHash: { type: ["string", "null"] },
+      continuity: {
+        type: "object",
+        additionalProperties: false,
+        required: ["previousHeadChainHash", "previousPackHash"],
+        properties: {
+          previousHeadChainHash: { type: ["string", "null"] },
+          previousPackHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  };
+
+  const SessionReplayExportMetadataV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "replayPackHash",
+      "memoryExportHash",
+      "memoryExportRefHash",
+      "dependencyChecks",
+      "exportHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayExportMetadata.v1"] },
+      tenantId: { type: ["string", "null"] },
+      sessionId: { type: ["string", "null"] },
+      replayPackHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      transcriptHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      memoryExportHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      memoryExportRefHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      dependencyChecks: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "replayPackPresent",
+          "transcriptPresent",
+          "memoryExportPresent",
+          "memoryExportRefPresent",
+          "importVerified",
+          "importReasonCode"
+        ],
+        properties: {
+          replayPackPresent: { type: "boolean" },
+          transcriptPresent: { type: "boolean" },
+          memoryExportPresent: { type: "boolean" },
+          memoryExportRefPresent: { type: "boolean" },
+          importVerified: { type: "boolean" },
+          importReasonCode: { type: ["string", "null"] }
+        }
+      },
+      exportHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const SessionReplayVerificationVerdictV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "ok", "code", "error", "checks", "summary", "verdictHash"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayVerificationVerdict.v1"] },
+      ok: { type: "boolean" },
+      code: { type: ["string", "null"] },
+      error: { type: ["string", "null"] },
+      replayPackHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      memoryExportHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      transcriptHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      policyDecisionHash: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      checks: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "ok", "code", "error", "details"],
+          properties: {
+            id: { type: "string" },
+            ok: { type: "boolean" },
+            code: { type: ["string", "null"] },
+            error: { type: ["string", "null"] },
+            details: { type: ["object", "null"], additionalProperties: true }
+          }
+        }
+      },
+      summary: {
+        type: "object",
+        additionalProperties: false,
+        required: ["checkCount", "failureCount"],
+        properties: {
+          checkCount: { type: "integer", minimum: 0 },
+          failureCount: { type: "integer", minimum: 0 }
+        }
+      },
+      verdictHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
   const SessionTranscriptSignatureV1 = {
     type: "object",
     additionalProperties: false,
@@ -7648,6 +7774,45 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/sessions/{sessionId}/replay-export": {
+        get: {
+          summary: "Get deterministic replay export bundle with dependency metadata",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } },
+            { name: "includeTranscript", in: "query", required: false, schema: { type: "boolean", default: true } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      replayPack: SessionReplayPackV1,
+                      transcript: { allOf: [SessionTranscriptV1], nullable: true },
+                      memoryExport: SessionMemoryExportV1,
+                      memoryExportRef: { type: "object", additionalProperties: true },
+                      exportMetadata: SessionReplayExportMetadataV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/sessions/{sessionId}/transcript": {
         get: {
           summary: "Get SessionTranscript.v1 digest export",
@@ -7679,6 +7844,62 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/replay-verify": {
+        post: {
+          summary: "Verify replay export bundle offline with deterministic verdict output",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: true,
+                  required: ["memoryExport", "replayPack"],
+                  properties: {
+                    memoryExport: SessionMemoryExportV1,
+                    replayPack: SessionReplayPackV1,
+                    transcript: { allOf: [SessionTranscriptV1], nullable: true },
+                    memoryExportRef: { type: ["object", "null"], additionalProperties: true },
+                    expectedTenantId: { type: ["string", "null"] },
+                    expectedSessionId: { type: ["string", "null"] },
+                    expectedPreviousHeadChainHash: { type: ["string", "null"] },
+                    expectedPreviousPackHash: { type: ["string", "null"] },
+                    replayPackPublicKeyPem: { type: ["string", "null"] },
+                    transcriptPublicKeyPem: { type: ["string", "null"] },
+                    requireReplayPackSignature: { type: "boolean", default: false },
+                    requireTranscriptSignature: { type: "boolean", default: false },
+                    expectedPolicyDecisionHash: { type: ["string", "null"] },
+                    settlement: { type: ["object", "null"], additionalProperties: true },
+                    expectedSettlement: { type: ["object", "null"], additionalProperties: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["ok", "schemaVersion", "verdict"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      schemaVersion: { type: "string", enum: ["SessionReplayVerificationVerdict.v1"] },
+                      verdict: SessionReplayVerificationVerdictV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

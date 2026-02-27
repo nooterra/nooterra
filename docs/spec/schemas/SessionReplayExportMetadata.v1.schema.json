@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionReplayExportMetadata.v1.schema.json",
+  "title": "SessionReplayExportMetadata.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "sessionId",
+    "replayPackHash",
+    "memoryExportHash",
+    "memoryExportRefHash",
+    "dependencyChecks",
+    "exportHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SessionReplayExportMetadata.v1" },
+    "tenantId": { "type": ["string", "null"] },
+    "sessionId": { "type": ["string", "null"] },
+    "replayPackHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "transcriptHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "memoryExportHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "memoryExportRefHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "dependencyChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replayPackPresent",
+        "transcriptPresent",
+        "memoryExportPresent",
+        "memoryExportRefPresent",
+        "importVerified",
+        "importReasonCode"
+      ],
+      "properties": {
+        "replayPackPresent": { "type": "boolean" },
+        "transcriptPresent": { "type": "boolean" },
+        "memoryExportPresent": { "type": "boolean" },
+        "memoryExportRefPresent": { "type": "boolean" },
+        "importVerified": { "type": "boolean" },
+        "importReasonCode": { "type": ["string", "null"] }
+      }
+    },
+    "exportHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

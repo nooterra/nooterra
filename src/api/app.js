@@ -180,6 +180,12 @@ import {
 } from "../core/session-collab.js";
 import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../core/session-replay-pack.js";
 import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../core/session-transcript.js";
+import {
+  buildSessionMemoryExportResponseV1,
+  buildSessionReplayExportMetadataV1,
+  verifySessionMemoryImportRequestV1,
+  verifySessionReplayRequestV1
+} from "./session-memory.js";
 import { buildVerifiedInteractionGraphPackV1, signVerifiedInteractionGraphPackV1 } from "../core/interaction-graph-pack.js";
 import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
@@ -17305,6 +17311,55 @@ export function createApi({
     };
   }
 
+  function normalizeOptionalReplayVerificationInput(value, { fieldName = "replayVerification" } = {}) {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError(`${fieldName} must be an object`);
+    }
+    return value;
+  }
+
+  function buildReplayVerificationExpectedSettlement(settlement) {
+    return normalizeForCanonicalJson(
+      {
+        status: settlement?.status ?? null,
+        disputeStatus: settlement?.disputeStatus ?? null,
+        releaseRatePct: settlement?.releaseRatePct ?? null,
+        releasedAmountCents: settlement?.releasedAmountCents ?? null,
+        refundedAmountCents: settlement?.refundedAmountCents ?? null
+      },
+      { path: "$.expectedSettlement" }
+    );
+  }
+
+  function runReplayVerificationForSettlement({
+    replayVerificationInput,
+    settlement,
+    tenantId,
+    defaultExpectedSessionId = null
+  } = {}) {
+    if (!replayVerificationInput) {
+      return { ok: null, schemaVersion: null, verdict: null };
+    }
+    return verifySessionReplayRequestV1({
+      memoryExport: replayVerificationInput?.memoryExport,
+      replayPack: replayVerificationInput?.replayPack,
+      transcript: replayVerificationInput?.transcript ?? null,
+      memoryExportRef: replayVerificationInput?.memoryExportRef ?? null,
+      expectedTenantId: replayVerificationInput?.expectedTenantId ?? tenantId,
+      expectedSessionId: replayVerificationInput?.expectedSessionId ?? defaultExpectedSessionId ?? null,
+      expectedPreviousHeadChainHash: replayVerificationInput?.expectedPreviousHeadChainHash ?? null,
+      expectedPreviousPackHash: replayVerificationInput?.expectedPreviousPackHash ?? null,
+      replayPackPublicKeyPem: replayVerificationInput?.replayPackPublicKeyPem ?? null,
+      transcriptPublicKeyPem: replayVerificationInput?.transcriptPublicKeyPem ?? null,
+      requireReplayPackSignature: replayVerificationInput?.requireReplayPackSignature === true,
+      requireTranscriptSignature: replayVerificationInput?.requireTranscriptSignature === true,
+      expectedPolicyDecisionHash: replayVerificationInput?.expectedPolicyDecisionHash ?? null,
+      settlement: replayVerificationInput?.settlement ?? null,
+      expectedSettlement: replayVerificationInput?.expectedSettlement ?? buildReplayVerificationExpectedSettlement(settlement)
+    });
+  }
+
   function parseX402SessionRefInput(rawValue, { fieldName = "sessionRef", allowNull = true } = {}) {
     return normalizeOptionalX402RefInput(rawValue, fieldName, { allowNull, max: 200 });
   }
@@ -27187,6 +27242,77 @@ export function createApi({
       }
     }
     return { artifactId, artifactHash, deliveriesCreated, verdictHash: arbitrationVerdict.verdictHash ?? null };
+  }
+
+  async function emitSessionReplayVerificationVerdictArtifact({
+    tenantId,
+    runId,
+    settlement = null,
+    sessionId = null,
+    verdict
+  } = {}) {
+    if (!verdict || typeof verdict !== "object" || Array.isArray(verdict)) return null;
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    const verdictHash = typeof verdict.verdictHash === "string" && /^[0-9a-f]{64}$/i.test(verdict.verdictHash.trim())
+      ? verdict.verdictHash.trim().toLowerCase()
+      : null;
+    if (!verdictHash) return null;
+    const artifactType = "SessionReplayVerificationVerdict.v1";
+    const artifactId = `session_replay_verification_${verdictHash}`;
+    const body = normalizeForCanonicalJson(
+      {
+        schemaVersion: artifactType,
+        artifactType,
+        artifactId,
+        tenantId: normalizeTenant(tenantId),
+        runId: runId ? String(runId) : null,
+        settlementId: settlement?.settlementId ?? null,
+        disputeId: settlement?.disputeId ?? null,
+        sessionId: sessionId ?? null,
+        verdict
+      },
+      { path: "$" }
+    );
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? settlement?.settlementId ?? artifactId);
+      const orderSeq = Date.parse(settlement?.updatedAt ?? settlement?.disputeClosedAt ?? nowIso()) || 0;
+      const priority = 73;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated, verdictHash };
   }
 
   function getMonthEvents(tenantId, monthId) {
@@ -51279,6 +51405,156 @@ export function createApi({
           return sendJson(res, 200, { ok: true, session });
         }
 
+        if (parts[0] === "sessions" && parts[1] === "replay-verify" && parts.length === 2 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const body = await readJsonBody(req);
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return sendError(res, 400, "invalid replay verification request", null, { code: "SCHEMA_INVALID" });
+          }
+          const verification = verifySessionReplayRequestV1({
+            memoryExport: body?.memoryExport,
+            replayPack: body?.replayPack,
+            transcript: body?.transcript ?? null,
+            memoryExportRef: body?.memoryExportRef ?? null,
+            expectedTenantId: body?.expectedTenantId ?? null,
+            expectedSessionId: body?.expectedSessionId ?? null,
+            expectedPreviousHeadChainHash: body?.expectedPreviousHeadChainHash ?? null,
+            expectedPreviousPackHash: body?.expectedPreviousPackHash ?? null,
+            replayPackPublicKeyPem: body?.replayPackPublicKeyPem ?? null,
+            transcriptPublicKeyPem: body?.transcriptPublicKeyPem ?? null,
+            requireReplayPackSignature: body?.requireReplayPackSignature === true,
+            requireTranscriptSignature: body?.requireTranscriptSignature === true,
+            expectedPolicyDecisionHash: body?.expectedPolicyDecisionHash ?? null,
+            settlement: body?.settlement ?? null,
+            expectedSettlement: body?.expectedSettlement ?? null
+          });
+          return sendJson(res, 200, verification);
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "replay-export" && parts.length === 3 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          const signRaw = url.searchParams.get("sign");
+          const signerKeyIdRaw = url.searchParams.get("signerKeyId");
+          const includeTranscriptRaw = url.searchParams.get("includeTranscript");
+          let signReplayExport = false;
+          let signerKeyId = null;
+          let includeTranscript = true;
+          try {
+            signReplayExport = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
+            signerKeyId = parseSessionArtifactSignerKeyId(signerKeyIdRaw, { allowNull: true });
+            includeTranscript = parseBooleanQueryValue(includeTranscriptRaw, { defaultValue: true, name: "includeTranscript" });
+            if (!signReplayExport && signerKeyId !== null) {
+              throw new TypeError("signerKeyId requires sign=true");
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid session replay export query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+          const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay export" });
+          if (!verified.ok) {
+            return sendError(
+              res,
+              verified.httpStatus ?? 409,
+              verified.message ?? "session replay export blocked",
+              verified.details ?? null,
+              { code: verified.code ?? "SESSION_REPLAY_EXPORT_INVALID" }
+            );
+          }
+
+          let replayPack = null;
+          let transcript = null;
+          let signingCandidate = null;
+          try {
+            replayPack = buildSessionReplayPackV1({
+              tenantId,
+              session: verified.session,
+              events: verified.events,
+              verification: verified.verification
+            });
+            if (includeTranscript) {
+              transcript = buildSessionTranscriptV1({
+                tenantId,
+                session: verified.session,
+                events: verified.events,
+                verification: verified.verification
+              });
+            }
+            if (signReplayExport) {
+              const signingAt = transcript?.generatedAt ?? replayPack.generatedAt;
+              signingCandidate = await resolveSessionArtifactSigningCandidate({ tenantId, signerKeyId, at: signingAt });
+              replayPack = signSessionReplayPackV1({
+                replayPack,
+                signedAt: replayPack.generatedAt,
+                publicKeyPem: signingCandidate.publicKeyPem,
+                privateKeyPem: signingCandidate.privateKeyPem,
+                keyId: signingCandidate.keyId
+              });
+              if (transcript) {
+                transcript = signSessionTranscriptV1({
+                  transcript,
+                  signedAt: transcript.generatedAt,
+                  publicKeyPem: signingCandidate.publicKeyPem,
+                  privateKeyPem: signingCandidate.privateKeyPem,
+                  keyId: signingCandidate.keyId
+                });
+              }
+            }
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "session replay export blocked",
+              { sessionId, reason: err?.message ?? "invalid replay export" },
+              { code: signReplayExport ? "SESSION_REPLAY_EXPORT_SIGNING_BLOCKED" : "SESSION_REPLAY_EXPORT_INVALID" }
+            );
+          }
+
+          const { memoryExport, memoryExportRef } = buildSessionMemoryExportResponseV1({
+            replayPack,
+            transcript,
+            exportedAt: replayPack.generatedAt,
+            exportId: `session_export_${replayPack.packHash}`,
+            tenantId
+          });
+          const importVerification = verifySessionMemoryImportRequestV1({
+            memoryExport,
+            replayPack,
+            transcript,
+            expectedMemoryExportRef: memoryExportRef,
+            expectedTenantId: tenantId,
+            expectedSessionId: sessionId,
+            expectedPreviousHeadChainHash: memoryExport?.continuity?.previousHeadChainHash ?? null,
+            expectedPreviousPackHash: memoryExport?.continuity?.previousPackHash ?? null,
+            replayPackPublicKeyPem: signReplayExport ? signingCandidate?.publicKeyPem ?? null : null,
+            transcriptPublicKeyPem: signReplayExport ? signingCandidate?.publicKeyPem ?? null : null,
+            requireReplayPackSignature: signReplayExport,
+            requireTranscriptSignature: signReplayExport && Boolean(transcript)
+          });
+          if (!importVerification.ok) {
+            return sendError(
+              res,
+              409,
+              "session replay export blocked",
+              {
+                sessionId,
+                reasonCode: importVerification.code ?? null,
+                reason: importVerification.error ?? "session replay export dependency validation failed"
+              },
+              { code: "SESSION_REPLAY_EXPORT_INCOMPLETE" }
+            );
+          }
+          const exportMetadata = buildSessionReplayExportMetadataV1({
+            replayPack,
+            transcript,
+            memoryExport,
+            memoryExportRef,
+            importVerification
+          });
+          return sendJson(res, 200, { ok: true, replayPack, transcript, memoryExport, memoryExportRef, exportMetadata });
+        }
+
         if (parts[0] === "sessions" && parts[1] && parts[2] === "replay-pack" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const signRaw = url.searchParams.get("sign");
@@ -60912,6 +61188,20 @@ export function createApi({
             arbiterAgentId: arbitrationCase?.arbiterAgentId ?? null
           });
           if (closeLifecycleGuardError) return;
+          const requireReplayVerification = body?.requireReplayVerification === true;
+          let replayVerificationInput = null;
+          try {
+            replayVerificationInput = normalizeOptionalReplayVerificationInput(body?.replayVerification, {
+              fieldName: "replayVerification"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid replay verification payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (requireReplayVerification && !replayVerificationInput) {
+            return sendError(res, 409, "replay verification payload required for arbitration close", null, {
+              code: "DISPUTE_REPLAY_VERIFICATION_REQUIRED"
+            });
+          }
 
           const closedSummary =
             body?.summary === undefined || body?.summary === null
@@ -61009,8 +61299,28 @@ export function createApi({
           const responseBody = {
             arbitrationCase: nextCase,
             settlement: nextSettlement,
-            arbitrationCaseArtifact: null
+            arbitrationCaseArtifact: null,
+            replayVerification: null,
+            replayVerificationArtifact: null
           };
+          let replayVerification = null;
+          if (replayVerificationInput) {
+            replayVerification = runReplayVerificationForSettlement({
+              replayVerificationInput,
+              settlement: nextSettlement,
+              tenantId,
+              defaultExpectedSessionId: replayVerificationInput?.memoryExport?.sessionId ?? null
+            });
+            if (replayVerification.ok !== true) {
+              return sendError(
+                res,
+                409,
+                "arbitration close replay verification failed",
+                { verdict: replayVerification.verdict ?? null },
+                { code: "DISPUTE_REPLAY_VERDICT_INVALID" }
+              );
+            }
+          }
           const ops = [{ kind: "ARBITRATION_CASE_UPSERT", tenantId, caseId, arbitrationCase: nextCase }];
           if (nextSettlement !== settlement) {
             ops.push({ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement: nextSettlement });
@@ -61020,12 +61330,31 @@ export function createApi({
           }
           await commitTx(ops);
           let arbitrationCaseArtifact = null;
+          let replayVerificationArtifact = null;
           try {
             arbitrationCaseArtifact = await emitArbitrationCaseArtifact({ tenantId, arbitrationCase: nextCase, at: nowAt });
           } catch {
             arbitrationCaseArtifact = null;
           }
-          return sendJson(res, 200, { ...responseBody, arbitrationCaseArtifact });
+          if (replayVerification?.verdict) {
+            try {
+              replayVerificationArtifact = await emitSessionReplayVerificationVerdictArtifact({
+                tenantId,
+                runId,
+                settlement: nextSettlement,
+                sessionId: replayVerificationInput?.memoryExport?.sessionId ?? null,
+                verdict: replayVerification.verdict
+              });
+            } catch {
+              replayVerificationArtifact = null;
+            }
+          }
+          return sendJson(res, 200, {
+            ...responseBody,
+            arbitrationCaseArtifact,
+            replayVerification: replayVerification ?? null,
+            replayVerificationArtifact
+          });
         }
 
         if (action === "appeal") {
@@ -61324,6 +61653,22 @@ export function createApi({
               });
             }
             return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
+          }
+        }
+        const requireReplayVerification = action === "close" && body?.requireReplayVerification === true;
+        let replayVerificationInput = null;
+        if (action === "close") {
+          try {
+            replayVerificationInput = normalizeOptionalReplayVerificationInput(body?.replayVerification, {
+              fieldName: "replayVerification"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid replay verification payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (requireReplayVerification && !replayVerificationInput) {
+            return sendError(res, 409, "replay verification payload required for dispute close", null, {
+              code: "DISPUTE_REPLAY_VERIFICATION_REQUIRED"
+            });
           }
         }
 
@@ -61722,11 +62067,30 @@ export function createApi({
             updatedAt: nowAt
           };
         }
+        let replayVerification = null;
+        if (action === "close" && replayVerificationInput) {
+          replayVerification = runReplayVerificationForSettlement({
+            replayVerificationInput,
+            settlement,
+            tenantId,
+            defaultExpectedSessionId: replayVerificationInput?.memoryExport?.sessionId ?? null
+          });
+          if (replayVerification.ok !== true) {
+            return sendError(
+              res,
+              409,
+              "dispute close replay verification failed",
+              { verdict: replayVerification.verdict ?? null },
+              { code: "DISPUTE_REPLAY_VERDICT_INVALID" }
+            );
+          }
+        }
 
         const responseBody = {
           settlement,
           disputeEvidence: disputeEvidence ?? null,
-          disputeEscalation: disputeEscalation ?? null
+          disputeEscalation: disputeEscalation ?? null,
+          replayVerification: replayVerification ?? null
         };
         const finalResponseBody = {
           ...responseBody,
@@ -61734,7 +62098,8 @@ export function createApi({
           verdictArtifact: null,
           arbitrationVerdict: signedArbitrationVerdict,
           arbitrationCaseArtifact: null,
-          arbitrationVerdictArtifact: null
+          arbitrationVerdictArtifact: null,
+          replayVerificationArtifact: null
         };
         const ops = [{ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }];
         if (idemStoreKey) {
@@ -61769,6 +62134,7 @@ export function createApi({
         let verdictArtifact = null;
         let arbitrationCaseArtifact = null;
         let arbitrationVerdictArtifact = null;
+        let replayVerificationArtifact = null;
         if (action === "close" && signedVerdict) {
           try {
             verdictArtifact = await emitDisputeVerdictArtifact({
@@ -61804,6 +62170,19 @@ export function createApi({
             arbitrationVerdictArtifact = null;
           }
         }
+        if (action === "close" && replayVerification?.verdict) {
+          try {
+            replayVerificationArtifact = await emitSessionReplayVerificationVerdictArtifact({
+              tenantId,
+              runId,
+              settlement,
+              sessionId: replayVerificationInput?.memoryExport?.sessionId ?? null,
+              verdict: replayVerification.verdict
+            });
+          } catch {
+            replayVerificationArtifact = null;
+          }
+        }
         try {
           let eventType = "marketplace.dispute.updated";
           if (action === "open") eventType = "marketplace.dispute.opened";
@@ -61829,7 +62208,9 @@ export function createApi({
                     verdictArtifact: verdictArtifact ?? null,
                     arbitrationVerdict: signedArbitrationVerdict ?? null,
                     arbitrationCaseArtifact: arbitrationCaseArtifact ?? null,
-                    arbitrationVerdictArtifact: arbitrationVerdictArtifact ?? null
+                    arbitrationVerdictArtifact: arbitrationVerdictArtifact ?? null,
+                    replayVerification: replayVerification ?? null,
+                    replayVerificationArtifact: replayVerificationArtifact ?? null
                   }
                 : action === "evidence"
                   ? { context: settlement?.disputeContext ?? null, evidence: disputeEvidence ?? null }
@@ -61840,7 +62221,13 @@ export function createApi({
         } catch {
           // Best-effort lifecycle delivery.
         }
-        return sendJson(res, 200, { ...finalResponseBody, verdictArtifact, arbitrationCaseArtifact, arbitrationVerdictArtifact });
+        return sendJson(res, 200, {
+          ...finalResponseBody,
+          verdictArtifact,
+          arbitrationCaseArtifact,
+          arbitrationVerdictArtifact,
+          replayVerificationArtifact
+        });
       }
 
       if (parts[0] === "agents" && parts[1] && parts[1] !== "register") {

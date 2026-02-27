@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionReplayVerificationVerdict.v1.schema.json",
+  "title": "SessionReplayVerificationVerdict.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "ok", "code", "error", "checks", "summary", "verdictHash"],
+  "properties": {
+    "schemaVersion": { "const": "SessionReplayVerificationVerdict.v1" },
+    "ok": { "type": "boolean" },
+    "code": { "type": ["string", "null"] },
+    "error": { "type": ["string", "null"] },
+    "replayPackHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "memoryExportHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "transcriptHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "policyDecisionHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ok", "code", "error", "details"],
+        "properties": {
+          "id": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "code": { "type": ["string", "null"] },
+          "error": { "type": ["string", "null"] },
+          "details": { "type": ["object", "null"], "additionalProperties": true }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkCount", "failureCount"],
+      "properties": {
+        "checkCount": { "type": "integer", "minimum": 0 },
+        "failureCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "verdictHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

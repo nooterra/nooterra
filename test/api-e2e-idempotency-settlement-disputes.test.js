@@ -155,6 +155,53 @@ async function resolveSettlementReleased(api, { runId, operatorAgentId, idempote
   return resolve;
 }
 
+async function buildReplayVerificationPayload(api, { sessionId, principalAgentId, prefix }) {
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": `${prefix}_session_create_1`,
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: `/sessions/${encodeURIComponent(sessionId)}/events`,
+    headers: {
+      "x-idempotency-key": `${prefix}_session_append_1`,
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: `${prefix}_task_1` }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const exported = await request(api, {
+    method: "GET",
+    path: `/sessions/${encodeURIComponent(sessionId)}/replay-export?includeTranscript=true`,
+    headers: { "x-proxy-principal-id": principalAgentId }
+  });
+  assert.equal(exported.statusCode, 200, exported.body);
+  return {
+    memoryExport: exported.json?.memoryExport,
+    memoryExportRef: exported.json?.memoryExportRef,
+    replayPack: exported.json?.replayPack,
+    transcript: exported.json?.transcript,
+    expectedTenantId: "tenant_default",
+    expectedSessionId: sessionId
+  };
+}
+
 test("API e2e: settlement resolve and dispute endpoints are idempotent", async () => {
   const api = createApi();
 
@@ -1032,4 +1079,129 @@ test("API e2e: dispute outcome mapping drives deterministic settlement outcomes"
   assert.equal(payeeWallet.statusCode, 200, payeeWallet.body);
   assert.equal(payeeWallet.json?.wallet?.availableCents, expectedReleased);
   assert.equal(payeeWallet.json?.wallet?.escrowLockedCents, 0);
+});
+
+test("API e2e: dispute close fails closed when replay verification is required but missing", async () => {
+  const api = createApi();
+  const run = await setupLockedSettlementRun(api, { prefix: "idmp_replay_required", amountCents: 2050, disputeWindowDays: 2 });
+  await resolveSettlementReleased(api, {
+    runId: run.runId,
+    operatorAgentId: run.operatorAgentId,
+    idempotencyKey: "idmp_replay_required_resolve_1"
+  });
+
+  const opened = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "idmp_replay_required_open_1" },
+    body: {
+      disputeId: "dsp_idmp_replay_required_1",
+      disputeType: "quality",
+      disputePriority: "normal",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: run.operatorAgentId,
+      reason: "require replay verification"
+    }
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
+
+  const closedMissingReplay = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "idmp_replay_required_close_1" },
+    body: {
+      disputeId: "dsp_idmp_replay_required_1",
+      resolutionOutcome: "rejected",
+      resolutionEscalationLevel: "l2_arbiter",
+      resolutionSummary: "missing replay payload should fail",
+      closedByAgentId: run.operatorAgentId,
+      requireReplayVerification: true
+    }
+  });
+  assert.equal(closedMissingReplay.statusCode, 409, closedMissingReplay.body);
+  assert.equal(closedMissingReplay.json?.code, "DISPUTE_REPLAY_VERIFICATION_REQUIRED");
+});
+
+test("API e2e: dispute close replay verification fails closed on tampered assets and emits verdict artifact when valid", async () => {
+  const api = createApi();
+  const run = await setupLockedSettlementRun(api, { prefix: "idmp_replay_bind", amountCents: 2150, disputeWindowDays: 2 });
+  await resolveSettlementReleased(api, {
+    runId: run.runId,
+    operatorAgentId: run.operatorAgentId,
+    idempotencyKey: "idmp_replay_bind_resolve_1"
+  });
+
+  const opened = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "idmp_replay_bind_open_1" },
+    body: {
+      disputeId: "dsp_idmp_replay_bind_1",
+      disputeType: "quality",
+      disputePriority: "normal",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: run.operatorAgentId,
+      reason: "bind replay proof"
+    }
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
+
+  const replayVerification = await buildReplayVerificationPayload(api, {
+    sessionId: "sess_idmp_replay_bind_1",
+    principalAgentId: run.operatorAgentId,
+    prefix: "idmp_replay_bind"
+  });
+  replayVerification.settlement = {
+    status: "released",
+    disputeStatus: "closed",
+    releaseRatePct: 100,
+    releasedAmountCents: run.amountCents,
+    refundedAmountCents: 0
+  };
+
+  const closedTampered = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "idmp_replay_bind_close_tampered_1" },
+    body: {
+      disputeId: "dsp_idmp_replay_bind_1",
+      resolutionOutcome: "rejected",
+      resolutionEscalationLevel: "l2_arbiter",
+      resolutionSummary: "tampered replay payload",
+      closedByAgentId: run.operatorAgentId,
+      requireReplayVerification: true,
+      replayVerification: {
+        ...replayVerification,
+        replayPack: {
+          ...replayVerification.replayPack,
+          events: [],
+          signature: null
+        }
+      }
+    }
+  });
+  assert.equal(closedTampered.statusCode, 409, closedTampered.body);
+  assert.equal(closedTampered.json?.code, "DISPUTE_REPLAY_VERDICT_INVALID");
+
+  const closed = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "idmp_replay_bind_close_valid_1" },
+    body: {
+      disputeId: "dsp_idmp_replay_bind_1",
+      resolutionOutcome: "rejected",
+      resolutionEscalationLevel: "l2_arbiter",
+      resolutionSummary: "valid replay payload",
+      closedByAgentId: run.operatorAgentId,
+      requireReplayVerification: true,
+      replayVerification
+    }
+  });
+  assert.equal(closed.statusCode, 200, closed.body);
+  assert.equal(closed.json?.replayVerification?.ok, true);
+  assert.equal(closed.json?.replayVerification?.verdict?.ok, true);
+  assert.equal(closed.json?.replayVerificationArtifact?.verdictHash, closed.json?.replayVerification?.verdict?.verdictHash);
+  assert.match(String(closed.json?.replayVerificationArtifact?.artifactId ?? ""), /^session_replay_verification_/);
 });
