@@ -14,7 +14,7 @@ test("conformance pack v1 (CLI oracle)", () => {
   assert.equal(res.status, 0, `conformance failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
 });
 
-test("conformance pack v1 accepts external verifier executable via --bin", async (t) => {
+test("conformance pack v1 accepts external verifier executable via --bin", { skip: process.platform === "win32" }, async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-conformance-v1-bin-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
