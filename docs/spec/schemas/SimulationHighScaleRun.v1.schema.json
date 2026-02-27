@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.nooterra.dev/schemas/SimulationHighScaleRun.v1.schema.json",
+  "title": "SimulationHighScaleRun.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tier",
+    "scenarioId",
+    "seed",
+    "startedAt",
+    "ok",
+    "telemetry",
+    "diagnostics",
+    "harnessSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "NooterraSimulationHighScaleRun.v1"
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["smoke_100", "scale_1000", "scale_10000"]
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "detail", "observed", "limit"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string", "minLength": 1 },
+          "observed": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "run": {
+      "type": "object"
+    },
+    "harnessSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

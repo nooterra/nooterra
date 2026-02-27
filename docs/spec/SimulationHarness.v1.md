@@ -9,6 +9,7 @@
 - Scenario schema: `NooterraPersonalAgentEcosystemScenario.v1`
 - Scenario DSL schema: `NooterraSimulationScenarioDsl.v1`
 - Fault matrix schema: `NooterraSimulationFaultMatrix.v1`
+- High-scale harness run schema: `NooterraSimulationHighScaleRun.v1`
 
 ## Inputs
 
@@ -52,6 +53,22 @@ Each fault result must include:
 - explicit recovery validation checks
 
 If a fault lacks recovery validation, matrix output must fail closed with `SIM_RECOVERY_NOT_VALIDATED`.
+
+## High-Scale Harness
+
+`NooterraSimulationHighScaleRun.v1` defines deterministic tiered runs for scale validation:
+
+- `smoke_100`
+- `scale_1000`
+- `scale_10000`
+
+Each run must emit:
+
+- deterministic telemetry (`agentCount`, `actionCount`, risk/approval counts)
+- machine-readable diagnostics for resource failures (`SIM_RESOURCE_LIMIT_EXCEEDED`)
+- stable hash binding (`harnessSha256`)
+
+Resource-limit failures must fail closed without partial execution.
 
 ## Output
 
