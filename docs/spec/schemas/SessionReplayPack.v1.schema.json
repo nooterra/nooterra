@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionReplayPack.v1.schema.json",
+  "title": "SessionReplayPack.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "sessionId",
+    "generatedAt",
+    "sessionHash",
+    "eventChainHash",
+    "eventCount",
+    "headChainHash",
+    "verification",
+    "session",
+    "events",
+    "packHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SessionReplayPack.v1" },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sessionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "eventChainHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "eventCount": { "type": "integer", "minimum": 0 },
+    "headChainHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chainOk", "verifiedEventCount", "error", "provenance"],
+      "properties": {
+        "chainOk": { "type": "boolean" },
+        "verifiedEventCount": { "type": "integer", "minimum": 0 },
+        "error": { "type": ["string", "null"] },
+        "provenance": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ok", "verifiedEventCount", "taintedEventCount", "error"],
+              "properties": {
+                "ok": { "type": "boolean" },
+                "verifiedEventCount": { "type": "integer", "minimum": 0 },
+                "taintedEventCount": { "type": "integer", "minimum": 0 },
+                "error": { "type": ["string", "null"] }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "session": { "$ref": "https://nooterra.local/schemas/Session.v1.schema.json" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "https://nooterra.local/schemas/SessionEventEnvelope.v1.schema.json" }
+    },
+    "packHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": {
+      "anyOf": [
+        { "$ref": "https://nooterra.local/schemas/SessionReplayPackSignature.v1.schema.json" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

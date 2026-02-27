@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionReplayPackSignature.v1.schema.json",
+  "title": "SessionReplayPackSignature.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+  "properties": {
+    "schemaVersion": { "const": "SessionReplayPackSignature.v1" },
+    "algorithm": { "type": "string", "enum": ["ed25519"] },
+    "keyId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "signedAt": { "type": "string", "format": "date-time" },
+    "payloadHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signatureBase64": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  }
+}
