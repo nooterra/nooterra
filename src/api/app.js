@@ -382,6 +382,7 @@ import {
 import { CONTRACT_COMPILER_ID, compileBookingPolicySnapshot, compileContractPolicyTemplate } from "../core/contract-compiler.js";
 import { reconcileGlBatchAgainstPartyStatements } from "../../packages/artifact-verify/src/index.js";
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../federation/proxy-policy.js";
+import { FEDERATION_ERROR_CODE } from "../federation/error-codes.js";
 import { createFederationReplayLedger } from "./federation/replay-ledger.js";
 import { createApprovalRequest, enforceHighRiskApproval } from "../services/human-approval/gate.js";
 import { runDeterministicSimulation } from "../services/simulation/harness.js";
@@ -29399,7 +29400,7 @@ export function createApi({
   async function proxyFederationRequest(req, res, { path, search, requestId }) {
     const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
     if (typeof upstreamFetch !== "function") {
-      return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: "FEDERATION_FETCH_UNAVAILABLE" });
+      return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE });
     }
     const endpoint = path === "/v1/federation/result" ? "result" : "invoke";
     const upstreamHeaders = new Headers();
@@ -29431,7 +29432,7 @@ export function createApi({
     }
 
     if (!bodyText) {
-      return sendError(res, 400, "federation envelope body is required", null, { code: "FEDERATION_ENVELOPE_INVALID" });
+      return sendError(res, 400, "federation envelope body is required", null, { code: FEDERATION_ERROR_CODE.ENVELOPE_INVALID });
     }
     try {
       parsedBody = JSON.parse(bodyText);
@@ -29441,7 +29442,7 @@ export function createApi({
         400,
         "federation envelope body must be valid JSON",
         { message: err?.message ?? String(err ?? "") },
-        { code: "FEDERATION_ENVELOPE_INVALID_JSON" }
+        { code: FEDERATION_ERROR_CODE.ENVELOPE_INVALID_JSON }
       );
     }
 
@@ -29452,7 +29453,7 @@ export function createApi({
         envelopeCheck.statusCode ?? 400,
         envelopeCheck.message ?? "invalid federation envelope",
         envelopeCheck.details ?? null,
-        { code: envelopeCheck.code ?? "FEDERATION_ENVELOPE_INVALID" }
+        { code: envelopeCheck.code ?? FEDERATION_ERROR_CODE.ENVELOPE_INVALID }
       );
     }
     const routeCheck = evaluateFederationTrustAndRoute({
@@ -29490,11 +29491,11 @@ export function createApi({
           invocationId: envelopeCheck.envelope.invocationId,
           requestSha256Values: [replayClaim.expectedHash, replayClaim.actualHash].sort()
         },
-        { code: "FEDERATION_ENVELOPE_CONFLICT" }
+        { code: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT }
       );
     }
     if (replayClaim.type === "in_flight") {
-      return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: "FEDERATION_ENVELOPE_IN_FLIGHT" });
+      return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT });
     }
     if (replayClaim.type === "replay") {
       res.statusCode = replayClaim.response.statusCode;
@@ -29530,7 +29531,7 @@ export function createApi({
         502,
         "federation proxy upstream unreachable",
         { message: err?.message ?? String(err) },
-        { code: "FEDERATION_UPSTREAM_UNREACHABLE" }
+        { code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
       );
     }
 
@@ -33282,6 +33283,11 @@ export function createApi({
             tenantId,
             config: {
               evidenceRetentionMaxDays: Number.isSafeInteger(cfg.evidenceRetentionMaxDays) ? cfg.evidenceRetentionMaxDays : 365,
+              s8Approval: {
+                enforceX402AuthorizePayment: s8ApprovalEnforceX402AuthorizePaymentValue === true,
+                policy: normalizeForCanonicalJson(s8ApprovalPolicyValue ?? {}),
+                policyConfigured: Object.keys(s8ApprovalPolicyValue ?? {}).length > 0
+              },
               billing: {
                 plan: normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, {
                   allowNull: false,
@@ -57071,9 +57077,6 @@ export function createApi({
           return sendError(res, 400, "invalid simulation run payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
-        if (!(store.simulationHarnessRuns instanceof Map)) {
-          store.simulationHarnessRuns = new Map();
-        }
         const createdAt = nowIso();
         const artifact = normalizeForCanonicalJson(
           {
@@ -57086,16 +57089,24 @@ export function createApi({
           },
           { path: "$" }
         );
-        store.simulationHarnessRuns.set(makeScopedKey({ tenantId, id: String(run.runSha256 ?? "") }), artifact);
 
         const responseBody = {
           ok: true,
           runSha256: run.runSha256,
           artifact
         };
+        const ops = [
+          {
+            kind: "SIMULATION_HARNESS_RUN_UPSERT",
+            tenantId,
+            runSha256: String(run.runSha256 ?? ""),
+            artifact
+          }
+        ];
         if (idemStoreKey) {
-          await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }]);
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
         }
+        await commitTx(ops);
         return sendJson(res, 201, responseBody);
       }
 

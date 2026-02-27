@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
 import { sha256Hex, signHashHexEd25519, verifyHashHexEd25519 } from "../../src/core/crypto.js";
+import { HUMAN_APPROVAL_POLICY_SCHEMA_VERSION } from "../../src/services/human-approval/gate.js";
 
 const DEFAULT_REQUIRED_METRICS = Object.freeze([
   "replay_mismatch_gauge",
@@ -41,6 +42,151 @@ function sortObjectKeys(input) {
   const entries = Object.entries(input ?? {});
   entries.sort(([a], [b]) => a.localeCompare(b));
   return Object.fromEntries(entries);
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function evaluateS8ApprovalRolloutGuard(s8ApprovalRaw) {
+  const s8Approval = isPlainObject(s8ApprovalRaw) ? s8ApprovalRaw : null;
+  if (!s8Approval) {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: null,
+      policyPresent: false,
+      policyShapeValid: false,
+      failureCode: "s8_rollout_config_missing",
+      message: "ops config must include config.s8Approval object",
+      policySummary: null
+    };
+  }
+
+  const enforce = s8Approval.enforceX402AuthorizePayment === true;
+  const policyRaw = s8Approval.policy;
+  const policy = isPlainObject(policyRaw) ? policyRaw : null;
+  const policyPresent = isPlainObject(policyRaw) && Object.keys(policyRaw).length > 0;
+  if (!enforce) {
+    return {
+      ok: true,
+      enforceX402AuthorizePayment: false,
+      policyPresent,
+      policyShapeValid: policy !== null,
+      failureCode: null,
+      message: "S8 approval enforcement toggle is disabled.",
+      policySummary: policy
+        ? {
+            schemaVersion: normalizeOptionalString(policy.schemaVersion),
+            requireApprovalAboveCents:
+              Number.isSafeInteger(policy.requireApprovalAboveCents) && policy.requireApprovalAboveCents >= 0
+                ? policy.requireApprovalAboveCents
+                : null,
+            strictEvidenceRefs: typeof policy.strictEvidenceRefs === "boolean" ? policy.strictEvidenceRefs : null,
+            highRiskActionTypesCount: Array.isArray(policy.highRiskActionTypes) ? normalizeStringList(policy.highRiskActionTypes).length : 0
+          }
+        : null
+    };
+  }
+
+  if (!policy) {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: true,
+      policyPresent: false,
+      policyShapeValid: false,
+      failureCode: "s8_approval_policy_missing",
+      message: "S8 approval enforcement is enabled; config.s8Approval.policy must be a plain object.",
+      policySummary: null
+    };
+  }
+
+  const schemaVersion = normalizeOptionalString(policy.schemaVersion);
+  if (schemaVersion !== null && schemaVersion !== HUMAN_APPROVAL_POLICY_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: true,
+      policyPresent: true,
+      policyShapeValid: false,
+      failureCode: "s8_approval_policy_schema_invalid",
+      message: `S8 approval policy schemaVersion must be ${HUMAN_APPROVAL_POLICY_SCHEMA_VERSION} when provided.`,
+      policySummary: {
+        schemaVersion,
+        requireApprovalAboveCents: null,
+        strictEvidenceRefs: null,
+        highRiskActionTypesCount: 0
+      }
+    };
+  }
+
+  const requireApprovalAboveCents = policy.requireApprovalAboveCents;
+  if (!Number.isSafeInteger(requireApprovalAboveCents) || requireApprovalAboveCents < 0) {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: true,
+      policyPresent: true,
+      policyShapeValid: false,
+      failureCode: "s8_approval_policy_threshold_invalid",
+      message: "S8 approval policy requires requireApprovalAboveCents as a safe integer >= 0.",
+      policySummary: {
+        schemaVersion: schemaVersion ?? HUMAN_APPROVAL_POLICY_SCHEMA_VERSION,
+        requireApprovalAboveCents: Number.isFinite(Number(requireApprovalAboveCents)) ? Number(requireApprovalAboveCents) : null,
+        strictEvidenceRefs: typeof policy.strictEvidenceRefs === "boolean" ? policy.strictEvidenceRefs : null,
+        highRiskActionTypesCount: Array.isArray(policy.highRiskActionTypes) ? normalizeStringList(policy.highRiskActionTypes).length : 0
+      }
+    };
+  }
+
+  if (typeof policy.strictEvidenceRefs !== "boolean") {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: true,
+      policyPresent: true,
+      policyShapeValid: false,
+      failureCode: "s8_approval_policy_strict_evidence_refs_invalid",
+      message: "S8 approval policy requires strictEvidenceRefs as boolean.",
+      policySummary: {
+        schemaVersion: schemaVersion ?? HUMAN_APPROVAL_POLICY_SCHEMA_VERSION,
+        requireApprovalAboveCents,
+        strictEvidenceRefs: null,
+        highRiskActionTypesCount: Array.isArray(policy.highRiskActionTypes) ? normalizeStringList(policy.highRiskActionTypes).length : 0
+      }
+    };
+  }
+
+  const highRiskActionTypes = Array.isArray(policy.highRiskActionTypes) ? normalizeStringList(policy.highRiskActionTypes) : [];
+  if (highRiskActionTypes.length === 0) {
+    return {
+      ok: false,
+      enforceX402AuthorizePayment: true,
+      policyPresent: true,
+      policyShapeValid: false,
+      failureCode: "s8_approval_policy_action_types_invalid",
+      message: "S8 approval policy requires non-empty highRiskActionTypes[] when enforcement is enabled.",
+      policySummary: {
+        schemaVersion: schemaVersion ?? HUMAN_APPROVAL_POLICY_SCHEMA_VERSION,
+        requireApprovalAboveCents,
+        strictEvidenceRefs: policy.strictEvidenceRefs,
+        highRiskActionTypesCount: 0
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    enforceX402AuthorizePayment: true,
+    policyPresent: true,
+    policyShapeValid: true,
+    failureCode: null,
+    message: "S8 approval enforcement is enabled with explicit policy shape.",
+    policySummary: {
+      schemaVersion: schemaVersion ?? HUMAN_APPROVAL_POLICY_SCHEMA_VERSION,
+      requireApprovalAboveCents,
+      strictEvidenceRefs: policy.strictEvidenceRefs,
+      highRiskActionTypesCount: highRiskActionTypes.length
+    }
+  };
 }
 
 function normalizeRateLimitProbeResult(result) {
@@ -532,6 +678,17 @@ export function createHostedBaselineReportCore({
   healthzOk,
   opsStatus,
   opsStatusOk,
+  opsConfig = { statusCode: null, body: null },
+  opsConfigOk = false,
+  s8ApprovalRolloutGuard = {
+    ok: false,
+    enforceX402AuthorizePayment: null,
+    policyPresent: false,
+    policyShapeValid: false,
+    failureCode: "s8_rollout_config_missing",
+    message: "ops config must include config.s8Approval object",
+    policySummary: null
+  },
   hasRequiredMaintenanceSchedulers,
   metrics,
   metricNames,
@@ -575,6 +732,12 @@ export function createHostedBaselineReportCore({
         maintenanceSchedulersEnabled: hasRequiredMaintenanceSchedulers,
         summary: opsStatusOk ? summarizeOpsStatusBody(opsStatus.body) : null
       },
+      opsConfig: {
+        ok: opsConfigOk,
+        statusCode: opsConfig.statusCode,
+        s8Approval: isPlainObject(opsConfig?.body?.config?.s8Approval) ? opsConfig.body.config.s8Approval : null
+      },
+      s8ApprovalRollout: s8ApprovalRolloutGuard,
       metrics: {
         ok: metricsOk,
         statusCode: metrics.statusCode,
@@ -733,6 +896,19 @@ export async function main() {
     failures.push("required maintenance schedulers are not enabled");
   }
 
+  const opsConfig = await requestJson({
+    baseUrl: args.baseUrl,
+    pathName: "/ops/config",
+    method: "GET",
+    headers: opsHeaders
+  });
+  const opsConfigOk = opsConfig.ok === true && opsConfig.statusCode === 200;
+  if (!opsConfigOk) failures.push("ops config check failed");
+  const s8ApprovalRolloutGuard = evaluateS8ApprovalRolloutGuard(opsConfig?.body?.config?.s8Approval);
+  if (!s8ApprovalRolloutGuard.ok) {
+    failures.push(`s8 rollout guard check failed (${s8ApprovalRolloutGuard.failureCode})`);
+  }
+
   const metrics = await requestText({
     baseUrl: args.baseUrl,
     pathName: "/metrics",
@@ -843,6 +1019,9 @@ export async function main() {
     healthzOk,
     opsStatus,
     opsStatusOk,
+    opsConfig,
+    opsConfigOk,
+    s8ApprovalRolloutGuard,
     hasRequiredMaintenanceSchedulers,
     metrics,
     metricNames,

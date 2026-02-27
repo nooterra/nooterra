@@ -243,6 +243,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "SIMULATION_HARNESS_RUN_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const artifact = op.artifact ?? null;
+      if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) {
+        throw new TypeError("SIMULATION_HARNESS_RUN_UPSERT requires artifact");
+      }
+      const runSha256 = op.runSha256 ?? artifact.runSha256 ?? null;
+      if (!runSha256) throw new TypeError("SIMULATION_HARNESS_RUN_UPSERT requires runSha256");
+      if (!(store.simulationHarnessRuns instanceof Map)) store.simulationHarnessRuns = new Map();
+      const key = makeScopedKey({ tenantId, id: String(runSha256) });
+      store.simulationHarnessRuns.set(key, { ...artifact, tenantId, runSha256: String(runSha256) });
+      continue;
+    }
+
     if (kind === "PUBLIC_KEY_PUT") {
       const { keyId, publicKeyPem } = op;
       if (!keyId) throw new TypeError("PUBLIC_KEY_PUT requires keyId");

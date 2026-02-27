@@ -124,6 +124,10 @@ npm run ops:hosted-baseline:evidence -- \
 Important:
 
 - `DATABASE_URL` and `RESTORE_DATABASE_URL` must be real connection strings (not redacted placeholders like `postgres://...`).
+- Hosted baseline now includes an explicit S8 rollout guard (`checks.s8ApprovalRollout`):
+  - if `config.s8Approval.enforceX402AuthorizePayment=false`, the check passes as disabled;
+  - if enabled, fail-closed requires a present policy object with explicit shape (`highRiskActionTypes[]`, `requireApprovalAboveCents`, `strictEvidenceRefs`).
+- OpenClaw readiness gate surfaces this as `checks[].id=s8_rollout_guardrails` and blocks cutover on failure.
 - Quick preflight:
 
 ```bash

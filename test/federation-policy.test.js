@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../src/federation/proxy-policy.js";
+import { FEDERATION_ERROR_CODE, FEDERATION_OPENAPI_ERROR_CODES } from "../src/federation/error-codes.js";
 
 function invokeEnvelope(overrides = {}) {
   return {
@@ -22,7 +23,7 @@ test("federation policy: validates invoke envelope", () => {
 
   const bad = validateFederationEnvelope({ endpoint: "invoke", body: { ...invokeEnvelope(), version: "2.0" } });
   assert.equal(bad.ok, false);
-  assert.equal(bad.code, "FEDERATION_PROTOCOL_VERSION_MISMATCH");
+  assert.equal(bad.code, FEDERATION_ERROR_CODE.PROTOCOL_VERSION_MISMATCH);
 });
 
 test("federation policy: parses namespace routes deterministically", () => {
@@ -58,7 +59,7 @@ test("federation policy: fails closed when peer is not trusted", () => {
   });
 
   assert.equal(checked.ok, false);
-  assert.equal(checked.code, "FEDERATION_UNTRUSTED_COORDINATOR");
+  assert.equal(checked.code, FEDERATION_ERROR_CODE.UNTRUSTED_COORDINATOR);
 });
 
 test("federation policy: selects namespace route by exact target DID", () => {
@@ -84,3 +85,35 @@ test("federation policy: selects namespace route by exact target DID", () => {
   assert.equal(checked.upstreamBaseUrl, "https://bravo.nooterra.test");
 });
 
+test("federation policy: validate envelope bad-request codes stay aligned with shared OpenAPI constants", () => {
+  const invokeCases = [
+    null,
+    { ...invokeEnvelope(), version: "2.0" },
+    { ...invokeEnvelope(), type: "coordinatorResult" },
+    { ...invokeEnvelope(), invocationId: "" },
+    { ...invokeEnvelope(), originDid: "bad-did" },
+    { ...invokeEnvelope(), targetDid: "bad-did" },
+    { ...invokeEnvelope(), capabilityId: "" }
+  ];
+  const resultCases = [
+    null,
+    { ...invokeEnvelope({ type: "coordinatorResult" }), version: "2.0" },
+    { ...invokeEnvelope({ type: "coordinatorResult" }), type: "coordinatorInvoke" },
+    { ...invokeEnvelope({ type: "coordinatorResult" }), invocationId: "" },
+    { ...invokeEnvelope({ type: "coordinatorResult" }), originDid: "bad-did" },
+    { ...invokeEnvelope({ type: "coordinatorResult" }), targetDid: "bad-did" },
+    { ...invokeEnvelope({ type: "coordinatorResult", status: "invalid" }) }
+  ];
+
+  const invokeCodes = new Set(
+    invokeCases.map((body) => validateFederationEnvelope({ endpoint: "invoke", body })).map((outcome) => outcome.code)
+  );
+  const resultCodes = new Set(
+    resultCases.map((body) => validateFederationEnvelope({ endpoint: "result", body })).map((outcome) => outcome.code)
+  );
+
+  const invokeExpected = FEDERATION_OPENAPI_ERROR_CODES.invoke[400].filter((code) => code !== FEDERATION_ERROR_CODE.ENVELOPE_INVALID_JSON);
+  const resultExpected = FEDERATION_OPENAPI_ERROR_CODES.result[400].filter((code) => code !== FEDERATION_ERROR_CODE.ENVELOPE_INVALID_JSON);
+  assert.deepEqual([...invokeCodes].sort(), [...invokeExpected].sort());
+  assert.deepEqual([...resultCodes].sort(), [...resultExpected].sort());
+});

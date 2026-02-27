@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { createApi } from "../src/api/app.js";
+import { createStore } from "../src/api/store.js";
 import { request } from "./api-test-harness.js";
 
 test("API e2e: simulation harness run and read endpoints persist deterministic run artifacts", async () => {
@@ -53,4 +57,55 @@ test("API e2e: simulation harness run and read endpoints persist deterministic r
   assert.equal(getRes.json?.ok, true);
   assert.equal(getRes.json?.artifact?.runSha256, runRes.json?.runSha256);
   assert.deepEqual(getRes.json?.artifact, runRes.json?.artifact);
+});
+
+test("API e2e: simulation harness run/read survives memory persistence reload", async () => {
+  const persistenceDir = fs.mkdtempSync(path.join(os.tmpdir(), "nooterra-sim-harness-"));
+  let apiA = null;
+  let apiB = null;
+  try {
+    apiA = createApi({ opsToken: "tok_ops", store: createStore({ persistenceDir }) });
+
+    const runRes = await request(apiA, {
+      method: "POST",
+      path: "/simulation/harness/runs",
+      headers: { "x-idempotency-key": "sim_harness_run_reload_1", "x-nooterra-protocol": "1.0" },
+      body: {
+        scenarioId: "sim_api_s8_reload_1",
+        seed: "sim-api-reload-seed-1",
+        startedAt: "2026-02-02T00:00:00.000Z",
+        actions: [
+          {
+            actionId: "act_reload_1",
+            actorId: "agent.wallet",
+            managerId: "manager.alex",
+            ecosystemId: "ecosystem.default",
+            actionType: "funds_transfer",
+            riskTier: "high",
+            amountCents: 250000
+          }
+        ]
+      }
+    });
+
+    assert.equal(runRes.statusCode, 201, runRes.body);
+    const runSha256 = String(runRes.json?.runSha256 ?? "");
+    assert.match(runSha256, /^[0-9a-f]{64}$/);
+
+    apiA.store.close?.();
+    apiA = null;
+    apiB = createApi({ opsToken: "tok_ops", store: createStore({ persistenceDir }) });
+
+    const readAfterReloadRes = await request(apiB, {
+      method: "GET",
+      path: `/simulation/harness/runs/${encodeURIComponent(runSha256)}`
+    });
+    assert.equal(readAfterReloadRes.statusCode, 200, readAfterReloadRes.body);
+    assert.equal(readAfterReloadRes.json?.ok, true);
+    assert.deepEqual(readAfterReloadRes.json?.artifact, runRes.json?.artifact);
+  } finally {
+    apiA?.store?.close?.();
+    apiB?.store?.close?.();
+    fs.rmSync(persistenceDir, { recursive: true, force: true });
+  }
 });

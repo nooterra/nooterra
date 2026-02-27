@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildOpenApiSpec } from "../src/api/openapi.js";
+import { FEDERATION_OPENAPI_ERROR_CODES } from "../src/federation/error-codes.js";
 
 function assertKnownCodes(spec, { path, status, expected }) {
   const operation = spec?.paths?.[path]?.post ?? null;
@@ -14,98 +15,70 @@ function assertKnownCodes(spec, { path, status, expected }) {
   );
 }
 
-test("OpenAPI federation error-code parity: invoke endpoint codes match runtime fail-closed surface", () => {
+test("OpenAPI federation error-code parity: invoke endpoint codes match shared federation constants", () => {
   const spec = buildOpenApiSpec();
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 400,
-    expected: [
-      "FEDERATION_ENVELOPE_INVALID",
-      "FEDERATION_ENVELOPE_INVALID_JSON",
-      "FEDERATION_PROTOCOL_VERSION_MISMATCH",
-      "FEDERATION_ENVELOPE_TYPE_MISMATCH",
-      "FEDERATION_INVOCATION_ID_REQUIRED",
-      "FEDERATION_ORIGIN_DID_INVALID",
-      "FEDERATION_TARGET_DID_INVALID",
-      "FEDERATION_CAPABILITY_ID_REQUIRED"
-    ]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[400]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 403,
-    expected: ["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[403]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 409,
-    expected: ["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[409]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 500,
-    expected: ["FEDERATION_FETCH_UNAVAILABLE"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[500]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 502,
-    expected: ["FEDERATION_UPSTREAM_UNREACHABLE"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[502]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/invoke",
     status: 503,
-    expected: [
-      "FEDERATION_NOT_CONFIGURED",
-      "FEDERATION_IDENTITY_NOT_CONFIGURED",
-      "FEDERATION_TRUST_NOT_CONFIGURED",
-      "FEDERATION_NAMESPACE_ROUTE_MISSING"
-    ]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.invoke[503]
   });
 });
 
-test("OpenAPI federation error-code parity: result endpoint codes match runtime fail-closed surface", () => {
+test("OpenAPI federation error-code parity: result endpoint codes match shared federation constants", () => {
   const spec = buildOpenApiSpec();
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 400,
-    expected: [
-      "FEDERATION_ENVELOPE_INVALID",
-      "FEDERATION_ENVELOPE_INVALID_JSON",
-      "FEDERATION_PROTOCOL_VERSION_MISMATCH",
-      "FEDERATION_ENVELOPE_TYPE_MISMATCH",
-      "FEDERATION_INVOCATION_ID_REQUIRED",
-      "FEDERATION_ORIGIN_DID_INVALID",
-      "FEDERATION_TARGET_DID_INVALID",
-      "FEDERATION_RESULT_STATUS_INVALID"
-    ]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[400]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 403,
-    expected: ["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[403]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 409,
-    expected: ["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[409]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 500,
-    expected: ["FEDERATION_FETCH_UNAVAILABLE"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[500]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 502,
-    expected: ["FEDERATION_UPSTREAM_UNREACHABLE"]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[502]
   });
   assertKnownCodes(spec, {
     path: "/v1/federation/result",
     status: 503,
-    expected: [
-      "FEDERATION_NOT_CONFIGURED",
-      "FEDERATION_IDENTITY_NOT_CONFIGURED",
-      "FEDERATION_TRUST_NOT_CONFIGURED",
-      "FEDERATION_NAMESPACE_ROUTE_MISSING"
-    ]
+    expected: FEDERATION_OPENAPI_ERROR_CODES.result[503]
   });
 });

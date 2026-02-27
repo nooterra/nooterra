@@ -166,6 +166,44 @@ function buildBlockingIssues(checks) {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function evaluateHostedS8RolloutGuard(hostedEvidence) {
+  const hostedCheck = hostedEvidence?.checks?.s8ApprovalRollout;
+  if (!isPlainObject(hostedCheck)) {
+    return {
+      ok: false,
+      failureCode: "s8_rollout_guard_missing",
+      detail: {
+        message: "Hosted baseline evidence must include checks.s8ApprovalRollout for S8 rollout verification.",
+        enforceX402AuthorizePayment: null
+      }
+    };
+  }
+  if (hostedCheck.ok !== true) {
+    return {
+      ok: false,
+      failureCode: normalizeOptionalString(hostedCheck.failureCode) ?? "s8_rollout_guard_failed",
+      detail: {
+        message: normalizeOptionalString(hostedCheck.message) ?? "S8 rollout guard check failed in hosted baseline evidence.",
+        enforceX402AuthorizePayment:
+          typeof hostedCheck.enforceX402AuthorizePayment === "boolean" ? hostedCheck.enforceX402AuthorizePayment : null,
+        policyPresent: hostedCheck.policyPresent === true,
+        policyShapeValid: hostedCheck.policyShapeValid === true
+      }
+    };
+  }
+  return {
+    ok: true,
+    failureCode: null,
+    detail: {
+      message: normalizeOptionalString(hostedCheck.message) ?? "S8 rollout guard check passed in hosted baseline evidence.",
+      enforceX402AuthorizePayment:
+        typeof hostedCheck.enforceX402AuthorizePayment === "boolean" ? hostedCheck.enforceX402AuthorizePayment : null,
+      policyPresent: hostedCheck.policyPresent === true,
+      policyShapeValid: hostedCheck.policyShapeValid === true
+    }
+  };
+}
+
 export async function runOpenclawOperatorReadinessGate(args) {
   const checks = [];
 
@@ -207,6 +245,16 @@ export async function runOpenclawOperatorReadinessGate(args) {
         }
       })
     );
+
+    const hostedS8RolloutGuard = evaluateHostedS8RolloutGuard(hostedEvidenceRef.json);
+    checks.push(
+      buildCheck({
+        id: "s8_rollout_guardrails",
+        ok: hostedS8RolloutGuard.ok,
+        failureCode: hostedS8RolloutGuard.failureCode,
+        detail: hostedS8RolloutGuard.detail
+      })
+    );
   } catch (err) {
     checks.push(
       buildCheck({
@@ -227,6 +275,19 @@ export async function runOpenclawOperatorReadinessGate(args) {
         detail: {
           status: null,
           message: "Hosted evidence status cannot be verified because required evidence is missing or invalid."
+        }
+      })
+    );
+    checks.push(
+      buildCheck({
+        id: "s8_rollout_guardrails",
+        ok: false,
+        failureCode: "hosted_evidence_missing_or_invalid",
+        detail: {
+          message: "S8 rollout guardrails cannot be verified because hosted evidence is missing or invalid.",
+          enforceX402AuthorizePayment: null,
+          policyPresent: false,
+          policyShapeValid: false
         }
       })
     );

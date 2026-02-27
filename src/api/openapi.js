@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { NOOTERRA_PROTOCOL_CURRENT } from "../core/protocol.js";
+import { FEDERATION_OPENAPI_ERROR_CODES } from "../federation/error-codes.js";
 
 function readRepoVersion() {
   try {
@@ -5043,46 +5044,18 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const FederationInvokeBadRequestKnownErrorCodes = Object.freeze([
-    "FEDERATION_ENVELOPE_INVALID",
-    "FEDERATION_ENVELOPE_INVALID_JSON",
-    "FEDERATION_PROTOCOL_VERSION_MISMATCH",
-    "FEDERATION_ENVELOPE_TYPE_MISMATCH",
-    "FEDERATION_INVOCATION_ID_REQUIRED",
-    "FEDERATION_ORIGIN_DID_INVALID",
-    "FEDERATION_TARGET_DID_INVALID",
-    "FEDERATION_CAPABILITY_ID_REQUIRED"
-  ]);
-  const FederationInvokeForbiddenKnownErrorCodes = Object.freeze(["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]);
-  const FederationInvokeConflictKnownErrorCodes = Object.freeze(["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]);
-  const FederationInvokeServiceUnavailableKnownErrorCodes = Object.freeze([
-    "FEDERATION_NOT_CONFIGURED",
-    "FEDERATION_IDENTITY_NOT_CONFIGURED",
-    "FEDERATION_TRUST_NOT_CONFIGURED",
-    "FEDERATION_NAMESPACE_ROUTE_MISSING"
-  ]);
-  const FederationInvokeInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
-  const FederationInvokeBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
-  const FederationResultBadRequestKnownErrorCodes = Object.freeze([
-    "FEDERATION_ENVELOPE_INVALID",
-    "FEDERATION_ENVELOPE_INVALID_JSON",
-    "FEDERATION_PROTOCOL_VERSION_MISMATCH",
-    "FEDERATION_ENVELOPE_TYPE_MISMATCH",
-    "FEDERATION_INVOCATION_ID_REQUIRED",
-    "FEDERATION_ORIGIN_DID_INVALID",
-    "FEDERATION_TARGET_DID_INVALID",
-    "FEDERATION_RESULT_STATUS_INVALID"
-  ]);
-  const FederationResultForbiddenKnownErrorCodes = Object.freeze(["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]);
-  const FederationResultConflictKnownErrorCodes = Object.freeze(["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]);
-  const FederationResultServiceUnavailableKnownErrorCodes = Object.freeze([
-    "FEDERATION_NOT_CONFIGURED",
-    "FEDERATION_IDENTITY_NOT_CONFIGURED",
-    "FEDERATION_TRUST_NOT_CONFIGURED",
-    "FEDERATION_NAMESPACE_ROUTE_MISSING"
-  ]);
-  const FederationResultInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
-  const FederationResultBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
+  const FederationInvokeBadRequestKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[400];
+  const FederationInvokeForbiddenKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[403];
+  const FederationInvokeConflictKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[409];
+  const FederationInvokeInternalServerErrorKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[500];
+  const FederationInvokeBadGatewayKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[502];
+  const FederationInvokeServiceUnavailableKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.invoke[503];
+  const FederationResultBadRequestKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[400];
+  const FederationResultForbiddenKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[403];
+  const FederationResultConflictKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[409];
+  const FederationResultInternalServerErrorKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[500];
+  const FederationResultBadGatewayKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[502];
+  const FederationResultServiceUnavailableKnownErrorCodes = FEDERATION_OPENAPI_ERROR_CODES.result[503];
 
   const FederationSignatureBlock = {
     type: "object",

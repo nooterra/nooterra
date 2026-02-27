@@ -59,6 +59,21 @@ test("openclaw operator readiness gate: passes with hosted evidence + plugin env
       checks: {
         healthz: { ok: true, statusCode: 200, body: { ok: true } },
         opsStatus: { ok: true, statusCode: 200, maintenanceSchedulersEnabled: true, summary: null },
+        opsConfig: { ok: true, statusCode: 200, s8Approval: { enforceX402AuthorizePayment: true, policyConfigured: true } },
+        s8ApprovalRollout: {
+          ok: true,
+          enforceX402AuthorizePayment: true,
+          policyPresent: true,
+          policyShapeValid: true,
+          failureCode: null,
+          message: "S8 approval enforcement is enabled with explicit policy shape.",
+          policySummary: {
+            schemaVersion: "NooterraHumanApprovalPolicy.v1",
+            requireApprovalAboveCents: 50000,
+            strictEvidenceRefs: true,
+            highRiskActionTypesCount: 4
+          }
+        },
         metrics: { ok: true, statusCode: 200, metricCount: 1, missingMetrics: [] },
         billingCatalog: { ok: true, statusCode: 200, validation: { ok: true, failures: [] } },
         rateLimitProbe: null,
@@ -100,6 +115,7 @@ test("openclaw operator readiness gate: passes with hosted evidence + plugin env
     report.checks.some((check) => check.id === "self_host_required_env_resolved" && check.ok === true),
     true
   );
+  assert.equal(report.checks.some((check) => check.id === "s8_rollout_guardrails" && check.ok === true), true);
 });
 
 test("openclaw operator readiness gate: fails closed when required self-host config is missing", async (t) => {
@@ -119,7 +135,17 @@ test("openclaw operator readiness gate: fails closed when required self-host con
       status: "pass",
       failures: [],
       inputs: {},
-      checks: {}
+      checks: {
+        s8ApprovalRollout: {
+          ok: true,
+          enforceX402AuthorizePayment: false,
+          policyPresent: true,
+          policyShapeValid: true,
+          failureCode: null,
+          message: "S8 approval enforcement toggle is disabled.",
+          policySummary: null
+        }
+      }
     }
   });
 
@@ -151,4 +177,69 @@ test("openclaw operator readiness gate: fails closed when required self-host con
   assert.equal(selfHostCheck?.ok, false);
   assert.equal(Array.isArray(selfHostCheck?.detail?.missingKeys), true);
   assert.equal(selfHostCheck?.detail?.missingKeys.includes("NOOTERRA_API_KEY"), true);
+});
+
+test("openclaw operator readiness gate: fails closed when hosted S8 rollout guard check fails", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-openclaw-ops-ready-s8-fail-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const hostedPath = path.join(tmpRoot, "hosted-baseline.json");
+  const pluginPath = path.join(tmpRoot, "openclaw.plugin.json");
+
+  const hosted = buildHostedBaselineEvidenceOutput({
+    reportCore: {
+      type: "HostedBaselineEvidence.v1",
+      v: 1,
+      capturedAt: "2026-02-27T00:00:00.000Z",
+      status: "fail",
+      failures: ["s8 rollout guard check failed (s8_approval_policy_missing)"],
+      inputs: {},
+      checks: {
+        s8ApprovalRollout: {
+          ok: false,
+          enforceX402AuthorizePayment: true,
+          policyPresent: false,
+          policyShapeValid: false,
+          failureCode: "s8_approval_policy_missing",
+          message: "S8 approval enforcement is enabled; config.s8Approval.policy must be a plain object.",
+          policySummary: null
+        }
+      }
+    }
+  });
+
+  await fs.writeFile(hostedPath, `${JSON.stringify(hosted, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    pluginPath,
+    `${JSON.stringify(
+      {
+        id: "nooterra",
+        baseUrl: "https://api.nooterra.work",
+        tenantId: "tenant_default",
+        apiKey: "sk_live_ops"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const { report } = await runOpenclawOperatorReadinessGate({
+    hostedEvidencePath: hostedPath,
+    openclawPluginPath: pluginPath,
+    mcpConfigPath: null,
+    capturedAt: null,
+    outPath: path.join(tmpRoot, "report.json")
+  });
+
+  assert.equal(report.verdict.ok, false);
+  const s8Check = report.checks.find((check) => check.id === "s8_rollout_guardrails");
+  assert.equal(s8Check?.ok, false);
+  assert.equal(s8Check?.failureCode, "s8_approval_policy_missing");
+  assert.equal(
+    report.blockingIssues.some((issue) => issue.id === "openclaw_operator_readiness:s8_rollout_guardrails"),
+    true
+  );
 });

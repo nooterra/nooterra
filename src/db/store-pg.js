@@ -213,6 +213,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.settlementAdjustments.clear();
     if (!(store.governanceTemplates instanceof Map)) store.governanceTemplates = new Map();
     store.governanceTemplates.clear();
+    if (!(store.simulationHarnessRuns instanceof Map)) store.simulationHarnessRuns = new Map();
+    store.simulationHarnessRuns.clear();
 
     const res = await pool.query("SELECT tenant_id, aggregate_type, aggregate_id, snapshot_json FROM snapshots");
     for (const row of res.rows) {
@@ -257,6 +259,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           sessionId: snap?.sessionId ?? String(id)
+        });
+      }
+      if (type === "simulation_harness_run") {
+        store.simulationHarnessRuns.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          runSha256: snap?.runSha256 ?? String(id)
         });
       }
       if (type === "arbitration_case") {
@@ -1539,6 +1548,26 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistSimulationHarnessRun(client, { tenantId, runSha256, artifact }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) throw new TypeError("artifact is required");
+    const normalizedRunSha256 =
+      runSha256 && String(runSha256).trim() !== ""
+        ? String(runSha256).trim()
+        : artifact.runSha256 && String(artifact.runSha256).trim() !== ""
+          ? String(artifact.runSha256).trim()
+          : null;
+    if (!normalizedRunSha256) throw new TypeError("runSha256 is required");
+    const normalizedArtifact = { ...artifact, tenantId, runSha256: normalizedRunSha256 };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "simulation_harness_run",
+      aggregateId: normalizedRunSha256,
+      snapshot: normalizedArtifact,
+      updatedAt: normalizedArtifact.createdAt ?? null
+    });
+  }
+
   async function persistDelegationGrant(client, { tenantId, grantId, delegationGrant }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) {
@@ -2717,6 +2746,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_CARD_UPSERT",
       "AGENT_CARD_ABUSE_REPORT_UPSERT",
       "SESSION_UPSERT",
+      "SIMULATION_HARNESS_RUN_UPSERT",
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
       "SESSION_EVENTS_APPENDED",
@@ -3566,6 +3596,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (op.kind === "SESSION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.session?.tenantId ?? DEFAULT_TENANT_ID);
           await persistSession(client, { tenantId, sessionId: op.sessionId, session: op.session });
+        }
+        if (op.kind === "SIMULATION_HARNESS_RUN_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.artifact?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSimulationHarnessRun(client, { tenantId, runSha256: op.runSha256, artifact: op.artifact });
         }
         if (op.kind === "AGENT_WALLET_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.wallet?.tenantId ?? DEFAULT_TENANT_ID);

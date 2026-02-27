@@ -84434,40 +84434,159 @@
           },
           "400": {
             "description": "Bad Request",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_ENVELOPE_INVALID",
+              "FEDERATION_ENVELOPE_INVALID_JSON",
+              "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+              "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+              "FEDERATION_INVOCATION_ID_REQUIRED",
+              "FEDERATION_ORIGIN_DID_INVALID",
+              "FEDERATION_TARGET_DID_INVALID",
+              "FEDERATION_CAPABILITY_ID_REQUIRED"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_ENVELOPE_INVALID",
+                                "FEDERATION_ENVELOPE_INVALID_JSON",
+                                "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+                                "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+                                "FEDERATION_INVOCATION_ID_REQUIRED",
+                                "FEDERATION_ORIGIN_DID_INVALID",
+                                "FEDERATION_TARGET_DID_INVALID",
+                                "FEDERATION_CAPABILITY_ID_REQUIRED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_IDENTITY_MISMATCH",
+              "FEDERATION_UNTRUSTED_COORDINATOR"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_IDENTITY_MISMATCH",
+                                "FEDERATION_UNTRUSTED_COORDINATOR"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_ENVELOPE_CONFLICT",
+              "FEDERATION_ENVELOPE_IN_FLIGHT"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_ENVELOPE_CONFLICT",
+                                "FEDERATION_ENVELOPE_IN_FLIGHT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -84569,7 +84688,10 @@
           "503": {
             "description": "Service Unavailable",
             "x-nooterra-known-error-codes": [
-              "FEDERATION_NOT_CONFIGURED"
+              "FEDERATION_NOT_CONFIGURED",
+              "FEDERATION_IDENTITY_NOT_CONFIGURED",
+              "FEDERATION_TRUST_NOT_CONFIGURED",
+              "FEDERATION_NAMESPACE_ROUTE_MISSING"
             ],
             "content": {
               "application/json": {
@@ -84597,7 +84719,10 @@
                             {
                               "type": "string",
                               "enum": [
-                                "FEDERATION_NOT_CONFIGURED"
+                                "FEDERATION_NOT_CONFIGURED",
+                                "FEDERATION_IDENTITY_NOT_CONFIGURED",
+                                "FEDERATION_TRUST_NOT_CONFIGURED",
+                                "FEDERATION_NAMESPACE_ROUTE_MISSING"
                               ]
                             },
                             {
@@ -84781,20 +84906,110 @@
           },
           "400": {
             "description": "Bad Request",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_ENVELOPE_INVALID",
+              "FEDERATION_ENVELOPE_INVALID_JSON",
+              "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+              "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+              "FEDERATION_INVOCATION_ID_REQUIRED",
+              "FEDERATION_ORIGIN_DID_INVALID",
+              "FEDERATION_TARGET_DID_INVALID",
+              "FEDERATION_RESULT_STATUS_INVALID"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_ENVELOPE_INVALID",
+                                "FEDERATION_ENVELOPE_INVALID_JSON",
+                                "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+                                "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+                                "FEDERATION_INVOCATION_ID_REQUIRED",
+                                "FEDERATION_ORIGIN_DID_INVALID",
+                                "FEDERATION_TARGET_DID_INVALID",
+                                "FEDERATION_RESULT_STATUS_INVALID"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_IDENTITY_MISMATCH",
+              "FEDERATION_UNTRUSTED_COORDINATOR"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_IDENTITY_MISMATCH",
+                                "FEDERATION_UNTRUSTED_COORDINATOR"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -84815,6 +85030,55 @@
                     },
                     "details": {}
                   }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_ENVELOPE_CONFLICT",
+              "FEDERATION_ENVELOPE_IN_FLIGHT"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_ENVELOPE_CONFLICT",
+                                "FEDERATION_ENVELOPE_IN_FLIGHT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -84916,7 +85180,10 @@
           "503": {
             "description": "Service Unavailable",
             "x-nooterra-known-error-codes": [
-              "FEDERATION_NOT_CONFIGURED"
+              "FEDERATION_NOT_CONFIGURED",
+              "FEDERATION_IDENTITY_NOT_CONFIGURED",
+              "FEDERATION_TRUST_NOT_CONFIGURED",
+              "FEDERATION_NAMESPACE_ROUTE_MISSING"
             ],
             "content": {
               "application/json": {
@@ -84944,7 +85211,10 @@
                             {
                               "type": "string",
                               "enum": [
-                                "FEDERATION_NOT_CONFIGURED"
+                                "FEDERATION_NOT_CONFIGURED",
+                                "FEDERATION_IDENTITY_NOT_CONFIGURED",
+                                "FEDERATION_TRUST_NOT_CONFIGURED",
+                                "FEDERATION_NAMESPACE_ROUTE_MISSING"
                               ]
                             },
                             {
