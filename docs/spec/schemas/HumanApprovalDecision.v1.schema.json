@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.nooterra.dev/schemas/HumanApprovalDecision.v1.schema.json",
+  "title": "HumanApprovalDecision.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "actionId",
+    "actionSha256",
+    "decidedBy",
+    "decidedAt",
+    "approved"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "NooterraHumanApprovalDecision.v1"
+    },
+    "decisionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actionSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "decidedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
+

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.nooterra.dev/schemas/SimulationRun.v1.schema.json",
+  "title": "SimulationRun.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "seed",
+    "startedAt",
+    "approvalPolicy",
+    "summary",
+    "checks",
+    "blockingIssues",
+    "actionResults",
+    "runSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "NooterraSimulationRun.v1"
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approvalPolicy": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalActions", "highRiskActions", "approvedActions", "blockedActions"],
+      "properties": {
+        "totalActions": { "type": "integer", "minimum": 0 },
+        "highRiskActions": { "type": "integer", "minimum": 0 },
+        "approvedActions": { "type": "integer", "minimum": 0 },
+        "blockedActions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checkId", "passed", "detail"],
+        "properties": {
+          "checkId": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "blockingIssues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actionId", "actionType", "code", "detail"],
+        "properties": {
+          "actionId": { "type": "string", "minLength": 1 },
+          "actionType": { "type": "string", "minLength": 1 },
+          "code": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "actionResults": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "runSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
+
