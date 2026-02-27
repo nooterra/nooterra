@@ -155,6 +155,7 @@
       "route": "/x402/gate/authorize-payment",
       "method": "POST",
       "requiredReasonCodes": [
+        "X402_EXECUTION_INTENT_REQUIRED",
         "X402_EXECUTION_INTENT_REQUEST_BINDING_REQUIRED"
       ],
       "mismatchReasonCodes": [
