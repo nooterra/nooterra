@@ -17,6 +17,19 @@ const REQUIRED_VERIFY_ERROR_CODES = [
   "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
 ];
 
+const REQUIRED_BINDING_INTEGRITY_ERROR_CODES = [
+  "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED",
+  "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH",
+  "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
+  "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH",
+  "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED",
+  "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH",
+  "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED",
+  "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH",
+  "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED",
+  "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+];
+
 function readX402ErrorCatalog() {
   const file = path.resolve(process.cwd(), "docs/spec/x402-error-codes.v1.txt");
   const raw = fs.readFileSync(file, "utf8");
@@ -38,6 +51,13 @@ test("x402 error catalog publishes TA execution-intent error codes", () => {
 test("x402 error catalog publishes verify/runtime binding error codes", () => {
   const catalog = readX402ErrorCatalog();
   for (const code of REQUIRED_VERIFY_ERROR_CODES) {
+    assert.ok(catalog.has(code), `missing ${code} in docs/spec/x402-error-codes.v1.txt`);
+  }
+});
+
+test("x402 error catalog publishes settlement/reversal binding integrity error codes", () => {
+  const catalog = readX402ErrorCatalog();
+  for (const code of REQUIRED_BINDING_INTEGRITY_ERROR_CODES) {
     assert.ok(catalog.has(code), `missing ${code} in docs/spec/x402-error-codes.v1.txt`);
   }
 });
@@ -75,5 +95,48 @@ test("openapi + sdk expose verify known error codes for x402 verify", () => {
   assert.match(dts, /export type X402GateVerifyErrorCode\s*=/);
   for (const code of REQUIRED_VERIFY_ERROR_CODES) {
     assert.match(dts, new RegExp(code));
+  }
+});
+
+test("openapi exposes binding integrity conflict codes for dispute/arbitration routes", () => {
+  const spec = buildOpenApiSpec();
+  const checks = [
+    {
+      path: "/runs/{runId}/dispute/close",
+      codes: [
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/verdict",
+      codes: [
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/close",
+      codes: [
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/appeal",
+      codes: [
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+      ]
+    }
+  ];
+  for (const row of checks) {
+    const operation = spec?.paths?.[row.path]?.post ?? null;
+    assert.ok(operation, `missing POST ${row.path}`);
+    const known409 = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+    assert.ok(Array.isArray(known409), `${row.path} 409 must expose x-nooterra-known-error-codes`);
+    for (const code of row.codes) {
+      assert.ok(known409.includes(code), `${row.path} 409 known codes missing ${code}`);
+    }
   }
 });

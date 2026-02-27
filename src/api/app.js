@@ -58185,6 +58185,37 @@ export function createApi({
             arbiterAgentId: signedArbitrationVerdict?.arbiterAgentId ?? arbitrationCase?.arbiterAgentId ?? null
           });
           if (verdictLifecycleGuardError) return;
+          const arbitrationVerdictBinding = evaluateSettlementRequestBindingEvidence({
+            settlement,
+            evidenceRefs: mergeUniqueStringArrays(
+              Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : [],
+              Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
+            )
+          });
+          if (!arbitrationVerdictBinding.ok) {
+            const mismatchDetails = {
+              operation: "run_arbitration.verdict",
+              runId,
+              disputeId,
+              caseId,
+              expectedRequestSha256: arbitrationVerdictBinding.expectedRequestSha256
+            };
+            if (arbitrationVerdictBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationVerdictBinding.requestSha256;
+            return sendError(
+              res,
+              409,
+              arbitrationVerdictBinding.reason === "required"
+                ? "request-hash evidence required for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
+              mismatchDetails,
+              {
+                code:
+                  arbitrationVerdictBinding.reason === "required"
+                    ? "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED"
+                    : "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH"
+              }
+            );
+          }
 
           const nextCase = normalizeForCanonicalJson(
             {
@@ -58411,6 +58442,34 @@ export function createApi({
             assertArbitrationCaseEvidenceBoundToDisputeContext({ settlement, evidenceRefs });
           } catch (err) {
             return sendError(res, 400, "invalid arbitration evidence", { message: err?.message });
+          }
+          const arbitrationAppealBinding = evaluateSettlementRequestBindingEvidence({
+            settlement,
+            evidenceRefs
+          });
+          if (!arbitrationAppealBinding.ok) {
+            const mismatchDetails = {
+              operation: "run_arbitration.appeal",
+              runId,
+              disputeId,
+              parentCaseId,
+              expectedRequestSha256: arbitrationAppealBinding.expectedRequestSha256
+            };
+            if (arbitrationAppealBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationAppealBinding.requestSha256;
+            return sendError(
+              res,
+              409,
+              arbitrationAppealBinding.reason === "required"
+                ? "request-hash evidence required for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
+              mismatchDetails,
+              {
+                code:
+                  arbitrationAppealBinding.reason === "required"
+                    ? "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED"
+                    : "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+              }
+            );
           }
 
           let arbiterAgentId = null;

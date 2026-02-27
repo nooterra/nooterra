@@ -123,3 +123,46 @@ test("R1 API contract freeze: x402 verify publishes known request-binding confli
   assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_REQUIRED"));
   assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_MISMATCH"));
 });
+
+test("R1 API contract freeze: dispute/arbitration routes publish binding integrity conflict error codes", () => {
+  const spec = buildOpenApiSpec();
+  const checks = [
+    {
+      path: "/runs/{runId}/dispute/close",
+      codes: [
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
+        "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/verdict",
+      codes: [
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/close",
+      codes: [
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      path: "/runs/{runId}/arbitration/appeal",
+      codes: [
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED",
+        "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+      ]
+    }
+  ];
+  for (const row of checks) {
+    const operation = spec?.paths?.[row.path]?.post ?? null;
+    assert.ok(operation, `missing POST ${row.path}`);
+    const knownConflictCodes = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+    assert.ok(Array.isArray(knownConflictCodes), `${row.path} 409 must expose known error codes`);
+    for (const code of row.codes) {
+      assert.ok(knownConflictCodes.includes(code), `${row.path} missing ${code}`);
+    }
+  }
+});

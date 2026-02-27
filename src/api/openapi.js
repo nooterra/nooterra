@@ -200,6 +200,26 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
   ]);
 
+  const X402DisputeCloseConflictKnownErrorCodes = Object.freeze([
+    "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED",
+    "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
+  ]);
+
+  const X402ArbitrationVerdictConflictKnownErrorCodes = Object.freeze([
+    "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_REQUIRED",
+    "X402_ARBITRATION_VERDICT_BINDING_EVIDENCE_MISMATCH"
+  ]);
+
+  const X402ArbitrationCloseConflictKnownErrorCodes = Object.freeze([
+    "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED",
+    "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH"
+  ]);
+
+  const X402ArbitrationAppealConflictKnownErrorCodes = Object.freeze([
+    "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED",
+    "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
+  ]);
+
   function errorResponseWithKnownCodes(knownCodes) {
     return {
       allOf: [
@@ -5188,7 +5208,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationVerdictConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationVerdictConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5282,7 +5310,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5344,7 +5380,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationAppealConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationAppealConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5418,7 +5462,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402DisputeCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402DisputeCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5514,7 +5566,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402DisputeCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402DisputeCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5551,7 +5611,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402DisputeCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402DisputeCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5854,7 +5922,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationVerdictConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationVerdictConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5906,7 +5982,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -5962,7 +6046,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402ArbitrationAppealConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402ArbitrationAppealConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -6103,7 +6195,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               }
             },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...X402DisputeCloseConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402DisputeCloseConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
