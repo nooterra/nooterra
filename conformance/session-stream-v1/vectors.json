@@ -1,0 +1,274 @@
+{
+  "schemaVersion": "SessionStreamConformanceCases.v1",
+  "adapterProtocolVersion": "SessionStreamConformanceRequest.v1",
+  "fixtures": {
+    "stream_cursor_conflict": {
+      "sessionId": "sess_stream_vectors_1",
+      "eventType": null,
+      "sinceEventIdQuery": "ev_query_cursor",
+      "lastEventIdHeader": "ev_header_cursor",
+      "eventsBefore": [
+        {
+          "v": 1,
+          "id": "ev_stream_1",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_REQUESTED",
+          "at": "2026-02-01T00:00:01.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED"
+          }
+        }
+      ],
+      "appendEvents": []
+    },
+    "stream_cursor_missing": {
+      "sessionId": "sess_stream_vectors_1",
+      "eventType": null,
+      "sinceEventIdQuery": "ev_missing_cursor",
+      "lastEventIdHeader": null,
+      "eventsBefore": [
+        {
+          "v": 1,
+          "id": "ev_stream_1",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_REQUESTED",
+          "at": "2026-02-01T00:00:01.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED"
+          }
+        },
+        {
+          "v": 1,
+          "id": "ev_stream_2",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_PROGRESS",
+          "at": "2026-02-01T00:00:02.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_PROGRESS"
+          }
+        },
+        {
+          "v": 1,
+          "id": "ev_stream_3",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_COMPLETED",
+          "at": "2026-02-01T00:00:03.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_COMPLETED"
+          }
+        }
+      ],
+      "appendEvents": []
+    },
+    "stream_filtered_watermark_only": {
+      "sessionId": "sess_stream_vectors_1",
+      "eventType": "task_completed",
+      "sinceEventIdQuery": null,
+      "lastEventIdHeader": "ev_stream_1",
+      "eventsBefore": [
+        {
+          "v": 1,
+          "id": "ev_stream_1",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_REQUESTED",
+          "at": "2026-02-01T00:00:01.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED"
+          }
+        }
+      ],
+      "appendEvents": [
+        {
+          "v": 1,
+          "id": "ev_stream_2",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_PROGRESS",
+          "at": "2026-02-01T00:00:02.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_PROGRESS"
+          }
+        }
+      ]
+    },
+    "stream_reconnect_delivers_once": {
+      "sessionId": "sess_stream_vectors_1",
+      "eventType": "TASK_COMPLETED",
+      "sinceEventIdQuery": null,
+      "lastEventIdHeader": "ev_stream_2",
+      "eventsBefore": [
+        {
+          "v": 1,
+          "id": "ev_stream_1",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_REQUESTED",
+          "at": "2026-02-01T00:00:01.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED"
+          }
+        },
+        {
+          "v": 1,
+          "id": "ev_stream_2",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_PROGRESS",
+          "at": "2026-02-01T00:00:02.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_PROGRESS"
+          }
+        }
+      ],
+      "appendEvents": [
+        {
+          "v": 1,
+          "id": "ev_stream_3",
+          "streamId": "sess_stream_vectors_1",
+          "type": "TASK_COMPLETED",
+          "at": "2026-02-01T00:00:03.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_COMPLETED"
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "stream_cursor_conflict_fail_closed",
+      "fixtureId": "stream_cursor_conflict",
+      "invariantIds": [
+        "ACS-NS2-STREAM-CURSOR-CONFLICT"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "SESSION_EVENT_CURSOR_CONFLICT",
+        "message": "ambiguous session event cursor",
+        "details": {
+          "sessionId": "sess_stream_vectors_1",
+          "sinceEventId": "ev_query_cursor",
+          "lastEventId": "ev_header_cursor"
+        }
+      }
+    },
+    {
+      "id": "stream_cursor_missing_fail_closed",
+      "fixtureId": "stream_cursor_missing",
+      "invariantIds": [
+        "ACS-NS2-STREAM-CURSOR-MISSING"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "SESSION_EVENT_CURSOR_INVALID",
+        "message": "invalid session event cursor",
+        "details": {
+          "reasonCode": "SESSION_EVENT_CURSOR_NOT_FOUND",
+          "phase": "stream_init",
+          "eventCount": 3,
+          "firstEventId": "ev_stream_1",
+          "lastEventId": "ev_stream_3"
+        }
+      }
+    },
+    {
+      "id": "stream_filtered_watermark_progression",
+      "fixtureId": "stream_filtered_watermark_only",
+      "invariantIds": [
+        "ACS-NS2-STREAM-WATERMARK-MONOTONIC"
+      ],
+      "expected": {
+        "outcome": "pass",
+        "headers": {
+          "x-session-events-ordering": "SESSION_SEQ_ASC",
+          "x-session-events-delivery-mode": "resume_then_tail",
+          "x-session-events-head-event-count": "1",
+          "x-session-events-head-first-event-id": "ev_stream_1",
+          "x-session-events-head-last-event-id": "ev_stream_1",
+          "x-session-events-since-event-id": "ev_stream_1",
+          "x-session-events-next-since-event-id": "ev_stream_1"
+        },
+        "ready": {
+          "eventType": "TASK_COMPLETED",
+          "sinceEventId": "ev_stream_1",
+          "eventCount": 1,
+          "headEventCount": 1,
+          "headLastEventId": "ev_stream_1"
+        },
+        "emitted": {
+          "frameEvents": [
+            "session.watermark"
+          ],
+          "eventIds": [],
+          "watermarkIds": [
+            "ev_stream_2"
+          ],
+          "watermarkNextSinceEventIds": [
+            "ev_stream_2"
+          ]
+        },
+        "cursor": {
+          "resolvedSinceEventId": "ev_stream_1",
+          "headEventIdBefore": "ev_stream_1",
+          "headEventIdAfter": "ev_stream_2",
+          "lastDeliveredEventId": "ev_stream_1",
+          "nextSinceEventId": "ev_stream_2"
+        }
+      }
+    },
+    {
+      "id": "stream_reconnect_delivery_deduped",
+      "fixtureId": "stream_reconnect_delivers_once",
+      "invariantIds": [
+        "ACS-NS2-STREAM-RECONNECT-DEDUPED"
+      ],
+      "expected": {
+        "outcome": "pass",
+        "headers": {
+          "x-session-events-ordering": "SESSION_SEQ_ASC",
+          "x-session-events-delivery-mode": "resume_then_tail",
+          "x-session-events-head-event-count": "2",
+          "x-session-events-head-first-event-id": "ev_stream_1",
+          "x-session-events-head-last-event-id": "ev_stream_2",
+          "x-session-events-since-event-id": "ev_stream_2",
+          "x-session-events-next-since-event-id": "ev_stream_2"
+        },
+        "ready": {
+          "eventType": "TASK_COMPLETED",
+          "sinceEventId": "ev_stream_2",
+          "eventCount": 2,
+          "headEventCount": 2,
+          "headLastEventId": "ev_stream_2"
+        },
+        "emitted": {
+          "frameEvents": [
+            "session.event",
+            "session.watermark"
+          ],
+          "eventIds": [
+            "ev_stream_3"
+          ],
+          "watermarkIds": [
+            null
+          ],
+          "watermarkNextSinceEventIds": [
+            "ev_stream_3"
+          ]
+        },
+        "cursor": {
+          "resolvedSinceEventId": "ev_stream_2",
+          "headEventIdBefore": "ev_stream_2",
+          "headEventIdAfter": "ev_stream_3",
+          "lastDeliveredEventId": "ev_stream_3",
+          "nextSinceEventId": "ev_stream_3"
+        }
+      }
+    }
+  ]
+}
