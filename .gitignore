@@ -48,3 +48,7 @@ nooterra-debug-*.sha256
 # Local signing / ops keys
 keys/
 .vercel
+
+# Keep conformance bundle public key fixtures tracked (required by CI conformance cases).
+!conformance/v1/bundles/**/keys/
+!conformance/v1/bundles/**/keys/public_keys.json
