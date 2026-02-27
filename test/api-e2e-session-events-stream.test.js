@@ -243,6 +243,118 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   await closeSseStream(stream, controller);
 });
 
+test("API e2e: /sessions/:id/events/stream supports checkpoint consumer resume and conflicts fail closed", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_principal_1";
+  const sessionId = "sess_stream_checkpoint_1";
+  const checkpointConsumerId = "relay_stream_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_checkpoint_task_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const checkpointAck = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: firstAppend.json?.event?.id
+    }
+  });
+  assert.equal(checkpointAck.statusCode, 200, checkpointAck.body);
+  assert.equal(checkpointAck.json?.checkpoint?.sinceEventId, firstAppend.json?.event?.id);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const conflict = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId,
+        "last-event-id": "evt_conflict_cursor"
+      }
+    }
+  );
+  const conflictBody = await conflict.json();
+  assert.equal(conflict.status, 409);
+  assert.equal(conflictBody.code, "SESSION_EVENT_CURSOR_CONFLICT");
+
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const streamResponse = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      signal: controller.signal,
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  assert.equal(streamResponse.status, 200);
+  assert.equal(streamResponse.headers.get("x-session-events-since-event-id"), firstAppend.json?.event?.id);
+  assert.ok(streamResponse.body);
+
+  const stream = createSseFrameReader(streamResponse.body);
+  const readyFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+  assert.equal(readyFrame.event, "session.ready");
+  const readyPayload = JSON.parse(readyFrame.dataLines.join("\n"));
+  assert.equal(readyPayload.sinceEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayload.inbox?.sinceEventId, firstAppend.json?.event?.id);
+
+  const secondAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 75 }
+    }
+  });
+  assert.equal(secondAppend.statusCode, 201, secondAppend.body);
+
+  const eventFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+  assert.equal(eventFrame.event, "session.event");
+  assert.equal(eventFrame.id, secondAppend.json?.event?.id);
+  await closeSseStream(stream, controller);
+});
+
 test("API e2e: /sessions/:id/events/stream enforces participant ACL fail closed", async (t) => {
   const api = createApi({ opsToken: "tok_ops" });
   const allowedPrincipalId = "agt_stream_acl_allowed_1";

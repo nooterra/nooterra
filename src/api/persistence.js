@@ -817,6 +817,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "SESSION_RELAY_STATE_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const relayState = op.relayState ?? null;
+      if (!relayState || typeof relayState !== "object" || Array.isArray(relayState)) {
+        throw new TypeError("SESSION_RELAY_STATE_UPSERT requires relayState");
+      }
+      const checkpointId = relayState.checkpointId ?? op.checkpointId ?? null;
+      if (!checkpointId) throw new TypeError("SESSION_RELAY_STATE_UPSERT requires relayState.checkpointId");
+      if (!(store.sessionRelayStates instanceof Map)) store.sessionRelayStates = new Map();
+      const key = makeScopedKey({ tenantId, id: String(checkpointId) });
+      store.sessionRelayStates.set(key, { ...relayState, tenantId, checkpointId: String(checkpointId) });
+      continue;
+    }
+
     if (kind === "X402_GATE_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const gate = op.gate ?? null;

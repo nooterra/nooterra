@@ -183,6 +183,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.subAgentCompletionReceipts.clear();
     if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
     store.stateCheckpoints.clear();
+    if (!(store.sessionRelayStates instanceof Map)) store.sessionRelayStates = new Map();
+    store.sessionRelayStates.clear();
     if (!(store.x402Gates instanceof Map)) store.x402Gates = new Map();
     store.x402Gates.clear();
     if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
@@ -327,6 +329,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       }
       if (type === "state_checkpoint") {
         store.stateCheckpoints.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          checkpointId: snap?.checkpointId ?? String(id)
+        });
+      }
+      if (type === "session_relay_state") {
+        store.sessionRelayStates.set(key, {
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           checkpointId: snap?.checkpointId ?? String(id)
@@ -1673,6 +1682,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistSessionRelayState(client, { tenantId, checkpointId, relayState }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!relayState || typeof relayState !== "object" || Array.isArray(relayState)) throw new TypeError("relayState is required");
+    const normalizedCheckpointId =
+      checkpointId ? String(checkpointId) : relayState.checkpointId ? String(relayState.checkpointId) : null;
+    if (!normalizedCheckpointId) throw new TypeError("checkpointId is required");
+    const normalizedRelayState = { ...relayState, tenantId, checkpointId: normalizedCheckpointId };
+    await persistSnapshot(client, {
+      tenantId,
+      aggregateType: "session_relay_state",
+      aggregateId: normalizedCheckpointId,
+      snapshot: normalizedRelayState,
+      updatedAt: normalizedRelayState.updatedAt ?? normalizedRelayState.createdAt ?? null
+    });
+  }
+
   async function persistX402Gate(client, { tenantId, gateId, gate }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) {
@@ -2652,6 +2677,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "SUB_AGENT_WORK_ORDER_UPSERT",
       "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
       "STATE_CHECKPOINT_UPSERT",
+      "SESSION_RELAY_STATE_UPSERT",
       "X402_GATE_UPSERT",
       "X402_AGENT_LIFECYCLE_UPSERT",
       "X402_RECEIPT_PUT",
@@ -3558,6 +3584,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             stateCheckpoint: op.stateCheckpoint
           });
         }
+        if (op.kind === "SESSION_RELAY_STATE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.relayState?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSessionRelayState(client, {
+            tenantId,
+            checkpointId: op.checkpointId,
+            relayState: op.relayState
+          });
+        }
         if (op.kind === "X402_GATE_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.gate?.tenantId ?? DEFAULT_TENANT_ID);
           await persistX402Gate(client, { tenantId, gateId: op.gateId, gate: op.gate });
@@ -4300,6 +4334,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     if (!checkpointId) return null;
     return {
       ...stateCheckpoint,
+      tenantId,
+      checkpointId
+    };
+  }
+
+  function sessionRelayStateSnapshotRowToRecord(row) {
+    const relayState = row?.snapshot_json ?? null;
+    if (!relayState || typeof relayState !== "object" || Array.isArray(relayState)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? relayState?.tenantId ?? DEFAULT_TENANT_ID);
+    const checkpointId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof relayState?.checkpointId === "string" && relayState.checkpointId.trim() !== ""
+          ? relayState.checkpointId.trim()
+          : null;
+    if (!checkpointId) return null;
+    return {
+      ...relayState,
       tenantId,
       checkpointId
     };
@@ -5900,6 +5952,28 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.stateCheckpoints.values()));
+    }
+  };
+
+  store.getSessionRelayState = async function getSessionRelayState({ tenantId = DEFAULT_TENANT_ID, checkpointId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(checkpointId, "checkpointId");
+    const normalizedCheckpointId = String(checkpointId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'session_relay_state' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedCheckpointId]
+      );
+      return res.rows.length ? sessionRelayStateSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      if (!(store.sessionRelayStates instanceof Map)) store.sessionRelayStates = new Map();
+      return store.sessionRelayStates.get(makeScopedKey({ tenantId, id: normalizedCheckpointId })) ?? null;
     }
   };
 

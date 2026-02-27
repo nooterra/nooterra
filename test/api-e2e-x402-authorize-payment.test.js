@@ -2044,6 +2044,39 @@ test("API e2e: verify enforces strict request binding evidence for quote-bound a
   assert.equal(verifyMismatchedRequestEvidence.statusCode, 409, verifyMismatchedRequestEvidence.body);
   assert.equal(verifyMismatchedRequestEvidence.json?.code, "X402_REQUEST_BINDING_EVIDENCE_MISMATCH");
 
+  const tamperedRequestSha256 = "4".repeat(64);
+  const verifyTamperedRequestEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_bind_verify_tampered_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [
+        `http:request_sha256:${requestBindingSha256}`,
+        `http:request_sha256:${tamperedRequestSha256}`,
+        `http:response_sha256:${"2".repeat(64)}`
+      ]
+    }
+  });
+  assert.equal(verifyTamperedRequestEvidence.statusCode, 409, verifyTamperedRequestEvidence.body);
+  assert.equal(verifyTamperedRequestEvidence.json?.code, "X402_REQUEST_BINDING_EVIDENCE_MISMATCH");
+  assert.deepEqual(verifyTamperedRequestEvidence.json?.details?.requestSha256Values, [requestBindingSha256, tamperedRequestSha256]);
+  assert.equal(verifyTamperedRequestEvidence.json?.details?.expectedRequestBindingSha256, requestBindingSha256);
+
   const verifyOk = await request(api, {
     method: "POST",
     path: "/x402/gate/verify",

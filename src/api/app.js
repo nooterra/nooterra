@@ -8448,6 +8448,42 @@ export function createApi({
     return value;
   }
 
+  function parseSessionRelayConsumerId(rawValue, { allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("checkpointConsumerId is required");
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 200) throw new TypeError("checkpointConsumerId must be <= 200 characters");
+    if (!/^[A-Za-z0-9:_./-]+$/.test(value)) throw new TypeError("checkpointConsumerId must match ^[A-Za-z0-9:_./-]+$");
+    return value;
+  }
+
+  function buildSessionRelayCheckpointId({ sessionId, consumerId }) {
+    const normalizedSessionId = String(sessionId ?? "").trim();
+    const normalizedConsumerId = String(consumerId ?? "").trim();
+    if (!normalizedSessionId || !normalizedConsumerId) throw new TypeError("sessionId and consumerId are required");
+    return `session_inbox_relay:${normalizedSessionId}:${normalizedConsumerId}`;
+  }
+
+  function buildSessionRelayCheckpointRecord({ tenantId, sessionId, consumerId, sinceEventId = null, createdAt = null, updatedAt = null } = {}) {
+    const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId });
+    const nowAt = nowIso();
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "SessionEventInboxRelayCheckpoint.v1",
+        tenantId,
+        checkpointId,
+        sessionId: String(sessionId).trim(),
+        consumerId: String(consumerId).trim(),
+        sinceEventId: normalizeSessionInboxEventId(sinceEventId),
+        createdAt: createdAt ?? updatedAt ?? nowAt,
+        updatedAt: updatedAt ?? nowAt
+      },
+      { path: "$.checkpoint" }
+    );
+  }
+
   function summarizeSessionEventCursorRange(events) {
     const rows = Array.isArray(events) ? events : [];
     const firstEventId =
@@ -8463,7 +8499,15 @@ export function createApi({
     };
   }
 
-  function buildSessionEventCursorNotFoundDetails({ sessionId, sinceEventId, events, phase = "unknown" } = {}) {
+  function buildSessionEventCursorNotFoundDetails({
+    sessionId,
+    sinceEventId,
+    events,
+    phase = "unknown",
+    cursorSource = "sinceEventId",
+    checkpointId = null,
+    checkpointConsumerId = null
+  } = {}) {
     const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
     const normalizedSinceEventId =
       typeof sinceEventId === "string" && sinceEventId.trim() !== "" ? sinceEventId.trim() : null;
@@ -8472,6 +8516,10 @@ export function createApi({
         sessionId: normalizedSessionId,
         sinceEventId: normalizedSinceEventId,
         phase,
+        cursorSource:
+          typeof cursorSource === "string" && cursorSource.trim() !== "" ? cursorSource.trim() : "sinceEventId",
+        checkpointId: normalizeSessionInboxEventId(checkpointId),
+        checkpointConsumerId: normalizeSessionInboxEventId(checkpointConsumerId),
         reasonCode: "SESSION_EVENT_CURSOR_NOT_FOUND",
         reason: "cursor was not found in current session event timeline",
         ...summarizeSessionEventCursorRange(events)
@@ -17238,6 +17286,12 @@ export function createApi({
       return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
     }
     throw new TypeError("state checkpoints not supported for this store");
+  }
+
+  async function getSessionRelayStateRecord({ tenantId, checkpointId }) {
+    if (typeof store.getSessionRelayState === "function") return store.getSessionRelayState({ tenantId, checkpointId });
+    if (!(store.sessionRelayStates instanceof Map)) store.sessionRelayStates = new Map();
+    return store.sessionRelayStates.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
   }
 
   async function listStateCheckpointRecords({
@@ -48774,7 +48828,8 @@ export function createApi({
                 : [])
             ])
           ).sort((left, right) => String(left).localeCompare(String(right)));
-          const requestSha256 = parseEvidenceRefSha256(enrichedEvidenceRefs, "http:request_sha256:");
+          const requestEvidence = parseEvidenceRefSha256Selection(enrichedEvidenceRefs, "http:request_sha256:");
+          const requestSha256 = requestEvidence.requestSha256;
           const responseSha256 = parseEvidenceRefSha256(enrichedEvidenceRefs, "http:response_sha256:");
           const gateExecutionIntent =
             gateAuthorization?.executionIntent && typeof gateAuthorization.executionIntent === "object" && !Array.isArray(gateAuthorization.executionIntent)
@@ -48817,6 +48872,21 @@ export function createApi({
             );
           }
           const executionIntentRequestSha256 = executionIntentBindingCheck.expectedRequestSha256 ?? null;
+          if (requestEvidence.hasConflict && (effectiveRequestBindingSha256 || executionIntentRequestSha256)) {
+            return sendError(
+              res,
+              409,
+              "request hash evidence conflict for spend authorization binding",
+              {
+                gateId,
+                requestSha256,
+                requestSha256Values: requestEvidence.requestSha256Values,
+                expectedRequestBindingSha256: effectiveRequestBindingSha256 ?? null,
+                expectedRequestSha256: executionIntentRequestSha256 ?? null
+              },
+              { code: "X402_REQUEST_BINDING_EVIDENCE_MISMATCH" }
+            );
+          }
           if (effectiveRequestBindingMode === "strict") {
             if (!effectiveRequestBindingSha256) {
               return sendError(
@@ -50622,12 +50692,187 @@ export function createApi({
           return sendJson(res, 200, { ok: true, transcript });
         }
 
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts[3] === "checkpoint" && parts.length === 4 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          let checkpointConsumerId = null;
+          try {
+            checkpointConsumerId = parseSessionRelayConsumerId(url.searchParams.get("checkpointConsumerId"), { allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid session event checkpoint query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+
+          const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+          const relayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+          if (!relayState) {
+            return sendError(
+              res,
+              409,
+              "invalid session event cursor",
+              normalizeForCanonicalJson(
+                {
+                  sessionId,
+                  checkpointConsumerId,
+                  checkpointId,
+                  phase: "checkpoint_read",
+                  reasonCode: "SESSION_EVENT_CHECKPOINT_NOT_FOUND",
+                  reason: "checkpoint was not found for this session consumer"
+                },
+                { path: "$.details" }
+              ),
+              { code: "SESSION_EVENT_CURSOR_INVALID" }
+            );
+          }
+          if (String(relayState.sessionId ?? "") !== sessionId) {
+            return sendError(
+              res,
+              409,
+              "invalid session event cursor",
+              normalizeForCanonicalJson(
+                {
+                  sessionId,
+                  checkpointConsumerId,
+                  checkpointId,
+                  phase: "checkpoint_read",
+                  reasonCode: "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH",
+                  reason: "checkpoint is not bound to this session"
+                },
+                { path: "$.details" }
+              ),
+              { code: "SESSION_EVENT_CURSOR_INVALID" }
+            );
+          }
+          let sinceEventId = null;
+          try {
+            sinceEventId = parseSessionEventCursor(relayState?.sinceEventId ?? null, { allowNull: true });
+          } catch {
+            return sendError(
+              res,
+              409,
+              "invalid session event cursor",
+              normalizeForCanonicalJson(
+                {
+                  sessionId,
+                  checkpointConsumerId,
+                  checkpointId,
+                  phase: "checkpoint_read",
+                  reasonCode: "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID",
+                  reason: "checkpoint cursor encoding is invalid"
+                },
+                { path: "$.details" }
+              ),
+              { code: "SESSION_EVENT_CURSOR_INVALID" }
+            );
+          }
+          let events = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(events)) events = [];
+          if (sinceEventId) {
+            const cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (cursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events,
+                  phase: "checkpoint_read",
+                  cursorSource: "checkpoint",
+                  checkpointId,
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          const nextSinceEventId = normalizeSessionInboxEventId(events[events.length - 1]?.id ?? sinceEventId);
+          const inbox = buildSessionEventInboxWatermark({
+            events,
+            sinceEventId,
+            nextSinceEventId
+          });
+          writeSessionEventInboxHeaders(res, inbox);
+          return sendJson(res, 200, {
+            ok: true,
+            checkpoint: relayState,
+            inbox
+          });
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts[3] === "checkpoint" && parts.length === 4 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const sessionId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let checkpointConsumerId = null;
+          let sinceEventId = null;
+          try {
+            checkpointConsumerId = parseSessionRelayConsumerId(body?.checkpointConsumerId ?? null, { allowNull: false });
+            sinceEventId = parseSessionEventCursor(body?.sinceEventId ?? null, { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid session event checkpoint", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+          let events = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(events)) events = [];
+          if (sinceEventId) {
+            const cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (cursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events,
+                  phase: "checkpoint_write",
+                  cursorSource: "checkpoint_write",
+                  checkpointId: buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId }),
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+          const existingRelayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+          const relayState = buildSessionRelayCheckpointRecord({
+            tenantId,
+            sessionId,
+            consumerId: checkpointConsumerId,
+            sinceEventId,
+            createdAt: existingRelayState?.createdAt ?? null,
+            updatedAt: nowIso()
+          });
+          await commitTx([{ kind: "SESSION_RELAY_STATE_UPSERT", tenantId, checkpointId, relayState }]);
+          const nextSinceEventId = normalizeSessionInboxEventId(events[events.length - 1]?.id ?? sinceEventId);
+          const inbox = buildSessionEventInboxWatermark({
+            events,
+            sinceEventId,
+            nextSinceEventId
+          });
+          writeSessionEventInboxHeaders(res, inbox);
+          return sendJson(res, 200, {
+            ok: true,
+            checkpoint: relayState,
+            inbox
+          });
+        }
+
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts[3] === "stream" && parts.length === 4 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const eventTypeRaw = url.searchParams.get("eventType");
+          const checkpointConsumerRaw = url.searchParams.get("checkpointConsumerId");
           let eventType = null;
+          let checkpointConsumerId = null;
           try {
             eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
+            checkpointConsumerId = parseSessionRelayConsumerId(checkpointConsumerRaw, { allowNull: true });
           } catch (err) {
             return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
@@ -50650,7 +50895,90 @@ export function createApi({
               { code: "SESSION_EVENT_CURSOR_CONFLICT" }
             );
           }
-          const sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
+          let checkpointId = null;
+          let checkpointSinceEventId = null;
+          if (checkpointConsumerId) {
+            checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+            const relayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+            if (!relayState) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "stream_init",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_NOT_FOUND",
+                    reason: "checkpoint was not found for this session consumer"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+            if (String(relayState.sessionId ?? "") !== sessionId) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "stream_init",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH",
+                    reason: "checkpoint is not bound to this session"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+            try {
+              checkpointSinceEventId = parseSessionEventCursor(relayState?.sinceEventId ?? null, { allowNull: true });
+            } catch {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "stream_init",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID",
+                    reason: "checkpoint cursor encoding is invalid"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          if (checkpointSinceEventId && (sinceEventIdFromQuery || sinceEventIdFromHeader)) {
+            const requestedCursor = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
+            if (requestedCursor !== checkpointSinceEventId) {
+              return sendError(
+                res,
+                409,
+                "ambiguous session event cursor",
+                { sessionId, sinceEventId: requestedCursor, checkpointSinceEventId, checkpointConsumerId, checkpointId },
+                { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+              );
+            }
+          }
+          const sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader ?? checkpointSinceEventId;
+          const cursorSource =
+            sinceEventIdFromQuery || sinceEventIdFromHeader
+              ? "sinceEventId"
+              : checkpointSinceEventId
+                ? "checkpoint"
+                : "sinceEventId";
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
@@ -50674,7 +51002,10 @@ export function createApi({
                   sessionId,
                   sinceEventId,
                   events: currentEvents,
-                  phase: "stream_init"
+                  phase: "stream_init",
+                  cursorSource,
+                  checkpointId,
+                  checkpointConsumerId
                 }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
@@ -50794,7 +51125,10 @@ export function createApi({
                   sessionId,
                   sinceEventId,
                   events,
-                  phase: "stream_poll"
+                  phase: "stream_poll",
+                  cursorSource,
+                  checkpointId,
+                  checkpointConsumerId
                 });
                 writeSseEvent({
                   eventName: "session.error",
@@ -50839,6 +51173,7 @@ export function createApi({
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const eventTypeRaw = url.searchParams.get("eventType");
+          const checkpointConsumerRaw = url.searchParams.get("checkpointConsumerId");
           const limitRaw = url.searchParams.get("limit");
           const offsetRaw = url.searchParams.get("offset");
           const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
@@ -50851,11 +51186,13 @@ export function createApi({
           }
 
           let eventType = null;
+          let checkpointConsumerId = null;
           let sinceEventIdFromQuery = null;
           let sinceEventIdFromHeader = null;
           let sinceEventId = null;
           try {
             eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
+            checkpointConsumerId = parseSessionRelayConsumerId(checkpointConsumerRaw, { allowNull: true });
             sinceEventIdFromQuery = parseSessionEventCursor(url.searchParams.get("sinceEventId"), { allowNull: true });
             sinceEventIdFromHeader = parseSessionEventCursor(typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null, {
               allowNull: true
@@ -50872,7 +51209,90 @@ export function createApi({
               { code: "SESSION_EVENT_CURSOR_CONFLICT" }
             );
           }
-          sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
+          let checkpointId = null;
+          let checkpointSinceEventId = null;
+          if (checkpointConsumerId) {
+            checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+            const relayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+            if (!relayState) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "list",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_NOT_FOUND",
+                    reason: "checkpoint was not found for this session consumer"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+            if (String(relayState.sessionId ?? "") !== sessionId) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "list",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH",
+                    reason: "checkpoint is not bound to this session"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+            try {
+              checkpointSinceEventId = parseSessionEventCursor(relayState?.sinceEventId ?? null, { allowNull: true });
+            } catch {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                normalizeForCanonicalJson(
+                  {
+                    sessionId,
+                    checkpointConsumerId,
+                    checkpointId,
+                    phase: "list",
+                    reasonCode: "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID",
+                    reason: "checkpoint cursor encoding is invalid"
+                  },
+                  { path: "$.details" }
+                ),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          if (checkpointSinceEventId && (sinceEventIdFromQuery || sinceEventIdFromHeader)) {
+            const requestedCursor = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
+            if (requestedCursor !== checkpointSinceEventId) {
+              return sendError(
+                res,
+                409,
+                "ambiguous session event cursor",
+                { sessionId, sinceEventId: requestedCursor, checkpointSinceEventId, checkpointConsumerId, checkpointId },
+                { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+              );
+            }
+          }
+          sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader ?? checkpointSinceEventId;
+          const cursorSource =
+            sinceEventIdFromQuery || sinceEventIdFromHeader
+              ? "sinceEventId"
+              : checkpointSinceEventId
+                ? "checkpoint"
+                : "sinceEventId";
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
@@ -50892,7 +51312,10 @@ export function createApi({
                   sessionId,
                   sinceEventId,
                   events,
-                  phase: "list"
+                  phase: "list",
+                  cursorSource,
+                  checkpointId,
+                  checkpointConsumerId
                 }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
