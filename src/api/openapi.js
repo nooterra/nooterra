@@ -297,6 +297,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const ToolCallArbitrationOpenConflictKnownErrorCodes = Object.freeze([
     "IDEMPOTENCY_CONFLICT",
     ...MarketplaceLifecycleConflictKnownErrorCodes,
+    "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+    "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+    "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_REQUIRED",
+    "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_MISMATCH",
     "HOLD_INVALID",
     "HOLD_NOT_ACTIVE",
     "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
@@ -309,6 +313,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const ToolCallArbitrationVerdictConflictKnownErrorCodes = Object.freeze([
     "IDEMPOTENCY_CONFLICT",
     ...MarketplaceLifecycleConflictKnownErrorCodes,
+    "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+    "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+    "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_REQUIRED",
+    "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_MISMATCH",
     "HOLD_INVALID",
     "HOLD_NOT_ACTIVE",
     "TRANSITION_ILLEGAL",

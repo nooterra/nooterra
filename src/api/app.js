@@ -18407,6 +18407,266 @@ export function createApi({
     return { ok: true, reason: null, expectedRequestSha256, requestSha256 };
   }
 
+  async function resolveToolCallSettlementBindingSource({ tenantId, agreementHash = null, receiptHash, hold = null } = {}) {
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedReceiptHash =
+      typeof receiptHash === "string" && /^[0-9a-f]{64}$/i.test(receiptHash.trim()) ? receiptHash.trim().toLowerCase() : null;
+    const normalizedAgreementHash =
+      typeof agreementHash === "string" && /^[0-9a-f]{64}$/i.test(agreementHash.trim()) ? agreementHash.trim().toLowerCase() : null;
+    if (!normalizedReceiptHash) {
+      return {
+        ok: false,
+        reason: "required",
+        detailCode: "invalid_receipt_hash",
+        candidates: []
+      };
+    }
+
+    const holdMetadata = hold?.metadata && typeof hold.metadata === "object" && !Array.isArray(hold.metadata) ? hold.metadata : null;
+    const holdExecutionIntent =
+      holdMetadata?.executionIntent && typeof holdMetadata.executionIntent === "object" && !Array.isArray(holdMetadata.executionIntent)
+        ? holdMetadata.executionIntent
+        : null;
+    const holdRequestSha256 =
+      typeof holdExecutionIntent?.requestFingerprint?.requestSha256 === "string" &&
+      /^[0-9a-f]{64}$/i.test(holdExecutionIntent.requestFingerprint.requestSha256.trim())
+        ? holdExecutionIntent.requestFingerprint.requestSha256.trim().toLowerCase()
+        : null;
+    if (holdRequestSha256) {
+      return {
+        ok: true,
+        reason: null,
+        detailCode: null,
+        runId: null,
+        settlementId: null,
+        receiptId: null,
+        expectedRequestSha256: holdRequestSha256,
+        settlement: {
+          decisionTrace: {
+            bindings: {
+              request: { sha256: holdRequestSha256 }
+            }
+          }
+        },
+        candidateCount: 1,
+        candidates: [
+          {
+            sourceType: "hold_execution_intent",
+            expectedRequestSha256: holdRequestSha256
+          }
+        ]
+      };
+    }
+    if (typeof store.listX402Receipts !== "function") {
+      return {
+        ok: false,
+        reason: "required",
+        detailCode: "receipt_resolver_unavailable",
+        candidates: []
+      };
+    }
+
+    let x402Receipts = [];
+    try {
+      x402Receipts = await store.listX402Receipts({
+        tenantId: normalizedTenantId,
+        limit: 50_000,
+        offset: 0
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "required",
+        detailCode: "receipt_resolver_failed",
+        message: err?.message ?? null,
+        candidates: []
+      };
+    }
+
+    const sourceCandidates = [];
+    for (const row of Array.isArray(x402Receipts) ? x402Receipts : []) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const settlementReceipt =
+        row?.settlementReceipt && typeof row.settlementReceipt === "object" && !Array.isArray(row.settlementReceipt) ? row.settlementReceipt : null;
+      const candidateReceiptHash =
+        typeof settlementReceipt?.receiptHash === "string" && /^[0-9a-f]{64}$/i.test(settlementReceipt.receiptHash.trim())
+          ? settlementReceipt.receiptHash.trim().toLowerCase()
+          : null;
+      if (!candidateReceiptHash || candidateReceiptHash !== normalizedReceiptHash) continue;
+
+      const decisionRecord =
+        row?.decisionRecord && typeof row.decisionRecord === "object" && !Array.isArray(row.decisionRecord) ? row.decisionRecord : null;
+      const candidateAgreementHash =
+        typeof decisionRecord?.agreementId === "string" && /^[0-9a-f]{64}$/i.test(decisionRecord.agreementId.trim())
+          ? decisionRecord.agreementId.trim().toLowerCase()
+          : null;
+      if (normalizedAgreementHash && candidateAgreementHash && candidateAgreementHash !== normalizedAgreementHash) continue;
+
+      const runId =
+        typeof row?.runId === "string" && row.runId.trim() !== ""
+          ? row.runId.trim()
+          : typeof settlementReceipt?.runId === "string" && settlementReceipt.runId.trim() !== ""
+            ? settlementReceipt.runId.trim()
+            : null;
+      if (!runId) continue;
+
+      let settlement = null;
+      try {
+        settlement = await getAgentRunSettlementRecord({ tenantId: normalizedTenantId, runId });
+      } catch (err) {
+        return {
+          ok: false,
+          reason: "required",
+          detailCode: "settlement_resolver_failed",
+          message: err?.message ?? null,
+          candidates: []
+        };
+      }
+      if (!settlement) continue;
+
+      const expectedRequestSha256 = resolveSettlementRequestBindingSha256(settlement);
+      if (!expectedRequestSha256) continue;
+
+      const settlementId = typeof settlement?.settlementId === "string" && settlement.settlementId.trim() !== "" ? settlement.settlementId.trim() : null;
+      const receiptId = typeof row?.receiptId === "string" && row.receiptId.trim() !== "" ? row.receiptId.trim() : null;
+      sourceCandidates.push({
+        runId,
+        settlementId,
+        receiptId,
+        expectedRequestSha256,
+        settlement
+      });
+    }
+
+    const dedupedByBindingSource = new Map();
+    for (const candidate of sourceCandidates) {
+      const dedupeKey = `${String(candidate.runId ?? "")}\n${String(candidate.settlementId ?? "")}\n${String(candidate.expectedRequestSha256 ?? "")}`;
+      if (dedupedByBindingSource.has(dedupeKey)) continue;
+      dedupedByBindingSource.set(dedupeKey, candidate);
+    }
+    const candidates = Array.from(dedupedByBindingSource.values()).sort(
+      (left, right) =>
+        String(left?.runId ?? "").localeCompare(String(right?.runId ?? "")) ||
+        String(left?.settlementId ?? "").localeCompare(String(right?.settlementId ?? "")) ||
+        String(left?.expectedRequestSha256 ?? "").localeCompare(String(right?.expectedRequestSha256 ?? ""))
+    );
+
+    if (candidates.length === 1) {
+      return {
+        ok: true,
+        reason: null,
+        detailCode: null,
+        runId: candidates[0].runId,
+        settlementId: candidates[0].settlementId,
+        receiptId: candidates[0].receiptId,
+        expectedRequestSha256: candidates[0].expectedRequestSha256,
+        settlement: candidates[0].settlement,
+        candidateCount: 1,
+        candidates: [
+          {
+            runId: candidates[0].runId,
+            settlementId: candidates[0].settlementId,
+            receiptId: candidates[0].receiptId,
+            expectedRequestSha256: candidates[0].expectedRequestSha256
+          }
+        ]
+      };
+    }
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        reason: "required",
+        detailCode: "source_missing",
+        candidateCount: 0,
+        candidates: []
+      };
+    }
+    return {
+      ok: false,
+      reason: "ambiguous",
+      detailCode: "source_ambiguous",
+      candidateCount: candidates.length,
+      candidates: candidates.map((candidate) => ({
+        runId: candidate.runId,
+        settlementId: candidate.settlementId,
+        receiptId: candidate.receiptId,
+        expectedRequestSha256: candidate.expectedRequestSha256
+      }))
+    };
+  }
+
+  async function enforceToolCallSettlementBindingEvidence({
+    res,
+    tenantId,
+    agreementHash,
+    receiptHash,
+    evidenceRefs = [],
+    operation,
+    hold = null,
+    caseId = null,
+    disputeId = null,
+    requiredCode,
+    mismatchCode
+  } = {}) {
+    const source = await resolveToolCallSettlementBindingSource({
+      tenantId,
+      agreementHash,
+      receiptHash,
+      hold
+    });
+    if (!source.ok) {
+      const details = {
+        operation,
+        agreementHash,
+        receiptHash,
+        sourceReason: source.reason,
+        sourceDetailCode: source.detailCode ?? null,
+        candidateCount: Number.isSafeInteger(Number(source.candidateCount)) ? Number(source.candidateCount) : Array.isArray(source.candidates) ? source.candidates.length : 0
+      };
+      if (caseId) details.caseId = caseId;
+      if (disputeId) details.disputeId = disputeId;
+      if (typeof source?.message === "string" && source.message.trim() !== "") details.message = source.message.trim();
+      if (Array.isArray(source?.candidates) && source.candidates.length > 0) details.candidates = source.candidates.slice(0, 10);
+      sendError(
+        res,
+        409,
+        source.reason === "ambiguous" ? "tool-call settlement binding source is ambiguous" : "tool-call settlement binding source is required",
+        details,
+        {
+          code: source.reason === "ambiguous" ? "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS" : "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED"
+        }
+      );
+      return true;
+    }
+
+    const bindingCheck = evaluateSettlementRequestBindingEvidence({
+      settlement: source.settlement,
+      evidenceRefs
+    });
+    if (bindingCheck.ok) return false;
+    const mismatchDetails = {
+      operation,
+      agreementHash,
+      receiptHash,
+      runId: source.runId ?? null,
+      settlementId: source.settlementId ?? null,
+      disputeId: disputeId ?? null,
+      expectedRequestSha256: bindingCheck.expectedRequestSha256
+    };
+    if (caseId) mismatchDetails.caseId = caseId;
+    if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+    sendError(
+      res,
+      409,
+      bindingCheck.reason === "required"
+        ? "request-hash evidence required for tool-call settlement binding"
+        : "request-hash evidence mismatch for tool-call settlement binding",
+      mismatchDetails,
+      { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
+    );
+    return true;
+  }
+
   async function listX402ReversalEventsForGate({ tenantId, gateId } = {}) {
     let events = [];
     if (typeof store.listX402ReversalEvents === "function") {
@@ -30198,6 +30458,42 @@ export function createApi({
             });
           } catch (err) {
             return sendError(res, 400, "invalid hold", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (parsedExecutionIntent) {
+            hold = normalizeForCanonicalJson(
+              {
+                ...hold,
+                metadata: {
+                  ...(hold?.metadata && typeof hold.metadata === "object" && !Array.isArray(hold.metadata) ? hold.metadata : {}),
+                  executionIntent: {
+                    intentHash:
+                      typeof parsedExecutionIntent.intentHash === "string" && parsedExecutionIntent.intentHash.trim() !== ""
+                        ? parsedExecutionIntent.intentHash.trim()
+                        : null,
+                    requestFingerprint: {
+                      requestSha256:
+                        typeof parsedExecutionIntent?.requestFingerprint?.requestSha256 === "string" &&
+                        /^[0-9a-f]{64}$/i.test(parsedExecutionIntent.requestFingerprint.requestSha256.trim())
+                          ? parsedExecutionIntent.requestFingerprint.requestSha256.trim().toLowerCase()
+                          : null
+                    },
+                    idempotencyKey:
+                      typeof parsedExecutionIntent.idempotencyKey === "string" && parsedExecutionIntent.idempotencyKey.trim() !== ""
+                        ? parsedExecutionIntent.idempotencyKey.trim()
+                        : null,
+                    createdAt:
+                      typeof parsedExecutionIntent.createdAt === "string" && parsedExecutionIntent.createdAt.trim() !== ""
+                        ? parsedExecutionIntent.createdAt.trim()
+                        : null,
+                    expiresAt:
+                      typeof parsedExecutionIntent.expiresAt === "string" && parsedExecutionIntent.expiresAt.trim() !== ""
+                        ? parsedExecutionIntent.expiresAt.trim()
+                        : null
+                  }
+                }
+              },
+              { path: "$" }
+            );
           }
 
           const responseBody = { hold };
@@ -55073,6 +55369,10 @@ export function createApi({
             return sendError(res, 409, "caseId must match deterministic tool-call case id", { expectedCaseId: defaultCaseId }, { code: "CASE_ID_NOT_DETERMINISTIC" });
           }
 
+          const runId = `tc_${agreementHash}`;
+          const disputeId = `disp_tc_${agreementHash}`;
+          const settlementId = `setl_tc_${agreementHash}`;
+
           let existingCase = null;
           try {
             existingCase = await getArbitrationCaseRecord({ tenantId, caseId });
@@ -55124,10 +55424,6 @@ export function createApi({
             }
             return sendJson(res, 200, responseBody);
           }
-
-          const runId = `tc_${agreementHash}`;
-          const disputeId = `disp_tc_${agreementHash}`;
-          const settlementId = `setl_tc_${agreementHash}`;
 
           const disputeOpenEnvelopeRaw = body?.disputeOpenEnvelope;
           if (disputeOpenEnvelopeRaw !== undefined && disputeOpenEnvelopeRaw !== null && (typeof disputeOpenEnvelopeRaw !== "object" || Array.isArray(disputeOpenEnvelopeRaw))) {
@@ -55237,6 +55533,20 @@ export function createApi({
               { code: toolCallOpenLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
             );
           }
+          const openBindingBlocked = await enforceToolCallSettlementBindingEvidence({
+            res,
+            tenantId,
+            agreementHash,
+            receiptHash,
+            evidenceRefs,
+            operation: "tool_call_arbitration.open",
+            hold,
+            caseId,
+            disputeId,
+            requiredCode: "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (openBindingBlocked) return;
 
           const summary = typeof body?.summary === "string" && body.summary.trim() !== "" ? body.summary.trim() : null;
           if (!summary) return sendError(res, 400, "summary is required");
@@ -55471,6 +55781,23 @@ export function createApi({
               { code: toolCallVerdictLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
             );
           }
+          const verdictBindingBlocked = await enforceToolCallSettlementBindingEvidence({
+            res,
+            tenantId,
+            agreementHash,
+            receiptHash,
+            operation: "tool_call_arbitration.verdict",
+            hold,
+            caseId,
+            disputeId: arbitrationCase?.disputeId ?? null,
+            evidenceRefs: mergeUniqueStringArrays(
+              Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : [],
+              Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
+            ),
+            requiredCode: "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_REQUIRED",
+            mismatchCode: "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_MISMATCH"
+          });
+          if (verdictBindingBlocked) return;
           const releaseRatePct = Number(signedArbitrationVerdict.releaseRatePct);
           if (releaseRatePct !== 0 && releaseRatePct !== 100) {
             return sendError(res, 409, "tool-call verdict must be binary (releaseRatePct 0 or 100)", null, { code: "TOOL_CALL_VERDICT_NOT_BINARY" });

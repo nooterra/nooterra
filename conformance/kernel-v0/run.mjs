@@ -348,6 +348,61 @@ function buildSignedArbitrationVerdictV1({
   return { ...core, signerKeyId, signature };
 }
 
+function buildExecutionIntentV1({
+  intentId,
+  tenantId,
+  agentId,
+  agreementHash,
+  requestSha256,
+  maxAmountCents,
+  idempotencyKey,
+  createdAt
+}) {
+  const createdAtIso = typeof createdAt === "string" && Number.isFinite(Date.parse(createdAt)) ? new Date(Date.parse(createdAt)).toISOString() : new Date().toISOString();
+  const expiresAtIso = new Date(Date.parse(createdAtIso) + 10 * 60 * 1000).toISOString();
+  const seed = normalizeForCanonicalJson(
+    {
+      schemaVersion: "ExecutionIntent.v1",
+      intentId,
+      tenantId,
+      agentId,
+      agreementHash,
+      requestFingerprint: {
+        canonicalization: "rfc8785-jcs",
+        method: "POST",
+        path: "/ops/tool-calls/holds/lock",
+        querySha256: sha256Hex(`query:${intentId}`),
+        bodySha256: sha256Hex(`body:${intentId}`),
+        requestSha256
+      },
+      riskProfile: {
+        riskClass: "financial",
+        sideEffecting: true,
+        expectedDeterminism: "bounded_nondeterministic",
+        maxLossCents: maxAmountCents,
+        requiresHumanApproval: false
+      },
+      spendBounds: {
+        currency: "USD",
+        maxAmountCents
+      },
+      policyBinding: {
+        policyId: `policy_${intentId}`,
+        policyVersion: 1,
+        policyHash: sha256Hex(`policy:${intentId}`),
+        verificationMethodHash: sha256Hex(`verification_method:${intentId}`)
+      },
+      idempotencyKey,
+      nonce: `nonce_${sha256Hex(`nonce:${intentId}`).slice(0, 24)}`,
+      expiresAt: expiresAtIso,
+      createdAt: createdAtIso
+    },
+    { path: "$" }
+  );
+  const intentHash = sha256Hex(canonicalJsonStringify(seed));
+  return { ...seed, intentHash };
+}
+
 async function runToolCallHoldbackDisputeCase({ opts, verdict }) {
   const suffix = uniqueSuffix();
   const payerAgentId = `agt_conf_payer_${suffix}`;
@@ -415,15 +470,27 @@ async function runToolCallHoldbackDisputeCase({ opts, verdict }) {
 
   const agreementHash = sha256Hex(`conf:tc:agreement:${suffix}`);
   const receiptHash = sha256Hex(`conf:tc:receipt:${suffix}`);
+  const requestSha256 = sha256Hex(`conf:tc:request:${suffix}`);
   const createdAt = new Date().toISOString();
   const challengeWindowMs = 800;
   const holdbackBps = 2000;
+  const holdLockIdempotencyKey = `conf_${suffix}_hold_lock`;
+  const executionIntent = buildExecutionIntentV1({
+    intentId: `intent_conf_${suffix}`,
+    tenantId: opts.tenantId,
+    agentId: payerAgentId,
+    agreementHash,
+    requestSha256,
+    maxAmountCents: 10_000,
+    idempotencyKey: holdLockIdempotencyKey,
+    createdAt
+  });
 
   const lock = await requestJson({
     ...opts,
     method: "POST",
     pathname: "/ops/tool-calls/holds/lock",
-    idempotencyKey: `conf_${suffix}_hold_lock`,
+    idempotencyKey: holdLockIdempotencyKey,
     body: {
       agreementHash,
       receiptHash,
@@ -433,7 +500,8 @@ async function runToolCallHoldbackDisputeCase({ opts, verdict }) {
       currency: "USD",
       holdbackBps,
       challengeWindowMs,
-      createdAt
+      createdAt,
+      executionIntent
     }
   });
   const hold = lock?.hold ?? null;
@@ -462,7 +530,7 @@ async function runToolCallHoldbackDisputeCase({ opts, verdict }) {
       }),
       arbiterAgentId,
       summary: "Conformance dispute",
-      evidenceRefs: []
+      evidenceRefs: [`http:request_sha256:${requestSha256}`]
     }
   });
   const arbitrationCase = open?.arbitrationCase ?? null;

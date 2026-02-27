@@ -237,6 +237,10 @@ test("R1 API contract freeze: settlement resolve + tool-call arbitration routes 
     {
       path: "/tool-calls/arbitration/open",
       codes: [
+        "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+        "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+        "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_REQUIRED",
+        "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_MISMATCH",
         "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
         "CASE_ID_NOT_DETERMINISTIC",
         "DISPUTE_INVALID_SIGNER",
@@ -247,6 +251,10 @@ test("R1 API contract freeze: settlement resolve + tool-call arbitration routes 
     {
       path: "/tool-calls/arbitration/verdict",
       codes: [
+        "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+        "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+        "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_REQUIRED",
+        "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_MISMATCH",
         "TRANSITION_ILLEGAL",
         "TOOL_CALL_VERDICT_NOT_BINARY",
         "ADJUSTMENT_INVALID",

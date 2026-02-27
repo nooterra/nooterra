@@ -125,6 +125,32 @@
       ]
     },
     {
+      "operationId": "toolCallArbitrationOpen",
+      "route": "/tool-calls/arbitration/open",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+        "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+        "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
+      "operationId": "toolCallArbitrationVerdict",
+      "route": "/tool-calls/arbitration/verdict",
+      "method": "POST",
+      "requiredReasonCodes": [
+        "X402_TOOL_CALL_BINDING_SOURCE_REQUIRED",
+        "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "X402_TOOL_CALL_BINDING_SOURCE_AMBIGUOUS",
+        "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_MISMATCH"
+      ]
+    },
+    {
       "operationId": "x402GateReversal",
       "route": "/x402/gate/reversal",
       "method": "POST",
