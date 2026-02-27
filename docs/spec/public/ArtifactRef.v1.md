@@ -39,6 +39,12 @@ Stable payload-binding reason codes:
 - `ARTIFACT_REF_PAYLOAD_SCHEMA_INVALID`
 - `ARTIFACT_REF_PAYLOAD_HASH_MISMATCH`
 
+S6 portability contracts use these helpers to bind
+`SessionMemoryExport.v1` payloads to deterministic `ArtifactRef.v1` identities:
+
+- `buildSessionMemoryContractHooksV1(...)` computes `memoryExportRef` via `buildArtifactRefFromPayloadV1(...)`.
+- `verifySessionMemoryContractImportV1(...)` fail-closes when `memoryExportRef` hash binding does not match import payload.
+
 ## API surface
 
 - embedded by other substrate objects (no standalone endpoint in v1)

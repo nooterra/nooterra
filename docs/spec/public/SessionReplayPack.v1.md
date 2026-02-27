@@ -69,11 +69,32 @@ Import verification is fail-closed:
 - invalid or missing required signatures when signature verification is requested.
 
 Stable import reason codes are emitted from `SESSION_MEMORY_IMPORT_REASON_CODES` in `src/core/session-replay-pack.js`.
+Service-level portability hooks (`src/services/memory/contract-hooks.js`) extend these with:
+
+- `SESSION_MEMORY_EXPORT_REF_INVALID`
+- `SESSION_MEMORY_EXPORT_REF_TAMPERED`
+- `SESSION_MEMORY_REPLAY_PACK_SIGNER_LIFECYCLE_INVALID`
+- `SESSION_MEMORY_TRANSCRIPT_SIGNER_LIFECYCLE_INVALID`
 
 Roundtrip determinism guarantee:
 
 - building `SessionMemoryExport.v1` from identical replay/transcript inputs yields identical canonical JSON,
 - verified imports can be re-exported without semantic or cryptographic drift.
+
+## Contract Hooks
+
+`src/services/memory/contract-hooks.js` provides deterministic integration helpers for portable memory handoff:
+
+- `buildSessionMemoryContractHooksV1(...)`
+  returns `{ memoryExport, memoryExportRef }`, where `memoryExportRef` is deterministic `ArtifactRef.v1` over the canonical `SessionMemoryExport.v1` payload.
+- `verifySessionMemoryContractImportV1(...)`
+  verifies:
+  - optional `memoryExportRef` payload binding (tamper detection),
+  - core import invariants from `verifySessionMemoryImportV1(...)`,
+  - optional signature lifecycle policy via signer registry / callback hooks.
+
+Identity continuity lifecycle checks can be enforced with
+`src/services/identity/signer-lifecycle.js#evaluateSignerLifecycleForContinuity(...)`.
 
 ## API surface
 

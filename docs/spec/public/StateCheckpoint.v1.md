@@ -39,6 +39,7 @@ Capture durable state snapshots and diffs as hash-bound references so agents can
 - `checkpointHash` must re-compute exactly from canonical content.
 - when provided, `delegationGrantRef` and `authorityGrantRef` must be syntactically valid grant IDs.
 - checkpoints are immutable by id in API v1 (create-once semantics; duplicate id conflicts).
+- identity continuity paths must fail closed when signer lifecycle is non-active (`rotated`, `revoked`) for portability-linked artifacts.
 
 ## API surface
 
@@ -56,5 +57,6 @@ Capture durable state snapshots and diffs as hash-bound references so agents can
 
 - `src/core/state-checkpoint.js`
 - `src/core/artifact-ref.js`
+- `src/services/identity/signer-lifecycle.js`
 - `src/api/app.js`
 - `src/db/store-pg.js`
