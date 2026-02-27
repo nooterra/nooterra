@@ -54,6 +54,20 @@ async function setX402AgentLifecycle(
   });
 }
 
+async function setSignerKeyLifecycle(api, { keyId, action, tenantId = "tenant_default" } = {}) {
+  const normalizedAction = action === "rotate" ? "rotate" : action === "revoke" ? "revoke" : null;
+  if (!normalizedAction) throw new TypeError("action must be rotate or revoke");
+  const res = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/${normalizedAction}`,
+    headers: { "x-proxy-tenant-id": tenantId },
+    body: {}
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.json?.signerKey?.status, normalizedAction === "rotate" ? "rotated" : "revoked");
+  return res.json?.signerKey ?? null;
+}
+
 async function getWallet(api, { agentId, tenantId = "tenant_default" } = {}) {
   const res = await request(api, {
     method: "GET",
@@ -1184,4 +1198,263 @@ test("API e2e: tool-call arbitration verdict fails closed when request-hash evid
   });
   assert.equal(verdict.statusCode, 409, verdict.body);
   assert.equal(verdict.json?.code, "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_MISMATCH");
+});
+
+test("API e2e: tool-call arbitration open fails closed when disputeOpenEnvelope signer key lifecycle is rotated/revoked", async () => {
+  const scenarios = [
+    {
+      label: "rotated",
+      action: "rotate",
+      reasonCode: "SIGNER_KEY_NOT_ACTIVE",
+      signerStatus: "rotated",
+      agreementHash: "a".repeat(64),
+      receiptHash: "b".repeat(64),
+      requestSha256: "c".repeat(64),
+      nowIso: "2026-02-14T00:00:00.000Z"
+    },
+    {
+      label: "revoked",
+      action: "revoke",
+      reasonCode: "SIGNER_KEY_REVOKED",
+      signerStatus: "revoked",
+      agreementHash: "d".repeat(64),
+      receiptHash: "e".repeat(64),
+      requestSha256: "f".repeat(64),
+      nowIso: "2026-02-14T00:30:00.000Z"
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    let nowMs = Date.parse(scenario.nowIso);
+    const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
+    const tenantId = "tenant_default";
+    const payerAgentId = `agt_tc_signer_open_${scenario.label}_payer_1`;
+    const payeeAgentId = `agt_tc_signer_open_${scenario.label}_payee_1`;
+    const arbiterAgentId = `agt_tc_signer_open_${scenario.label}_arbiter_1`;
+    const arbiterKeypair = createEd25519Keypair();
+
+    await registerAgent(api, { tenantId, agentId: payerAgentId });
+    const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
+    await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
+    await creditWallet(api, { tenantId, agentId: payerAgentId, amountCents: 10_000, key: `idmp_tc_signer_open_credit_${scenario.label}` });
+
+    await seedToolCallSettlementBindingSource(api, {
+      tenantId,
+      agreementHash: scenario.agreementHash,
+      receiptHash: scenario.receiptHash,
+      requestSha256: scenario.requestSha256,
+      at: new Date(nowMs).toISOString()
+    });
+
+    const holdLock = await request(api, {
+      method: "POST",
+      path: "/ops/tool-calls/holds/lock",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-nooterra-protocol": "1.0",
+        "x-idempotency-key": `idmp_tc_signer_open_hold_${scenario.label}`
+      },
+      body: {
+        agreementHash: scenario.agreementHash,
+        receiptHash: scenario.receiptHash,
+        payerAgentId,
+        payeeAgentId,
+        amountCents: 10_000,
+        currency: "USD",
+        holdbackBps: 2000,
+        challengeWindowMs: 30_000
+      }
+    });
+    assert.equal(holdLock.statusCode, 201, holdLock.body);
+    const holdHash = String(holdLock.json?.hold?.holdHash ?? "");
+    assert.match(holdHash, /^[0-9a-f]{64}$/);
+
+    await setSignerKeyLifecycle(api, {
+      tenantId,
+      keyId: payeeRegistration.keyId,
+      action: scenario.action
+    });
+
+    nowMs += 1000;
+    const open = await request(api, {
+      method: "POST",
+      path: "/tool-calls/arbitration/open",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-nooterra-protocol": "1.0",
+        "x-idempotency-key": `idmp_tc_signer_open_block_${scenario.label}`
+      },
+      body: {
+        agreementHash: scenario.agreementHash,
+        receiptHash: scenario.receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+          tenantId,
+          agreementHash: scenario.agreementHash,
+          receiptHash: scenario.receiptHash,
+          holdHash,
+          openedByAgentId: payeeAgentId,
+          signerKeyId: payeeRegistration.keyId,
+          signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+          openedAt: new Date(nowMs).toISOString()
+        }),
+        arbiterAgentId,
+        summary: "tool-call signer lifecycle open test",
+        evidenceRefs: [`http:request_sha256:${scenario.requestSha256}`]
+      }
+    });
+    assert.equal(open.statusCode, 409, open.body);
+    assert.equal(open.json?.code, "DISPUTE_INVALID_SIGNER");
+    const signerDetails =
+      open.json?.details?.details && typeof open.json.details.details === "object" ? open.json.details.details : open.json?.details;
+    assert.equal(signerDetails?.reasonCode, scenario.reasonCode);
+    assert.equal(signerDetails?.signerStatus, scenario.signerStatus);
+    assert.equal(signerDetails?.signerKeyId, payeeRegistration.keyId);
+  }
+});
+
+test("API e2e: tool-call arbitration verdict fails closed when arbitrationVerdict signer key lifecycle is rotated/revoked", async () => {
+  const scenarios = [
+    {
+      label: "rotated",
+      action: "rotate",
+      reasonCode: "SIGNER_KEY_NOT_ACTIVE",
+      signerStatus: "rotated",
+      agreementHash: "1".repeat(64),
+      receiptHash: "2".repeat(64),
+      requestSha256: "3".repeat(64),
+      nowIso: "2026-02-14T01:00:00.000Z"
+    },
+    {
+      label: "revoked",
+      action: "revoke",
+      reasonCode: "SIGNER_KEY_REVOKED",
+      signerStatus: "revoked",
+      agreementHash: "4".repeat(64),
+      receiptHash: "5".repeat(64),
+      requestSha256: "6".repeat(64),
+      nowIso: "2026-02-14T01:30:00.000Z"
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    let nowMs = Date.parse(scenario.nowIso);
+    const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
+    const tenantId = "tenant_default";
+    const payerAgentId = `agt_tc_signer_verdict_${scenario.label}_payer_1`;
+    const payeeAgentId = `agt_tc_signer_verdict_${scenario.label}_payee_1`;
+    const arbiterAgentId = `agt_tc_signer_verdict_${scenario.label}_arbiter_1`;
+    const arbiterKeypair = createEd25519Keypair();
+
+    await registerAgent(api, { tenantId, agentId: payerAgentId });
+    const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
+    const arbiterRegistration = await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
+    await creditWallet(api, { tenantId, agentId: payerAgentId, amountCents: 10_000, key: `idmp_tc_signer_verdict_credit_${scenario.label}` });
+
+    await seedToolCallSettlementBindingSource(api, {
+      tenantId,
+      agreementHash: scenario.agreementHash,
+      receiptHash: scenario.receiptHash,
+      requestSha256: scenario.requestSha256,
+      at: new Date(nowMs).toISOString()
+    });
+
+    const holdLock = await request(api, {
+      method: "POST",
+      path: "/ops/tool-calls/holds/lock",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-nooterra-protocol": "1.0",
+        "x-idempotency-key": `idmp_tc_signer_verdict_hold_${scenario.label}`
+      },
+      body: {
+        agreementHash: scenario.agreementHash,
+        receiptHash: scenario.receiptHash,
+        payerAgentId,
+        payeeAgentId,
+        amountCents: 10_000,
+        currency: "USD",
+        holdbackBps: 2000,
+        challengeWindowMs: 30_000
+      }
+    });
+    assert.equal(holdLock.statusCode, 201, holdLock.body);
+    const holdHash = String(holdLock.json?.hold?.holdHash ?? "");
+    assert.match(holdHash, /^[0-9a-f]{64}$/);
+
+    const open = await request(api, {
+      method: "POST",
+      path: "/tool-calls/arbitration/open",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-nooterra-protocol": "1.0",
+        "x-idempotency-key": `idmp_tc_signer_verdict_open_${scenario.label}`
+      },
+      body: {
+        agreementHash: scenario.agreementHash,
+        receiptHash: scenario.receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+          tenantId,
+          agreementHash: scenario.agreementHash,
+          receiptHash: scenario.receiptHash,
+          holdHash,
+          openedByAgentId: payeeAgentId,
+          signerKeyId: payeeRegistration.keyId,
+          signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+          openedAt: new Date(nowMs).toISOString()
+        }),
+        arbiterAgentId,
+        summary: "tool-call signer lifecycle verdict test",
+        evidenceRefs: [`http:request_sha256:${scenario.requestSha256}`]
+      }
+    });
+    assert.equal(open.statusCode, 201, open.body);
+    const arbitrationCase = open.json?.arbitrationCase ?? null;
+    assert.ok(arbitrationCase);
+
+    await setSignerKeyLifecycle(api, {
+      tenantId,
+      keyId: arbiterRegistration.keyId,
+      action: scenario.action
+    });
+
+    nowMs += 1000;
+    const signedVerdict = buildSignedToolCallVerdict({
+      tenantId,
+      caseId: arbitrationCase.caseId,
+      runId: arbitrationCase.runId,
+      settlementId: arbitrationCase.settlementId,
+      disputeId: arbitrationCase.disputeId,
+      arbiterAgentId,
+      signerKeyId: arbiterRegistration.keyId,
+      signerPrivateKeyPem: arbiterKeypair.privateKeyPem,
+      releaseRatePct: 100,
+      outcome: "accepted",
+      evidenceRefs: [],
+      issuedAt: new Date(nowMs).toISOString()
+    });
+
+    const verdict = await request(api, {
+      method: "POST",
+      path: "/tool-calls/arbitration/verdict",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-nooterra-protocol": "1.0",
+        "x-idempotency-key": `idmp_tc_signer_verdict_block_${scenario.label}`
+      },
+      body: { caseId: arbitrationCase.caseId, arbitrationVerdict: signedVerdict }
+    });
+    assert.equal(verdict.statusCode, 409, verdict.body);
+    assert.equal(verdict.json?.code, "DISPUTE_INVALID_SIGNER");
+    const signerDetails =
+      verdict.json?.details?.details && typeof verdict.json.details.details === "object"
+        ? verdict.json.details.details
+        : verdict.json?.details;
+    assert.equal(signerDetails?.reasonCode, scenario.reasonCode);
+    assert.equal(signerDetails?.signerStatus, scenario.signerStatus);
+    assert.equal(signerDetails?.signerKeyId, arbiterRegistration.keyId);
+  }
 });

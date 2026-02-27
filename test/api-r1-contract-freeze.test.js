@@ -282,6 +282,7 @@ test("R1 API contract freeze: settlement resolve + tool-call arbitration routes 
         "TRANSITION_ILLEGAL",
         "TOOL_CALL_VERDICT_NOT_BINARY",
         "ADJUSTMENT_INVALID",
+        "DISPUTE_INVALID_SIGNER",
         "INSUFFICIENT_ESCROW_BALANCE",
         "X402_AGENT_NOT_ACTIVE",
         "EMERGENCY_KILL_SWITCH_ACTIVE"

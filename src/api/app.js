@@ -24058,6 +24058,56 @@ export function createApi({
     throw err;
   }
 
+  function buildDisputeSignerLifecycleDetails({
+    signerKeyId,
+    lifecycle,
+    contextField = "signedAt",
+    contextAt = null
+  } = {}) {
+    const normalizedSignerKeyId = typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null;
+    const normalizedContextAt = typeof contextAt === "string" && contextAt.trim() !== "" ? contextAt.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        signerKeyId: normalizedSignerKeyId,
+        reasonCode: lifecycle?.reasonCode ?? "SIGNER_KEY_INVALID",
+        reason: lifecycle?.message ?? "signer key lifecycle verification failed",
+        signerStatus: lifecycle?.signerStatus ?? null,
+        validFrom: lifecycle?.validFrom ?? null,
+        validTo: lifecycle?.validTo ?? null,
+        revokedAt: lifecycle?.revokedAt ?? null,
+        ...(contextField === "openedAt" ? { openedAt: normalizedContextAt } : { signedAt: normalizedContextAt })
+      },
+      { path: "$.details" }
+    );
+  }
+
+  async function assertDisputeSignerLifecycle({
+    tenantId,
+    signerKeyId,
+    at,
+    contextField = "signedAt",
+    fieldPath = "signedPayload.signerKeyId"
+  } = {}) {
+    const normalizedAt = typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso();
+    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at: normalizedAt,
+      requireRegistered: false
+    });
+    if (lifecycle.ok) return;
+    const reasonCode = lifecycle.reasonCode ?? "SIGNER_KEY_INVALID";
+    const err = new TypeError(`${fieldPath} blocked: ${reasonCode}`);
+    err.code = "DISPUTE_INVALID_SIGNER";
+    err.details = buildDisputeSignerLifecycleDetails({
+      signerKeyId,
+      lifecycle,
+      contextField,
+      contextAt: normalizedAt
+    });
+    throw err;
+  }
+
   async function parseSignedDisputeVerdict({
     tenantId,
     runId,
@@ -24112,6 +24162,13 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("verdict.signerKeyId does not match arbiter agent key");
     }
+    await assertDisputeSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      at: issuedAt,
+      contextField: "signedAt",
+      fieldPath: "verdict.signerKeyId"
+    });
 
     const core = normalizeForCanonicalJson(
       {
@@ -24260,6 +24317,13 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("arbitrationVerdict.signerKeyId does not match arbiter agent key");
     }
+    await assertDisputeSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      at: issuedAt,
+      contextField: "signedAt",
+      fieldPath: "arbitrationVerdict.signerKeyId"
+    });
 
     const core = normalizeForCanonicalJson(
       {
@@ -24353,6 +24417,14 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("disputeOpenEnvelope.signerKeyId does not match openedByAgentId key");
     }
+    const openedAt = typeof envelope.openedAt === "string" && envelope.openedAt.trim() !== "" ? envelope.openedAt.trim() : nowIso();
+    await assertDisputeSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      at: openedAt,
+      contextField: "openedAt",
+      fieldPath: "disputeOpenEnvelope.signerKeyId"
+    });
 
     const envelopeHash = normalizeSha256HashInput(envelope.envelopeHash, "disputeOpenEnvelope.envelopeHash", {
       allowNull: false
@@ -55556,6 +55628,13 @@ export function createApi({
                 expectedHoldHash: holdHash
               });
             } catch (err) {
+              const signerDetails =
+                err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+              if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+                return sendError(res, 409, "invalid disputeOpenEnvelope", signerDetails ?? { message: err?.message }, {
+                  code: "DISPUTE_INVALID_SIGNER"
+                });
+              }
               const message = String(err?.message ?? "");
               const signerIssue =
                 /signature|signerkeyid|openedbyagentid|unknown signerkeyid|invalid disputeopenenvelope/i.test(message) ||
@@ -55875,6 +55954,13 @@ export function createApi({
             }
             assertArbitrationVerdictEvidenceBoundToCase({ arbitrationCase, arbitrationVerdict: signedArbitrationVerdict });
           } catch (err) {
+            const signerDetails =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+              return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
+                code: "DISPUTE_INVALID_SIGNER"
+              });
+            }
             return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
           }
           const toolCallVerdictLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
@@ -58754,6 +58840,13 @@ export function createApi({
             assertArbitrationVerdictEvidenceBoundToDisputeContext({ settlement, arbitrationVerdict: signedArbitrationVerdict });
             assertArbitrationVerdictEvidenceBoundToCase({ arbitrationCase, arbitrationVerdict: signedArbitrationVerdict });
           } catch (err) {
+            const signerDetails =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+              return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
+                code: "DISPUTE_INVALID_SIGNER"
+              });
+            }
             return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
           }
           const nowMs = Date.parse(nowAt);
@@ -59242,6 +59335,13 @@ export function createApi({
               verdictInput: body?.verdict
             });
           } catch (err) {
+            const signerDetails =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+              return sendError(res, 409, "invalid dispute verdict", signerDetails ?? { message: err?.message }, {
+                code: "DISPUTE_INVALID_SIGNER"
+              });
+            }
             return sendError(res, 400, "invalid dispute verdict", { message: err?.message });
           }
         }
@@ -59259,6 +59359,13 @@ export function createApi({
               arbitrationVerdict: signedArbitrationVerdict
             });
           } catch (err) {
+            const signerDetails =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+              return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
+                code: "DISPUTE_INVALID_SIGNER"
+              });
+            }
             return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
           }
         }
