@@ -4,6 +4,9 @@ Copy/paste adoption templates and guardrails:
 
 - `github-actions.md` — composite action usage and trust anchor wiring.
 - `github-actions-verify.yml` — pasteable workflow template.
+- `nooterra-runtime/PUBLIC_QUICKSTART.md` — public npm onboarding flow for Nooterra runtime host.
+- `claude-desktop/PUBLIC_QUICKSTART.md` — public npm onboarding flow for Claude Desktop.
+- `cursor/PUBLIC_QUICKSTART.md` — public npm onboarding flow for Cursor.
 - `openclaw/PUBLIC_QUICKSTART.md` — public npm onboarding flow for OpenClaw (`npx nooterra@latest setup`).
 - `openclaw/nooterra-mcp-skill/SKILL.md` + `openclaw/nooterra-mcp-skill/skill.json` — OpenClaw skill payload + manifest for Nooterra MCP.
 - `openclaw/CLAWHUB_PUBLISH_CHECKLIST.md` — publish + validation checklist for ClawHub.
