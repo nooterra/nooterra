@@ -4436,6 +4436,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     offset = 0
   } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) {
+      throw new TypeError("agentId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) {
+      throw new TypeError("status must be null or a non-empty string");
+    }
+    if (visibility !== null && (typeof visibility !== "string" || visibility.trim() === "")) {
+      throw new TypeError("visibility must be null or a non-empty string");
+    }
+    if (capability !== null && (typeof capability !== "string" || capability.trim() === "")) {
+      throw new TypeError("capability must be null or a non-empty string");
+    }
+    if (executionCoordinatorDid !== null && (typeof executionCoordinatorDid !== "string" || executionCoordinatorDid.trim() === "")) {
+      throw new TypeError("executionCoordinatorDid must be null or a non-empty string");
+    }
+    if (runtime !== null && (typeof runtime !== "string" || runtime.trim() === "")) {
+      throw new TypeError("runtime must be null or a non-empty string");
+    }
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
     const safeLimit = Math.min(1000, limit);
@@ -4556,7 +4574,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (!matchesToolDescriptorFilters(row)) continue;
         filtered.push(row);
       }
-      filtered.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+      filtered.sort((left, right) => String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? "")));
       return filtered.slice(safeOffset, safeOffset + safeLimit);
     };
 
@@ -4922,9 +4940,9 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         filtered.push(row);
       }
       filtered.sort((left, right) => {
-        const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+        const tenantOrder = String(left?.tenantId ?? "").localeCompare(String(right?.tenantId ?? ""));
         if (tenantOrder !== 0) return tenantOrder;
-        return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+        return String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? ""));
       });
       return filtered.slice(safeOffset, safeOffset + safeLimit);
     };

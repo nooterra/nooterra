@@ -84,6 +84,20 @@ test("config federation: fails closed when trusted peers are configured without 
   );
 });
 
+test("config federation: fails closed when signing key id is set without coordinator DID", () => {
+  withFederationEnv(
+    {
+      PROXY_COORDINATOR_SIGNING_KEY_ID: "key_coord_alpha_1",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig({ mode: "api" }),
+        /requires COORDINATOR_DID/i
+      );
+    }
+  );
+});
+
 test("config federation: fails closed when signing private key is set without signing key id", () => {
   withFederationEnv(
     {
@@ -95,6 +109,39 @@ test("config federation: fails closed when signing private key is set without si
         () => loadConfig({ mode: "api" }),
         /requires PROXY_COORDINATOR_SIGNING_KEY_ID/i
       );
+    }
+  );
+});
+
+test("config federation: keeps signing disabled when only signing key id is configured", () => {
+  withFederationEnv(
+    {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      PROXY_COORDINATOR_SIGNING_KEY_ID: "key_coord_alpha_1",
+    },
+    () => {
+      const cfg = loadConfig({ mode: "api" });
+      assert.equal(cfg.federation?.enabled, true);
+      assert.equal(cfg.federation?.coordinatorDid, "did:nooterra:coord_alpha");
+      assert.equal(cfg.federation?.signing?.enabled, false);
+      assert.equal(cfg.federation?.signing?.keyId, "key_coord_alpha_1");
+      assert.equal(cfg.federation?.signing?.privateKeyPem, null);
+    }
+  );
+});
+
+test("config federation: coordinator DID takes precedence over proxy coordinator DID", () => {
+  withFederationEnv(
+    {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      PROXY_COORDINATOR_DID: "did:nooterra:coord_bravo",
+      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_charlie",
+    },
+    () => {
+      const cfg = loadConfig({ mode: "api" });
+      assert.equal(cfg.federation?.enabled, true);
+      assert.equal(cfg.federation?.coordinatorDid, "did:nooterra:coord_alpha");
+      assert.deepEqual(cfg.federation?.trustedCoordinatorDids, ["did:nooterra:coord_charlie"]);
     }
   );
 });
@@ -119,4 +166,3 @@ test("config federation: configForLog excludes signing private key material", ()
     }
   );
 });
-

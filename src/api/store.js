@@ -1088,6 +1088,16 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     });
   }
 
+  function compareAgentCardDiscoveryTenantOrder(left, right) {
+    return String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? ""));
+  }
+
+  function compareAgentCardDiscoveryPublicOrder(left, right) {
+    const tenantOrder = String(left?.tenantId ?? "").localeCompare(String(right?.tenantId ?? ""));
+    if (tenantOrder !== 0) return tenantOrder;
+    return compareAgentCardDiscoveryTenantOrder(left, right);
+  }
+
   store.listAgentCards = async function listAgentCards({
     tenantId = DEFAULT_TENANT_ID,
     agentId = null,
@@ -1155,7 +1165,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (!agentCardMatchesToolDescriptorFilters(row, toolFilterState)) continue;
       out.push(row);
     }
-    out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+    out.sort(compareAgentCardDiscoveryTenantOrder);
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
@@ -1213,11 +1223,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (!agentCardMatchesToolDescriptorFilters(row, toolFilterState)) continue;
       out.push(row);
     }
-    out.sort((left, right) => {
-      const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
-      if (tenantOrder !== 0) return tenantOrder;
-      return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
-    });
+    out.sort(compareAgentCardDiscoveryPublicOrder);
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 

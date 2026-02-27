@@ -326,6 +326,15 @@ test("API e2e: agent-card discovery filters by executionCoordinatorDid", async (
   assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, "agt_coord_alpha_1");
   assert.equal(discovered.json?.results?.[0]?.agentCard?.executionCoordinatorDid, "did:nooterra:coord_alpha");
 
+  const exactMatchOnly = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&executionCoordinatorDid=did%3Anooterra%3Acoord_al&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(exactMatchOnly.statusCode, 200, exactMatchOnly.body);
+  assert.equal(exactMatchOnly.json?.results?.length, 0);
+
   const invalid = await request(api, {
     method: "GET",
     path:
@@ -534,6 +543,67 @@ test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", 
   const tenantIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(tenantIds.has("agt_card_public_a_1"), true);
   assert.equal(tenantIds.has("agt_card_public_b_1"), false);
+});
+
+test("API e2e: /public/agent-cards/discover tie ordering is deterministic for equal scores", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const tenantA = "tenant_discovery_order_a";
+  const tenantB = "tenant_discovery_order_b";
+
+  async function registerTenantAgent({ tenantId, agentId }) {
+    const { publicKeyPem } = createEd25519Keypair();
+    const response = await request(api, {
+      method: "POST",
+      path: "/agents/register",
+      headers: { "x-proxy-tenant-id": tenantId, "x-idempotency-key": `agent_register_${tenantId}_${agentId}` },
+      body: {
+        agentId,
+        displayName: agentId,
+        owner: { ownerType: "service", ownerId: `svc_${tenantId}` },
+        publicKeyPem,
+        capabilities: ["travel.booking"]
+      }
+    });
+    assert.equal(response.statusCode, 201, response.body);
+  }
+
+  for (const [tenantId, agentId] of [
+    [tenantA, "agt_public_order_b"],
+    [tenantA, "agt_public_order_a"],
+    [tenantB, "agt_public_order_a"]
+  ]) {
+    await registerTenantAgent({ tenantId, agentId });
+    const upserted = await request(api, {
+      method: "POST",
+      path: "/agent-cards",
+      headers: { "x-proxy-tenant-id": tenantId, "x-idempotency-key": `agent_card_public_order_${tenantId}_${agentId}` },
+      body: {
+        agentId,
+        displayName: `Public ${agentId}`,
+        capabilities: ["travel.booking"],
+        visibility: "public",
+        host: { runtime: "openclaw", endpoint: `https://example.test/public/${agentId}`, protocols: ["mcp"] }
+      }
+    });
+    assert.equal(upserted.statusCode, 201, upserted.body);
+  }
+
+  const discovered = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+      "&includeReputation=false&limit=10&offset=0",
+    auth: "none"
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.deepEqual(
+    (discovered.json?.results ?? []).map((row) => `${row?.agentCard?.tenantId}:${row?.agentCard?.agentId}`),
+    [
+      `${tenantA}:agt_public_order_a`,
+      `${tenantB}:agt_public_order_a`,
+      `${tenantA}:agt_public_order_b`
+    ]
+  );
 });
 
 test("API e2e: /public/agent-cards/discover rejects non-public visibility filters", async () => {

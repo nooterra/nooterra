@@ -16,7 +16,7 @@ These specs are written so an independent implementer can build a verifier witho
 - `public/` — public-facing collaboration substrate docs for integrators (`AgentCard.v1`, `AuthorityGrant.v1`, `DelegationGrant.v1`, `TaskQuote.v1`, `TaskOffer.v1`, `TaskAcceptance.v1`, `SubAgentWorkOrder.v1`, `SubAgentCompletionReceipt.v1`, `Meter.v1`, `ArtifactRef.v1`, `StateCheckpoint.v1`, `CapabilityAttestation.v1`, `ReputationEvent.v1`, `RelationshipEdge.v1`, `PublicAgentReputationSummary.v1`).
 - `CANONICAL_JSON.md` — canonical JSON rules used before hashing/signing.
 - `VERSIONING.md` — tool vs protocol versioning policy (SemVer + protocol object evolution).
-- `federation.md` — coordinator-to-coordinator federation contract (identity, trust model, invoke/result envelopes).
+- `federation.md` — coordinator-to-coordinator federation contract (deterministic DID namespace routing, explicit trust boundaries, fail-closed identity/trust/signing behavior, invoke/result envelopes).
 - `REFERENCE_VERIFIER_BEHAVIOR.md` — filesystem/path/ordering rules to prevent cross-impl drift.
 - `REFERENCE_IMPLEMENTATIONS.md` — reference verifier implementations and conformance parity policy.
 - `THREAT_MODEL.md` — explicit threats, mitigations, and residual risks (evidence-backed).

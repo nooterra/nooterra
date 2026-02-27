@@ -161,3 +161,90 @@ test("store: listAgentCardsPublic fails closed on invalid toolSideEffecting type
     /toolSideEffecting must be boolean/
   );
 });
+
+test("store: listAgentCards uses deterministic agentId ordering", async () => {
+  const store = createStore();
+
+  putCard(store, {
+    tenantId: "tenant_a",
+    agentId: "agt_b",
+    status: "active",
+    visibility: "public",
+    capabilities: ["travel.booking"],
+    host: { runtime: "openclaw" }
+  });
+  putCard(store, {
+    tenantId: "tenant_a",
+    agentId: "agt_a",
+    status: "active",
+    visibility: "public",
+    capabilities: ["travel.booking"],
+    host: { runtime: "openclaw" }
+  });
+
+  const rows = await store.listAgentCards({
+    tenantId: "tenant_a",
+    status: "active",
+    visibility: "public",
+    capability: "travel.booking",
+    runtime: "openclaw"
+  });
+
+  assert.deepEqual(
+    rows.map((row) => row.agentId),
+    ["agt_a", "agt_b"]
+  );
+});
+
+test("store: listAgentCardsPublic uses deterministic tenantId+agentId ordering", async () => {
+  const store = createStore();
+
+  putCard(store, {
+    tenantId: "tenant_b",
+    agentId: "agt_1",
+    status: "active",
+    visibility: "public",
+    capabilities: ["travel.booking"],
+    host: { runtime: "openclaw" }
+  });
+  putCard(store, {
+    tenantId: "tenant_a",
+    agentId: "agt_2",
+    status: "active",
+    visibility: "public",
+    capabilities: ["travel.booking"],
+    host: { runtime: "openclaw" }
+  });
+  putCard(store, {
+    tenantId: "tenant_a",
+    agentId: "agt_1",
+    status: "active",
+    visibility: "public",
+    capabilities: ["travel.booking"],
+    host: { runtime: "openclaw" }
+  });
+
+  const rows = await store.listAgentCardsPublic({
+    status: "active",
+    visibility: "public",
+    capability: "travel.booking",
+    runtime: "openclaw"
+  });
+
+  assert.deepEqual(
+    rows.map((row) => `${row.tenantId}:${row.agentId}`),
+    ["tenant_a:agt_1", "tenant_a:agt_2", "tenant_b:agt_1"]
+  );
+});
+
+test("store: listAgentCards fails closed on invalid agentId filter type", async () => {
+  const store = createStore();
+  await assert.rejects(
+    () =>
+      store.listAgentCards({
+        tenantId: "tenant_a",
+        agentId: 123
+      }),
+    /agentId must be null or a non-empty string/
+  );
+});
