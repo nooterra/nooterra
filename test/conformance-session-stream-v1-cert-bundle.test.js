@@ -30,8 +30,18 @@ test("session stream conformance pack emits hash-bound report and cert bundle", 
 
   const reportPath = path.join(tmpRoot, "session-stream-conformance-report.json");
   const certPath = path.join(tmpRoot, "session-stream-conformance-cert.json");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
 
-  const res = runConformance([...baseRunnerArgs(), "--json-out", reportPath, "--cert-bundle-out", certPath, "--strict-artifacts"]);
+  const res = runConformance([
+    ...baseRunnerArgs(),
+    "--json-out",
+    reportPath,
+    "--cert-bundle-out",
+    certPath,
+    "--generated-at",
+    generatedAt,
+    "--strict-artifacts"
+  ]);
 
   assert.equal(res.status, 0, `session stream conformance run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
 
@@ -46,6 +56,9 @@ test("session stream conformance pack emits hash-bound report and cert bundle", 
   assert.equal(report.reportCore?.summary?.ok, true);
   assert.equal(report.reportCore?.results?.[0]?.id, "stream_reconnect_delivery_deduped");
   assert.equal(report.reportCore?.results?.[0]?.status, "pass");
+  assert.equal(report.generatedAt, generatedAt);
+  assert.deepEqual(report.reportCore?.runner?.adapterArgs, []);
+  assert.equal(report.reportCore?.runner?.adapterCwd, null);
   assert.equal(report.reportHash, sha256Hex(canonicalJsonStringify(report.reportCore)));
 
   const cert = JSON.parse(await fs.readFile(certPath, "utf8"));
@@ -54,6 +67,7 @@ test("session stream conformance pack emits hash-bound report and cert bundle", 
   assert.equal(cert.certCore?.pack, "conformance/session-stream-v1");
   assert.equal(cert.certCore?.reportHash, report.reportHash);
   assert.deepEqual(cert.certCore?.reportCore, report.reportCore);
+  assert.equal(cert.generatedAt, generatedAt);
   assert.equal(cert.certHash, sha256Hex(canonicalJsonStringify(cert.certCore)));
 });
 

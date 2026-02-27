@@ -28,6 +28,21 @@ function assertIso8601(rawValue, fieldName) {
   return new Date(epochMs).toISOString();
 }
 
+function parseAdapterArgsJson(rawValue, fieldName) {
+  const value = normalizeOptionalString(rawValue);
+  if (!value) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (err) {
+    throw new Error(`${fieldName} must be a JSON array of strings`);
+  }
+  if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${fieldName} must be a JSON array of strings`);
+  }
+  return [...parsed];
+}
+
 function usage() {
   return [
     "usage: node scripts/conformance/publish-session-stream-conformance-cert.mjs [options]",
@@ -36,6 +51,8 @@ function usage() {
     "  --runtime-id <id>          Runtime identifier to bind into publication artifacts (required)",
     "  --adapter-bin <cmd>        Adapter executable command (exactly one of --adapter-bin/--adapter-node-bin)",
     "  --adapter-node-bin <path>  Adapter Node script path (exactly one of --adapter-bin/--adapter-node-bin)",
+    "  --adapter-arg <arg>        Optional adapter CLI arg (repeatable; passed through in order)",
+    "  --adapter-cwd <dir>        Optional adapter working directory",
     "  --case <id>                Optional single conformance case id",
     "  --out-dir <dir>            Output directory (default: artifacts/conformance/session-stream-v1/<runtime-id>)",
     "  --generated-at <iso-8601>  Deterministic generatedAt override for publication artifacts",
@@ -45,6 +62,8 @@ function usage() {
     "  SESSION_STREAM_CONFORMANCE_RUNTIME_ID",
     "  SESSION_STREAM_CONFORMANCE_ADAPTER_BIN",
     "  SESSION_STREAM_CONFORMANCE_ADAPTER_NODE_BIN",
+    "  SESSION_STREAM_CONFORMANCE_ADAPTER_ARGS_JSON",
+    "  SESSION_STREAM_CONFORMANCE_ADAPTER_CWD",
     "  SESSION_STREAM_CONFORMANCE_CASE_ID",
     "  SESSION_STREAM_CONFORMANCE_PUBLICATION_OUT_DIR",
     "  SESSION_STREAM_CONFORMANCE_PUBLICATION_NOW"
@@ -57,6 +76,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     runtimeId: normalizeOptionalString(env.SESSION_STREAM_CONFORMANCE_RUNTIME_ID),
     adapterBin: normalizeOptionalString(env.SESSION_STREAM_CONFORMANCE_ADAPTER_BIN),
     adapterNodeBin: normalizeOptionalString(env.SESSION_STREAM_CONFORMANCE_ADAPTER_NODE_BIN),
+    adapterArgs: parseAdapterArgsJson(env.SESSION_STREAM_CONFORMANCE_ADAPTER_ARGS_JSON, "SESSION_STREAM_CONFORMANCE_ADAPTER_ARGS_JSON"),
+    adapterCwd: normalizeOptionalString(env.SESSION_STREAM_CONFORMANCE_ADAPTER_CWD),
     caseId: normalizeOptionalString(env.SESSION_STREAM_CONFORMANCE_CASE_ID),
     generatedAt: assertIso8601(env.SESSION_STREAM_CONFORMANCE_PUBLICATION_NOW, "SESSION_STREAM_CONFORMANCE_PUBLICATION_NOW"),
     outDir: null
@@ -78,6 +99,10 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else if (arg.startsWith("--adapter-bin=")) out.adapterBin = normalizeOptionalString(arg.slice("--adapter-bin=".length));
     else if (arg === "--adapter-node-bin") out.adapterNodeBin = normalizeOptionalString(next());
     else if (arg.startsWith("--adapter-node-bin=")) out.adapterNodeBin = normalizeOptionalString(arg.slice("--adapter-node-bin=".length));
+    else if (arg === "--adapter-arg") out.adapterArgs.push(next());
+    else if (arg.startsWith("--adapter-arg=")) out.adapterArgs.push(arg.slice("--adapter-arg=".length));
+    else if (arg === "--adapter-cwd") out.adapterCwd = normalizeOptionalString(next());
+    else if (arg.startsWith("--adapter-cwd=")) out.adapterCwd = normalizeOptionalString(arg.slice("--adapter-cwd=".length));
     else if (arg === "--case") out.caseId = normalizeOptionalString(next());
     else if (arg.startsWith("--case=")) out.caseId = normalizeOptionalString(arg.slice("--case=".length));
     else if (arg === "--out-dir") out.outDir = path.resolve(cwd, next());
@@ -107,10 +132,16 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   return out;
 }
 
-function assertObject(value, name) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${name} must be an object`);
-  }
+function isObjectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function failClosedArtifactError(code, message, diagnostics = []) {
+  const lines = [`${code}: ${message}`];
+  for (const row of diagnostics) lines.push(`- ${row}`);
+  const err = new Error(lines.join("\n"));
+  err.code = code;
+  return err;
 }
 
 function readJsonOrThrow(raw, fileLabel) {
@@ -124,64 +155,75 @@ function readJsonOrThrow(raw, fileLabel) {
 }
 
 function validateConformanceArtifacts({ report, certBundle, caseId }) {
-  assertObject(report, "conformance report");
-  assertObject(certBundle, "conformance cert bundle");
+  const diagnostics = [];
+  if (!isObjectRecord(report)) diagnostics.push("conformance report must be an object");
+  if (!isObjectRecord(certBundle)) diagnostics.push("conformance cert bundle must be an object");
 
-  if (report.schemaVersion !== "ConformanceRunReport.v1") {
-    throw new Error(`conformance report schemaVersion mismatch: expected ConformanceRunReport.v1 got ${String(report.schemaVersion ?? "null")}`);
+  if (isObjectRecord(report) && report.schemaVersion !== "ConformanceRunReport.v1") {
+    diagnostics.push(`conformance report schemaVersion mismatch: expected ConformanceRunReport.v1 got ${String(report.schemaVersion ?? "null")}`);
   }
-  if (certBundle.schemaVersion !== "ConformanceCertBundle.v1") {
-    throw new Error(`conformance cert bundle schemaVersion mismatch: expected ConformanceCertBundle.v1 got ${String(certBundle.schemaVersion ?? "null")}`);
-  }
-
-  assertObject(report.reportCore, "conformance reportCore");
-  assertObject(certBundle.certCore, "conformance certCore");
-
-  const reportCore = normalizeForCanonicalJson(report.reportCore, { path: "$" });
-  const certCore = normalizeForCanonicalJson(certBundle.certCore, { path: "$" });
-
-  if (reportCore.schemaVersion !== "ConformanceRunReportCore.v1") {
-    throw new Error(`conformance reportCore schemaVersion mismatch: expected ConformanceRunReportCore.v1 got ${String(reportCore.schemaVersion ?? "null")}`);
-  }
-  if (certCore.schemaVersion !== "ConformanceCertBundleCore.v1") {
-    throw new Error(`conformance certCore schemaVersion mismatch: expected ConformanceCertBundleCore.v1 got ${String(certCore.schemaVersion ?? "null")}`);
-  }
-  if (reportCore.pack !== CONFORMANCE_PACK) {
-    throw new Error(`conformance reportCore pack mismatch: expected ${CONFORMANCE_PACK} got ${String(reportCore.pack ?? "null")}`);
-  }
-  if (certCore.pack !== CONFORMANCE_PACK) {
-    throw new Error(`conformance certCore pack mismatch: expected ${CONFORMANCE_PACK} got ${String(certCore.pack ?? "null")}`);
-  }
-  if (String(certCore.reportSchemaVersion ?? "") !== String(report.schemaVersion ?? "")) {
-    throw new Error("conformance certCore.reportSchemaVersion mismatch with report schemaVersion");
+  if (isObjectRecord(certBundle) && certBundle.schemaVersion !== "ConformanceCertBundle.v1") {
+    diagnostics.push(`conformance cert bundle schemaVersion mismatch: expected ConformanceCertBundle.v1 got ${String(certBundle.schemaVersion ?? "null")}`);
   }
 
-  const computedReportHash = sha256Hex(canonicalJsonStringify(reportCore));
-  if (String(report.reportHash ?? "") !== computedReportHash) {
-    throw new Error("conformance reportHash mismatch with reportCore");
+  const rawReportCore = report?.reportCore ?? null;
+  const rawCertCore = certBundle?.certCore ?? null;
+  if (!isObjectRecord(rawReportCore)) diagnostics.push("conformance reportCore must be an object");
+  if (!isObjectRecord(rawCertCore)) diagnostics.push("conformance certCore must be an object");
+
+  const reportCore = isObjectRecord(rawReportCore) ? normalizeForCanonicalJson(rawReportCore, { path: "$" }) : null;
+  const certCore = isObjectRecord(rawCertCore) ? normalizeForCanonicalJson(rawCertCore, { path: "$" }) : null;
+
+  if (isObjectRecord(reportCore) && reportCore.schemaVersion !== "ConformanceRunReportCore.v1") {
+    diagnostics.push(`conformance reportCore schemaVersion mismatch: expected ConformanceRunReportCore.v1 got ${String(reportCore.schemaVersion ?? "null")}`);
+  }
+  if (isObjectRecord(certCore) && certCore.schemaVersion !== "ConformanceCertBundleCore.v1") {
+    diagnostics.push(`conformance certCore schemaVersion mismatch: expected ConformanceCertBundleCore.v1 got ${String(certCore.schemaVersion ?? "null")}`);
+  }
+  if (isObjectRecord(reportCore) && reportCore.pack !== CONFORMANCE_PACK) {
+    diagnostics.push(`conformance reportCore pack mismatch: expected ${CONFORMANCE_PACK} got ${String(reportCore.pack ?? "null")}`);
+  }
+  if (isObjectRecord(certCore) && certCore.pack !== CONFORMANCE_PACK) {
+    diagnostics.push(`conformance certCore pack mismatch: expected ${CONFORMANCE_PACK} got ${String(certCore.pack ?? "null")}`);
+  }
+  if (isObjectRecord(certCore) && isObjectRecord(report) && String(certCore.reportSchemaVersion ?? "") !== String(report.schemaVersion ?? "")) {
+    diagnostics.push("conformance certCore.reportSchemaVersion mismatch with report schemaVersion");
   }
 
-  const computedCertHash = sha256Hex(canonicalJsonStringify(certCore));
-  if (String(certBundle.certHash ?? "") !== computedCertHash) {
-    throw new Error("conformance certHash mismatch with certCore");
+  const computedReportHash = isObjectRecord(reportCore) ? sha256Hex(canonicalJsonStringify(reportCore)) : null;
+  if (computedReportHash && String(report?.reportHash ?? "") !== computedReportHash) {
+    diagnostics.push("conformance reportHash mismatch with reportCore");
   }
 
-  if (String(certCore.reportHash ?? "") !== computedReportHash) {
-    throw new Error("conformance certCore.reportHash mismatch with report hash");
+  const computedCertHash = isObjectRecord(certCore) ? sha256Hex(canonicalJsonStringify(certCore)) : null;
+  if (computedCertHash && String(certBundle?.certHash ?? "") !== computedCertHash) {
+    diagnostics.push("conformance certHash mismatch with certCore");
   }
 
-  const certReportCore = normalizeForCanonicalJson(certCore.reportCore ?? null, { path: "$" });
-  if (canonicalJsonStringify(certReportCore) !== canonicalJsonStringify(reportCore)) {
-    throw new Error("conformance certCore.reportCore does not match reportCore");
+  if (isObjectRecord(certCore) && computedReportHash && String(certCore.reportHash ?? "") !== computedReportHash) {
+    diagnostics.push("conformance certCore.reportHash mismatch with report hash");
   }
 
-  const summary = reportCore.summary && typeof reportCore.summary === "object" ? reportCore.summary : null;
+  const certReportCore = isObjectRecord(certCore?.reportCore) ? normalizeForCanonicalJson(certCore.reportCore, { path: "$" }) : null;
+  if (!isObjectRecord(certReportCore)) diagnostics.push("conformance certCore.reportCore must be an object");
+  if (isObjectRecord(reportCore) && isObjectRecord(certReportCore) && canonicalJsonStringify(certReportCore) !== canonicalJsonStringify(reportCore)) {
+    diagnostics.push("conformance certCore.reportCore does not match reportCore");
+  }
+
+  const summary = isObjectRecord(reportCore?.summary) ? reportCore.summary : null;
   if (summary?.ok !== true) {
-    throw new Error("conformance summary is not ok=true");
+    diagnostics.push("conformance summary is not ok=true");
   }
 
   if (caseId && reportCore.selectedCaseId !== caseId) {
-    throw new Error(`conformance selectedCaseId mismatch: expected ${caseId} got ${String(reportCore.selectedCaseId ?? "null")}`);
+    diagnostics.push(`conformance selectedCaseId mismatch: expected ${caseId} got ${String(reportCore.selectedCaseId ?? "null")}`);
+  }
+  if (diagnostics.length > 0) {
+    throw failClosedArtifactError(
+      "CONFORMANCE_PUBLICATION_ARTIFACT_VALIDATION_FAILED",
+      "conformance publication artifact validation failed",
+      diagnostics
+    );
   }
 
   return {
@@ -200,7 +242,16 @@ function buildConformanceRunnerArgs(args, reportPath, certPath) {
   } else {
     runnerArgs.push("--adapter-bin", args.adapterBin);
   }
+  for (const adapterArg of args.adapterArgs) {
+    runnerArgs.push("--adapter-arg", adapterArg);
+  }
+  if (args.adapterCwd) {
+    runnerArgs.push("--adapter-cwd", path.resolve(args.adapterCwd));
+  }
   if (args.caseId) runnerArgs.push("--case", args.caseId);
+  if (args.generatedAt) {
+    runnerArgs.push("--generated-at", args.generatedAt);
+  }
   runnerArgs.push("--json-out", reportPath, "--cert-bundle-out", certPath, "--strict-artifacts");
   return runnerArgs;
 }
@@ -284,12 +335,15 @@ export async function publishSessionStreamConformanceCert(args, env = process.en
         selectedCaseId: args.caseId ?? null,
         runner: {
           adapterBin: args.adapterBin ?? null,
-          adapterNodeBin: args.adapterNodeBin ? path.resolve(args.adapterNodeBin) : null
+          adapterNodeBin: args.adapterNodeBin ? path.resolve(args.adapterNodeBin) : null,
+          adapterArgs: [...args.adapterArgs],
+          adapterCwd: args.adapterCwd ? path.resolve(args.adapterCwd) : null
         },
         report: {
           path: path.basename(reportPath),
           schemaVersion: report.schemaVersion,
           sha256: sha256Hex(reportText),
+          bytes: Buffer.byteLength(reportText, "utf8"),
           reportHash: report.reportHash,
           summary: validated.summary ?? null
         },
@@ -297,6 +351,7 @@ export async function publishSessionStreamConformanceCert(args, env = process.en
           path: path.basename(certPath),
           schemaVersion: certBundle.schemaVersion,
           sha256: sha256Hex(certText),
+          bytes: Buffer.byteLength(certText, "utf8"),
           certHash: certBundle.certHash
         }
       },

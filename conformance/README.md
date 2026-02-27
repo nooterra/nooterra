@@ -19,3 +19,8 @@ Publication tooling:
 
 - `scripts/conformance/publish-session-conformance-cert.mjs` — emits normalized hash-bound report/cert/publication artifacts for `session-v1`.
 - `scripts/conformance/publish-session-stream-conformance-cert.mjs` — emits normalized hash-bound report/cert/publication artifacts for `session-stream-v1`.
+
+Both publication scripts support third-party adapter packaging flags:
+
+- `--adapter-arg <arg>` (repeatable) and `--adapter-cwd <dir>` passthrough to pack runners.
+- `--generated-at <iso-8601>` deterministic artifact timestamp override.

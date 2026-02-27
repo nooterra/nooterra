@@ -72,6 +72,8 @@ test("session stream conformance publication: emits normalized report/cert/publi
 
   assert.equal(publication.publicationCore?.runtimeId, "acme-runtime");
   assert.equal(publication.publicationCore?.pack, "conformance/session-stream-v1");
+  assert.deepEqual(publication.publicationCore?.runner?.adapterArgs, []);
+  assert.equal(publication.publicationCore?.runner?.adapterCwd, null);
   assert.equal(publication.publicationCore?.report?.reportHash, report.reportHash);
   assert.equal(publication.publicationCore?.certBundle?.certHash, cert.certHash);
 
@@ -79,6 +81,8 @@ test("session stream conformance publication: emits normalized report/cert/publi
   const certText = await fs.readFile(certPath, "utf8");
   assert.equal(publication.publicationCore?.report?.sha256, sha256Hex(reportText));
   assert.equal(publication.publicationCore?.certBundle?.sha256, sha256Hex(certText));
+  assert.equal(publication.publicationCore?.report?.bytes, Buffer.byteLength(reportText, "utf8"));
+  assert.equal(publication.publicationCore?.certBundle?.bytes, Buffer.byteLength(certText, "utf8"));
 
   const second = runPublisher([
     "--runtime-id",

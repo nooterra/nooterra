@@ -54,3 +54,9 @@ node conformance/session-v1/run.mjs \
   --json-out /tmp/nooterra-session-conformance-report.json \
   --cert-bundle-out /tmp/nooterra-session-conformance-cert.json
 ```
+
+Third-party adapter packaging options:
+
+- `--adapter-arg <arg>` (repeatable): pass adapter argv values without wrapper scripts.
+- `--adapter-cwd <dir>`: run the adapter from a specific working directory.
+- `--generated-at <iso-8601>`: force deterministic `generatedAt` in report/cert outputs.

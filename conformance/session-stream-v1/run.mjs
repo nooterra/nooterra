@@ -11,37 +11,64 @@ function parseArgs(argv) {
   const out = {
     adapterBin: "nooterra-session-stream-runtime-adapter",
     adapterNodeBin: null,
+    adapterArgs: [],
+    adapterCwd: null,
     caseId: null,
     list: false,
     jsonOut: null,
     certBundleOut: null,
-    strictArtifacts: false
+    strictArtifacts: false,
+    generatedAt: null
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === "--adapter-bin") {
-      out.adapterBin = String(argv[i + 1] ?? "");
+    const nextValue = () => {
       i += 1;
+      if (i >= argv.length) throw new Error(`missing value for ${a}`);
+      return String(argv[i] ?? "");
+    };
+    if (a === "--adapter-bin") {
+      out.adapterBin = nextValue();
       continue;
     }
     if (a === "--adapter-node-bin") {
-      out.adapterNodeBin = String(argv[i + 1] ?? "");
-      i += 1;
+      out.adapterNodeBin = nextValue();
+      continue;
+    }
+    if (a === "--adapter-arg") {
+      out.adapterArgs.push(nextValue());
+      continue;
+    }
+    if (a.startsWith("--adapter-arg=")) {
+      out.adapterArgs.push(String(a.slice("--adapter-arg=".length)));
+      continue;
+    }
+    if (a === "--adapter-cwd") {
+      out.adapterCwd = nextValue();
+      continue;
+    }
+    if (a.startsWith("--adapter-cwd=")) {
+      out.adapterCwd = String(a.slice("--adapter-cwd=".length));
       continue;
     }
     if (a === "--case") {
-      out.caseId = String(argv[i + 1] ?? "");
-      i += 1;
+      out.caseId = nextValue();
       continue;
     }
     if (a === "--json-out") {
-      out.jsonOut = String(argv[i + 1] ?? "");
-      i += 1;
+      out.jsonOut = nextValue();
       continue;
     }
     if (a === "--cert-bundle-out") {
-      out.certBundleOut = String(argv[i + 1] ?? "");
-      i += 1;
+      out.certBundleOut = nextValue();
+      continue;
+    }
+    if (a === "--generated-at") {
+      out.generatedAt = assertIso8601Timestamp(nextValue(), "--generated-at");
+      continue;
+    }
+    if (a.startsWith("--generated-at=")) {
+      out.generatedAt = assertIso8601Timestamp(String(a.slice("--generated-at=".length)), "--generated-at");
       continue;
     }
     if (a === "--strict-artifacts") {
@@ -62,8 +89,20 @@ function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
   console.error(
-    "  node conformance/session-stream-v1/run.mjs [--adapter-bin <cmd>] [--adapter-node-bin <path/to/adapter.js>] [--case <id>] [--json-out <path>] [--cert-bundle-out <path>] [--strict-artifacts] [--list]"
+    "  node conformance/session-stream-v1/run.mjs [--adapter-bin <cmd>] [--adapter-node-bin <path/to/adapter.js>] [--adapter-arg <arg>]... [--adapter-cwd <path>] [--case <id>] [--json-out <path>] [--cert-bundle-out <path>] [--generated-at <iso-8601>] [--strict-artifacts] [--list]"
   );
+}
+
+function assertIso8601Timestamp(value, fieldName) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) {
+    throw new Error(`${fieldName} must not be empty`);
+  }
+  const epochMs = Date.parse(text);
+  if (!Number.isFinite(epochMs)) {
+    throw new Error(`${fieldName} must be a valid ISO-8601 timestamp`);
+  }
+  return new Date(epochMs).toISOString();
 }
 
 async function writeOutputJson(fp, json) {
@@ -330,9 +369,10 @@ async function main() {
     }
   }
 
+  const adapterCwd = typeof opts.adapterCwd === "string" && opts.adapterCwd.trim() !== "" ? path.resolve(process.cwd(), opts.adapterCwd) : null;
   const cli = opts.adapterNodeBin
-    ? { cmd: process.execPath, args: [path.resolve(opts.adapterNodeBin)], mode: "node" }
-    : { cmd: opts.adapterBin, args: [], mode: "bin" };
+    ? { cmd: process.execPath, args: [path.resolve(opts.adapterNodeBin), ...opts.adapterArgs], mode: "node", adapterCwd }
+    : { cmd: opts.adapterBin, args: [...opts.adapterArgs], mode: "bin", adapterCwd };
 
   let pass = 0;
   let fail = 0;
@@ -367,8 +407,8 @@ async function main() {
     }
 
     const request = buildAdapterRequest({ caseId, fixture });
-    const runA = await runAdapter({ cli, request, cwd: packDir });
-    const runB = await runAdapter({ cli, request, cwd: packDir });
+    const runA = await runAdapter({ cli, request, cwd: cli.adapterCwd ?? packDir });
+    const runB = await runAdapter({ cli, request, cwd: cli.adapterCwd ?? packDir });
 
     const mismatches = [];
     if (!runA.parsed) mismatches.push("adapter stdout is not valid JSON");
@@ -460,7 +500,9 @@ async function main() {
       runner: {
         mode: cli.mode,
         adapterBin: cli.mode === "bin" ? opts.adapterBin : null,
-        adapterNodeBin: cli.mode === "node" ? path.resolve(opts.adapterNodeBin) : null
+        adapterNodeBin: cli.mode === "node" ? path.resolve(opts.adapterNodeBin) : null,
+        adapterArgs: [...opts.adapterArgs],
+        adapterCwd: cli.adapterCwd
       },
       summary: {
         total: selectedCases.length,
@@ -475,10 +517,11 @@ async function main() {
   );
 
   const reportHash = sha256Hex(canonicalJsonStringify(reportCore));
+  const generatedAt = opts.generatedAt ?? new Date().toISOString();
   const report = normalizeForCanonicalJson(
     {
       schemaVersion: "ConformanceRunReport.v1",
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       reportHash,
       reportCore
     },
@@ -508,7 +551,7 @@ async function main() {
     const certBundle = normalizeForCanonicalJson(
       {
         schemaVersion: "ConformanceCertBundle.v1",
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         certHash,
         certCore
       },

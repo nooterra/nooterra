@@ -72,6 +72,32 @@ async function setupStubWorkspace(t, { stream = false, artifacts }) {
     '}',
     'const jsonOutIndex = argv.indexOf("--json-out");',
     'const certOutIndex = argv.indexOf("--cert-bundle-out");',
+    'const adapterArgs = [];',
+    'for (let i = 0; i < argv.length; i += 1) {',
+    '  if (argv[i] === "--adapter-arg") adapterArgs.push(String(argv[i + 1] ?? ""));',
+    '}',
+    'const expectedAdapterArgsJson = process.env.STUB_EXPECT_ADAPTER_ARGS_JSON ?? "";',
+    'if (expectedAdapterArgsJson) {',
+    '  const expectedAdapterArgs = JSON.parse(expectedAdapterArgsJson);',
+    '  if (JSON.stringify(adapterArgs) !== JSON.stringify(expectedAdapterArgs)) {',
+    '    process.stderr.write("ADAPTER_ARGS_MISMATCH\\n");',
+    '    process.exit(19);',
+    '  }',
+    '}',
+    'const adapterCwdIndex = argv.indexOf("--adapter-cwd");',
+    'const adapterCwd = adapterCwdIndex === -1 ? null : path.resolve(argv[adapterCwdIndex + 1]);',
+    'const expectedAdapterCwd = process.env.STUB_EXPECT_ADAPTER_CWD ?? "";',
+    'if ((expectedAdapterCwd && adapterCwd !== path.resolve(expectedAdapterCwd)) || (!expectedAdapterCwd && adapterCwd !== null)) {',
+    '  process.stderr.write("ADAPTER_CWD_MISMATCH\\n");',
+    '  process.exit(20);',
+    '}',
+    'const generatedAtIndex = argv.indexOf("--generated-at");',
+    'const generatedAt = generatedAtIndex === -1 ? null : String(argv[generatedAtIndex + 1] ?? "");',
+    'const expectedGeneratedAt = process.env.STUB_EXPECT_GENERATED_AT ?? "";',
+    'if ((expectedGeneratedAt && generatedAt !== expectedGeneratedAt) || (!expectedGeneratedAt && generatedAt !== null)) {',
+    '  process.stderr.write("GENERATED_AT_MISMATCH\\n");',
+    '  process.exit(21);',
+    '}',
     'if (jsonOutIndex === -1 || certOutIndex === -1) {',
     '  process.stderr.write("ARTIFACT_PATHS_MISSING\\n");',
     '  process.exit(18);',
@@ -106,6 +132,8 @@ test("session publication script passes --strict-artifacts to runner", async (t)
   });
 
   const outDir = path.join(workspace.tmpRoot, "out", "session", "runtime-a");
+  const adapterCwd = path.join(workspace.tmpRoot, "fixtures");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
   const res = runPublisher({
     scriptPath: path.join(REPO_ROOT, "scripts", "conformance", "publish-session-conformance-cert.mjs"),
     cwd: workspace.tmpRoot,
@@ -114,13 +142,22 @@ test("session publication script passes --strict-artifacts to runner", async (t)
       "runtime-a",
       "--adapter-node-bin",
       "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
+      "--adapter-arg",
+      "--profile=strict",
+      "--adapter-arg",
+      "--trace=1",
+      "--adapter-cwd",
+      adapterCwd,
       "--out-dir",
       outDir,
       "--generated-at",
-      "2026-02-27T00:00:00.000Z"
+      generatedAt
     ],
     env: {
-      STUB_EXPECT_STRICT: "1"
+      STUB_EXPECT_STRICT: "1",
+      STUB_EXPECT_ADAPTER_ARGS_JSON: JSON.stringify(["--profile=strict", "--trace=1"]),
+      STUB_EXPECT_ADAPTER_CWD: adapterCwd,
+      STUB_EXPECT_GENERATED_AT: generatedAt
     }
   });
 
@@ -152,11 +189,13 @@ test("session publication script fails closed on cert/report schema binding mism
       "2026-02-27T00:00:00.000Z"
     ],
     env: {
-      STUB_EXPECT_STRICT: "1"
+      STUB_EXPECT_STRICT: "1",
+      STUB_EXPECT_GENERATED_AT: "2026-02-27T00:00:00.000Z"
     }
   });
 
   assert.equal(res.status, 1);
+  assert.match(res.stderr, /CONFORMANCE_PUBLICATION_ARTIFACT_VALIDATION_FAILED/);
   assert.match(res.stderr, /conformance certCore\.reportSchemaVersion mismatch with report schemaVersion/);
 });
 
@@ -167,6 +206,8 @@ test("session stream publication script passes --strict-artifacts to runner", as
   });
 
   const outDir = path.join(workspace.tmpRoot, "out", "session-stream", "runtime-c");
+  const adapterCwd = path.join(workspace.tmpRoot, "fixtures");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
   const res = runPublisher({
     scriptPath: path.join(REPO_ROOT, "scripts", "conformance", "publish-session-stream-conformance-cert.mjs"),
     cwd: workspace.tmpRoot,
@@ -175,13 +216,22 @@ test("session stream publication script passes --strict-artifacts to runner", as
       "runtime-c",
       "--adapter-node-bin",
       "conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs",
+      "--adapter-arg",
+      "--profile=strict",
+      "--adapter-arg",
+      "--trace=1",
+      "--adapter-cwd",
+      adapterCwd,
       "--out-dir",
       outDir,
       "--generated-at",
-      "2026-02-27T00:00:00.000Z"
+      generatedAt
     ],
     env: {
-      STUB_EXPECT_STRICT: "1"
+      STUB_EXPECT_STRICT: "1",
+      STUB_EXPECT_ADAPTER_ARGS_JSON: JSON.stringify(["--profile=strict", "--trace=1"]),
+      STUB_EXPECT_ADAPTER_CWD: adapterCwd,
+      STUB_EXPECT_GENERATED_AT: generatedAt
     }
   });
 
@@ -213,10 +263,12 @@ test("session stream publication script fails closed on cert/report schema bindi
       "2026-02-27T00:00:00.000Z"
     ],
     env: {
-      STUB_EXPECT_STRICT: "1"
+      STUB_EXPECT_STRICT: "1",
+      STUB_EXPECT_GENERATED_AT: "2026-02-27T00:00:00.000Z"
     }
   });
 
   assert.equal(res.status, 1);
+  assert.match(res.stderr, /CONFORMANCE_PUBLICATION_ARTIFACT_VALIDATION_FAILED/);
   assert.match(res.stderr, /conformance certCore\.reportSchemaVersion mismatch with report schemaVersion/);
 });

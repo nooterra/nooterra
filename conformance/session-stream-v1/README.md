@@ -55,6 +55,12 @@ node conformance/session-stream-v1/run.mjs \
   --cert-bundle-out /tmp/nooterra-session-stream-conformance-cert.json
 ```
 
+Third-party adapter packaging options:
+
+- `--adapter-arg <arg>` (repeatable): pass adapter argv values without wrapper scripts.
+- `--adapter-cwd <dir>`: run the adapter from a specific working directory.
+- `--generated-at <iso-8601>`: force deterministic `generatedAt` in report/cert outputs.
+
 ## Third-Party Onboarding + Cert Publication
 
 Use this when integrating a non-Nooterra runtime adapter.
@@ -90,3 +96,4 @@ Fail-closed guarantees:
 - `reportHash`/`certHash` must match canonical cores,
 - cert bundle must bind the same `reportCore`/`reportHash`,
 - run summary must be `ok=true`.
+- publication validation emits fail-closed diagnostics under `CONFORMANCE_PUBLICATION_ARTIFACT_VALIDATION_FAILED`.
