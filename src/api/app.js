@@ -50839,7 +50839,6 @@ export function createApi({
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const eventTypeRaw = url.searchParams.get("eventType");
-          const sinceEventIdRaw = url.searchParams.get("sinceEventId");
           const limitRaw = url.searchParams.get("limit");
           const offsetRaw = url.searchParams.get("offset");
           const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
@@ -50852,13 +50851,28 @@ export function createApi({
           }
 
           let eventType = null;
+          let sinceEventIdFromQuery = null;
+          let sinceEventIdFromHeader = null;
           let sinceEventId = null;
           try {
             eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
-            sinceEventId = parseSessionEventCursor(sinceEventIdRaw, { allowNull: true });
+            sinceEventIdFromQuery = parseSessionEventCursor(url.searchParams.get("sinceEventId"), { allowNull: true });
+            sinceEventIdFromHeader = parseSessionEventCursor(typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null, {
+              allowNull: true
+            });
           } catch (err) {
             return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          if (sinceEventIdFromQuery && sinceEventIdFromHeader && sinceEventIdFromQuery !== sinceEventIdFromHeader) {
+            return sendError(
+              res,
+              409,
+              "ambiguous session event cursor",
+              { sessionId, sinceEventId: sinceEventIdFromQuery, lastEventId: sinceEventIdFromHeader },
+              { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+            );
+          }
+          sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
@@ -50912,7 +50926,8 @@ export function createApi({
             events: paged,
             limit,
             offset,
-            currentPrevChainHash
+            currentPrevChainHash,
+            inbox: listInbox
           });
         }
 

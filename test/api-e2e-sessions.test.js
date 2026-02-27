@@ -535,6 +535,13 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(resumed.headers?.get("x-session-events-head-last-event-id"), third.json?.event?.id);
   assert.equal(resumed.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
   assert.equal(resumed.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
+  assert.equal(resumed.json?.inbox?.ordering, "SESSION_SEQ_ASC");
+  assert.equal(resumed.json?.inbox?.deliveryMode, "resume_then_tail");
+  assert.equal(resumed.json?.inbox?.headEventCount, 3);
+  assert.equal(resumed.json?.inbox?.headFirstEventId, first.json?.event?.id);
+  assert.equal(resumed.json?.inbox?.headLastEventId, third.json?.event?.id);
+  assert.equal(resumed.json?.inbox?.sinceEventId, first.json?.event?.id);
+  assert.equal(resumed.json?.inbox?.nextSinceEventId, third.json?.event?.id);
   assert.equal(resumed.json?.events?.length, 2);
   assert.equal(resumed.json?.events?.[0]?.id, second.json?.event?.id);
   assert.equal(resumed.json?.events?.[1]?.id, third.json?.event?.id);
@@ -547,6 +554,7 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(resumedRepeat.headers?.get("x-session-events-head-event-count"), resumed.headers?.get("x-session-events-head-event-count"));
   assert.equal(resumedRepeat.headers?.get("x-session-events-head-last-event-id"), resumed.headers?.get("x-session-events-head-last-event-id"));
   assert.equal(resumedRepeat.headers?.get("x-session-events-next-since-event-id"), resumed.headers?.get("x-session-events-next-since-event-id"));
+  assert.deepEqual(resumedRepeat.json?.inbox, resumed.json?.inbox);
   assert.equal(resumedRepeat.json?.events?.length, resumed.json?.events?.length);
   assert.equal(resumedRepeat.json?.events?.[0]?.id, resumed.json?.events?.[0]?.id);
   assert.equal(resumedRepeat.json?.events?.[1]?.id, resumed.json?.events?.[1]?.id);
@@ -559,6 +567,7 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(resumedOffset.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
   assert.equal(resumedOffset.headers?.get("x-session-events-head-event-count"), "3");
   assert.equal(resumedOffset.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
+  assert.equal(resumedOffset.json?.inbox?.nextSinceEventId, third.json?.event?.id);
   assert.equal(resumedOffset.json?.events?.length, 1);
   assert.equal(resumedOffset.json?.events?.[0]?.id, third.json?.event?.id);
 
@@ -570,6 +579,7 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(resumedFiltered.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
   assert.equal(resumedFiltered.headers?.get("x-session-events-head-event-count"), "3");
   assert.equal(resumedFiltered.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
+  assert.equal(resumedFiltered.json?.inbox?.nextSinceEventId, third.json?.event?.id);
   assert.equal(resumedFiltered.json?.events?.length, 1);
   assert.equal(resumedFiltered.json?.events?.[0]?.id, third.json?.event?.id);
 
@@ -584,6 +594,15 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(missingCursor.json?.details?.eventCount, 3);
   assert.equal(missingCursor.json?.details?.firstEventId, first.json?.event?.id);
   assert.equal(missingCursor.json?.details?.lastEventId, third.json?.event?.id);
+  const missingCursorFromHeader = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_cursor_1/events",
+    headers: { "last-event-id": "evt_missing_cursor" }
+  });
+  assert.equal(missingCursorFromHeader.statusCode, 409, missingCursorFromHeader.body);
+  assert.equal(missingCursorFromHeader.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCursorFromHeader.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+  assert.equal(missingCursorFromHeader.json?.details?.phase, "list");
 
   const invalidCursor = await request(api, {
     method: "GET",
@@ -591,6 +610,39 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   });
   assert.equal(invalidCursor.statusCode, 400, invalidCursor.body);
   assert.equal(invalidCursor.json?.code, "SCHEMA_INVALID");
+  const invalidCursorFromHeader = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_cursor_1/events",
+    headers: { "last-event-id": "evt bad cursor" }
+  });
+  assert.equal(invalidCursorFromHeader.statusCode, 400, invalidCursorFromHeader.body);
+  assert.equal(invalidCursorFromHeader.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: SessionEvent.v1 list fails closed on conflicting cursor sources", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_cursor_conflict_principal_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_cursor_conflict_create_1" },
+    body: {
+      sessionId: "sess_cursor_conflict_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const conflict = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_cursor_conflict_1/events?sinceEventId=evt_query_cursor",
+    headers: { "last-event-id": "evt_header_cursor" }
+  });
+  assert.equal(conflict.statusCode, 409, conflict.body);
+  assert.equal(conflict.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
 });
 
 test("API e2e: SessionEvent.v1 filtered resume advances next cursor when no events match", async () => {
@@ -647,6 +699,8 @@ test("API e2e: SessionEvent.v1 filtered resume advances next cursor when no even
   assert.equal(filteredEmpty.headers?.get("x-session-events-head-event-count"), "2");
   assert.equal(filteredEmpty.json?.events?.length, 0);
   assert.equal(filteredEmpty.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+  assert.equal(filteredEmpty.json?.inbox?.nextSinceEventId, second.json?.event?.id);
+  assert.equal(filteredEmpty.json?.inbox?.headLastEventId, second.json?.event?.id);
 
   const third = await request(api, {
     method: "POST",
@@ -670,6 +724,8 @@ test("API e2e: SessionEvent.v1 filtered resume advances next cursor when no even
   assert.equal(resumedFromAdvancedCursor.json?.events?.length, 1);
   assert.equal(resumedFromAdvancedCursor.json?.events?.[0]?.id, third.json?.event?.id);
   assert.equal(resumedFromAdvancedCursor.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
+  assert.equal(resumedFromAdvancedCursor.json?.inbox?.nextSinceEventId, third.json?.event?.id);
+  assert.equal(resumedFromAdvancedCursor.json?.inbox?.headLastEventId, third.json?.event?.id);
 });
 
 test("API e2e: Session signer lifecycle gates append and replay materialization", async () => {
