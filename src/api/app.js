@@ -18344,6 +18344,33 @@ export function createApi({
     return { quoteId, requestSha256, sponsorRef };
   }
 
+  function resolveSettlementRequestBindingSha256(settlement) {
+    return typeof settlement?.decisionTrace?.bindings?.request?.sha256 === "string" &&
+      /^[0-9a-f]{64}$/i.test(settlement.decisionTrace.bindings.request.sha256.trim())
+      ? settlement.decisionTrace.bindings.request.sha256.trim().toLowerCase()
+      : null;
+  }
+
+  function evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs } = {}) {
+    const expectedRequestSha256 = resolveSettlementRequestBindingSha256(settlement);
+    if (!expectedRequestSha256) {
+      return {
+        ok: true,
+        reason: null,
+        expectedRequestSha256: null,
+        requestSha256: parseEvidenceRefSha256(evidenceRefs, "http:request_sha256:")
+      };
+    }
+    const requestSha256 = parseEvidenceRefSha256(evidenceRefs, "http:request_sha256:");
+    if (!requestSha256) {
+      return { ok: false, reason: "required", expectedRequestSha256, requestSha256: null };
+    }
+    if (requestSha256 !== expectedRequestSha256) {
+      return { ok: false, reason: "mismatch", expectedRequestSha256, requestSha256 };
+    }
+    return { ok: true, reason: null, expectedRequestSha256, requestSha256 };
+  }
+
   async function listX402ReversalEventsForGate({ tenantId, gateId } = {}) {
     let events = [];
     if (typeof store.listX402ReversalEvents === "function") {
@@ -58242,6 +58269,35 @@ export function createApi({
             return sendError(res, 400, "summary must be a non-empty string when provided");
           }
 
+          const arbitrationCloseBinding = evaluateSettlementRequestBindingEvidence({
+            settlement,
+            evidenceRefs: Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : []
+          });
+          if (!arbitrationCloseBinding.ok) {
+            const mismatchDetails = {
+              operation: "run_arbitration.close",
+              runId,
+              disputeId,
+              caseId,
+              expectedRequestSha256: arbitrationCloseBinding.expectedRequestSha256
+            };
+            if (arbitrationCloseBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationCloseBinding.requestSha256;
+            return sendError(
+              res,
+              409,
+              arbitrationCloseBinding.reason === "required"
+                ? "request-hash evidence required for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
+              mismatchDetails,
+              {
+                code:
+                  arbitrationCloseBinding.reason === "required"
+                    ? "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED"
+                    : "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH"
+              }
+            );
+          }
+
           let nextSettlement = settlement;
           if (String(settlement?.disputeStatus ?? "").toLowerCase() === AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.OPEN) {
             const verdictOutcome = String(arbitrationCase?.metadata?.verdictOutcome ?? "").toLowerCase();
@@ -58695,6 +58751,37 @@ export function createApi({
                 closeLifecycleGuard.message,
                 closeLifecycleGuard.details ?? null,
                 { code: closeLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
+            }
+            const disputeCloseBinding = evaluateSettlementRequestBindingEvidence({
+              settlement,
+              evidenceRefs: mergeUniqueStringArrays(
+                Array.isArray(resolutionInput?.evidenceRefs) ? resolutionInput.evidenceRefs : [],
+                Array.isArray(signedVerdict?.evidenceRefs) ? signedVerdict.evidenceRefs : [],
+                Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
+              )
+            });
+            if (!disputeCloseBinding.ok) {
+              const mismatchDetails = {
+                operation: "run_dispute.close",
+                runId,
+                disputeId: body?.disputeId ?? settlement?.disputeId ?? null,
+                expectedRequestSha256: disputeCloseBinding.expectedRequestSha256
+              };
+              if (disputeCloseBinding.requestSha256) mismatchDetails.requestSha256 = disputeCloseBinding.requestSha256;
+              return sendError(
+                res,
+                409,
+                disputeCloseBinding.reason === "required"
+                  ? "request-hash evidence required for settlement binding"
+                  : "request-hash evidence mismatch for settlement binding",
+                mismatchDetails,
+                {
+                  code:
+                    disputeCloseBinding.reason === "required"
+                      ? "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED"
+                      : "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH"
+                }
               );
             }
           }

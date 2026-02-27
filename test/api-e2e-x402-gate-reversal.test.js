@@ -2,13 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "../src/core/canonical-json.js";
+import { createEd25519Keypair, sha256Hex, signHashHexEd25519 } from "../src/core/crypto.js";
 import { signX402ProviderRefundDecisionV1 } from "../src/core/x402-provider-refund-decision.js";
 import { signX402ReversalCommandV1 } from "../src/core/x402-reversal-command.js";
 import { request } from "./api-test-harness.js";
 
-async function registerAgent(api, { agentId }) {
-  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+async function registerAgent(api, { agentId, publicKeyPem: providedPublicKeyPem = null }) {
+  const { publicKeyPem, privateKeyPem } = providedPublicKeyPem
+    ? { publicKeyPem: providedPublicKeyPem, privateKeyPem: null }
+    : createEd25519Keypair();
   const created = await request(api, {
     method: "POST",
     path: "/agents/register",
@@ -21,7 +24,7 @@ async function registerAgent(api, { agentId }) {
     }
   });
   assert.equal(created.statusCode, 201, created.body);
-  return { agentId, publicKeyPem, privateKeyPem };
+  return { agentId, publicKeyPem, privateKeyPem, keyId: created.json?.keyId ?? null };
 }
 
 async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
@@ -577,7 +580,8 @@ test("API e2e: x402 reversal fails closed when request-hash evidence is missing 
       payeeAgentId: payee.agentId,
       amountCents: 600,
       currency: "USD",
-      toolId: "mock_search"
+      toolId: "mock_search",
+      disputeWindowDays: 2
     }
   });
   assert.equal(created.statusCode, 201, created.body);
@@ -661,6 +665,299 @@ test("API e2e: x402 reversal fails closed when request-hash evidence is missing 
   });
   assert.equal(mismatchEvidence.statusCode, 409, mismatchEvidence.body);
   assert.equal(mismatchEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
+});
+
+test("API e2e: run dispute close fails closed on missing or mismatched settlement request-hash evidence", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_dispute_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_dispute_binding_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_dispute_binding_operator_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_dispute_binding_1" });
+
+  const gateId = "x402gate_dispute_binding_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_dispute_binding_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 600,
+      currency: "USD",
+      toolId: "mock_search",
+      disputeWindowDays: 2
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_dispute_binding_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_dispute_binding_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"f".repeat(64)}`, `http:response_sha256:${"a".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+
+  const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+  assert.equal(gateRead.statusCode, 200, gateRead.body);
+  const runId = gateRead.json?.settlement?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  assert.ok(bindings.requestSha256);
+
+  const openDispute = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "x402_dispute_binding_open_1" },
+    body: {
+      disputeId: "dsp_x402_binding_1",
+      disputeType: "quality",
+      disputePriority: "high",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: operator.agentId,
+      reason: "binding validation",
+      evidenceRefs: ["evidence://x402/dispute-binding/context.json"]
+    }
+  });
+  assert.equal(openDispute.statusCode, 200, openDispute.body);
+
+  const closeMissing = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "x402_dispute_binding_close_missing_1" },
+    body: {
+      disputeId: "dsp_x402_binding_1",
+      resolutionOutcome: "accepted",
+      resolutionSummary: "missing request hash should fail",
+      closedByAgentId: operator.agentId,
+      resolutionEvidenceRefs: ["ops:ticket:dispute_binding_missing"]
+    }
+  });
+  assert.equal(closeMissing.statusCode, 409, closeMissing.body);
+  assert.equal(closeMissing.json?.code, "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_REQUIRED");
+
+  const closeMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "x402_dispute_binding_close_mismatch_1" },
+    body: {
+      disputeId: "dsp_x402_binding_1",
+      resolutionOutcome: "accepted",
+      resolutionSummary: "mismatched request hash should fail",
+      closedByAgentId: operator.agentId,
+      resolutionEvidenceRefs: [`http:request_sha256:${"1".repeat(64)}`]
+    }
+  });
+  assert.equal(closeMismatch.statusCode, 409, closeMismatch.body);
+  assert.equal(closeMismatch.json?.code, "X402_DISPUTE_CLOSE_BINDING_EVIDENCE_MISMATCH");
+
+  const closeSuccess = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "x402_dispute_binding_close_success_1" },
+    body: {
+      disputeId: "dsp_x402_binding_1",
+      resolutionOutcome: "accepted",
+      resolutionSummary: "request hash matches",
+      closedByAgentId: operator.agentId,
+      resolutionEvidenceRefs: [`http:request_sha256:${bindings.requestSha256}`]
+    }
+  });
+  assert.equal(closeSuccess.statusCode, 200, closeSuccess.body);
+  assert.equal(closeSuccess.json?.settlement?.disputeStatus, "closed");
+});
+
+test("API e2e: run arbitration close fails closed on missing or mismatched settlement request-hash evidence", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_arb_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_arb_binding_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_arb_binding_operator_1" });
+  const arbiterKeypair = createEd25519Keypair();
+  const arbiterRegistration = await registerAgent(api, {
+    agentId: "agt_x402_arb_binding_arbiter_1",
+    publicKeyPem: arbiterKeypair.publicKeyPem
+  });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 7000, idempotencyKey: "wallet_credit_x402_arb_binding_1" });
+
+  async function prepareArbitrationCase({ seed, verifyRequestSha256, disputeEvidenceRefs, arbitrationEvidenceRefs }) {
+    const gateId = `x402gate_arb_binding_${seed}`;
+    const created = await request(api, {
+      method: "POST",
+      path: "/x402/gate/create",
+      headers: { "x-idempotency-key": `x402_gate_create_arb_binding_${seed}` },
+      body: {
+        gateId,
+        payerAgentId: payer.agentId,
+        payeeAgentId: payee.agentId,
+        amountCents: 700,
+        currency: "USD",
+        toolId: "mock_search",
+        disputeWindowDays: 2
+      }
+    });
+    assert.equal(created.statusCode, 201, created.body);
+
+    const authorized = await request(api, {
+      method: "POST",
+      path: "/x402/gate/authorize-payment",
+      headers: { "x-idempotency-key": `x402_gate_authorize_arb_binding_${seed}` },
+      body: { gateId }
+    });
+    assert.equal(authorized.statusCode, 200, authorized.body);
+
+    const verify = await request(api, {
+      method: "POST",
+      path: "/x402/gate/verify",
+      headers: { "x-idempotency-key": `x402_gate_verify_arb_binding_${seed}` },
+      body: {
+        gateId,
+        verificationStatus: "green",
+        runStatus: "completed",
+        policy: autoPolicy100(),
+        verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+        evidenceRefs: [`http:request_sha256:${verifyRequestSha256}`, `http:response_sha256:${"b".repeat(64)}`]
+      }
+    });
+    assert.equal(verify.statusCode, 200, verify.body);
+
+    const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+    assert.equal(gateRead.statusCode, 200, gateRead.body);
+    const runId = gateRead.json?.settlement?.runId;
+    const settlementId = gateRead.json?.settlement?.settlementId;
+    assert.ok(typeof runId === "string" && runId.length > 0);
+    assert.ok(typeof settlementId === "string" && settlementId.length > 0);
+
+    const disputeId = `dsp_x402_arb_binding_${seed}`;
+    const caseId = `arb_case_x402_arb_binding_${seed}`;
+    const verdictId = `arb_vrd_x402_arb_binding_${seed}`;
+    const openDispute = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+      headers: { "x-idempotency-key": `x402_dispute_open_arb_binding_${seed}` },
+      body: {
+        disputeId,
+        disputeType: "quality",
+        disputePriority: "high",
+        disputeChannel: "arbiter",
+        escalationLevel: "l2_arbiter",
+        openedByAgentId: operator.agentId,
+        reason: "arbitration close binding check",
+        evidenceRefs: disputeEvidenceRefs
+      }
+    });
+    assert.equal(openDispute.statusCode, 200, openDispute.body);
+
+    const openArbitration = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/arbitration/open`,
+      headers: { "x-idempotency-key": `x402_arb_open_binding_${seed}` },
+      body: {
+        caseId,
+        disputeId,
+        arbiterAgentId: "agt_x402_arb_binding_arbiter_1",
+        evidenceRefs: arbitrationEvidenceRefs
+      }
+    });
+    assert.equal(openArbitration.statusCode, 201, openArbitration.body);
+
+    const verdictIssuedAt = "2026-02-06T00:00:00.000Z";
+    const verdictCore = normalizeForCanonicalJson(
+      {
+        schemaVersion: "ArbitrationVerdict.v1",
+        verdictId,
+        caseId,
+        tenantId: "tenant_default",
+        runId,
+        settlementId,
+        disputeId,
+        arbiterAgentId: "agt_x402_arb_binding_arbiter_1",
+        outcome: "accepted",
+        releaseRatePct: 100,
+        rationale: "binding coverage",
+        evidenceRefs: arbitrationEvidenceRefs,
+        issuedAt: verdictIssuedAt,
+        appealRef: null
+      },
+      { path: "$" }
+    );
+    const verdictHash = sha256Hex(canonicalJsonStringify(verdictCore));
+    const verdictSignature = signHashHexEd25519(verdictHash, arbiterKeypair.privateKeyPem);
+    const issueVerdict = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/arbitration/verdict`,
+      headers: { "x-idempotency-key": `x402_arb_verdict_binding_${seed}` },
+      body: {
+        caseId,
+        arbitrationVerdict: {
+          caseId,
+          verdictId,
+          arbiterAgentId: "agt_x402_arb_binding_arbiter_1",
+          outcome: "accepted",
+          releaseRatePct: 100,
+          rationale: "binding coverage",
+          evidenceRefs: arbitrationEvidenceRefs,
+          issuedAt: verdictIssuedAt,
+          signerKeyId: arbiterRegistration.keyId,
+          signature: verdictSignature
+        }
+      }
+    });
+    assert.equal(issueVerdict.statusCode, 200, issueVerdict.body);
+    return { runId, caseId };
+  }
+
+  const requiredScenario = await prepareArbitrationCase({
+    seed: "required_1",
+    verifyRequestSha256: "2".repeat(64),
+    disputeEvidenceRefs: ["evidence://x402/arb-binding-required/context.json"],
+    arbitrationEvidenceRefs: ["evidence://x402/arb-binding-required/context.json"]
+  });
+  const closeRequired = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(requiredScenario.runId)}/arbitration/close`,
+    headers: { "x-idempotency-key": "x402_arb_close_binding_required_1" },
+    body: {
+      caseId: requiredScenario.caseId,
+      summary: "missing request hash should fail"
+    }
+  });
+  assert.equal(closeRequired.statusCode, 409, closeRequired.body);
+  assert.equal(closeRequired.json?.code, "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_REQUIRED");
+
+  const mismatchScenario = await prepareArbitrationCase({
+    seed: "mismatch_1",
+    verifyRequestSha256: "3".repeat(64),
+    disputeEvidenceRefs: [`http:request_sha256:${"4".repeat(64)}`],
+    arbitrationEvidenceRefs: [`http:request_sha256:${"4".repeat(64)}`]
+  });
+  const closeMismatch = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(mismatchScenario.runId)}/arbitration/close`,
+    headers: { "x-idempotency-key": "x402_arb_close_binding_mismatch_1" },
+    body: {
+      caseId: mismatchScenario.caseId,
+      summary: "mismatched request hash should fail"
+    }
+  });
+  assert.equal(closeMismatch.statusCode, 409, closeMismatch.body);
+  assert.equal(closeMismatch.json?.code, "X402_ARBITRATION_CLOSE_BINDING_EVIDENCE_MISMATCH");
 });
 
 test("API e2e: x402 reversal enforces wallet policy allowedReversalActions", async () => {
