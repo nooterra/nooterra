@@ -83,7 +83,8 @@ async function issueAuthorityGrant(
     maxPerCallCents = 10_000,
     maxTotalCents = 100_000,
     scope = null,
-    chainBinding = null
+    chainBinding = null,
+    validity = null
   }
 ) {
   const resolvedScope =
@@ -99,6 +100,14 @@ async function issueAuthorityGrant(
       : {
           depth: 0,
           maxDelegationDepth: 2
+        };
+  const resolvedValidity =
+    validity && typeof validity === "object" && !Array.isArray(validity)
+      ? validity
+      : {
+          issuedAt: "2026-02-25T00:00:00.000Z",
+          notBefore: "2026-02-25T00:00:00.000Z",
+          expiresAt: "2027-02-25T00:00:00.000Z"
         };
   const response = await request(api, {
     method: "POST",
@@ -118,11 +127,7 @@ async function issueAuthorityGrant(
         maxTotalCents
       },
       chainBinding: resolvedChainBinding,
-      validity: {
-        issuedAt: "2026-02-25T00:00:00.000Z",
-        notBefore: "2026-02-25T00:00:00.000Z",
-        expiresAt: "2027-02-25T00:00:00.000Z"
-      }
+      validity: resolvedValidity
     }
   });
   assert.equal(response.statusCode, 201, response.body);
@@ -138,7 +143,8 @@ async function issueDelegationGrant(
     maxPerCallCents = 10_000,
     maxTotalCents = 100_000,
     scope = null,
-    chainBinding = null
+    chainBinding = null,
+    validity = null
   }
 ) {
   const resolvedScope =
@@ -155,6 +161,14 @@ async function issueDelegationGrant(
           depth: 0,
           maxDelegationDepth: 1
         };
+  const resolvedValidity =
+    validity && typeof validity === "object" && !Array.isArray(validity)
+      ? validity
+      : {
+          issuedAt: "2026-02-25T00:00:00.000Z",
+          notBefore: "2026-02-25T00:00:00.000Z",
+          expiresAt: "2027-02-25T00:00:00.000Z"
+        };
   const response = await request(api, {
     method: "POST",
     path: "/delegation-grants",
@@ -170,11 +184,7 @@ async function issueDelegationGrant(
         maxTotalCents
       },
       chainBinding: resolvedChainBinding,
-      validity: {
-        issuedAt: "2026-02-25T00:00:00.000Z",
-        notBefore: "2026-02-25T00:00:00.000Z",
-        expiresAt: "2027-02-25T00:00:00.000Z"
-      }
+      validity: resolvedValidity
     }
   });
   assert.equal(response.statusCode, 201, response.body);
@@ -607,6 +617,391 @@ test("API e2e: x402 authorize fails closed when delegation scope exceeds authori
   assert.equal(blocked.statusCode, 409, blocked.body);
   assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION");
   assert.equal(blocked.json?.details?.details?.field, "scope.allowedProviderIds");
+});
+
+test("API e2e: x402 authorize fails closed when authority root grant is missing", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_root_missing_payer_1";
+  const payeeAgentId = "agt_auth_root_missing_payee_1";
+  const missingRootHash = "a".repeat(64);
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_root_missing_1"
+  });
+
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_root_missing_child_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: missingRootHash,
+      parentGrantHash: "b".repeat(64),
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_root_missing_1",
+    delegatorAgentId: "agt_auth_root_missing_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: missingRootHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_missing_create_1" },
+    body: {
+      gateId: "x402gate_auth_root_missing_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_missing_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_root_missing_1",
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
+});
+
+test("API e2e: x402 authorize fails closed when authority root grant is expired", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_root_expired_payer_1";
+  const payeeAgentId = "agt_auth_root_expired_payee_1";
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_root_expired_1"
+  });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_root_expired_root_1",
+    granteeAgentId: payerAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: { depth: 0, maxDelegationDepth: 2 },
+    validity: {
+      issuedAt: "2024-01-01T00:00:00.000Z",
+      notBefore: "2024-01-01T00:00:00.000Z",
+      expiresAt: "2024-12-31T00:00:00.000Z"
+    }
+  });
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_root_expired_child_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_root_expired_1",
+    delegatorAgentId: "agt_auth_root_expired_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_expired_create_1" },
+    body: {
+      gateId: "x402gate_auth_root_expired_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_expired_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_root_expired_1",
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_EXPIRED");
+});
+
+test("API e2e: x402 authorize fails closed when authority root grant is revoked", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_root_revoked_payer_1";
+  const payeeAgentId = "agt_auth_root_revoked_payee_1";
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_root_revoked_1"
+  });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_root_revoked_root_1",
+    granteeAgentId: payerAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: { depth: 0, maxDelegationDepth: 2 },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const revoked = await request(policyApi, {
+    method: "POST",
+    path: `/authority-grants/${encodeURIComponent(rootGrant.grantId)}/revoke`,
+    headers: { "x-idempotency-key": "authority_grant_revoke_auth_root_revoked_1" },
+    body: { revocationReasonCode: "MANUAL_REVOKE" }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  const revokedRootHash = String(revoked.json?.authorityGrant?.grantHash ?? "");
+  assert.match(revokedRootHash, /^[a-f0-9]{64}$/);
+
+  const authorityGrantAfterRevoke = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_root_revoked_child_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: revokedRootHash,
+      parentGrantHash: revokedRootHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_root_revoked_1",
+    delegatorAgentId: "agt_auth_root_revoked_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: revokedRootHash,
+      parentGrantHash: authorityGrantAfterRevoke.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_revoked_create_1" },
+    body: {
+      gateId: "x402gate_auth_root_revoked_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_root_revoked_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_root_revoked_1",
+      authorityGrantRef: authorityGrantAfterRevoke.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_REVOKED");
+});
+
+test("API e2e: x402 authorize fails closed when delegation chain depth exceeds authority max depth", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_depth_overflow_payer_1";
+  const payeeAgentId = "agt_auth_depth_overflow_payee_1";
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_depth_overflow_1"
+  });
+
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_depth_overflow_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      depth: 0,
+      maxDelegationDepth: 1
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_depth_overflow_1",
+    delegatorAgentId: "agt_auth_depth_overflow_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: authorityGrant.grantHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_depth_overflow_create_1" },
+    body: {
+      gateId: "x402gate_auth_depth_overflow_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_depth_overflow_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_depth_overflow_1",
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION");
+  assert.equal(blocked.json?.details?.details?.field, "chainBinding.maxDelegationDepth");
 });
 
 test("API e2e: work order create fails closed without authority grant when required", async () => {

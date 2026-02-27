@@ -123,9 +123,17 @@ async function issueDelegationGrant(
     delegatorAgentId,
     delegateeAgentId,
     allowedRiskClasses = ["action"],
-    allowedToolIds = ["state_checkpoint_create"]
+    allowedToolIds = ["state_checkpoint_create"],
+    chainBinding = null
   }
 ) {
+  const resolvedChainBinding =
+    chainBinding && typeof chainBinding === "object" && !Array.isArray(chainBinding)
+      ? chainBinding
+      : {
+          depth: 0,
+          maxDelegationDepth: 1
+        };
   const response = await request(api, {
     method: "POST",
     path: "/delegation-grants",
@@ -144,10 +152,7 @@ async function issueDelegationGrant(
         maxPerCallCents: 1_000,
         maxTotalCents: 100_000
       },
-      chainBinding: {
-        depth: 0,
-        maxDelegationDepth: 1
-      },
+      chainBinding: resolvedChainBinding,
       validity: {
         issuedAt: "2026-02-01T00:00:00.000Z",
         notBefore: "2026-02-01T00:00:00.000Z",
@@ -300,8 +305,16 @@ test("API e2e: state checkpoint create enforces delegation/authority grant chain
   const delegationGrant = await issueDelegationGrant(api, {
     grantId: "dg_state_checkpoint_1",
     delegatorAgentId,
-    delegateeAgentId: ownerAgentId
+    delegateeAgentId: ownerAgentId,
+    chainBinding: {
+      rootGrantHash: authorityGrant.chainBinding.rootGrantHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    }
   });
+  assert.equal(delegationGrant.chainBinding.rootGrantHash, authorityGrant.chainBinding.rootGrantHash);
+  assert.equal(delegationGrant.chainBinding.parentGrantHash, authorityGrant.grantHash);
 
   const created = await request(api, {
     method: "POST",

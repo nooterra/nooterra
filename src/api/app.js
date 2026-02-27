@@ -14572,7 +14572,9 @@ export function createApi({
     return { authorityGrant: grant, authorityGrantRef: normalizedGrantId };
   }
 
-  function assertDelegationGrantWithinAuthorityGrant({
+  async function assertDelegationGrantWithinAuthorityGrant({
+    tenantId,
+    nowAt = null,
     delegationGrant,
     delegationGrantRef = null,
     authorityGrant,
@@ -14593,18 +14595,27 @@ export function createApi({
           ? authorityGrant.grantId.trim()
           : null;
 
-    const scopeError = ({ message, field, delegationValue = null, authorityValue = null } = {}) =>
+    const consistencyError = ({ code, message, field = null, delegationValue = null, authorityValue = null, details = null } = {}) =>
       buildX402AuthorityDelegationConsistencyError(
-        "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
-        message ?? "delegation grant scope exceeds authority grant scope",
+        code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+        message ?? "delegation grant exceeds authority grant constraints",
         {
           field: field ?? null,
           delegationGrantRef: delegationRef,
           authorityGrantRef: authorityRef,
           delegationValue,
-          authorityValue
+          authorityValue,
+          ...(details && typeof details === "object" && !Array.isArray(details) ? details : {})
         }
       );
+    const scopeError = ({ message, field, delegationValue = null, authorityValue = null } = {}) =>
+      consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+        message: message ?? "delegation grant scope exceeds authority grant scope",
+        field,
+        delegationValue,
+        authorityValue
+      });
 
     const normalizeStringSet = (values) => {
       const out = new Set();
@@ -14750,6 +14761,133 @@ export function createApi({
         field: "chainBinding.maxDelegationDepth",
         delegationValue: delegationMaxDepth,
         authorityValue: authorityMaxDepth
+      });
+    }
+
+    const delegationRootGrantHash =
+      typeof delegationChain.rootGrantHash === "string" && delegationChain.rootGrantHash.trim() !== ""
+        ? delegationChain.rootGrantHash.trim().toLowerCase()
+        : null;
+    const authorityRootGrantHash =
+      typeof authorityChain.rootGrantHash === "string" && authorityChain.rootGrantHash.trim() !== ""
+        ? authorityChain.rootGrantHash.trim().toLowerCase()
+        : null;
+    if (!delegationRootGrantHash || !authorityRootGrantHash) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_MISSING",
+        message: "authority/delegation chain root is required",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash,
+        authorityValue: authorityRootGrantHash
+      });
+    }
+    if (delegationRootGrantHash !== authorityRootGrantHash) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_MISMATCH",
+        message: "delegation root grant hash does not match authority root grant hash",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash,
+        authorityValue: authorityRootGrantHash
+      });
+    }
+    const isAuthorityRootDepthZero = Number.isSafeInteger(authorityDepth) && authorityDepth === 0;
+    if (isAuthorityRootDepthZero) return;
+
+    if (typeof store.listAuthorityGrants !== "function") {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_RESOLVER_UNAVAILABLE",
+        message: "authority root resolution is unavailable for this store",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash
+      });
+    }
+    const rootCandidates = await store.listAuthorityGrants({
+      tenantId,
+      grantHash: delegationRootGrantHash,
+      includeRevoked: true,
+      limit: 2,
+      offset: 0
+    });
+    if (!Array.isArray(rootCandidates) || rootCandidates.length === 0) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND",
+        message: "authority root grant was not found",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash
+      });
+    }
+    if (rootCandidates.length > 1) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_AMBIGUOUS",
+        message: "authority root grant hash resolved to multiple grants",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash,
+        details: { matches: rootCandidates.length }
+      });
+    }
+    const rootGrant = rootCandidates[0];
+    try {
+      validateAuthorityGrantV1(rootGrant);
+    } catch (err) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_SCHEMA_INVALID",
+        message: "authority root grant failed schema validation",
+        field: "chainBinding.rootGrantHash",
+        delegationValue: delegationRootGrantHash,
+        details: { message: err?.message ?? null }
+      });
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_TIME_INVALID",
+        message: "authority root consistency timestamp must be an ISO timestamp",
+        field: "nowAt",
+        delegationValue: atIso
+      });
+    }
+
+    const rootRevokedAt =
+      rootGrant?.revocation && typeof rootGrant.revocation === "object" && !Array.isArray(rootGrant.revocation)
+        ? rootGrant.revocation.revokedAt
+        : null;
+    if (typeof rootRevokedAt === "string" && rootRevokedAt.trim() !== "") {
+      const rootRevokedMs = Date.parse(rootRevokedAt);
+      if (Number.isFinite(rootRevokedMs) && rootRevokedMs <= nowMs) {
+        throw consistencyError({
+          code: "X402_AUTHORITY_DELEGATION_ROOT_REVOKED",
+          message: "authority root grant is revoked",
+          field: "root.revocation.revokedAt",
+          delegationValue: rootRevokedAt
+        });
+      }
+    }
+    const rootNotBefore = String(rootGrant?.validity?.notBefore ?? "");
+    const rootExpiresAt = String(rootGrant?.validity?.expiresAt ?? "");
+    const rootNotBeforeMs = Date.parse(rootNotBefore);
+    const rootExpiresAtMs = Date.parse(rootExpiresAt);
+    if (!Number.isFinite(rootNotBeforeMs) || !Number.isFinite(rootExpiresAtMs)) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_VALIDITY_INVALID",
+        message: "authority root grant validity window is invalid",
+        field: "root.validity"
+      });
+    }
+    if (nowMs < rootNotBeforeMs) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_NOT_ACTIVE",
+        message: "authority root grant is not active yet",
+        field: "root.validity.notBefore",
+        delegationValue: rootNotBefore
+      });
+    }
+    if (nowMs >= rootExpiresAtMs) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_ROOT_EXPIRED",
+        message: "authority root grant is expired",
+        field: "root.validity.expiresAt",
+        delegationValue: rootExpiresAt
       });
     }
   }
@@ -45671,7 +45809,9 @@ export function createApi({
           }
           if (resolvedDelegationGrantForCreate && resolvedAuthorityGrantForCreate) {
             try {
-              assertDelegationGrantWithinAuthorityGrant({
+              await assertDelegationGrantWithinAuthorityGrant({
+                tenantId,
+                nowAt,
                 delegationGrant: resolvedDelegationGrantForCreate,
                 delegationGrantRef,
                 authorityGrant: resolvedAuthorityGrantForCreate,
@@ -46534,7 +46674,9 @@ export function createApi({
           }
           if (resolvedDelegationGrant && resolvedAuthorityGrant) {
             try {
-              assertDelegationGrantWithinAuthorityGrant({
+              await assertDelegationGrantWithinAuthorityGrant({
+                tenantId,
+                nowAt,
                 delegationGrant: resolvedDelegationGrant,
                 delegationGrantRef: effectiveDelegationGrantRef,
                 authorityGrant: resolvedAuthorityGrant,
@@ -52652,7 +52794,9 @@ export function createApi({
         }
         if (resolvedDelegationGrant && resolvedAuthorityGrant) {
           try {
-            assertDelegationGrantWithinAuthorityGrant({
+            await assertDelegationGrantWithinAuthorityGrant({
+              tenantId,
+              nowAt,
               delegationGrant: resolvedDelegationGrant,
               delegationGrantRef,
               authorityGrant: resolvedAuthorityGrant,
@@ -53109,7 +53253,9 @@ export function createApi({
           }
           if (resolvedDelegationGrantForWorkOrder && resolvedAuthorityGrantForWorkOrder) {
             try {
-              assertDelegationGrantWithinAuthorityGrant({
+              await assertDelegationGrantWithinAuthorityGrant({
+                tenantId,
+                nowAt,
                 delegationGrant: resolvedDelegationGrantForWorkOrder,
                 delegationGrantRef,
                 authorityGrant: resolvedAuthorityGrantForWorkOrder,
