@@ -140,6 +140,11 @@ test("agent substrate adversarial harness runner: prompt-contagion profile runs 
   );
 
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 2);
-  assert.deepEqual(seenIds, ["prompt_contagion_forced_modes", "prompt_contagion_provenance_replay_fail_closed"]);
+  assert.equal(report.summary.totalChecks, 4);
+  assert.deepEqual(seenIds, [
+    "prompt_contagion_forced_modes",
+    "prompt_contagion_provenance_replay_fail_closed",
+    "prompt_contagion_scope_escalation_fail_closed",
+    "prompt_contagion_tainted_work_order_release_fail_closed"
+  ]);
 });

@@ -114,6 +114,26 @@ function checksForProfile(profile) {
         "SessionEvent.v1 provenance taint propagates deterministically and replay pack reports provenance verification|SessionReplayPack.v1 fails closed on provenance mismatch even when chain hashes are re-computed",
         "test/api-e2e-sessions.test.js"
       ]
+    },
+    {
+      id: "prompt_contagion_scope_escalation_fail_closed",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "x402 authorize fails closed when delegation scope exceeds authority scope|work order create fails closed when delegation scope exceeds authority scope",
+        "test/api-e2e-authority-grant-required.test.js"
+      ]
+    },
+    {
+      id: "prompt_contagion_tainted_work_order_release_fail_closed",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "work-order settlement enforces taint-aware prompt-risk gates without a stored x402 gate record",
+        "test/api-e2e-subagent-work-orders.test.js"
+      ]
     }
   ];
   const core = [
