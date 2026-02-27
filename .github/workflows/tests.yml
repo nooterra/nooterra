@@ -45,6 +45,7 @@ jobs:
         run: node scripts/ci/changelog-guard.mjs --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
 
   branding_copy_hygiene:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -127,6 +128,7 @@ jobs:
           node --test --test-name-pattern "API e2e: verify enforces strict request binding evidence for quote-bound authorization" "$test_file"
 
   magic_link_onboarding_live_contract:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -140,6 +142,7 @@ jobs:
         run: node --test test/magic-link-onboarding-live-contract.test.js
 
   x402_quickstart_smoke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -207,6 +210,7 @@ jobs:
           node --test --test-name-pattern "mcp runtime pg:" test/mcp-runtime-work-order-binding-fail-closed.test.js
 
   mcp_host_smoke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -227,6 +231,7 @@ jobs:
           if-no-files-found: warn
 
   onboarding_policy_slo_gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -267,6 +272,7 @@ jobs:
           if-no-files-found: error
 
   onboarding_host_success_gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -460,6 +466,7 @@ jobs:
         run: node scripts/ci/flake-budget-guard.mjs
 
   deploy_safety_smoke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -562,6 +569,7 @@ jobs:
           git diff --exit-code -- openapi/nooterra.openapi.json
 
   npm_pack_smoke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -579,6 +587,7 @@ jobs:
         run: node scripts/ci/npm-pack-smoke.mjs
 
   cli_cross_platform:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -603,6 +612,7 @@ jobs:
           test/verify-fixture-bundles.test.js
 
   python_verifier_conformance:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -623,6 +633,7 @@ jobs:
         run: node conformance/v1/run.mjs --bin reference/verifier-py/nooterra-verify-py
 
   github_action_nooterra_verify:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
