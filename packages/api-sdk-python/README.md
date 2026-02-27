@@ -45,6 +45,55 @@ Use parity adapters when your integration must keep HTTP and MCP behavior aligne
 - `client.create_http_parity_adapter(...)`
 - `client.create_mcp_parity_adapter(call_tool=..., ...)`
 
+Quickstart:
+
+```python
+http_adapter = client.create_http_parity_adapter(
+    max_attempts=2,
+    retry_status_codes=[503],
+    retry_delay_seconds=0,
+)
+
+mcp_adapter = client.create_mcp_parity_adapter(
+    call_tool=call_tool,
+    max_attempts=2,
+    retry_status_codes=[503],
+    retry_delay_seconds=0,
+)
+
+http_operation = {
+    "operationId": "run_dispute_evidence_submit",
+    "method": "POST",
+    "path": "/runs/run_1/dispute/evidence",
+    "requiredFields": ["disputeId", "evidenceRef"],
+    "idempotencyRequired": True,
+    "expectedPrevChainHashRequired": True,
+}
+
+mcp_operation = {
+    "operationId": "run_dispute_evidence_submit",
+    "toolName": "nooterra.run_dispute_evidence_submit",
+    "requiredFields": ["disputeId", "evidenceRef"],
+    "idempotencyRequired": True,
+    "expectedPrevChainHashRequired": True,
+}
+
+http_adapter.invoke(
+    http_operation,
+    payload,
+    idempotency_key="idem_run_1_dispute_evidence",
+    expected_prev_chain_hash=prev_chain_hash,
+)
+mcp_adapter.invoke(
+    mcp_operation,
+    payload,
+    idempotency_key="idem_run_1_dispute_evidence",
+    expected_prev_chain_hash=prev_chain_hash,
+)
+```
+
+Reuse the same idempotency key across retries, and pass `expected_prev_chain_hash` for chain-bound writes. Missing either fails closed with `PARITY_*`.
+
 Both adapters return the same envelope:
 - `ok`, `status`, `requestId`, `body`, `headers`
 - `transport`, `operationId`, `idempotencyKey`, `attempts`

@@ -25,6 +25,51 @@ Use parity adapters when you need the same payload/error/retry/idempotency seman
 - `client.createHttpParityAdapter(...)`
 - `client.createMcpParityAdapter({ callTool, ... })`
 
+Quickstart:
+
+```js
+const httpAdapter = client.createHttpParityAdapter({
+  maxAttempts: 2,
+  retryStatusCodes: [503],
+  retryDelayMs: 0
+});
+
+const mcpAdapter = client.createMcpParityAdapter({
+  callTool,
+  maxAttempts: 2,
+  retryStatusCodes: [503],
+  retryDelayMs: 0
+});
+
+const httpOperation = {
+  operationId: "run_dispute_evidence_submit",
+  method: "POST",
+  path: "/runs/run_1/dispute/evidence",
+  requiredFields: ["disputeId", "evidenceRef"],
+  idempotencyRequired: true,
+  expectedPrevChainHashRequired: true
+};
+
+const mcpOperation = {
+  operationId: "run_dispute_evidence_submit",
+  toolName: "nooterra.run_dispute_evidence_submit",
+  requiredFields: ["disputeId", "evidenceRef"],
+  idempotencyRequired: true,
+  expectedPrevChainHashRequired: true
+};
+
+await httpAdapter.invoke(httpOperation, payload, {
+  idempotencyKey: "idem_run_1_dispute_evidence",
+  expectedPrevChainHash: prevChainHash
+});
+await mcpAdapter.invoke(mcpOperation, payload, {
+  idempotencyKey: "idem_run_1_dispute_evidence",
+  expectedPrevChainHash: prevChainHash
+});
+```
+
+Reuse the same idempotency key across retries, and pass `expectedPrevChainHash` for chain-bound writes. Missing either fails closed with `PARITY_*`.
+
 Both adapters return a shared response envelope:
 - `ok`, `status`, `requestId`, `body`, `headers`
 - `transport`, `operationId`, `idempotencyKey`, `attempts`
