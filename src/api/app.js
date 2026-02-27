@@ -16631,6 +16631,19 @@ export function createApi({
     throw new TypeError("session events not supported for this store");
   }
 
+  function requireSessionParticipantAccess({ req, res, session, sessionId, principalId }) {
+    let callerPrincipalId = null;
+    try {
+      callerPrincipalId = normalizePrincipalId(req?.headers ?? {});
+    } catch {
+      callerPrincipalId = typeof principalId === "string" && principalId.trim() !== "" ? principalId.trim() : "anon";
+    }
+    const participants = Array.isArray(session?.participants) ? session.participants : [];
+    if (participants.includes(callerPrincipalId)) return true;
+    sendError(res, 403, "session access denied", { sessionId, principalId: callerPrincipalId }, { code: "SESSION_ACCESS_DENIED" });
+    return false;
+  }
+
   function parseSessionSignerLifecycleIsoDate(value, { fieldName } = {}) {
     if (value === null || value === undefined || String(value).trim() === "") return null;
     const iso = String(value).trim();
@@ -49817,6 +49830,7 @@ export function createApi({
             return sendError(res, 501, "sessions not supported for this store", { message: err?.message });
           }
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           return sendJson(res, 200, { ok: true, session });
         }
 
@@ -49835,6 +49849,9 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid session replay pack query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay pack" });
           if (!verified.ok) {
             return sendError(
@@ -49890,6 +49907,9 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid session transcript query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session transcript" });
           if (!verified.ok) {
             return sendError(
@@ -49961,6 +49981,7 @@ export function createApi({
           const sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           let currentEvents = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(currentEvents)) currentEvents = [];
           const readyNextSinceEventId = normalizeSessionInboxEventId(currentEvents[currentEvents.length - 1]?.id ?? sinceEventId);
@@ -50168,6 +50189,7 @@ export function createApi({
           }
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
           const allEvents = events;
@@ -50269,6 +50291,7 @@ export function createApi({
 
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           const existingEvents = await getSessionEventRecords({ tenantId, sessionId });
           const currentPrevChainHash = getCurrentPrevChainHash(Array.isArray(existingEvents) ? existingEvents : []);
           if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {

@@ -16,11 +16,11 @@ import {
   buildArtifactRefFromPayloadV1,
   verifyArtifactRefPayloadBindingV1
 } from "../src/core/artifact-ref.js";
-import { request } from "./api-test-harness.js";
+import { request as baseRequest } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
-  const response = await request(api, {
+  const response = await baseRequest(api, {
     method: "POST",
     path: "/agents/register",
     headers: { "x-idempotency-key": `session_register_${agentId}` },
@@ -33,6 +33,60 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+const sessionPrincipalById = new Map();
+
+function firstSessionParticipant(body) {
+  const participants = Array.isArray(body?.participants) ? body.participants : [];
+  for (const participant of participants) {
+    if (typeof participant === "string" && participant.trim() !== "") return participant.trim();
+  }
+  return null;
+}
+
+function sessionIdFromPath(path) {
+  const rawPath = typeof path === "string" ? path : "";
+  const pathOnly = rawPath.split("?")[0];
+  const parts = pathOnly.split("/").filter(Boolean);
+  if (parts[0] !== "sessions" || !parts[1]) return null;
+  try {
+    return decodeURIComponent(parts[1]);
+  } catch {
+    return parts[1];
+  }
+}
+
+function normalizeHeaderPrincipal(headers) {
+  const raw = headers?.["x-proxy-principal-id"];
+  return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
+}
+
+async function request(api, options = {}) {
+  const method = typeof options?.method === "string" ? options.method.toUpperCase() : "GET";
+  const path = typeof options?.path === "string" ? options.path : "";
+  const pathOnly = path.split("?")[0];
+  const isSessionsRoute = pathOnly === "/sessions" || pathOnly.startsWith("/sessions/");
+  const headers = options?.headers && typeof options.headers === "object" && !Array.isArray(options.headers) ? { ...options.headers } : {};
+
+  if (isSessionsRoute) {
+    const explicitPrincipal = normalizeHeaderPrincipal(headers);
+    if (!explicitPrincipal) {
+      const isSessionCreate = method === "POST" && pathOnly === "/sessions";
+      const inferredPrincipal = isSessionCreate ? firstSessionParticipant(options?.body) : sessionPrincipalById.get(sessionIdFromPath(path)) ?? null;
+      if (inferredPrincipal) headers["x-proxy-principal-id"] = inferredPrincipal;
+    }
+  }
+
+  const response = await baseRequest(api, { ...options, headers });
+
+  if (method === "POST" && pathOnly === "/sessions" && response.statusCode >= 200 && response.statusCode < 300) {
+    const sessionId = String(response.json?.session?.sessionId ?? options?.body?.sessionId ?? "").trim();
+    const principalId = normalizeHeaderPrincipal(headers) ?? firstSessionParticipant(options?.body);
+    if (sessionId && principalId) sessionPrincipalById.set(sessionId, principalId);
+  }
+
+  return response;
 }
 
 test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", async () => {
@@ -277,6 +331,136 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(transcriptInvalidSignerQuery.statusCode, 400, transcriptInvalidSignerQuery.body);
   assert.equal(transcriptInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: session participant ACL fails closed for session reads and appends", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const allowedPrincipalId = "agt_session_acl_allowed_1";
+  const deniedPrincipalId = "agt_session_acl_denied_1";
+  const sessionId = "sess_acl_1";
+
+  await registerAgent(api, { agentId: allowedPrincipalId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: deniedPrincipalId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "session_acl_create_1",
+      "x-proxy-principal-id": allowedPrincipalId
+    },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [allowedPrincipalId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const seeded = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "session_acl_append_seed_1",
+      "x-proxy-principal-id": allowedPrincipalId,
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_acl_1" }
+    }
+  });
+  assert.equal(seeded.statusCode, 201, seeded.body);
+
+  const deniedGet = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedGet.statusCode, 403, deniedGet.body);
+  assert.equal(deniedGet.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedGet.json?.details?.sessionId, sessionId);
+  assert.equal(deniedGet.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedListEvents = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedListEvents.statusCode, 403, deniedListEvents.body);
+  assert.equal(deniedListEvents.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedListEvents.json?.details?.sessionId, sessionId);
+  assert.equal(deniedListEvents.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "session_acl_append_denied_1",
+      "x-proxy-principal-id": deniedPrincipalId,
+      "x-proxy-expected-prev-chain-hash": String(seeded.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 25 }
+    }
+  });
+  assert.equal(deniedAppend.statusCode, 403, deniedAppend.body);
+  assert.equal(deniedAppend.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedAppend.json?.details?.sessionId, sessionId);
+  assert.equal(deniedAppend.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedReplayPack = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedReplayPack.statusCode, 403, deniedReplayPack.body);
+  assert.equal(deniedReplayPack.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedReplayPack.json?.details?.sessionId, sessionId);
+  assert.equal(deniedReplayPack.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedTranscript = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedTranscript.statusCode, 403, deniedTranscript.body);
+  assert.equal(deniedTranscript.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedTranscript.json?.details?.sessionId, sessionId);
+  assert.equal(deniedTranscript.json?.details?.principalId, deniedPrincipalId);
+
+  const allowedGet = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}`,
+    headers: { "x-proxy-principal-id": allowedPrincipalId }
+  });
+  assert.equal(allowedGet.statusCode, 200, allowedGet.body);
+  assert.equal(allowedGet.json?.session?.sessionId, sessionId);
+
+  const allowedListEvents = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events`,
+    headers: { "x-proxy-principal-id": allowedPrincipalId }
+  });
+  assert.equal(allowedListEvents.statusCode, 200, allowedListEvents.body);
+  assert.equal(Array.isArray(allowedListEvents.json?.events), true);
+  assert.equal(allowedListEvents.json?.events?.length, 1);
+
+  const allowedAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "session_acl_append_allowed_1",
+      "x-proxy-principal-id": allowedPrincipalId,
+      "x-proxy-expected-prev-chain-hash": String(seeded.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 90 }
+    }
+  });
+  assert.equal(allowedAppend.statusCode, 201, allowedAppend.body);
 });
 
 test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cursor", async () => {

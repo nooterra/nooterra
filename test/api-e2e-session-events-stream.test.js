@@ -7,12 +7,12 @@ import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
 import { verifySessionReplayPackV1 } from "../src/core/session-replay-pack.js";
 import { verifySessionTranscriptV1 } from "../src/core/session-transcript.js";
-import { request } from "./api-test-harness.js";
+import { request as baseRequest } from "./api-test-harness.js";
 import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
-  const response = await request(api, {
+  const response = await baseRequest(api, {
     method: "POST",
     path: "/agents/register",
     headers: { "x-idempotency-key": `stream_register_${agentId}` },
@@ -25,6 +25,60 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+const sessionPrincipalById = new Map();
+
+function firstSessionParticipant(body) {
+  const participants = Array.isArray(body?.participants) ? body.participants : [];
+  for (const participant of participants) {
+    if (typeof participant === "string" && participant.trim() !== "") return participant.trim();
+  }
+  return null;
+}
+
+function sessionIdFromPath(path) {
+  const rawPath = typeof path === "string" ? path : "";
+  const pathOnly = rawPath.split("?")[0];
+  const parts = pathOnly.split("/").filter(Boolean);
+  if (parts[0] !== "sessions" || !parts[1]) return null;
+  try {
+    return decodeURIComponent(parts[1]);
+  } catch {
+    return parts[1];
+  }
+}
+
+function normalizeHeaderPrincipal(headers) {
+  const raw = headers?.["x-proxy-principal-id"];
+  return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
+}
+
+async function request(api, options = {}) {
+  const method = typeof options?.method === "string" ? options.method.toUpperCase() : "GET";
+  const path = typeof options?.path === "string" ? options.path : "";
+  const pathOnly = path.split("?")[0];
+  const isSessionsRoute = pathOnly === "/sessions" || pathOnly.startsWith("/sessions/");
+  const headers = options?.headers && typeof options.headers === "object" && !Array.isArray(options.headers) ? { ...options.headers } : {};
+
+  if (isSessionsRoute) {
+    const explicitPrincipal = normalizeHeaderPrincipal(headers);
+    if (!explicitPrincipal) {
+      const isSessionCreate = method === "POST" && pathOnly === "/sessions";
+      const inferredPrincipal = isSessionCreate ? firstSessionParticipant(options?.body) : sessionPrincipalById.get(sessionIdFromPath(path)) ?? null;
+      if (inferredPrincipal) headers["x-proxy-principal-id"] = inferredPrincipal;
+    }
+  }
+
+  const response = await baseRequest(api, { ...options, headers });
+
+  if (method === "POST" && pathOnly === "/sessions" && response.statusCode >= 200 && response.statusCode < 300) {
+    const sessionId = String(response.json?.session?.sessionId ?? options?.body?.sessionId ?? "").trim();
+    const principalId = normalizeHeaderPrincipal(headers) ?? firstSessionParticipant(options?.body);
+    if (sessionId && principalId) sessionPrincipalById.set(sessionId, principalId);
+  }
+
+  return response;
 }
 
 function createSseFrameReader(streamBody) {
@@ -135,6 +189,7 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": String(firstAppend.json?.event?.id ?? "")
     }
   });
@@ -188,6 +243,87 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   await closeSseStream(stream, controller);
 });
 
+test("API e2e: /sessions/:id/events/stream enforces participant ACL fail closed", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const allowedPrincipalId = "agt_stream_acl_allowed_1";
+  const deniedPrincipalId = "agt_stream_acl_denied_1";
+  const sessionId = "sess_stream_acl_1";
+
+  await registerAgent(api, { agentId: allowedPrincipalId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: deniedPrincipalId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "stream_session_acl_create_1",
+      "x-proxy-principal-id": allowedPrincipalId
+    },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [allowedPrincipalId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const seeded = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_session_acl_append_1",
+      "x-proxy-principal-id": allowedPrincipalId,
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_acl_task_1" }
+    }
+  });
+  assert.equal(seeded.statusCode, 201, seeded.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const denied = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/events/stream`, {
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": deniedPrincipalId,
+      "last-event-id": String(seeded.json?.event?.id ?? "")
+    }
+  });
+  const deniedBody = await denied.json();
+  assert.equal(denied.status, 403);
+  assert.equal(deniedBody.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedBody.details?.sessionId, sessionId);
+  assert.equal(deniedBody.details?.principalId, deniedPrincipalId);
+
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const allowed = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/events/stream`, {
+    signal: controller.signal,
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": allowedPrincipalId,
+      "last-event-id": String(seeded.json?.event?.id ?? "")
+    }
+  });
+  assert.equal(allowed.status, 200);
+  assert.match(String(allowed.headers.get("content-type") ?? ""), /text\/event-stream/i);
+  assert.ok(allowed.body);
+  const allowedStream = createSseFrameReader(allowed.body);
+  const ready = await readSseFrame(allowedStream, { timeoutMs: 8_000 });
+  assert.equal(ready.event, "session.ready");
+  await closeSseStream(allowedStream, controller);
+});
+
 test("API e2e: /sessions/:id/events/stream watermark progression survives filtered reconnect churn", async (t) => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_stream_principal_4";
@@ -235,6 +371,7 @@ test("API e2e: /sessions/:id/events/stream watermark progression survives filter
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": String(firstAppend.json?.event?.id ?? "")
     }
   });
@@ -288,6 +425,7 @@ test("API e2e: /sessions/:id/events/stream watermark progression survives filter
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": String(secondAppend.json?.event?.id ?? "")
     }
   });
@@ -398,6 +536,7 @@ test("API e2e: /sessions/:id/events/stream reconnect chaos keeps resume cursor m
         headers: {
           authorization: auth.authorization,
           "x-proxy-tenant-id": "tenant_default",
+          "x-proxy-principal-id": principalAgentId,
           "last-event-id": resumeCursor
         }
       }
@@ -549,6 +688,7 @@ test("API e2e: stream reconnect churn preserves deterministic replay and transcr
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": String(firstAppend.json?.event?.id ?? "")
     }
   });
@@ -585,6 +725,7 @@ test("API e2e: stream reconnect churn preserves deterministic replay and transcr
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": String(secondAppend.json?.event?.id ?? "")
     }
   });
@@ -720,7 +861,8 @@ test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", asyn
   const malformed = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_2/events/stream?sinceEventId=evt bad cursor`, {
     headers: {
       authorization: auth.authorization,
-      "x-proxy-tenant-id": "tenant_default"
+      "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId
     }
   });
   const malformedBody = await malformed.json();
@@ -730,7 +872,8 @@ test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", asyn
   const res = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_2/events/stream?sinceEventId=evt_missing_cursor`, {
     headers: {
       authorization: auth.authorization,
-      "x-proxy-tenant-id": "tenant_default"
+      "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId
     }
   });
   const body = await res.json();
@@ -773,6 +916,7 @@ test("API e2e: /sessions/:id/events/stream fails closed on conflicting cursor so
     headers: {
       authorization: auth.authorization,
       "x-proxy-tenant-id": "tenant_default",
+      "x-proxy-principal-id": principalAgentId,
       "last-event-id": "evt_header_cursor"
     }
   });
