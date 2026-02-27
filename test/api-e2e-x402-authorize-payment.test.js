@@ -1630,6 +1630,44 @@ test("API e2e: x402 agent lifecycle get returns implicit active when unset", asy
   assert.equal(response.json?.lifecycle?.status, "active");
 });
 
+test("API e2e: x402 lifecycle updates emit immutable lifecycle artifacts", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_lifecycle_artifacts_1" });
+
+  const suspended = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "suspended",
+    reasonCode: "AGENT_POLICY_SUSPENDED",
+    idempotencyKey: "x402_lifecycle_artifact_suspend_1"
+  });
+  assert.equal(suspended.statusCode, 200, suspended.body);
+  assert.equal(suspended.json?.lifecycle?.status, "suspended");
+
+  const reactivated = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "active",
+    reasonCode: "AGENT_RESTORED",
+    idempotencyKey: "x402_lifecycle_artifact_reactivate_1"
+  });
+  assert.equal(reactivated.statusCode, 200, reactivated.body);
+  assert.equal(reactivated.json?.lifecycle?.status, "active");
+
+  const lifecycleArtifacts = (await api.store.listArtifacts({ tenantId: "tenant_default" })).filter(
+    (artifact) => artifact?.artifactType === "X402AgentLifecycle.v1" && artifact?.agentId === agentId
+  );
+  assert.equal(lifecycleArtifacts.length >= 2, true);
+
+  const suspendedArtifact = lifecycleArtifacts.find((artifact) => artifact?.eventType === "suspended") ?? null;
+  assert.ok(suspendedArtifact);
+  assert.equal(suspendedArtifact?.payload?.lifecycle?.status, "suspended");
+  assert.equal(suspendedArtifact?.payload?.context?.previousStatus, "active");
+
+  const activeArtifact = lifecycleArtifacts.find((artifact) => artifact?.eventType === "active") ?? null;
+  assert.ok(activeArtifact);
+  assert.equal(activeArtifact?.payload?.lifecycle?.status, "active");
+  assert.equal(activeArtifact?.payload?.context?.previousStatus, "suspended");
+});
+
 test("API e2e: agreement delegation create fails closed when delegator or delegatee lifecycle is non-active", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const delegatorAgentId = await registerAgent(api, { agentId: "agt_agreement_delegation_lifecycle_delegator_1" });

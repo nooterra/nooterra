@@ -17801,6 +17801,28 @@ export function createApi({
       ]
     });
 
+    try {
+      await emitX402AgentLifecycleArtifact({
+        tenantId: normalizedTenantId,
+        lifecycle: nextLifecycle,
+        eventType: normalizedStatus,
+        occurredAt: at,
+        context: {
+          source,
+          previousStatus,
+          reasonCode: normalizedReasonCode,
+          reasonMessage: normalizedReasonMessage
+        }
+      });
+    } catch (err) {
+      logger.warn("x402.agent.lifecycle_emit_failed", {
+        tenantId: normalizedTenantId,
+        agentId: normalizedAgentId,
+        eventType: normalizedStatus,
+        err: err?.message ?? String(err ?? "")
+      });
+    }
+
     return { changed: true, lifecycle: nextLifecycle, previousStatus };
   }
 
