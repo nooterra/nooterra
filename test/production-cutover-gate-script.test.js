@@ -8,6 +8,7 @@ import {
   evaluateOpenclawSubstrateDemoLineageCheck,
   evaluateOpenclawSubstrateDemoTranscriptCheck,
   evaluateSessionStreamConformanceCheck,
+  evaluateSettlementDisputeArbitrationLifecycleCheck,
   evaluateSdkAcsSmokeJsCheck,
   evaluateSdkAcsSmokePyCheck,
   evaluateSdkPythonContractFreezeCheck,
@@ -185,6 +186,39 @@ test("production cutover gate: derives session stream conformance check fail-clo
   assert.equal(evaluated.exitCode, 1);
   assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
   assert.equal(evaluated.details?.sourceCheckId, "e2e_session_stream_conformance_v1");
+});
+
+test("production cutover gate: derives settlement/dispute lifecycle check as pass from Nooterra Verified collaboration report", () => {
+  const evaluated = evaluateSettlementDisputeArbitrationLifecycleCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "e2e_settlement_dispute_arbitration_lifecycle_enforcement",
+          ok: true,
+          exitCode: 0,
+          command: "node --test test/api-e2e-settlement-dispute-arbitration-lifecycle-enforcement.test.js"
+        }
+      ]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_settlement_dispute_arbitration_lifecycle_enforcement");
+});
+
+test("production cutover gate: derives settlement/dispute lifecycle check fail-closed when source check is missing", () => {
+  const evaluated = evaluateSettlementDisputeArbitrationLifecycleCheck(
+    {
+      checks: [{ id: "mcp_host_cert_matrix", ok: true }]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_settlement_dispute_arbitration_lifecycle_enforcement");
 });
 
 test("production cutover gate: derives SDK PY smoke check fail-closed when source check is missing", () => {

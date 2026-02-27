@@ -22,6 +22,7 @@ async function writeRequiredArtifacts(
     includeProductionLineageCheck = true,
     includeProductionTranscriptCheck = true,
     includeProductionSessionStreamConformanceCheck = true,
+    includeProductionSettlementDisputeArbitrationLifecycleCheck = true,
     includeProductionCheckpointGrantBindingCheck = true,
     includeProductionWorkOrderMeteringDurabilityCheck = true,
     includeProductionSdkJsSmokeCheck = true,
@@ -70,6 +71,12 @@ async function writeRequiredArtifacts(
       status: productionGateOk ? "passed" : "failed"
     });
   }
+  if (includeProductionSettlementDisputeArbitrationLifecycleCheck) {
+    productionChecks.push({
+      id: "settlement_dispute_arbitration_lifecycle_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
   if (includeProductionCheckpointGrantBindingCheck) {
     productionChecks.push({
       id: "checkpoint_grant_binding_verified",
@@ -109,6 +116,7 @@ async function writeRequiredArtifacts(
     "openclaw_substrate_demo_lineage_verified",
     "openclaw_substrate_demo_transcript_verified",
     "session_stream_conformance_verified",
+    "settlement_dispute_arbitration_lifecycle_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
     "sdk_acs_smoke_js_verified",
@@ -138,20 +146,22 @@ async function writeRequiredArtifacts(
           id === "openclaw_substrate_demo_lineage_verified"
             ? "openclaw_substrate_demo_lineage_verified"
             : id === "openclaw_substrate_demo_transcript_verified"
-              ? "openclaw_substrate_demo_transcript_verified"
-              : id === "session_stream_conformance_verified"
-                ? "e2e_session_stream_conformance_v1"
-              : id === "checkpoint_grant_binding_verified"
-                ? "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
-              : id === "work_order_metering_durability_verified"
-                ? "pg_work_order_metering_durability"
-              : id === "sdk_acs_smoke_js_verified"
-                ? "e2e_js_sdk_acs_substrate_smoke"
-              : id === "sdk_acs_smoke_py_verified"
-                ? "e2e_python_sdk_acs_substrate_smoke"
-                : id === "sdk_python_contract_freeze_verified"
-                  ? "e2e_python_sdk_contract_freeze"
-                  : null
+                ? "openclaw_substrate_demo_transcript_verified"
+                : id === "session_stream_conformance_verified"
+                  ? "e2e_session_stream_conformance_v1"
+                  : id === "settlement_dispute_arbitration_lifecycle_verified"
+                    ? "e2e_settlement_dispute_arbitration_lifecycle_enforcement"
+                    : id === "checkpoint_grant_binding_verified"
+                      ? "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
+                      : id === "work_order_metering_durability_verified"
+                        ? "pg_work_order_metering_durability"
+                        : id === "sdk_acs_smoke_js_verified"
+                          ? "e2e_js_sdk_acs_substrate_smoke"
+                          : id === "sdk_acs_smoke_py_verified"
+                            ? "e2e_python_sdk_acs_substrate_smoke"
+                            : id === "sdk_python_contract_freeze_verified"
+                              ? "e2e_python_sdk_contract_freeze"
+                              : null
       }
     };
   });
@@ -593,8 +603,8 @@ test("release promotion guard: fails closed when launch packet required cutover 
       : row
   );
   launchPacket.requiredCutoverChecks.summary = {
-    requiredChecks: 9,
-    passedChecks: 8,
+    requiredChecks: 10,
+    passedChecks: 9,
     failedChecks: 1
   };
   await fs.writeFile(launchPacketPath, JSON.stringify(launchPacket, null, 2) + "\n", "utf8");

@@ -47,7 +47,7 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 
   await writeJson(path.join(testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 9, passedChecks: 9 },
+    verdict: { ok: true, requiredChecks: 10, passedChecks: 10 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -64,6 +64,10 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       },
       {
         id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
+        id: "settlement_dispute_arbitration_lifecycle_verified",
         status: "passed"
       },
       {
@@ -131,6 +135,17 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
         reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
         reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "e2e_session_stream_conformance_v1"
+      }
+    },
+    {
+      id: "settlement_dispute_arbitration_lifecycle_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "e2e_settlement_dispute_arbitration_lifecycle_enforcement"
       }
     },
     {
@@ -441,7 +456,7 @@ test("release promotion guard e2e: production gate collaboration report path mis
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 9, passedChecks: 9 },
+    verdict: { ok: true, requiredChecks: 10, passedChecks: 10 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -458,6 +473,10 @@ test("release promotion guard e2e: production gate collaboration report path mis
       },
       {
         id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
+        id: "settlement_dispute_arbitration_lifecycle_verified",
         status: "passed"
       },
       {
@@ -579,7 +598,7 @@ test("release promotion guard e2e: production gate collaboration check not passe
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 9, passedChecks: 8 },
+    verdict: { ok: true, requiredChecks: 10, passedChecks: 9 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -596,6 +615,10 @@ test("release promotion guard e2e: production gate collaboration check not passe
       },
       {
         id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
+        id: "settlement_dispute_arbitration_lifecycle_verified",
         status: "passed"
       },
       {
@@ -717,7 +740,7 @@ test("release promotion guard e2e: production gate collaboration check missing f
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 9, passedChecks: 8 },
+    verdict: { ok: true, requiredChecks: 10, passedChecks: 9 },
     checks: [
       {
         id: "mcp_host_runtime_smoke",
@@ -733,6 +756,10 @@ test("release promotion guard e2e: production gate collaboration check missing f
       },
       {
         id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
+        id: "settlement_dispute_arbitration_lifecycle_verified",
         status: "passed"
       },
       {

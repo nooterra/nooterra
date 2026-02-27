@@ -20,6 +20,7 @@ const PRODUCTION_COLLAB_CHECK_ID = "nooterra_verified_collaboration";
 const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
 const PRODUCTION_SESSION_STREAM_CONFORMANCE_CHECK_ID = "session_stream_conformance_verified";
+const PRODUCTION_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_CHECK_ID = "settlement_dispute_arbitration_lifecycle_verified";
 const PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID = "checkpoint_grant_binding_verified";
 const PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID = "work_order_metering_durability_verified";
 const PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID = "sdk_acs_smoke_js_verified";
@@ -31,6 +32,7 @@ const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
   PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID,
   PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID,
   PRODUCTION_SESSION_STREAM_CONFORMANCE_CHECK_ID,
+  PRODUCTION_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_CHECK_ID,
   PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID,
   PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID,
   PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID,
@@ -714,6 +716,24 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production cutover gate session stream conformance verification check is not passed"
         );
         result.failureCodes.push("production_gate_session_stream_conformance_check_not_passed");
+      }
+
+      const settlementDisputeArbitrationLifecycleCheck =
+        checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_CHECK_ID) ?? null;
+      if (!settlementDisputeArbitrationLifecycleCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_settlement_dispute_arbitration_lifecycle_check_missing",
+          "production cutover gate missing settlement/dispute arbitration lifecycle verification check"
+        );
+        result.failureCodes.push("production_gate_settlement_dispute_arbitration_lifecycle_check_missing");
+      } else if (normalizeOptionalString(settlementDisputeArbitrationLifecycleCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_settlement_dispute_arbitration_lifecycle_check_not_passed",
+          "production cutover gate settlement/dispute arbitration lifecycle verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_settlement_dispute_arbitration_lifecycle_check_not_passed");
       }
 
       const checkpointGrantBindingCheck =

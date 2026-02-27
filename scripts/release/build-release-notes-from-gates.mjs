@@ -9,6 +9,7 @@ const REQUIRED_PRODUCTION_CHECK_IDS = Object.freeze([
   "openclaw_substrate_demo_lineage_verified",
   "openclaw_substrate_demo_transcript_verified",
   "session_stream_conformance_verified",
+  "settlement_dispute_arbitration_lifecycle_verified",
   "checkpoint_grant_binding_verified",
   "work_order_metering_durability_verified",
   "sdk_acs_smoke_js_verified",
@@ -111,6 +112,7 @@ function buildMarkdown({
   lineageCheck,
   transcriptCheck,
   sessionStreamConformanceCheck,
+  settlementDisputeArbitrationLifecycleCheck,
   checkpointGrantBindingCheck,
   workOrderMeteringDurabilityCheck,
   sdkJsCheck,
@@ -132,6 +134,7 @@ function buildMarkdown({
     `- openclaw_substrate_demo_lineage_verified: **${lineageCheck?.ok === true ? "pass" : "fail"}**`,
     `- openclaw_substrate_demo_transcript_verified: **${transcriptCheck?.ok === true ? "pass" : "fail"}**`,
     `- session_stream_conformance_verified: **${sessionStreamConformanceCheck?.ok === true ? "pass" : "fail"}**`,
+    `- settlement_dispute_arbitration_lifecycle_verified: **${settlementDisputeArbitrationLifecycleCheck?.ok === true ? "pass" : "fail"}**`,
     `- checkpoint_grant_binding_verified: **${checkpointGrantBindingCheck?.ok === true ? "pass" : "fail"}**`,
     `- work_order_metering_durability_verified: **${workOrderMeteringDurabilityCheck?.ok === true ? "pass" : "fail"}**`,
     `- sdk_acs_smoke_js_verified: **${sdkJsCheck?.ok === true ? "pass" : "fail"}**`,
@@ -157,6 +160,7 @@ export async function buildReleaseNotesFromGates(args) {
   const lineageCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_lineage_verified");
   const transcriptCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_transcript_verified");
   const sessionStreamConformanceCheck = pickRequiredCheck(requiredChecks, "session_stream_conformance_verified");
+  const settlementDisputeArbitrationLifecycleCheck = pickRequiredCheck(requiredChecks, "settlement_dispute_arbitration_lifecycle_verified");
   const checkpointGrantBindingCheck = pickRequiredCheck(requiredChecks, "checkpoint_grant_binding_verified");
   const workOrderMeteringDurabilityCheck = pickRequiredCheck(requiredChecks, "work_order_metering_durability_verified");
   const sdkJsCheck = pickRequiredCheck(requiredChecks, "sdk_acs_smoke_js_verified");
@@ -171,6 +175,7 @@ export async function buildReleaseNotesFromGates(args) {
     lineageCheck,
     transcriptCheck,
     sessionStreamConformanceCheck,
+    settlementDisputeArbitrationLifecycleCheck,
     checkpointGrantBindingCheck,
     workOrderMeteringDurabilityCheck,
     sdkJsCheck,
@@ -200,6 +205,7 @@ export async function buildReleaseNotesFromGates(args) {
       lineageCheckOk: lineageCheck?.ok === true,
       transcriptCheckOk: transcriptCheck?.ok === true,
       sessionStreamConformanceCheckOk: sessionStreamConformanceCheck?.ok === true,
+      settlementDisputeArbitrationLifecycleCheckOk: settlementDisputeArbitrationLifecycleCheck?.ok === true,
       checkpointGrantBindingCheckOk: checkpointGrantBindingCheck?.ok === true,
       workOrderMeteringDurabilityCheckOk: workOrderMeteringDurabilityCheck?.ok === true,
       sdkJsSmokeCheckOk: sdkJsCheck?.ok === true,

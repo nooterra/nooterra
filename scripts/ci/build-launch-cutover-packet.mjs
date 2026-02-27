@@ -33,6 +33,10 @@ const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
     sourceCheckId: "e2e_session_stream_conformance_v1"
   },
   {
+    requiredCheckId: "settlement_dispute_arbitration_lifecycle_verified",
+    sourceCheckId: "e2e_settlement_dispute_arbitration_lifecycle_enforcement"
+  },
+  {
     requiredCheckId: "checkpoint_grant_binding_verified",
     sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
   },

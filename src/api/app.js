@@ -18252,6 +18252,32 @@ export function createApi({
     return null;
   }
 
+  function parseEvidenceRefSha256Selection(evidenceRefs, prefix) {
+    if (!Array.isArray(evidenceRefs)) {
+      return { requestSha256: null, requestSha256Values: [], hasConflict: false };
+    }
+    const normalizedPrefix = typeof prefix === "string" && prefix.trim() !== "" ? prefix.trim() : "";
+    if (!normalizedPrefix) {
+      return { requestSha256: null, requestSha256Values: [], hasConflict: false };
+    }
+    let firstRequestSha256 = null;
+    const values = new Set();
+    for (const row of evidenceRefs) {
+      const text = typeof row === "string" ? row.trim() : "";
+      if (!text || !text.startsWith(normalizedPrefix)) continue;
+      const candidate = text.slice(normalizedPrefix.length).trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(candidate)) continue;
+      if (!firstRequestSha256) firstRequestSha256 = candidate;
+      values.add(candidate);
+    }
+    const requestSha256Values = Array.from(values).sort((left, right) => left.localeCompare(right));
+    return {
+      requestSha256: firstRequestSha256,
+      requestSha256Values,
+      hasConflict: requestSha256Values.length > 1
+    };
+  }
+
   function normalizeX402ReversalActionInput(value) {
     const action = typeof value === "string" ? value.trim().toLowerCase() : "";
     if (!action) throw new TypeError("action is required");
@@ -18351,19 +18377,29 @@ export function createApi({
       : null;
   }
 
-  function evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs } = {}) {
+  function evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs, rejectConflictingRequestSha256 = false } = {}) {
     const expectedRequestSha256 = resolveSettlementRequestBindingSha256(settlement);
+    const requestEvidence = parseEvidenceRefSha256Selection(evidenceRefs, "http:request_sha256:");
     if (!expectedRequestSha256) {
       return {
         ok: true,
         reason: null,
         expectedRequestSha256: null,
-        requestSha256: parseEvidenceRefSha256(evidenceRefs, "http:request_sha256:")
+        requestSha256: requestEvidence.requestSha256
       };
     }
-    const requestSha256 = parseEvidenceRefSha256(evidenceRefs, "http:request_sha256:");
+    const requestSha256 = requestEvidence.requestSha256;
     if (!requestSha256) {
       return { ok: false, reason: "required", expectedRequestSha256, requestSha256: null };
+    }
+    if (rejectConflictingRequestSha256 && requestEvidence.hasConflict) {
+      return {
+        ok: false,
+        reason: "conflict",
+        expectedRequestSha256,
+        requestSha256,
+        requestSha256Values: requestEvidence.requestSha256Values
+      };
     }
     if (requestSha256 !== expectedRequestSha256) {
       return { ok: false, reason: "mismatch", expectedRequestSha256, requestSha256 };
@@ -48320,7 +48356,8 @@ export function createApi({
           }
 
           const quoteBinding = resolveX402GateQuoteBinding({ gate, settlement });
-          const reversalRequestSha256 = parseEvidenceRefSha256(reversalEvidenceRefs, "http:request_sha256:");
+          const reversalRequestEvidence = parseEvidenceRefSha256Selection(reversalEvidenceRefs, "http:request_sha256:");
+          const reversalRequestSha256 = reversalRequestEvidence.requestSha256;
           if (quoteBinding.requestSha256) {
             if (!reversalRequestSha256) {
               return sendError(
@@ -48329,6 +48366,21 @@ export function createApi({
                 "reversal requires request hash evidence",
                 { gateId, action, expectedRequestSha256: quoteBinding.requestSha256 },
                 { code: "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED" }
+              );
+            }
+            if (reversalRequestEvidence.hasConflict) {
+              return sendError(
+                res,
+                409,
+                "reversal request-hash evidence conflict for gate binding",
+                {
+                  gateId,
+                  action,
+                  requestSha256: reversalRequestSha256,
+                  requestSha256Values: reversalRequestEvidence.requestSha256Values,
+                  expectedRequestSha256: quoteBinding.requestSha256
+                },
+                { code: "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH" }
               );
             }
             if (reversalRequestSha256 !== quoteBinding.requestSha256) {
@@ -57041,6 +57093,7 @@ export function createApi({
 
         const settlementResolveBinding = evaluateSettlementRequestBindingEvidence({
           settlement,
+          rejectConflictingRequestSha256: true,
           evidenceRefs: mergeUniqueStringArrays(
             Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
             Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : []
@@ -57054,12 +57107,17 @@ export function createApi({
             expectedRequestSha256: settlementResolveBinding.expectedRequestSha256
           };
           if (settlementResolveBinding.requestSha256) mismatchDetails.requestSha256 = settlementResolveBinding.requestSha256;
+          if (Array.isArray(settlementResolveBinding.requestSha256Values) && settlementResolveBinding.requestSha256Values.length > 1) {
+            mismatchDetails.requestSha256Values = settlementResolveBinding.requestSha256Values;
+          }
           return sendError(
             res,
             409,
             settlementResolveBinding.reason === "required"
               ? "request-hash evidence required for settlement binding"
-              : "request-hash evidence mismatch for settlement binding",
+              : settlementResolveBinding.reason === "conflict"
+                ? "request-hash evidence conflict for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
             mismatchDetails,
             {
               code:

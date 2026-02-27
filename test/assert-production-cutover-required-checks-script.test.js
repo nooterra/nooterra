@@ -22,6 +22,7 @@ test("production cutover required checks parser: defaults and explicit checks", 
     "openclaw_substrate_demo_lineage_verified",
     "openclaw_substrate_demo_transcript_verified",
     "session_stream_conformance_verified",
+    "settlement_dispute_arbitration_lifecycle_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
     "sdk_acs_smoke_js_verified",
@@ -38,7 +39,7 @@ test("production cutover required checks parser: defaults and explicit checks", 
   assert.deepEqual(args.requiredCheckIds, ["check_a", "check_b"]);
 });
 
-test("production cutover required checks: passes when collaboration, lineage, transcript, session stream conformance, checkpoint binding, metering durability, sdk smokes, and Python contract freeze are present and passed", async (t) => {
+test("production cutover required checks: passes when collaboration, lineage, transcript, session stream conformance, settlement/dispute lifecycle, checkpoint binding, metering durability, sdk smokes, and Python contract freeze are present and passed", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-prod-required-checks-pass-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
@@ -54,6 +55,7 @@ test("production cutover required checks: passes when collaboration, lineage, tr
       { id: "openclaw_substrate_demo_lineage_verified", status: "passed" },
       { id: "openclaw_substrate_demo_transcript_verified", status: "passed" },
       { id: "session_stream_conformance_verified", status: "passed" },
+      { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
       { id: "checkpoint_grant_binding_verified", status: "passed" },
       { id: "work_order_metering_durability_verified", status: "passed" },
       { id: "sdk_acs_smoke_js_verified", status: "passed" },
@@ -70,6 +72,7 @@ test("production cutover required checks: passes when collaboration, lineage, tr
       "openclaw_substrate_demo_lineage_verified",
       "openclaw_substrate_demo_transcript_verified",
       "session_stream_conformance_verified",
+      "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
       "sdk_acs_smoke_js_verified",
@@ -78,8 +81,8 @@ test("production cutover required checks: passes when collaboration, lineage, tr
     ]
   });
   assert.equal(report.ok, true);
-  assert.equal(report.summary.requiredChecks, 9);
-  assert.equal(report.summary.passedChecks, 9);
+  assert.equal(report.summary.requiredChecks, 10);
+  assert.equal(report.summary.passedChecks, 10);
   assert.equal(report.summary.failedChecks, 0);
 
   const written = JSON.parse(await fs.readFile(outPath, "utf8"));
@@ -108,6 +111,7 @@ test("production cutover required checks: fails closed when lineage check is mis
       "openclaw_substrate_demo_lineage_verified",
       "openclaw_substrate_demo_transcript_verified",
       "session_stream_conformance_verified",
+      "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
       "sdk_acs_smoke_js_verified",
@@ -138,6 +142,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
       { id: "openclaw_substrate_demo_lineage_verified", status: "failed" },
       { id: "openclaw_substrate_demo_transcript_verified", status: "passed" },
       { id: "session_stream_conformance_verified", status: "passed" },
+      { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
       { id: "checkpoint_grant_binding_verified", status: "passed" },
       { id: "work_order_metering_durability_verified", status: "passed" },
       { id: "sdk_acs_smoke_js_verified", status: "passed" },
@@ -161,6 +166,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
       "openclaw_substrate_demo_lineage_verified",
       "openclaw_substrate_demo_transcript_verified",
       "session_stream_conformance_verified",
+      "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
       "sdk_acs_smoke_js_verified",
@@ -175,6 +181,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
   assert.match(markdown, /openclaw_substrate_demo_lineage_verified/);
   assert.match(markdown, /openclaw_substrate_demo_transcript_verified/);
   assert.match(markdown, /session_stream_conformance_verified/);
+  assert.match(markdown, /settlement_dispute_arbitration_lifecycle_verified/);
   assert.match(markdown, /checkpoint_grant_binding_verified/);
   assert.match(markdown, /work_order_metering_durability_verified/);
   assert.match(markdown, /sdk_acs_smoke_js_verified/);

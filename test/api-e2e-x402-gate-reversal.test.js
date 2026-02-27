@@ -724,6 +724,34 @@ test("API e2e: x402 reversal fails closed when request-hash evidence is missing 
   });
   assert.equal(mismatchEvidence.statusCode, 409, mismatchEvidence.body);
   assert.equal(mismatchEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
+
+  const conflictEvidenceCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_binding_conflict_1",
+    idempotencyKey: "idem_refund_binding_conflict_1",
+    nonce: "nonce_refund_binding_conflict_1"
+  });
+  const conflictEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_binding_conflict_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, `http:request_sha256:${"e".repeat(64)}`],
+      command: conflictEvidenceCommand
+    }
+  });
+  assert.equal(conflictEvidence.statusCode, 409, conflictEvidence.body);
+  assert.equal(conflictEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
+  assert.deepEqual(conflictEvidence.json?.details?.requestSha256Values, [bindings.requestSha256, "e".repeat(64)]);
 });
 
 test("API e2e: run dispute close fails closed on missing or mismatched settlement request-hash evidence", async () => {

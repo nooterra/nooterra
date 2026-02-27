@@ -91,6 +91,20 @@ function parseEvidenceRefMap(evidenceRefs) {
   return out;
 }
 
+function parseEvidenceRefSha256Set(evidenceRefs, prefix) {
+  if (!Array.isArray(evidenceRefs)) return [];
+  const normalizedPrefix = typeof prefix === "string" ? prefix.trim() : "";
+  if (!normalizedPrefix) return [];
+  const values = new Set();
+  for (const row of evidenceRefs) {
+    const ref = typeof row === "string" ? row.trim() : "";
+    if (!ref || !ref.startsWith(normalizedPrefix)) continue;
+    const candidate = normalizeSha256OrNull(ref.slice(normalizedPrefix.length));
+    if (candidate) values.add(candidate);
+  }
+  return Array.from(values).sort((left, right) => left.localeCompare(right));
+}
+
 function pushIssue(target, { code, message, detail = null }) {
   target.push(
     normalizeForCanonicalJson(
@@ -450,6 +464,32 @@ function verifyReversalEvents({ receipt, checks, errors }) {
                 actual: recordedPayloadHash
               }
             });
+          }
+          const commandTargetRequestSha256 = normalizeSha256OrNull(command?.target?.requestSha256);
+          if (commandTargetRequestSha256) {
+            const evidenceRequestSha256Values = parseEvidenceRefSha256Set(event.evidenceRefs, "http:request_sha256:");
+            if (!evidenceRequestSha256Values.length) {
+              ok = false;
+              pushIssue(errors, {
+                code: "reversal_event_request_hash_evidence_missing",
+                message: "reversal event request-hash evidence is required when command target includes requestSha256",
+                detail: { eventId, expected: commandTargetRequestSha256 }
+              });
+            } else if (evidenceRequestSha256Values.length > 1) {
+              ok = false;
+              pushIssue(errors, {
+                code: "reversal_event_request_hash_evidence_conflict",
+                message: "reversal event request-hash evidence contains conflicting sha256 values",
+                detail: { eventId, values: evidenceRequestSha256Values, expected: commandTargetRequestSha256 }
+              });
+            } else if (evidenceRequestSha256Values[0] !== commandTargetRequestSha256) {
+              ok = false;
+              pushIssue(errors, {
+                code: "reversal_event_request_hash_evidence_mismatch",
+                message: "reversal event request-hash evidence does not match command target requestSha256",
+                detail: { eventId, expected: commandTargetRequestSha256, actual: evidenceRequestSha256Values[0] }
+              });
+            }
           }
         }
       }

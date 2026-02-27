@@ -13,6 +13,7 @@ const REQUIRED_CHECK_IDS = Object.freeze([
   "openclaw_substrate_demo_lineage_verified",
   "openclaw_substrate_demo_transcript_verified",
   "session_stream_conformance_verified",
+  "settlement_dispute_arbitration_lifecycle_verified",
   "checkpoint_grant_binding_verified",
   "work_order_metering_durability_verified",
   "sdk_acs_smoke_js_verified",

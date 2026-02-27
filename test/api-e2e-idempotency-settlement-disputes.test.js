@@ -660,6 +660,25 @@ test("API e2e: settlement resolve request-hash binding evidence is fail-closed",
   assert.equal(mismatchEvidence.json?.details?.expectedRequestSha256, expectedRequestSha256);
   assert.equal(mismatchEvidence.json?.details?.requestSha256, mismatchedRequestSha256);
 
+  const conflictEvidence = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "idmp_resolve_binding_conflict_1" },
+    body: {
+      status: "released",
+      releaseRatePct: 100,
+      resolvedByAgentId: run.operatorAgentId,
+      reason: "conflicting request hash evidence",
+      evidenceRefs: [`http:request_sha256:${expectedRequestSha256}`, `http:request_sha256:${mismatchedRequestSha256}`]
+    }
+  });
+  assert.equal(conflictEvidence.statusCode, 409, conflictEvidence.body);
+  assert.equal(conflictEvidence.json?.error, "request-hash evidence conflict for settlement binding");
+  assert.equal(conflictEvidence.json?.code, "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH");
+  assert.equal(conflictEvidence.json?.details?.operation, "run_settlement.resolve");
+  assert.equal(conflictEvidence.json?.details?.runId, run.runId);
+  assert.deepEqual(conflictEvidence.json?.details?.requestSha256Values, [expectedRequestSha256, mismatchedRequestSha256]);
+
   const settlementAfterFailures = api.store.agentRunSettlements.get(settlementStoreKey);
   assert.equal(settlementAfterFailures?.status, "locked");
 });

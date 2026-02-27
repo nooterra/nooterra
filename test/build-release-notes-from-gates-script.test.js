@@ -63,6 +63,7 @@ test("build release notes: writes markdown with collaboration, lineage, transcri
       { id: "openclaw_substrate_demo_lineage_verified", ok: false, status: "failed" },
       { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
       { id: "session_stream_conformance_verified", ok: true, status: "passed" },
+      { id: "settlement_dispute_arbitration_lifecycle_verified", ok: true, status: "passed" },
       { id: "checkpoint_grant_binding_verified", ok: true, status: "passed" },
       { id: "work_order_metering_durability_verified", ok: true, status: "passed" },
       { id: "sdk_acs_smoke_js_verified", ok: true, status: "passed" },
@@ -86,6 +87,7 @@ test("build release notes: writes markdown with collaboration, lineage, transcri
   assert.equal(report.summary.lineageCheckOk, false);
   assert.equal(report.summary.transcriptCheckOk, true);
   assert.equal(report.summary.sessionStreamConformanceCheckOk, true);
+  assert.equal(report.summary.settlementDisputeArbitrationLifecycleCheckOk, true);
   assert.equal(report.summary.checkpointGrantBindingCheckOk, true);
   assert.equal(report.summary.workOrderMeteringDurabilityCheckOk, true);
   assert.equal(report.summary.sdkJsSmokeCheckOk, true);
@@ -100,6 +102,7 @@ test("build release notes: writes markdown with collaboration, lineage, transcri
   assert.match(markdown, /openclaw_substrate_demo_lineage_verified: \*\*fail\*\*/);
   assert.match(markdown, /openclaw_substrate_demo_transcript_verified: \*\*pass\*\*/);
   assert.match(markdown, /session_stream_conformance_verified: \*\*pass\*\*/);
+  assert.match(markdown, /settlement_dispute_arbitration_lifecycle_verified: \*\*pass\*\*/);
   assert.match(markdown, /checkpoint_grant_binding_verified: \*\*pass\*\*/);
   assert.match(markdown, /work_order_metering_durability_verified: \*\*pass\*\*/);
   assert.match(markdown, /sdk_acs_smoke_js_verified: \*\*pass\*\*/);

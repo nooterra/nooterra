@@ -23,6 +23,7 @@ function buildReversalEvent({
   providerDecision = null,
   providerDecisionArtifact = null,
   providerDecisionVerification = null,
+  evidenceRefs = null,
   prevEventHash = null
 }) {
   const event = normalizeForCanonicalJson(
@@ -36,6 +37,7 @@ function buildReversalEvent({
       eventType,
       occurredAt,
       ...(providerDecision ? { providerDecision } : {}),
+      ...(Array.isArray(evidenceRefs) ? { evidenceRefs } : {}),
       ...(command ? { command } : {}),
       ...(commandVerification ? { commandVerification } : {}),
       ...(providerDecisionArtifact ? { providerDecisionArtifact } : {}),
@@ -194,6 +196,7 @@ test("x402 receipt verifier: valid reversal event chain passes", () => {
     action: "request_refund",
     eventType: "refund_requested",
     occurredAt: "2026-02-18T00:01:00.000Z",
+    evidenceRefs: [`http:request_sha256:${requestSha256}`],
     command: requestedCommand.command,
     commandVerification: requestedCommand.commandVerification
   });
@@ -204,6 +207,7 @@ test("x402 receipt verifier: valid reversal event chain passes", () => {
     action: "resolve_refund",
     eventType: "refund_resolved",
     occurredAt: "2026-02-18T00:02:00.000Z",
+    evidenceRefs: [`http:request_sha256:${requestSha256}`],
     command: resolvedCommand.command,
     commandVerification: resolvedCommand.commandVerification,
     providerDecision: "accepted",
@@ -237,6 +241,38 @@ test("x402 receipt verifier: tampered reversal event hash fails", () => {
   const report = verifyX402ReceiptRecord({ receipt, strict: false });
   assert.equal(report.ok, false);
   assert.ok(report.errors.some((row) => row.code === "reversal_event_hash_mismatch"));
+});
+
+test("x402 receipt verifier: reversal event request-hash evidence must match command target", () => {
+  const receipt = buildX402ReceiptVerifierVector();
+  const { command, commandVerification } = buildSignedCommandArtifact({
+    keypair: createEd25519Keypair(),
+    gateId: receipt.gateId,
+    receiptId: receipt.receiptId,
+    quoteId: receipt.bindings.quote.quoteId,
+    requestSha256: receipt.bindings.request.sha256,
+    action: "request_refund",
+    commandId: "cmd_req_binding_1",
+    nonce: "nonce_req_binding_1",
+    idempotencyKey: "idem_req_binding_1"
+  });
+  receipt.reversalEvents = [
+    buildReversalEvent({
+      eventId: "x402rev_binding_1",
+      gateId: receipt.gateId,
+      receiptId: receipt.receiptId,
+      action: "request_refund",
+      eventType: "refund_requested",
+      occurredAt: "2026-02-18T00:01:00.000Z",
+      command,
+      commandVerification,
+      evidenceRefs: [`http:request_sha256:${"9".repeat(64)}`]
+    })
+  ];
+
+  const report = verifyX402ReceiptRecord({ receipt, strict: false });
+  assert.equal(report.ok, false);
+  assert.ok(report.errors.some((row) => row.code === "reversal_event_request_hash_evidence_mismatch"));
 });
 
 test("x402 receipt verifier: golden vector manifest", async () => {
