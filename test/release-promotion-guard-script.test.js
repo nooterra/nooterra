@@ -25,6 +25,7 @@ async function writeRequiredArtifacts(
     includeProductionSettlementDisputeArbitrationLifecycleCheck = true,
     includeProductionCheckpointGrantBindingCheck = true,
     includeProductionWorkOrderMeteringDurabilityCheck = true,
+    includeProductionNs3EvidenceBindingCoverageCheck = true,
     includeProductionSdkJsSmokeCheck = true,
     includeProductionSdkPySmokeCheck = true,
     includeProductionSdkPythonContractFreezeCheck = true
@@ -89,6 +90,12 @@ async function writeRequiredArtifacts(
       status: productionGateOk ? "passed" : "failed"
     });
   }
+  if (includeProductionNs3EvidenceBindingCoverageCheck) {
+    productionChecks.push({
+      id: "ns3_evidence_binding_coverage_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
   if (includeProductionSdkJsSmokeCheck) {
     productionChecks.push({
       id: "sdk_acs_smoke_js_verified",
@@ -119,6 +126,7 @@ async function writeRequiredArtifacts(
     "settlement_dispute_arbitration_lifecycle_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
+    "ns3_evidence_binding_coverage_verified",
     "sdk_acs_smoke_js_verified",
     "sdk_acs_smoke_py_verified",
     "sdk_python_contract_freeze_verified"
@@ -155,6 +163,8 @@ async function writeRequiredArtifacts(
                       ? "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
                       : id === "work_order_metering_durability_verified"
                         ? "pg_work_order_metering_durability"
+                        : id === "ns3_evidence_binding_coverage_verified"
+                          ? "ns3_evidence_binding_coverage_verified"
                         : id === "sdk_acs_smoke_js_verified"
                           ? "e2e_js_sdk_acs_substrate_smoke"
                           : id === "sdk_acs_smoke_py_verified"
@@ -491,6 +501,38 @@ test("release promotion guard: fails closed when production cutover report misse
   assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_sdk_js_smoke_check_missing"), true);
 });
 
+test("release promotion guard: fails closed when production cutover report misses required NS3 evidence binding coverage check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-guard-prodns3bindingcoverage-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: true,
+    includeProductionNs3EvidenceBindingCoverageCheck: false
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(
+    launchPacketArtifact.failureCodes.includes("production_gate_ns3_evidence_binding_coverage_check_missing"),
+    true
+  );
+});
+
 test("release promotion guard: fails closed when production cutover report misses required sdk py smoke check", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-guard-prodsdkpy-"));
   t.after(async () => {
@@ -603,8 +645,8 @@ test("release promotion guard: fails closed when launch packet required cutover 
       : row
   );
   launchPacket.requiredCutoverChecks.summary = {
-    requiredChecks: 10,
-    passedChecks: 9,
+    requiredChecks: 11,
+    passedChecks: 10,
     failedChecks: 1
   };
   await fs.writeFile(launchPacketPath, JSON.stringify(launchPacket, null, 2) + "\n", "utf8");
@@ -619,6 +661,60 @@ test("release promotion guard: fails closed when launch packet required cutover 
   assert.ok(launchPacketArtifact);
   assert.equal(launchPacketArtifact.status, "failed");
   assert.equal(launchPacketArtifact.failureCodes.includes("launch_packet_required_cutover_check_status_mismatch"), true);
+});
+
+test("release promotion guard: fails closed when required NS3 evidence binding coverage check is not passed", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-guard-prodns3bindingcoverage-status-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: true,
+    includeProductionNs3EvidenceBindingCoverageCheck: true
+  });
+
+  const productionGatePath = path.join(tmpRoot, "artifacts/gates/production-cutover-gate.json");
+  const launchPacketPath = path.join(tmpRoot, "artifacts/gates/s13-launch-cutover-packet.json");
+
+  const productionGate = JSON.parse(await fs.readFile(productionGatePath, "utf8"));
+  productionGate.checks = productionGate.checks.map((row) =>
+    row.id === "ns3_evidence_binding_coverage_verified" ? { ...row, status: "failed" } : row
+  );
+  productionGate.verdict = {
+    ok: false,
+    requiredChecks: productionGate.checks.length,
+    passedChecks: productionGate.checks.filter((row) => row.status === "passed").length
+  };
+  await fs.writeFile(productionGatePath, JSON.stringify(productionGate, null, 2) + "\n", "utf8");
+
+  const launchPacket = JSON.parse(await fs.readFile(launchPacketPath, "utf8"));
+  launchPacket.requiredCutoverChecks.checks = launchPacket.requiredCutoverChecks.checks.map((row) =>
+    row.id === "ns3_evidence_binding_coverage_verified" ? { ...row, status: "failed", ok: false } : row
+  );
+  launchPacket.requiredCutoverChecks.summary = {
+    requiredChecks: 11,
+    passedChecks: 10,
+    failedChecks: 1
+  };
+  await fs.writeFile(launchPacketPath, JSON.stringify(launchPacket, null, 2) + "\n", "utf8");
+
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(
+    launchPacketArtifact.failureCodes.includes("production_gate_ns3_evidence_binding_coverage_check_not_passed"),
+    true
+  );
 });
 
 test("release promotion guard: accepts valid Ed25519 signed override for blocking artifacts", async (t) => {

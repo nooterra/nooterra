@@ -45,6 +45,10 @@ const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
     sourceCheckId: "pg_work_order_metering_durability"
   },
   {
+    requiredCheckId: "ns3_evidence_binding_coverage_verified",
+    sourceCheckId: "ns3_evidence_binding_coverage_verified"
+  },
+  {
     requiredCheckId: "sdk_acs_smoke_js_verified",
     sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
   },

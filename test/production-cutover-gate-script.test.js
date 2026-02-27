@@ -3,6 +3,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  evaluateNs3EvidenceBindingCoverageCheck,
   evaluateGateVerdict,
   evaluateCheckpointGrantBindingCheck,
   evaluateOpenclawSubstrateDemoLineageCheck,
@@ -318,6 +319,52 @@ test("production cutover gate: derives PG work order metering durability check a
   assert.equal(evaluated.status, "passed");
   assert.equal(evaluated.exitCode, 0);
   assert.equal(evaluated.details?.sourceCheckId, "pg_work_order_metering_durability");
+});
+
+test("production cutover gate: derives NS3 evidence-binding coverage check as pass from coverage report verdict", () => {
+  const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
+    {
+      schemaVersion: "NooterraNs3EvidenceBindingCoverageMatrixReport.v1",
+      verdict: {
+        ok: true,
+        status: "pass"
+      }
+    },
+    "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.failureCode, null);
+  assert.equal(evaluated.details?.reportSchemaVersion, "NooterraNs3EvidenceBindingCoverageMatrixReport.v1");
+  assert.equal(evaluated.details?.verdictOk, true);
+});
+
+test("production cutover gate: derives NS3 evidence-binding coverage check fail-closed when report verdict is not ok", () => {
+  const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
+    {
+      schemaVersion: "NooterraNs3EvidenceBindingCoverageMatrixReport.v1",
+      verdict: {
+        ok: false,
+        status: "fail"
+      }
+    },
+    "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "ns3_coverage_report_not_ok");
+});
+
+test("production cutover gate: derives NS3 evidence-binding coverage check fail-closed when report shape is invalid", () => {
+  const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
+    {
+      schemaVersion: "NooterraNs3EvidenceBindingCoverageMatrixReport.v1"
+    },
+    "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "ns3_coverage_report_invalid_shape");
 });
 
 test("production cutover gate: derives PG work order metering durability check fail-closed when source check is missing", () => {

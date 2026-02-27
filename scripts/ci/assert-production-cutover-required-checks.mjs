@@ -13,6 +13,7 @@ const DEFAULT_REQUIRED_CHECK_IDS = Object.freeze([
   "settlement_dispute_arbitration_lifecycle_verified",
   "checkpoint_grant_binding_verified",
   "work_order_metering_durability_verified",
+  "ns3_evidence_binding_coverage_verified",
   "sdk_acs_smoke_js_verified",
   "sdk_acs_smoke_py_verified",
   "sdk_python_contract_freeze_verified"
@@ -30,7 +31,7 @@ function usage() {
     "options:",
     "  --in <file>                  Production cutover gate report path (default: artifacts/gates/production-cutover-gate.json)",
     "  --json-out <file>            Optional JSON report output path",
-    "  --required-check <id>        Required check id (repeatable; defaults to collaboration + lineage + transcript + session stream conformance + settlement/dispute lifecycle + checkpoint grant binding + work order metering durability + SDK JS/PY smoke + Python contract freeze)",
+    "  --required-check <id>        Required check id (repeatable; defaults to collaboration + lineage + transcript + session stream conformance + settlement/dispute lifecycle + checkpoint grant binding + work order metering durability + NS3 evidence binding coverage + SDK JS/PY smoke + Python contract freeze)",
     "  --help                       Show help"
   ].join("\n");
 }

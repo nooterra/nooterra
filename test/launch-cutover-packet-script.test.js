@@ -56,7 +56,7 @@ async function seedPassingInputs(tmpDir) {
     schemaVersion: "NooterraVerifiedGateReport.v1",
     level: "collaboration",
     ok: true,
-    summary: { totalChecks: 13, passedChecks: 13, failedChecks: 0 },
+    summary: { totalChecks: 14, passedChecks: 14, failedChecks: 0 },
     checks: [
       { id: "openclaw_substrate_demo_lineage_verified", ok: true, status: "passed" },
       { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
@@ -64,6 +64,7 @@ async function seedPassingInputs(tmpDir) {
       { id: "e2e_settlement_dispute_arbitration_lifecycle_enforcement", ok: true, status: "passed" },
       { id: "ops_agent_substrate_fast_loop_checkpoint_grant_binding", ok: true, status: "passed" },
       { id: "pg_work_order_metering_durability", ok: true, status: "passed" },
+      { id: "ns3_evidence_binding_coverage_verified", ok: true, status: "passed" },
       { id: "e2e_js_sdk_acs_substrate_smoke", ok: true, status: "passed" },
       { id: "e2e_python_sdk_acs_substrate_smoke", ok: true, status: "passed" },
       { id: "e2e_python_sdk_contract_freeze", ok: true, status: "passed" }
@@ -198,8 +199,8 @@ test("launch cutover packet: includes required cutover check summary with determ
   const summary = packet.requiredCutoverChecks;
   assert.equal(summary?.schemaVersion, "ProductionCutoverRequiredChecksSummary.v1");
   assert.equal(summary?.sourceReportPath, paths.nooterraVerifiedCollabReportPath);
-  assert.equal(summary?.summary?.requiredChecks, 10);
-  assert.equal(summary?.summary?.passedChecks, 10);
+  assert.equal(summary?.summary?.requiredChecks, 11);
+  assert.equal(summary?.summary?.passedChecks, 11);
   assert.equal(summary?.summary?.failedChecks, 0);
 
   const ids = (summary?.checks ?? []).map((row) => row?.id);
@@ -211,6 +212,7 @@ test("launch cutover packet: includes required cutover check summary with determ
     "settlement_dispute_arbitration_lifecycle_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
+    "ns3_evidence_binding_coverage_verified",
     "sdk_acs_smoke_js_verified",
     "sdk_acs_smoke_py_verified",
     "sdk_python_contract_freeze_verified"
@@ -335,7 +337,12 @@ test("launch cutover packet: fail-closed when mapped required cutover source che
     : null;
   assert.ok(missingMappedCheck);
   assert.equal(missingMappedCheck.details?.failureCode, "source_check_missing");
-  assert.equal(packet.requiredCutoverChecks?.summary?.failedChecks, 5);
+  const missingNs3MappedCheck = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "required_cutover_check_ns3_evidence_binding_coverage_verified_passed")
+    : null;
+  assert.ok(missingNs3MappedCheck);
+  assert.equal(missingNs3MappedCheck.details?.failureCode, "source_check_missing");
+  assert.equal(packet.requiredCutoverChecks?.summary?.failedChecks, 6);
 });
 
 test("launch cutover packet: fail-closed when required source verdict is failed", async (t) => {

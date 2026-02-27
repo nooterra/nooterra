@@ -25,6 +25,7 @@ test("production cutover required checks parser: defaults and explicit checks", 
     "settlement_dispute_arbitration_lifecycle_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
+    "ns3_evidence_binding_coverage_verified",
     "sdk_acs_smoke_js_verified",
     "sdk_acs_smoke_py_verified",
     "sdk_python_contract_freeze_verified"
@@ -39,7 +40,7 @@ test("production cutover required checks parser: defaults and explicit checks", 
   assert.deepEqual(args.requiredCheckIds, ["check_a", "check_b"]);
 });
 
-test("production cutover required checks: passes when collaboration, lineage, transcript, session stream conformance, settlement/dispute lifecycle, checkpoint binding, metering durability, sdk smokes, and Python contract freeze are present and passed", async (t) => {
+test("production cutover required checks: passes when collaboration, lineage, transcript, session stream conformance, settlement/dispute lifecycle, checkpoint binding, metering durability, ns3 evidence coverage, sdk smokes, and Python contract freeze are present and passed", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-prod-required-checks-pass-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
@@ -58,6 +59,7 @@ test("production cutover required checks: passes when collaboration, lineage, tr
       { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
       { id: "checkpoint_grant_binding_verified", status: "passed" },
       { id: "work_order_metering_durability_verified", status: "passed" },
+      { id: "ns3_evidence_binding_coverage_verified", status: "passed" },
       { id: "sdk_acs_smoke_js_verified", status: "passed" },
       { id: "sdk_acs_smoke_py_verified", status: "passed" },
       { id: "sdk_python_contract_freeze_verified", status: "passed" }
@@ -75,14 +77,15 @@ test("production cutover required checks: passes when collaboration, lineage, tr
       "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
+      "ns3_evidence_binding_coverage_verified",
       "sdk_acs_smoke_js_verified",
       "sdk_acs_smoke_py_verified",
       "sdk_python_contract_freeze_verified"
     ]
   });
   assert.equal(report.ok, true);
-  assert.equal(report.summary.requiredChecks, 10);
-  assert.equal(report.summary.passedChecks, 10);
+  assert.equal(report.summary.requiredChecks, 11);
+  assert.equal(report.summary.passedChecks, 11);
   assert.equal(report.summary.failedChecks, 0);
   assert.equal(report.gateChecks.length, 1);
   assert.equal(report.gateChecks[0].id, "acs_critical_path_checks_present");
@@ -94,7 +97,7 @@ test("production cutover required checks: passes when collaboration, lineage, tr
   assert.equal(written.ok, true);
 });
 
-test("production cutover required checks: fails closed when lineage check is missing", async (t) => {
+test("production cutover required checks: fails closed when ns3 evidence binding coverage check is missing", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-prod-required-checks-missing-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
@@ -118,16 +121,17 @@ test("production cutover required checks: fails closed when lineage check is mis
       "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
+      "ns3_evidence_binding_coverage_verified",
       "sdk_acs_smoke_js_verified",
       "sdk_acs_smoke_py_verified",
       "sdk_python_contract_freeze_verified"
     ]
   });
   assert.equal(report.ok, false);
-  const lineage = report.checks.find((row) => row.id === "openclaw_substrate_demo_lineage_verified");
-  assert.ok(lineage);
-  assert.equal(lineage.present, false);
-  assert.equal(lineage.failureCode, "required_check_missing");
+  const ns3Coverage = report.checks.find((row) => row.id === "ns3_evidence_binding_coverage_verified");
+  assert.ok(ns3Coverage);
+  assert.equal(ns3Coverage.present, false);
+  assert.equal(ns3Coverage.failureCode, "required_check_missing");
   assert.equal(report.gateChecks[0].id, "acs_critical_path_checks_present");
   assert.equal(report.gateChecks[0].ok, false);
   assert.equal(report.gateChecks[0].failureCode, "acs_critical_path_check_missing");
@@ -154,6 +158,7 @@ test("production cutover required checks: fails closed when required ACS critica
       { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
       { id: "checkpoint_grant_binding_verified", status: "passed" },
       { id: "work_order_metering_durability_verified", status: "passed" },
+      { id: "ns3_evidence_binding_coverage_verified", status: "passed" },
       { id: "sdk_acs_smoke_js_verified", status: "passed" },
       { id: "sdk_python_contract_freeze_verified", status: "passed" }
     ]
@@ -170,6 +175,7 @@ test("production cutover required checks: fails closed when required ACS critica
       "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
+      "ns3_evidence_binding_coverage_verified",
       "sdk_acs_smoke_js_verified",
       "sdk_acs_smoke_py_verified",
       "sdk_python_contract_freeze_verified"
@@ -203,6 +209,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
       { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
       { id: "checkpoint_grant_binding_verified", status: "passed" },
       { id: "work_order_metering_durability_verified", status: "passed" },
+      { id: "ns3_evidence_binding_coverage_verified", status: "passed" },
       { id: "sdk_acs_smoke_js_verified", status: "passed" },
       { id: "sdk_acs_smoke_py_verified", status: "passed" },
       { id: "sdk_python_contract_freeze_verified", status: "passed" }
@@ -227,6 +234,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
       "settlement_dispute_arbitration_lifecycle_verified",
       "checkpoint_grant_binding_verified",
       "work_order_metering_durability_verified",
+      "ns3_evidence_binding_coverage_verified",
       "sdk_acs_smoke_js_verified",
       "sdk_acs_smoke_py_verified",
       "sdk_python_contract_freeze_verified"
@@ -242,6 +250,7 @@ test("production cutover required checks: appends markdown summary when GITHUB_S
   assert.match(markdown, /settlement_dispute_arbitration_lifecycle_verified/);
   assert.match(markdown, /checkpoint_grant_binding_verified/);
   assert.match(markdown, /work_order_metering_durability_verified/);
+  assert.match(markdown, /ns3_evidence_binding_coverage_verified/);
   assert.match(markdown, /sdk_acs_smoke_js_verified/);
   assert.match(markdown, /sdk_acs_smoke_py_verified/);
   assert.match(markdown, /sdk_python_contract_freeze_verified/);

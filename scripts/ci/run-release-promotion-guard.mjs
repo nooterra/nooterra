@@ -23,6 +23,7 @@ const PRODUCTION_SESSION_STREAM_CONFORMANCE_CHECK_ID = "session_stream_conforman
 const PRODUCTION_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_CHECK_ID = "settlement_dispute_arbitration_lifecycle_verified";
 const PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID = "checkpoint_grant_binding_verified";
 const PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID = "work_order_metering_durability_verified";
+const PRODUCTION_NS3_EVIDENCE_BINDING_COVERAGE_CHECK_ID = "ns3_evidence_binding_coverage_verified";
 const PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID = "sdk_acs_smoke_js_verified";
 const PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID = "sdk_acs_smoke_py_verified";
 const PRODUCTION_SDK_PYTHON_CONTRACT_FREEZE_CHECK_ID = "sdk_python_contract_freeze_verified";
@@ -35,6 +36,7 @@ const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
   PRODUCTION_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_CHECK_ID,
   PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID,
   PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID,
+  PRODUCTION_NS3_EVIDENCE_BINDING_COVERAGE_CHECK_ID,
   PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID,
   PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID,
   PRODUCTION_SDK_PYTHON_CONTRACT_FREEZE_CHECK_ID
@@ -770,6 +772,24 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production cutover gate work order metering durability verification check is not passed"
         );
         result.failureCodes.push("production_gate_work_order_metering_durability_check_not_passed");
+      }
+
+      const ns3EvidenceBindingCoverageCheck =
+        checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_NS3_EVIDENCE_BINDING_COVERAGE_CHECK_ID) ?? null;
+      if (!ns3EvidenceBindingCoverageCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_ns3_evidence_binding_coverage_check_missing",
+          "production cutover gate missing NS3 evidence binding coverage verification check"
+        );
+        result.failureCodes.push("production_gate_ns3_evidence_binding_coverage_check_missing");
+      } else if (normalizeOptionalString(ns3EvidenceBindingCoverageCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_ns3_evidence_binding_coverage_check_not_passed",
+          "production cutover gate NS3 evidence binding coverage verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_ns3_evidence_binding_coverage_check_not_passed");
       }
 
       const sdkJsCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID) ?? null;

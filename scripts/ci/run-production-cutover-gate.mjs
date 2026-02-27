@@ -12,6 +12,7 @@ const DEFAULT_MCP_HOST_SMOKE_REPORT_PATH = "artifacts/ops/mcp-host-smoke.json";
 const DEFAULT_MCP_HOST_CERT_MATRIX_REPORT_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_X402_HITL_SMOKE_REPORT_PATH = "artifacts/ops/x402-hitl-smoke.json";
 const DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/nooterra-verified-collaboration-gate.json";
+const DEFAULT_NS3_EVIDENCE_BINDING_COVERAGE_REPORT_PATH = "artifacts/gates/ns3-evidence-binding-coverage-matrix.json";
 const OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
 const SESSION_STREAM_CONFORMANCE_VERIFIED_CHECK_ID = "session_stream_conformance_verified";
@@ -21,6 +22,8 @@ const SDK_ACS_SMOKE_PY_VERIFIED_CHECK_ID = "sdk_acs_smoke_py_verified";
 const SDK_PYTHON_CONTRACT_FREEZE_VERIFIED_CHECK_ID = "sdk_python_contract_freeze_verified";
 const CHECKPOINT_GRANT_BINDING_VERIFIED_CHECK_ID = "checkpoint_grant_binding_verified";
 const WORK_ORDER_METERING_DURABILITY_VERIFIED_CHECK_ID = "work_order_metering_durability_verified";
+const NS3_EVIDENCE_BINDING_COVERAGE_VERIFIED_CHECK_ID = "ns3_evidence_binding_coverage_verified";
+const NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION = "NooterraNs3EvidenceBindingCoverageMatrixReport.v1";
 const NOOTERRA_VERIFIED_SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID = "e2e_session_stream_conformance_v1";
 const NOOTERRA_VERIFIED_SETTLEMENT_DISPUTE_ARBITRATION_LIFECYCLE_SOURCE_CHECK_ID = "e2e_settlement_dispute_arbitration_lifecycle_enforcement";
 const NOOTERRA_VERIFIED_SDK_ACS_SMOKE_JS_SOURCE_CHECK_ID = "e2e_js_sdk_acs_substrate_smoke";
@@ -50,6 +53,12 @@ function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 function toExitCode(code, signal) {
@@ -385,6 +394,74 @@ export function evaluateWorkOrderMeteringDurabilityCheck(nooterraVerifiedReport,
   });
 }
 
+export function evaluateNs3EvidenceBindingCoverageCheck(ns3CoverageReport, reportPath) {
+  if (!isPlainObject(ns3CoverageReport)) {
+    return {
+      status: "failed",
+      exitCode: 1,
+      failureCode: "ns3_coverage_report_invalid_shape",
+      details: {
+        message: `ns3 coverage report must be a JSON object in ${reportPath}`
+      }
+    };
+  }
+
+  const schemaVersion = normalizeOptionalString(ns3CoverageReport.schemaVersion);
+  if (!schemaVersion || schemaVersion !== NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION) {
+    return {
+      status: "failed",
+      exitCode: 1,
+      failureCode: "ns3_coverage_report_schema_invalid",
+      details: {
+        expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
+        actualSchemaVersion: schemaVersion,
+        message: `ns3 coverage report schemaVersion must be ${NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION}`
+      }
+    };
+  }
+
+  const verdict = ns3CoverageReport.verdict;
+  if (!isPlainObject(verdict) || typeof verdict.ok !== "boolean") {
+    return {
+      status: "failed",
+      exitCode: 1,
+      failureCode: "ns3_coverage_report_invalid_shape",
+      details: {
+        expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
+        reportSchemaVersion: schemaVersion,
+        message: "ns3 coverage report verdict.ok must be a boolean"
+      }
+    };
+  }
+
+  if (verdict.ok !== true) {
+    return {
+      status: "failed",
+      exitCode: 1,
+      failureCode: "ns3_coverage_report_not_ok",
+      details: {
+        expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
+        reportSchemaVersion: schemaVersion,
+        verdictOk: verdict.ok,
+        verdictStatus: normalizeOptionalString(verdict.status),
+        message: "ns3 coverage report verdict.ok must be true"
+      }
+    };
+  }
+
+  return {
+    status: "passed",
+    exitCode: 0,
+    failureCode: null,
+    details: {
+      expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
+      reportSchemaVersion: schemaVersion,
+      verdictOk: true,
+      verdictStatus: normalizeOptionalString(verdict.status)
+    }
+  };
+}
+
 async function runOpenclawSubstrateDemoLineageCheck({ reportPath }) {
   const startedAt = Date.now();
   const row = {
@@ -628,6 +705,44 @@ async function runWorkOrderMeteringDurabilityCheck({ reportPath }) {
   return row;
 }
 
+async function runNs3EvidenceBindingCoverageCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: NS3_EVIDENCE_BINDING_COVERAGE_VERIFIED_CHECK_ID,
+    label: "NS3 evidence-binding coverage verification",
+    status: "failed",
+    exitCode: 1,
+    failureCode: "ns3_coverage_report_missing",
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "ns3_evidence_binding_coverage", "verdict.ok"]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      row.failureCode = "ns3_coverage_report_invalid_json";
+      row.error = err?.message ?? String(err);
+      row.durationMs = Date.now() - startedAt;
+      return row;
+    }
+    const evaluated = evaluateNs3EvidenceBindingCoverageCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.failureCode = evaluated.failureCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.failureCode = err?.code === "ENOENT" ? "ns3_coverage_report_missing" : "ns3_coverage_report_unreadable";
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
 export function evaluateGateVerdict(checks) {
   const rows = Array.isArray(checks) ? checks : [];
   const passedChecks = rows.filter((row) => row?.status === "passed").length;
@@ -793,6 +908,10 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     cwd,
     normalizeOptionalString(env.NOOTERRA_VERIFIED_COLLAB_REPORT_PATH) ?? DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH
   );
+  const ns3EvidenceBindingCoverageReportPath = path.resolve(
+    cwd,
+    normalizeOptionalString(env.NS3_EVIDENCE_BINDING_COVERAGE_REPORT_PATH) ?? DEFAULT_NS3_EVIDENCE_BINDING_COVERAGE_REPORT_PATH
+  );
 
   const checks = [];
 
@@ -819,6 +938,7 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     checks.push(await runSdkPythonContractFreezeCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runCheckpointGrantBindingCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runWorkOrderMeteringDurabilityCheck({ reportPath: nooterraVerifiedCollabReportPath }));
+    checks.push(await runNs3EvidenceBindingCoverageCheck({ reportPath: ns3EvidenceBindingCoverageReportPath }));
 
     checks.push(
       await runCheck({
@@ -872,6 +992,7 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     checks.push(await runSdkPythonContractFreezeCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runCheckpointGrantBindingCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runWorkOrderMeteringDurabilityCheck({ reportPath: nooterraVerifiedCollabReportPath }));
+    checks.push(await runNs3EvidenceBindingCoverageCheck({ reportPath: ns3EvidenceBindingCoverageReportPath }));
 
     checks.push(
       await runCheck({
