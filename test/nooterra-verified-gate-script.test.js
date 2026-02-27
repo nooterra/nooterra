@@ -223,7 +223,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
     { runCheckFn, bootstrapFn }
   );
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 34);
+  assert.equal(report.summary.totalChecks, 35);
   assert.equal(seenIds.includes("e2e_agent_card_stream_lifecycle"), true);
   assert.equal(seenIds.includes("e2e_trace_id_propagation"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation_lifecycle_enforcement"), true);
@@ -241,6 +241,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
   assert.equal(seenIds.includes("e2e_state_checkpoint_routes"), true);
   assert.equal(seenIds.includes("sdk_state_checkpoint_wrappers"), true);
   assert.equal(seenIds.includes("core_state_checkpoint_normalization"), true);
+  assert.equal(seenIds.includes("ns3_evidence_binding_coverage_verified"), true);
   assert.equal(seenIds.includes("ops_agent_substrate_fast_loop_checkpoint_grant_binding"), true);
   assert.equal(seenIds.includes("sdk_js_acs_substrate_contract"), true);
   assert.equal(seenIds.includes("sdk_quickstart_docs_contract"), true);
@@ -252,6 +253,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
   assert.equal(seenIds.includes("e2e_openclaw_substrate_demo"), true);
   assert.equal(seenIds.includes("e2e_authority_grant_required"), true);
   const reportIds = report.checks.map((row) => row.id);
+  assert.equal(reportIds.includes("ns3_evidence_binding_coverage_verified"), true);
   assert.equal(reportIds.includes("openclaw_substrate_demo_lineage_verified"), true);
   assert.equal(reportIds.includes("openclaw_substrate_demo_transcript_verified"), true);
 });

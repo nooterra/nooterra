@@ -397,6 +397,11 @@ function checksForLevel(level, { includePg = false } = {}) {
     { id: "sdk_state_checkpoint_wrappers", command: "node", args: ["--test", "test/api-sdk-state-checkpoints.test.js"] },
     { id: "core_state_checkpoint_normalization", command: "node", args: ["--test", "test/state-checkpoint.test.js"] },
     {
+      id: "ns3_evidence_binding_coverage_verified",
+      command: "npm",
+      args: ["run", "-s", "test:ci:ns3-evidence-binding-coverage-matrix"]
+    },
+    {
       id: "ops_agent_substrate_fast_loop_checkpoint_grant_binding",
       command: "npm",
       args: ["run", "-s", "test:ops:agent-substrate-fast-loop"]
