@@ -89,7 +89,17 @@ jobs:
       - run: npm ci
       - name: Assert repo/tool version consistency
         run: node scripts/ci/check-version-consistency.mjs
-      - name: Run unit tests (includes PG-backed tests)
+      - name: Run PR fast unit gate
+        if: github.event_name == 'pull_request'
+        run: >
+          node --test
+          test/nooterra-cli-setup.test.js
+          test/nooterra-cli-doctor.test.js
+          test/scaffold-create-nooterra-paid-tool.test.js
+          test/verify-cli-json.test.js
+          test/verify-cli-determinism.test.js
+      - name: Run full unit tests (includes PG-backed tests)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: npm test
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
