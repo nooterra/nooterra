@@ -5043,10 +5043,44 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const FederationInvokeServiceUnavailableKnownErrorCodes = Object.freeze(["FEDERATION_NOT_CONFIGURED"]);
+  const FederationInvokeBadRequestKnownErrorCodes = Object.freeze([
+    "FEDERATION_ENVELOPE_INVALID",
+    "FEDERATION_ENVELOPE_INVALID_JSON",
+    "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+    "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+    "FEDERATION_INVOCATION_ID_REQUIRED",
+    "FEDERATION_ORIGIN_DID_INVALID",
+    "FEDERATION_TARGET_DID_INVALID",
+    "FEDERATION_CAPABILITY_ID_REQUIRED"
+  ]);
+  const FederationInvokeForbiddenKnownErrorCodes = Object.freeze(["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]);
+  const FederationInvokeConflictKnownErrorCodes = Object.freeze(["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]);
+  const FederationInvokeServiceUnavailableKnownErrorCodes = Object.freeze([
+    "FEDERATION_NOT_CONFIGURED",
+    "FEDERATION_IDENTITY_NOT_CONFIGURED",
+    "FEDERATION_TRUST_NOT_CONFIGURED",
+    "FEDERATION_NAMESPACE_ROUTE_MISSING"
+  ]);
   const FederationInvokeInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
   const FederationInvokeBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
-  const FederationResultServiceUnavailableKnownErrorCodes = Object.freeze(["FEDERATION_NOT_CONFIGURED"]);
+  const FederationResultBadRequestKnownErrorCodes = Object.freeze([
+    "FEDERATION_ENVELOPE_INVALID",
+    "FEDERATION_ENVELOPE_INVALID_JSON",
+    "FEDERATION_PROTOCOL_VERSION_MISMATCH",
+    "FEDERATION_ENVELOPE_TYPE_MISMATCH",
+    "FEDERATION_INVOCATION_ID_REQUIRED",
+    "FEDERATION_ORIGIN_DID_INVALID",
+    "FEDERATION_TARGET_DID_INVALID",
+    "FEDERATION_RESULT_STATUS_INVALID"
+  ]);
+  const FederationResultForbiddenKnownErrorCodes = Object.freeze(["FEDERATION_IDENTITY_MISMATCH", "FEDERATION_UNTRUSTED_COORDINATOR"]);
+  const FederationResultConflictKnownErrorCodes = Object.freeze(["FEDERATION_ENVELOPE_CONFLICT", "FEDERATION_ENVELOPE_IN_FLIGHT"]);
+  const FederationResultServiceUnavailableKnownErrorCodes = Object.freeze([
+    "FEDERATION_NOT_CONFIGURED",
+    "FEDERATION_IDENTITY_NOT_CONFIGURED",
+    "FEDERATION_TRUST_NOT_CONFIGURED",
+    "FEDERATION_NAMESPACE_ROUTE_MISSING"
+  ]);
   const FederationResultInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
   const FederationResultBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
 
@@ -9660,8 +9694,33 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: FederationInvokeResponse } } },
-            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            400: {
+              description: "Bad Request",
+              "x-nooterra-known-error-codes": [...FederationInvokeBadRequestKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeBadRequestKnownErrorCodes)
+                }
+              }
+            },
+            403: {
+              description: "Forbidden",
+              "x-nooterra-known-error-codes": [...FederationInvokeForbiddenKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeForbiddenKnownErrorCodes)
+                }
+              }
+            },
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...FederationInvokeConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeConflictKnownErrorCodes)
+                }
+              }
+            },
             500: {
               description: "Internal Server Error",
               "x-nooterra-known-error-codes": [...FederationInvokeInternalServerErrorKnownErrorCodes],
@@ -9708,7 +9767,33 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: FederationResultResponse } } },
-            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            400: {
+              description: "Bad Request",
+              "x-nooterra-known-error-codes": [...FederationResultBadRequestKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultBadRequestKnownErrorCodes)
+                }
+              }
+            },
+            403: {
+              description: "Forbidden",
+              "x-nooterra-known-error-codes": [...FederationResultForbiddenKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultForbiddenKnownErrorCodes)
+                }
+              }
+            },
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...FederationResultConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultConflictKnownErrorCodes)
+                }
+              }
+            },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             500: {
               description: "Internal Server Error",

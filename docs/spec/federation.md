@@ -102,12 +102,47 @@ Replay handling:
 - If the same identity key and same canonical envelope hash is received again, return deterministic duplicate replay (`x-federation-replay=duplicate`) without re-forwarding upstream.
 - If the same identity key is reused with a different canonical envelope hash, fail closed with `409 FEDERATION_ENVELOPE_CONFLICT`.
 
-Deterministic fail-closed reason codes (minimum):
+## Conformance runner
+
+Use the standalone conformance runner for federation vectors:
+- `node conformance/federation-v1/run.mjs`
+- `node conformance/federation-v1/run.mjs --list`
+- `node conformance/federation-v1/run.mjs --case <id>`
+- `node conformance/federation-v1/run.mjs --json-out <path>`
+
+Runner report schema versions:
+- `FederationConformanceRunReport.v1`
+- `FederationConformanceRunReportCore.v1`
+
+## Deterministic fail-closed reason codes (runtime surface)
+
+400:
+- `FEDERATION_ENVELOPE_INVALID`
+- `FEDERATION_ENVELOPE_INVALID_JSON`
+- `FEDERATION_PROTOCOL_VERSION_MISMATCH`
+- `FEDERATION_ENVELOPE_TYPE_MISMATCH`
+- `FEDERATION_INVOCATION_ID_REQUIRED`
+- `FEDERATION_ORIGIN_DID_INVALID`
+- `FEDERATION_TARGET_DID_INVALID`
+- `FEDERATION_CAPABILITY_ID_REQUIRED` (invoke)
+- `FEDERATION_RESULT_STATUS_INVALID` (result)
+
+403:
+- `FEDERATION_IDENTITY_MISMATCH`
+- `FEDERATION_UNTRUSTED_COORDINATOR`
+
+409:
+- `FEDERATION_ENVELOPE_CONFLICT`
+- `FEDERATION_ENVELOPE_IN_FLIGHT`
+
+500:
+- `FEDERATION_FETCH_UNAVAILABLE`
+
+502:
+- `FEDERATION_UPSTREAM_UNREACHABLE`
+
+503:
 - `FEDERATION_NOT_CONFIGURED`
 - `FEDERATION_IDENTITY_NOT_CONFIGURED`
 - `FEDERATION_TRUST_NOT_CONFIGURED`
-- `FEDERATION_UNTRUSTED_COORDINATOR`
 - `FEDERATION_NAMESPACE_ROUTE_MISSING`
-- `FEDERATION_PROTOCOL_VERSION_MISMATCH`
-- `FEDERATION_ENVELOPE_TYPE_MISMATCH`
-- `FEDERATION_ENVELOPE_CONFLICT`
