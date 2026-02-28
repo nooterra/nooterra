@@ -419,6 +419,87 @@ test("API e2e: /agent-cards/discover supports ToolDescriptor.v1 filters", async 
   assert.equal(filteredAction.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_1");
 });
 
+test("API e2e: /agent-cards/discover supports policy compatibility filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const compatibleAgentId = "agt_policy_filter_1";
+  const incompatibleAgentId = "agt_policy_filter_2";
+  const policyTemplate = "template://safe-travel.v1";
+  const evidencePack = "evidence://receipt-pack.v1";
+
+  await registerAgent(api, { agentId: compatibleAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: incompatibleAgentId, capabilities: ["travel.booking"] });
+
+  const compatibleUpsert = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_policy_filter_compatible_1" },
+    body: {
+      agentId: compatibleAgentId,
+      displayName: "Compatible Policy Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw" },
+      policyCompatibility: {
+        schemaVersion: "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates: [policyTemplate],
+        supportsEvidencePacks: [evidencePack]
+      }
+    }
+  });
+  assert.equal(compatibleUpsert.statusCode, 201, compatibleUpsert.body);
+  assert.equal(compatibleUpsert.json?.agentCard?.policyCompatibility?.schemaVersion, "AgentCardPolicyCompatibility.v1");
+
+  const incompatibleUpsert = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_policy_filter_incompatible_1" },
+    body: {
+      agentId: incompatibleAgentId,
+      displayName: "Incompatible Policy Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw" },
+      policyCompatibility: {
+        schemaVersion: "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates: ["template://legacy-travel.v1"],
+        supportsEvidencePacks: ["evidence://minimal-pack.v1"]
+      }
+    }
+  });
+  assert.equal(incompatibleUpsert.statusCode, 201, incompatibleUpsert.body);
+
+  const filteredByTemplate = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsPolicyTemplate=${encodeURIComponent(policyTemplate)}`
+  });
+  assert.equal(filteredByTemplate.statusCode, 200, filteredByTemplate.body);
+  assert.equal(filteredByTemplate.json?.results?.length, 1);
+  assert.equal(filteredByTemplate.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
+
+  const filteredByEvidencePack = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsEvidencePack=${encodeURIComponent(evidencePack)}`
+  });
+  assert.equal(filteredByEvidencePack.statusCode, 200, filteredByEvidencePack.body);
+  assert.equal(filteredByEvidencePack.json?.results?.length, 1);
+  assert.equal(filteredByEvidencePack.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
+
+  const filteredPublic = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsPolicyTemplate=${encodeURIComponent(policyTemplate)}` +
+      `&supportsEvidencePack=${encodeURIComponent(evidencePack)}`
+  });
+  assert.equal(filteredPublic.statusCode, 200, filteredPublic.body);
+  assert.equal(filteredPublic.json?.results?.length, 1);
+  assert.equal(filteredPublic.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
+});
+
 test("API e2e: /agent-cards/discover rejects invalid boolean tool filters", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   await registerAgent(api, { agentId: "agt_tool_desc_invalid_query_1", capabilities: ["travel.booking"] });

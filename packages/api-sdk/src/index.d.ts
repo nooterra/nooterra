@@ -1130,6 +1130,8 @@ export class NooterraClient {
       capability?: string;
       executionCoordinatorDid?: string;
       runtime?: string;
+      supportsPolicyTemplate?: string;
+      supportsEvidencePack?: string;
       toolId?: string;
       toolMcpName?: string;
       toolRiskClass?: "read" | "compute" | "action" | "financial";
@@ -1148,6 +1150,8 @@ export class NooterraClient {
       capability?: string;
       executionCoordinatorDid?: string;
       runtime?: string;
+      supportsPolicyTemplate?: string;
+      supportsEvidencePack?: string;
       toolId?: string;
       toolMcpName?: string;
       toolRiskClass?: "read" | "compute" | "action" | "financial";

@@ -12,6 +12,7 @@ export const AGENT_CARD_VISIBILITY = Object.freeze({
   PRIVATE: "private"
 });
 export const TOOL_DESCRIPTOR_SCHEMA_VERSION = "ToolDescriptor.v1";
+export const AGENT_CARD_POLICY_COMPATIBILITY_SCHEMA_VERSION = "AgentCardPolicyCompatibility.v1";
 export const TOOL_DESCRIPTOR_RISK_CLASS = Object.freeze({
   READ: "read",
   COMPUTE: "compute",
@@ -228,6 +229,25 @@ function normalizeToolDescriptors(value, name) {
   return out;
 }
 
+function normalizePolicyCompatibility(value, name) {
+  if (value === null || value === undefined) return null;
+  assertPlainObject(value, name);
+  const schemaVersion =
+    normalizeOptionalString(value.schemaVersion, `${name}.schemaVersion`, { max: 64 }) ??
+    AGENT_CARD_POLICY_COMPATIBILITY_SCHEMA_VERSION;
+  if (schemaVersion !== AGENT_CARD_POLICY_COMPATIBILITY_SCHEMA_VERSION) {
+    throw new TypeError(`${name}.schemaVersion must be ${AGENT_CARD_POLICY_COMPATIBILITY_SCHEMA_VERSION}`);
+  }
+  return normalizeForCanonicalJson(
+    {
+      schemaVersion,
+      supportsPolicyTemplates: normalizeStringArray(value.supportsPolicyTemplates ?? [], `${name}.supportsPolicyTemplates`, { max: 200 }),
+      supportsEvidencePacks: normalizeStringArray(value.supportsEvidencePacks ?? [], `${name}.supportsEvidencePacks`, { max: 200 })
+    },
+    { path: name }
+  );
+}
+
 export function buildNooterraAgentCard({
   baseUrl,
   version = null,
@@ -413,6 +433,10 @@ export function buildAgentCardV1({
     cardInput?.executionCoordinatorDid !== undefined
       ? normalizeOptionalDid(cardInput.executionCoordinatorDid, "cardInput.executionCoordinatorDid")
       : normalizeOptionalDid(previousCard?.executionCoordinatorDid, "previousCard.executionCoordinatorDid");
+  const policyCompatibility =
+    cardInput?.policyCompatibility !== undefined
+      ? normalizePolicyCompatibility(cardInput.policyCompatibility, "cardInput.policyCompatibility")
+      : normalizePolicyCompatibility(previousCard?.policyCompatibility, "previousCard.policyCompatibility");
 
   const createdAt =
     normalizeOptionalString(previousCard?.createdAt, "previousCard.createdAt", { max: 128 }) ?? resolvedNowAt;
@@ -431,6 +455,7 @@ export function buildAgentCardV1({
       visibility,
       capabilities: requestedCapabilities,
       ...(executionCoordinatorDid ? { executionCoordinatorDid } : {}),
+      ...(policyCompatibility ? { policyCompatibility } : {}),
       host,
       priceHint,
       attestations,
@@ -493,6 +518,9 @@ export function validateAgentCardV1(agentCard) {
   }
   if (agentCard.executionCoordinatorDid !== null && agentCard.executionCoordinatorDid !== undefined) {
     normalizeOptionalDid(agentCard.executionCoordinatorDid, "agentCard.executionCoordinatorDid");
+  }
+  if (agentCard.policyCompatibility !== null && agentCard.policyCompatibility !== undefined) {
+    normalizePolicyCompatibility(agentCard.policyCompatibility, "agentCard.policyCompatibility");
   }
   return true;
 }

@@ -8455,6 +8455,46 @@ export function createApi({
     return out;
   }
 
+  function parseAgentCardPolicyCompatibilityFilter(rawValue, { fieldName } = {}) {
+    const label = typeof fieldName === "string" && fieldName.trim() !== "" ? fieldName.trim() : "value";
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return null;
+    if (typeof rawValue !== "string") throw new TypeError(`${label} must be a string`);
+    const value = rawValue.trim();
+    if (value.length > 200) throw new TypeError(`${label} must be <= 200 characters`);
+    if (!/^[A-Za-z0-9._:/-]+$/.test(value)) {
+      throw new TypeError(`${label} must match ^[A-Za-z0-9._:/-]+$`);
+    }
+    return value;
+  }
+
+  function normalizeAgentCardPolicyCompatibilityForDiscovery(agentCard) {
+    const source =
+      agentCard?.policyCompatibility && typeof agentCard.policyCompatibility === "object" && !Array.isArray(agentCard.policyCompatibility)
+        ? agentCard.policyCompatibility
+        : null;
+    const supportsPolicyTemplates = Array.isArray(source?.supportsPolicyTemplates)
+      ? [...new Set(source.supportsPolicyTemplates.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    const supportsEvidencePacks = Array.isArray(source?.supportsEvidencePacks)
+      ? [...new Set(source.supportsEvidencePacks.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion:
+          typeof source?.schemaVersion === "string" && source.schemaVersion.trim() !== ""
+            ? source.schemaVersion.trim()
+            : "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates,
+        supportsEvidencePacks
+      },
+      { path: "$.policyCompatibility" }
+    );
+  }
+
   function parseSessionVisibility(rawValue, { allowAll = true, defaultVisibility = SESSION_VISIBILITY.TENANT } = {}) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultVisibility;
     const value = String(rawValue).trim().toLowerCase();
@@ -10090,6 +10130,8 @@ export function createApi({
     toolSideEffecting = null,
     toolMaxPriceCents = null,
     toolRequiresEvidenceKind = null,
+    supportsPolicyTemplate = null,
+    supportsEvidencePack = null,
     status = AGENT_CARD_STATUS.ACTIVE,
     visibility = AGENT_CARD_VISIBILITY.PUBLIC,
     runtime = null,
@@ -10149,6 +10191,12 @@ export function createApi({
         ? null
         : normalizeOptionalX402PositiveSafeInt(toolMaxPriceCents, "toolMaxPriceCents", { allowNull: true });
     const parsedToolRequiresEvidenceKind = parseToolDescriptorEvidenceKind(toolRequiresEvidenceKind, { allowNull: true });
+    const parsedSupportsPolicyTemplate = parseAgentCardPolicyCompatibilityFilter(supportsPolicyTemplate, {
+      fieldName: "supportsPolicyTemplate"
+    });
+    const parsedSupportsEvidencePack = parseAgentCardPolicyCompatibilityFilter(supportsEvidencePack, {
+      fieldName: "supportsEvidencePack"
+    });
     const hasToolDescriptorFilter =
       toolIdFilter !== null ||
       toolMcpNameFilter !== null ||
@@ -10324,6 +10372,19 @@ export function createApi({
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
       const normalizedToolDescriptors = normalizeAgentCardToolDescriptorsForDiscovery(agentCard);
+      const normalizedPolicyCompatibility = normalizeAgentCardPolicyCompatibilityForDiscovery(agentCard);
+      if (
+        parsedSupportsPolicyTemplate &&
+        !normalizedPolicyCompatibility.supportsPolicyTemplates.includes(parsedSupportsPolicyTemplate)
+      ) {
+        continue;
+      }
+      if (
+        parsedSupportsEvidencePack &&
+        !normalizedPolicyCompatibility.supportsEvidencePacks.includes(parsedSupportsEvidencePack)
+      ) {
+        continue;
+      }
       if (hasToolDescriptorFilter) {
         const hasToolMatch = normalizedToolDescriptors.some((descriptor) => {
           if (toolIdFilter !== null && String(descriptor.toolId ?? "") !== toolIdFilter) return false;
@@ -52630,7 +52691,8 @@ export function createApi({
               attestations: body?.attestations ?? undefined,
               tools: body?.tools ?? undefined,
               tags: body?.tags ?? undefined,
-              metadata: body?.metadata ?? undefined
+              metadata: body?.metadata ?? undefined,
+              policyCompatibility: body?.policyCompatibility ?? undefined
             }
           });
           validateAgentCardV1(agentCard);
@@ -52820,7 +52882,8 @@ export function createApi({
                 attestations: body?.attestations ?? undefined,
                 tools: body?.tools ?? undefined,
                 tags: body?.tags ?? undefined,
-                metadata: cardMetadataInput
+                metadata: cardMetadataInput,
+                policyCompatibility: body?.policyCompatibility ?? undefined
               }
             });
             validateAgentCardV1(agentCard);
@@ -52873,6 +52936,8 @@ export function createApi({
             toolSideEffecting,
             toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
             toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
+            supportsPolicyTemplate: url.searchParams.get("supportsPolicyTemplate"),
+            supportsEvidencePack: url.searchParams.get("supportsEvidencePack"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),
@@ -53393,6 +53458,8 @@ export function createApi({
             toolSideEffecting,
             toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
             toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
+            supportsPolicyTemplate: url.searchParams.get("supportsPolicyTemplate"),
+            supportsEvidencePack: url.searchParams.get("supportsEvidencePack"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),

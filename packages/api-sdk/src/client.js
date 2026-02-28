@@ -613,6 +613,8 @@ export class NooterraClient {
     if (params.capability) qs.set("capability", String(params.capability));
     if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.supportsPolicyTemplate) qs.set("supportsPolicyTemplate", String(params.supportsPolicyTemplate));
+    if (params.supportsEvidencePack) qs.set("supportsEvidencePack", String(params.supportsEvidencePack));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     appendAgentCardToolDescriptorQueryParams(qs, params);
@@ -627,6 +629,8 @@ export class NooterraClient {
     if (params.capability) qs.set("capability", String(params.capability));
     if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.supportsPolicyTemplate) qs.set("supportsPolicyTemplate", String(params.supportsPolicyTemplate));
+    if (params.supportsEvidencePack) qs.set("supportsEvidencePack", String(params.supportsEvidencePack));
     if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
       qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
     }

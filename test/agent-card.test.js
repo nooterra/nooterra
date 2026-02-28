@@ -54,6 +54,11 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
           requiresEvidenceKinds: ["artifact", "hash"]
         }
       ],
+      policyCompatibility: {
+        schemaVersion: "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates: ["template://safe-travel.v1", "template://safe-travel.v1", "template://enterprise-guardrails.v1"],
+        supportsEvidencePacks: ["evidence://settlement-receipt.v1", "evidence://settlement-receipt.v1"]
+      },
       tags: ["travel", "booking"]
     }
   });
@@ -70,6 +75,9 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
   assert.equal(card.tools[0]?.toolId, "travel.book_flight");
   assert.equal(card.tools[0]?.riskClass, "action");
   assert.equal(card.tools[0]?.sideEffecting, true);
+  assert.equal(card.policyCompatibility?.schemaVersion, "AgentCardPolicyCompatibility.v1");
+  assert.deepEqual(card.policyCompatibility?.supportsPolicyTemplates, ["template://enterprise-guardrails.v1", "template://safe-travel.v1"]);
+  assert.deepEqual(card.policyCompatibility?.supportsEvidencePacks, ["evidence://settlement-receipt.v1"]);
   assert.equal(validateAgentCardV1(card), true);
 });
 

@@ -543,6 +543,17 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const AgentCardPolicyCompatibilityV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "supportsPolicyTemplates", "supportsEvidencePacks"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AgentCardPolicyCompatibility.v1"] },
+      supportsPolicyTemplates: { type: "array", items: { type: "string" } },
+      supportsEvidencePacks: { type: "array", items: { type: "string" } }
+    }
+  };
+
   const ToolDescriptorV1 = {
     type: "object",
     additionalProperties: false,
@@ -598,6 +609,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
       tools: { type: "array", items: ToolDescriptorV1 },
+      policyCompatibility: { ...AgentCardPolicyCompatibilityV1, nullable: true },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", nullable: true, additionalProperties: true },
       identityRef: {
@@ -629,6 +641,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
       tools: { type: "array", items: ToolDescriptorV1 },
+      policyCompatibility: { ...AgentCardPolicyCompatibilityV1, nullable: true },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", additionalProperties: true }
     }
@@ -7201,6 +7214,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               required: false,
               schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
             },
+            { name: "supportsPolicyTemplate", in: "query", required: false, schema: { type: "string" } },
+            { name: "supportsEvidencePack", in: "query", required: false, schema: { type: "string" } },
             { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "suspended", "revoked", "all"] } },
             { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public"] } },
             { name: "runtime", in: "query", required: false, schema: { type: "string" } },
@@ -7252,6 +7267,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               required: false,
               schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
             },
+            { name: "supportsPolicyTemplate", in: "query", required: false, schema: { type: "string" } },
+            { name: "supportsEvidencePack", in: "query", required: false, schema: { type: "string" } },
             { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "suspended", "revoked", "all"] } },
             { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "tenant", "private", "all"] } },
             { name: "runtime", in: "query", required: false, schema: { type: "string" } },

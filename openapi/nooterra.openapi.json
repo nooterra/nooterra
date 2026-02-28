@@ -40522,6 +40522,36 @@
                               }
                             }
                           },
+                          "policyCompatibility": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "supportsPolicyTemplates",
+                              "supportsEvidencePacks"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "AgentCardPolicyCompatibility.v1"
+                                ]
+                              },
+                              "supportsPolicyTemplates": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "supportsEvidencePacks": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "nullable": true
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
@@ -40842,6 +40872,36 @@
                       }
                     }
                   },
+                  "policyCompatibility": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "supportsPolicyTemplates",
+                      "supportsEvidencePacks"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "AgentCardPolicyCompatibility.v1"
+                        ]
+                      },
+                      "supportsPolicyTemplates": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "supportsEvidencePacks": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "nullable": true
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -41087,6 +41147,36 @@
                               }
                             }
                           }
+                        },
+                        "policyCompatibility": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "supportsPolicyTemplates",
+                            "supportsEvidencePacks"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPolicyCompatibility.v1"
+                              ]
+                            },
+                            "supportsPolicyTemplates": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "supportsEvidencePacks": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "nullable": true
                         },
                         "tags": {
                           "type": "array",
@@ -41363,6 +41453,36 @@
                             }
                           }
                         },
+                        "policyCompatibility": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "supportsPolicyTemplates",
+                            "supportsEvidencePacks"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPolicyCompatibility.v1"
+                              ]
+                            },
+                            "supportsPolicyTemplates": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "supportsEvidencePacks": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "nullable": true
+                        },
                         "tags": {
                           "type": "array",
                           "items": {
@@ -41538,6 +41658,22 @@
                 "hash",
                 "verification_report"
               ]
+            }
+          },
+          {
+            "name": "supportsPolicyTemplate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "supportsEvidencePack",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -42028,6 +42164,36 @@
                                     }
                                   }
                                 }
+                              },
+                              "policyCompatibility": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "supportsPolicyTemplates",
+                                  "supportsEvidencePacks"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentCardPolicyCompatibility.v1"
+                                    ]
+                                  },
+                                  "supportsPolicyTemplates": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "supportsEvidencePacks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "nullable": true
                               },
                               "tags": {
                                 "type": "array",
@@ -43175,6 +43341,22 @@
             }
           },
           {
+            "name": "supportsPolicyTemplate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "supportsEvidencePack",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "status",
             "in": "query",
             "required": false,
@@ -43672,6 +43854,36 @@
                                     }
                                   }
                                 }
+                              },
+                              "policyCompatibility": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "supportsPolicyTemplates",
+                                  "supportsEvidencePacks"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentCardPolicyCompatibility.v1"
+                                    ]
+                                  },
+                                  "supportsPolicyTemplates": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "supportsEvidencePacks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "nullable": true
                               },
                               "tags": {
                                 "type": "array",
@@ -44997,6 +45209,36 @@
                               }
                             }
                           }
+                        },
+                        "policyCompatibility": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "supportsPolicyTemplates",
+                            "supportsEvidencePacks"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPolicyCompatibility.v1"
+                              ]
+                            },
+                            "supportsPolicyTemplates": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "supportsEvidencePacks": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "nullable": true
                         },
                         "tags": {
                           "type": "array",
