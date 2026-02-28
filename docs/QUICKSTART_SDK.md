@@ -161,7 +161,7 @@ Run the repo example:
 node scripts/examples/sdk-first-verified-run.mjs
 ```
 
-### 3) ACS substrate smoke flow (JS SDK)
+### 3) Run ACS substrate smoke flow (JS SDK)
 
 This exercises discovery, delegation grants, authority grants, negotiation, work orders, state checkpoints, session lineage, reputation graph wrappers, and capability attestations end-to-end.
 

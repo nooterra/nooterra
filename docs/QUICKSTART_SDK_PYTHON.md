@@ -154,7 +154,7 @@ Run the repo example:
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-first-verified-run.py
 ```
 
-### 3) ACS substrate smoke flow (Python SDK)
+### 3) Run ACS substrate smoke flow (Python SDK)
 
 This exercises discovery, delegation grants, authority grants, negotiation, work orders, state checkpoints, session lineage, reputation graph wrappers, and capability attestations end-to-end.
 
