@@ -79,6 +79,9 @@ Required structured logs:
 - `federation_replay_duplicate`
 - `federation_replay_conflict`
 
+Internal observability endpoint:
+- `GET /internal/federation/stats` (ops-authenticated) returns deterministic per-origin/target request/status counters.
+
 Recommended fields:
 - `originDid`, `targetDid`, `capabilityId`, `invocationId`, `status`, `latencyMs`
 

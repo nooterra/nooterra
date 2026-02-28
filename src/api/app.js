@@ -394,6 +394,7 @@ import { reconcileGlBatchAgainstPartyStatements } from "../../packages/artifact-
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../federation/proxy-policy.js";
 import { FEDERATION_ERROR_CODE } from "../federation/error-codes.js";
 import { createFederationReplayLedger } from "./federation/replay-ledger.js";
+import { createFederationStatsTracker } from "./federation/stats.js";
 import { createApprovalRequest, enforceHighRiskApproval } from "../services/human-approval/gate.js";
 import { runDeterministicSimulation } from "../services/simulation/harness.js";
 
@@ -626,6 +627,7 @@ export function createApi({
     fallbackBaseUrl: federationProxyBaseUrl
   });
   const federationReplayLedger = createFederationReplayLedger();
+  const federationStatsTracker = createFederationStatsTracker({ now: nowIso });
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -29624,6 +29626,7 @@ export function createApi({
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
     if (m === "POST" && p === "/v1/federation/invoke") return "/v1/federation/invoke";
     if (m === "POST" && p === "/v1/federation/result") return "/v1/federation/result";
+    if (m === "GET" && p === "/internal/federation/stats") return "/internal/federation/stats";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
     if (m === "POST" && p === "/exports/ack") return "/exports/ack";
     if (m === "GET" && p === "/evidence/download") return "/evidence/download";
@@ -29781,11 +29784,57 @@ export function createApi({
   }
 
   async function proxyFederationRequest(req, res, { path, search, requestId }) {
+    const startedAtMs = Date.now();
     const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
     if (typeof upstreamFetch !== "function") {
       return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE });
     }
     const endpoint = path === "/v1/federation/result" ? "result" : "invoke";
+    const receivedLogMsg = endpoint === "result" ? "federation_result_received" : "federation_invoke_received";
+    function latencyMs() {
+      return Math.max(0, Date.now() - startedAtMs);
+    }
+    function inspectFederationSignatureBlock(value) {
+      if (value === undefined || value === null) return { present: false, valid: true };
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return { present: true, valid: false, reason: "signature_block_invalid" };
+      }
+      const algorithm = typeof value.algorithm === "string" ? value.algorithm.trim().toLowerCase() : typeof value.alg === "string" ? value.alg.trim().toLowerCase() : "";
+      if (!algorithm) return { present: true, valid: false, reason: "signature_algorithm_required" };
+      if (algorithm !== "ed25519" && algorithm !== "eddsa-ed25519") {
+        return { present: true, valid: false, reason: "signature_algorithm_unsupported" };
+      }
+      const keyId = typeof value.keyId === "string" ? value.keyId.trim() : typeof value.kid === "string" ? value.kid.trim() : "";
+      if (!keyId) return { present: true, valid: false, reason: "signature_key_id_required" };
+      const signature = typeof value.signature === "string" ? value.signature.trim() : typeof value.sig === "string" ? value.sig.trim() : "";
+      if (!signature) return { present: true, valid: false, reason: "signature_value_required" };
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) {
+        return { present: true, valid: false, reason: "signature_base64_invalid" };
+      }
+      return { present: true, valid: true, algorithm, keyId };
+    }
+    function logFederationReceived({ envelope, status, statusCode = null, code = null, level = "info" }) {
+      if (!envelope || typeof envelope !== "object") return;
+      const safeStatus = typeof status === "string" && status.trim() !== "" ? status.trim() : "unknown";
+      const fields = {
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        capabilityId: envelope.capabilityId ?? null,
+        invocationId: envelope.invocationId,
+        status: safeStatus,
+        latencyMs: latencyMs()
+      };
+      if (Number.isFinite(statusCode) && statusCode > 0) fields.statusCode = Math.floor(statusCode);
+      if (typeof code === "string" && code.trim() !== "") fields.code = code.trim();
+      if (level === "warn") logger.warn(receivedLogMsg, fields);
+      else logger.info(receivedLogMsg, fields);
+      federationStatsTracker.record({
+        endpoint,
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        status: safeStatus
+      });
+    }
     const upstreamHeaders = new Headers();
     for (const [nameRaw, valueRaw] of Object.entries(req.headers ?? {})) {
       const name = String(nameRaw ?? "").toLowerCase();
@@ -29839,12 +29888,45 @@ export function createApi({
         { code: envelopeCheck.code ?? FEDERATION_ERROR_CODE.ENVELOPE_INVALID }
       );
     }
+    const signatureInspection = inspectFederationSignatureBlock(parsedBody?.signature);
+    if (!signatureInspection.valid) {
+      logger.warn("federation_signature_invalid", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        reason: signatureInspection.reason,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "signature_invalid",
+        statusCode: 403,
+        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
+      return sendError(
+        res,
+        403,
+        "federation signature invalid",
+        { reason: signatureInspection.reason },
+        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
+      );
+    }
     const routeCheck = evaluateFederationTrustAndRoute({
       endpoint,
       envelope: envelopeCheck.envelope,
       policy: federationProxyPolicy
     });
     if (!routeCheck.ok) {
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "denied",
+        statusCode: routeCheck.statusCode ?? 503,
+        code: routeCheck.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
       return sendError(
         res,
         routeCheck.statusCode ?? 503,
@@ -29866,6 +29948,21 @@ export function createApi({
     ].join("\n");
     const replayClaim = federationReplayLedger.claim({ key: replayKey, requestHash });
     if (replayClaim.type === "conflict") {
+      logger.warn("federation_replay_conflict", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_conflict",
+        statusCode: 409,
+        code: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT,
+        level: "warn"
+      });
       return sendError(
         res,
         409,
@@ -29878,9 +29975,29 @@ export function createApi({
       );
     }
     if (replayClaim.type === "in_flight") {
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_in_flight",
+        statusCode: 409,
+        code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT,
+        level: "warn"
+      });
       return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT });
     }
     if (replayClaim.type === "replay") {
+      logger.info("federation_replay_duplicate", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_duplicate",
+        statusCode: replayClaim.response.statusCode
+      });
       res.statusCode = replayClaim.response.statusCode;
       for (const [name, value] of Object.entries(replayClaim.response.headers ?? {})) {
         if (!name || HOP_BY_HOP_HEADERS.has(String(name).toLowerCase())) continue;
@@ -29909,6 +30026,13 @@ export function createApi({
       });
     } catch (err) {
       federationReplayLedger.release({ key: replayKey, requestHash });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "upstream_unreachable",
+        statusCode: 502,
+        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+        level: "warn"
+      });
       return sendError(
         res,
         502,
@@ -29947,6 +30071,11 @@ export function createApi({
         headers: replayHeaders,
         bodyBytes: bytes
       }
+    });
+    logFederationReceived({
+      envelope: envelopeCheck.envelope,
+      status: `upstream_${String(upstreamRes.status)}`,
+      statusCode: upstreamRes.status
     });
     return res.end(bytes);
   }
@@ -30418,11 +30547,20 @@ export function createApi({
           }
         }
 
-        signals.ok = Boolean(signals.dbOk);
-        return sendJson(res, signals.ok ? 200 : 503, signals);
-      }
+	        signals.ok = Boolean(signals.dbOk);
+	        return sendJson(res, signals.ok ? 200 : 503, signals);
+	      }
 
-	      if (!authExempt && !path.startsWith("/ops")) {
+        if (req.method === "GET" && path === "/internal/federation/stats") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          return sendJson(res, 200, {
+            ok: true,
+            stats: federationStatsTracker.snapshot()
+          });
+        }
+
+		      if (!authExempt && !path.startsWith("/ops")) {
 	        const isRead = req.method === "GET" || req.method === "HEAD";
 	        const isAuditExport = req.method === "GET" && /^\/jobs\/[^/]+\/audit$/.test(path);
 	        const requiredScope =

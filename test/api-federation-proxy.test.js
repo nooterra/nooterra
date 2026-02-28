@@ -160,6 +160,32 @@ test("api federation proxy: fails closed when federation peer is untrusted", asy
   }
 });
 
+test("api federation proxy: fails closed when signature block is malformed", async () => {
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: "https://federation.nooterra.test",
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const res = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: {
+        ...invokeEnvelope({ invocationId: "inv_sig_invalid_1" }),
+        signature: { algorithm: "ed25519", keyId: "key_coord_bravo_1" }
+      },
+      auth: "none"
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json?.code, "FEDERATION_REQUEST_DENIED");
+    assert.equal(res.json?.details?.reason, "signature_value_required");
+  } finally {
+    restore();
+  }
+});
+
 test("api federation proxy: routes by namespace DID with explicit route map", async () => {
   const callsA = [];
   const callsB = [];
@@ -359,5 +385,82 @@ test("api federation proxy: fails closed when upstream attempts redirect", async
     restore();
     await new Promise((resolve) => redirectingUpstream.close(resolve));
     await new Promise((resolve) => redirectedTarget.close(resolve));
+  }
+});
+
+test("api federation proxy: internal federation stats reports per-pair and status aggregates", async () => {
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    res.statusCode = 201;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true }));
+  });
+  const baseUrl = await listen(upstream);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: baseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const envelope = invokeEnvelope({ invocationId: "inv_stats_1" });
+
+    const first = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: envelope,
+      auth: "none"
+    });
+    const duplicate = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: envelope,
+      auth: "none"
+    });
+    const conflict = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: {
+        ...envelope,
+        payload: { op: "different" }
+      },
+      auth: "none"
+    });
+    const stats = await request(api, {
+      method: "GET",
+      path: "/internal/federation/stats"
+    });
+
+    assert.equal(first.statusCode, 201);
+    assert.equal(duplicate.statusCode, 201);
+    assert.equal(conflict.statusCode, 409);
+    assert.equal(stats.statusCode, 200);
+    assert.equal(stats.json?.ok, true);
+    assert.equal(stats.json?.stats?.schemaVersion, "FederationStats.v1");
+    assert.equal(stats.json?.stats?.totals?.requestCount, 3);
+    assert.equal(stats.json?.stats?.totals?.invokeCount, 3);
+    assert.equal(stats.json?.stats?.totals?.resultCount, 0);
+    assert.deepEqual(stats.json?.stats?.totals?.statusCounts, {
+      replay_conflict: 1,
+      replay_duplicate: 1,
+      upstream_201: 1
+    });
+    assert.deepEqual(stats.json?.stats?.pairs, [
+      {
+        originDid: "did:nooterra:coord_alpha",
+        targetDid: "did:nooterra:coord_bravo",
+        requestCount: 3,
+        invokeCount: 3,
+        resultCount: 0,
+        statusCounts: {
+          replay_conflict: 1,
+          replay_duplicate: 1,
+          upstream_201: 1
+        }
+      }
+    ]);
+  } finally {
+    restore();
+    await new Promise((resolve) => upstream.close(resolve));
   }
 });
