@@ -134,6 +134,7 @@
     "test:ops:acs-e10-readiness-gate": "node scripts/ci/run-acs-e10-readiness-gate.mjs",
     "test:ops:self-host-topology-bundle-gate": "node scripts/ci/run-self-host-topology-bundle-gate.mjs",
     "test:ops:self-host-upgrade-migration-gate": "node scripts/ci/run-self-host-upgrade-migration-gate.mjs",
+    "test:ops:serving-mode-boundary-gate": "node scripts/ci/run-serving-mode-boundary-gate.mjs",
     "test:ops:agent-substrate-fast-loop": "node scripts/ci/run-agent-substrate-fast-loop.mjs --bootstrap-local",
     "test:ops:agent-substrate-adversarial-harness": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs",
     "test:ops:agent-substrate-adversarial-harness:prompt-contagion": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs --profile prompt-contagion",

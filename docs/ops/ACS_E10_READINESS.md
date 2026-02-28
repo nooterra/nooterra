@@ -23,6 +23,8 @@ ACS-E10 consumes these artifacts:
    `artifacts/gates/public-onboarding-gate.json`
 6. Self-host upgrade/migration gate:
    `artifacts/gates/self-host-upgrade-migration-gate.json`
+7. Serving mode boundary gate:
+   `artifacts/gates/serving-mode-boundary-gate.json`
 
 ## Command sequence
 
@@ -60,6 +62,7 @@ npm run test:ci:mcp-host-cert-matrix -- \
   --report artifacts/ops/mcp-host-cert-matrix.json
 
 npm run -s test:ops:self-host-upgrade-migration-gate
+npm run -s test:ops:serving-mode-boundary-gate
 
 npm run test:ops:acs-e10-readiness-gate
 ```

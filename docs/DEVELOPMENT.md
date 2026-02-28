@@ -5,6 +5,12 @@ Prereqs:
 - Node.js 20.x (`.nvmrc` / `.node-version`)
 - Docker (optional; for Postgres/MinIO local stack)
 
+## Serving mode scope (`local-dev`)
+
+- This page is for `local-dev` workflows only.
+- `local-dev` is non-production: no customer traffic and no production cutover decisions.
+- For hosted/self-host operational boundaries, use `docs/ops/SERVING_MODES_BOUNDARY.md` and `docs/ops/MINIMUM_PRODUCTION_TOPOLOGY.md`.
+
 ## Install
 
 ```sh
@@ -109,4 +115,3 @@ Kernel control plane (disputes + holdback):
 ```sh
 ./bin/nooterra.js conformance kernel --ops-token tok_ops
 ```
-

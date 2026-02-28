@@ -15,6 +15,7 @@ const DEFAULT_ONBOARDING_HOST_SUCCESS_PATH = "artifacts/gates/onboarding-host-su
 const DEFAULT_MCP_HOST_CERT_MATRIX_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_PUBLIC_ONBOARDING_GATE_PATH = "artifacts/gates/public-onboarding-gate.json";
 const DEFAULT_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH = "artifacts/gates/self-host-upgrade-migration-gate.json";
+const DEFAULT_SERVING_MODE_BOUNDARY_GATE_PATH = "artifacts/gates/serving-mode-boundary-gate.json";
 
 const REQUIRED_ONBOARDING_DOC_PATHS = Object.freeze([
   "docs/QUICKSTART_MCP.md",
@@ -38,6 +39,7 @@ function usage() {
     "  --mcp-host-cert-matrix <file>   MCP host certification matrix report path",
     "  --public-onboarding-gate <file> Public onboarding gate report path",
     "  --self-host-upgrade-gate <file> Self-host upgrade+migration gate report path",
+    "  --serving-mode-boundary-gate <file> Serving mode boundary gate report path",
     "  --captured-at <iso>             Optional explicit capture timestamp",
     "  --help                          Show help",
     "",
@@ -49,6 +51,7 @@ function usage() {
     "  ACS_E10_MCP_HOST_CERT_MATRIX_PATH",
     "  ACS_E10_PUBLIC_ONBOARDING_GATE_PATH",
     "  ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH",
+    "  ACS_E10_SERVING_MODE_BOUNDARY_GATE_PATH",
     "  ACS_E10_CAPTURED_AT"
   ].join("\n");
 }
@@ -154,6 +157,10 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       normalizeOptionalString(env.ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH) ??
         DEFAULT_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH
     ),
+    servingModeBoundaryGatePath: path.resolve(
+      cwd,
+      normalizeOptionalString(env.ACS_E10_SERVING_MODE_BOUNDARY_GATE_PATH) ?? DEFAULT_SERVING_MODE_BOUNDARY_GATE_PATH
+    ),
     capturedAt: normalizeOptionalString(env.ACS_E10_CAPTURED_AT)
   };
 
@@ -210,6 +217,13 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       const value = normalizeOptionalString(argv[i + 1]);
       if (!value) throw new Error("--self-host-upgrade-gate requires a file path");
       out.selfHostUpgradeMigrationGatePath = path.resolve(cwd, value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--serving-mode-boundary-gate") {
+      const value = normalizeOptionalString(argv[i + 1]);
+      if (!value) throw new Error("--serving-mode-boundary-gate requires a file path");
+      out.servingModeBoundaryGatePath = path.resolve(cwd, value);
       i += 1;
       continue;
     }
@@ -281,6 +295,44 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
         detail: {
           path: toPathRef(args.hostedEvidencePath),
           message: `Hosted baseline evidence is required and must be valid JSON: ${err?.message ?? String(err)}`
+        }
+      })
+    );
+  }
+
+  let servingModeBoundaryGateRef = null;
+  try {
+    servingModeBoundaryGateRef = await readJsonWithHash(args.servingModeBoundaryGatePath);
+    const schemaOk = servingModeBoundaryGateRef.json?.schemaVersion === "ServingModeBoundaryGateReport.v1";
+    const verdictOk = servingModeBoundaryGateRef.json?.verdict?.ok === true;
+    checks.push(
+      buildCheck({
+        id: "serving_mode_boundary_gate_green",
+        ok: schemaOk && verdictOk,
+        failureCode: !schemaOk ? "serving_mode_boundary_schema_invalid" : "serving_mode_boundary_not_green",
+        detail: {
+          path: servingModeBoundaryGateRef.path,
+          sha256: servingModeBoundaryGateRef.sha256,
+          schemaVersion: normalizeOptionalString(servingModeBoundaryGateRef.json?.schemaVersion),
+          verdictOk,
+          verdictStatus: normalizeOptionalString(servingModeBoundaryGateRef.json?.verdict?.status),
+          artifactHash: normalizeOptionalString(servingModeBoundaryGateRef.json?.artifactHash),
+          message:
+            schemaOk && verdictOk
+              ? "Serving mode boundary gate report is green."
+              : "Serving mode boundary gate must be ServingModeBoundaryGateReport.v1 with verdict.ok=true."
+        }
+      })
+    );
+  } catch (err) {
+    checks.push(
+      buildCheck({
+        id: "serving_mode_boundary_gate_green",
+        ok: false,
+        failureCode: "serving_mode_boundary_missing_or_invalid",
+        detail: {
+          path: toPathRef(args.servingModeBoundaryGatePath),
+          message: `Serving mode boundary gate report is required and must be valid JSON: ${err?.message ?? String(err)}`
         }
       })
     );
@@ -524,7 +576,8 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
       onboardingHostSuccessPath: toPathRef(args.onboardingHostSuccessPath),
       mcpHostCertMatrixPath: toPathRef(args.mcpHostCertMatrixPath),
       publicOnboardingGatePath: toPathRef(args.publicOnboardingGatePath),
-      selfHostUpgradeMigrationGatePath: toPathRef(args.selfHostUpgradeMigrationGatePath)
+      selfHostUpgradeMigrationGatePath: toPathRef(args.selfHostUpgradeMigrationGatePath),
+      servingModeBoundaryGatePath: toPathRef(args.servingModeBoundaryGatePath)
     },
     sources: {
       hostedBaselineEvidence: hostedBaselineRef
@@ -580,6 +633,15 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
             schemaVersion: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.schemaVersion),
             verdictOk: selfHostUpgradeMigrationGateRef.json?.verdict?.ok === true,
             artifactHash: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.artifactHash)
+          }
+        : null,
+      servingModeBoundaryGate: servingModeBoundaryGateRef
+        ? {
+            path: servingModeBoundaryGateRef.path,
+            sha256: servingModeBoundaryGateRef.sha256,
+            schemaVersion: normalizeOptionalString(servingModeBoundaryGateRef.json?.schemaVersion),
+            verdictOk: servingModeBoundaryGateRef.json?.verdict?.ok === true,
+            artifactHash: normalizeOptionalString(servingModeBoundaryGateRef.json?.artifactHash)
           }
         : null
     },

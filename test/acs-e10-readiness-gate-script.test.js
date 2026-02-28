@@ -41,7 +41,8 @@ test("acs e10 readiness parser: supports env defaults and argument overrides", (
       ACS_E10_ONBOARDING_HOST_SUCCESS_PATH: "artifacts/custom/onboarding.json",
       ACS_E10_MCP_HOST_CERT_MATRIX_PATH: "artifacts/custom/matrix.json",
       ACS_E10_PUBLIC_ONBOARDING_GATE_PATH: "artifacts/custom/public-onboarding.json",
-      ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH: "artifacts/custom/self-host-upgrade-gate.json"
+      ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH: "artifacts/custom/self-host-upgrade-gate.json",
+      ACS_E10_SERVING_MODE_BOUNDARY_GATE_PATH: "artifacts/custom/serving-mode-boundary-gate.json"
     },
     cwd
   );
@@ -53,6 +54,7 @@ test("acs e10 readiness parser: supports env defaults and argument overrides", (
   assert.equal(args.mcpHostCertMatrixPath, path.resolve(cwd, "artifacts/custom/matrix.json"));
   assert.equal(args.publicOnboardingGatePath, path.resolve(cwd, "artifacts/custom/public-onboarding.json"));
   assert.equal(args.selfHostUpgradeMigrationGatePath, path.resolve(cwd, "artifacts/custom/self-host-upgrade-gate.json"));
+  assert.equal(args.servingModeBoundaryGatePath, path.resolve(cwd, "artifacts/custom/serving-mode-boundary-gate.json"));
   assert.equal(args.capturedAt, "2026-02-28T00:00:00.000Z");
 });
 
@@ -73,6 +75,7 @@ test("acs e10 readiness gate: emits pass report when all upstream checks are gre
   const matrixPath = path.join(tmpRoot, "artifacts", "ops", "mcp-host-cert-matrix.json");
   const publicOnboardingPath = path.join(tmpRoot, "artifacts", "gates", "public-onboarding.json");
   const selfHostUpgradeGatePath = path.join(tmpRoot, "artifacts", "gates", "self-host-upgrade-migration-gate.json");
+  const servingModeBoundaryGatePath = path.join(tmpRoot, "artifacts", "gates", "serving-mode-boundary-gate.json");
 
   const hostedEvidence = buildHostedBaselineEvidenceOutput({
     reportCore: {
@@ -131,6 +134,11 @@ test("acs e10 readiness gate: emits pass report when all upstream checks are gre
     verdict: { ok: true, status: "pass" },
     artifactHash: "sha256-self-host-upgrade"
   });
+  await writeJson(servingModeBoundaryGatePath, {
+    schemaVersion: "ServingModeBoundaryGateReport.v1",
+    verdict: { ok: true, status: "pass" },
+    artifactHash: "sha256-serving-mode-boundary"
+  });
   await writeRequiredDocs(tmpRoot);
 
   const { report } = await runAcsE10ReadinessGate(
@@ -143,6 +151,7 @@ test("acs e10 readiness gate: emits pass report when all upstream checks are gre
       mcpHostCertMatrixPath: matrixPath,
       publicOnboardingGatePath: publicOnboardingPath,
       selfHostUpgradeMigrationGatePath: selfHostUpgradeGatePath,
+      servingModeBoundaryGatePath,
       capturedAt: "2026-02-28T00:00:00.000Z"
     },
     tmpRoot
@@ -171,6 +180,7 @@ test("acs e10 readiness gate: fails closed when mcp matrix drift gate is not str
   const matrixPath = path.join(tmpRoot, "artifacts", "ops", "mcp-host-cert-matrix.json");
   const publicOnboardingPath = path.join(tmpRoot, "artifacts", "gates", "public-onboarding.json");
   const selfHostUpgradeGatePath = path.join(tmpRoot, "artifacts", "gates", "self-host-upgrade-migration-gate.json");
+  const servingModeBoundaryGatePath = path.join(tmpRoot, "artifacts", "gates", "serving-mode-boundary-gate.json");
 
   const hostedEvidence = buildHostedBaselineEvidenceOutput({
     reportCore: {
@@ -229,6 +239,11 @@ test("acs e10 readiness gate: fails closed when mcp matrix drift gate is not str
     verdict: { ok: true, status: "pass" },
     artifactHash: "sha256-self-host-upgrade"
   });
+  await writeJson(servingModeBoundaryGatePath, {
+    schemaVersion: "ServingModeBoundaryGateReport.v1",
+    verdict: { ok: true, status: "pass" },
+    artifactHash: "sha256-serving-mode-boundary"
+  });
   await writeRequiredDocs(tmpRoot);
 
   const { report } = await runAcsE10ReadinessGate(
@@ -241,6 +256,7 @@ test("acs e10 readiness gate: fails closed when mcp matrix drift gate is not str
       mcpHostCertMatrixPath: matrixPath,
       publicOnboardingGatePath: publicOnboardingPath,
       selfHostUpgradeMigrationGatePath: selfHostUpgradeGatePath,
+      servingModeBoundaryGatePath,
       capturedAt: null
     },
     tmpRoot
@@ -267,6 +283,7 @@ test("acs e10 readiness artifact hash: stable across generatedAt mutation", asyn
   const matrixPath = path.join(tmpRoot, "artifacts", "ops", "mcp-host-cert-matrix.json");
   const publicOnboardingPath = path.join(tmpRoot, "artifacts", "gates", "public-onboarding.json");
   const selfHostUpgradeGatePath = path.join(tmpRoot, "artifacts", "gates", "self-host-upgrade-migration-gate.json");
+  const servingModeBoundaryGatePath = path.join(tmpRoot, "artifacts", "gates", "serving-mode-boundary-gate.json");
 
   const hostedEvidence = buildHostedBaselineEvidenceOutput({
     reportCore: {
@@ -325,6 +342,11 @@ test("acs e10 readiness artifact hash: stable across generatedAt mutation", asyn
     verdict: { ok: true, status: "pass" },
     artifactHash: "sha256-self-host-upgrade"
   });
+  await writeJson(servingModeBoundaryGatePath, {
+    schemaVersion: "ServingModeBoundaryGateReport.v1",
+    verdict: { ok: true, status: "pass" },
+    artifactHash: "sha256-serving-mode-boundary"
+  });
   await writeRequiredDocs(tmpRoot);
 
   const { report } = await runAcsE10ReadinessGate(
@@ -337,6 +359,7 @@ test("acs e10 readiness artifact hash: stable across generatedAt mutation", asyn
       mcpHostCertMatrixPath: matrixPath,
       publicOnboardingGatePath: publicOnboardingPath,
       selfHostUpgradeMigrationGatePath: selfHostUpgradeGatePath,
+      servingModeBoundaryGatePath,
       capturedAt: null
     },
     tmpRoot

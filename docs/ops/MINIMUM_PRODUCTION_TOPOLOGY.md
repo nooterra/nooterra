@@ -2,6 +2,12 @@
 
 This is the smallest topology that supports real paid agent tool calls with audit evidence.
 
+## 0) Serving mode scope
+
+- This runbook is for production serving modes: `hosted` and `self-host`.
+- `local-dev` is intentionally out of scope and cannot be used for customer traffic or production cutover.
+- Normative boundary contract: `docs/ops/SERVING_MODES_BOUNDARY.md` and `docs/kernel-compatible/serving-mode-boundary-policy.json`.
+
 ## 1) Required runtime components
 
 | Component | Purpose | Start command |
@@ -77,9 +83,9 @@ Reference flow: `docs/QUICKSTART_X402_GATEWAY.md`.
 4. Backups + restore drills on schedule (`scripts/backup-restore-test.sh`).
 5. `/metrics` scraped and alert rules enabled (`docs/ALERTS.md`).
 
-## 5) What must be hosted vs optional
+## 5) Mode ownership boundary
 
-Must host for real customer traffic:
+For real customer traffic, both production modes require the same six runtime components:
 
 1. `nooterra-api`
 2. `nooterra-magic-link`
@@ -87,6 +93,11 @@ Must host for real customer traffic:
 4. Postgres
 5. `x402-gateway`
 6. At least one paid upstream provider API
+
+Ownership by mode:
+
+1. `hosted`: Nooterra operates the runtime and produces hosted baseline evidence.
+2. `self-host`: customer/operator runs the runtime and must pass topology + upgrade/migration gates.
 
 Optional at first:
 
@@ -99,9 +110,9 @@ Optional at first:
 A deployment is considered usable when all are true:
 
 1. `GET /healthz` is green on API and gateway; `GET /v1/public/auth-mode` is reachable on API host.
-2. Hosted baseline evidence command passes for the environment.
+2. Mode-specific evidence is green (`hosted`: hosted baseline evidence command passes; `self-host`: topology + upgrade/migration gates are green).
 3. One paid MCP tool call succeeds end-to-end with artifact output.
 4. Receipt verification succeeds and is replay-auditable.
 5. Rollback path is documented and tested (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
-6. Self-host topology bundle gate is green (`npm run -s test:ops:self-host-topology-bundle-gate`, report: `artifacts/gates/self-host-topology-bundle-gate.json`).
-7. Self-host upgrade/migration gate is green (`npm run -s test:ops:self-host-upgrade-migration-gate`, report: `artifacts/gates/self-host-upgrade-migration-gate.json`).
+6. If `servingMode=self-host`, self-host topology bundle gate is green (`npm run -s test:ops:self-host-topology-bundle-gate`, report: `artifacts/gates/self-host-topology-bundle-gate.json`).
+7. If `servingMode=self-host`, self-host upgrade/migration gate is green (`npm run -s test:ops:self-host-upgrade-migration-gate`, report: `artifacts/gates/self-host-upgrade-migration-gate.json`).

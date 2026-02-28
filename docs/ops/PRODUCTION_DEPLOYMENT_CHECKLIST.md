@@ -94,6 +94,16 @@ Expected report path:
 
 `artifacts/gates/self-host-upgrade-migration-gate.json`
 
+7. Run serving mode boundary gate path from `docs/ops/SERVING_MODES_BOUNDARY.md`:
+
+```bash
+npm run -s test:ops:serving-mode-boundary-gate
+```
+
+Expected report path:
+
+`artifacts/gates/serving-mode-boundary-gate.json`
+
 ## Phase 4: MCP compatibility verification
 
 1. Run core MCP automated tests:
@@ -184,6 +194,7 @@ Expected report path:
 11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
 12. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
 13. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
+14. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 
