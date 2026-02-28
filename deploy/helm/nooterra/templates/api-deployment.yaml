@@ -40,6 +40,28 @@ spec:
               value: {{ .Values.store.pgSchema | quote }}
             - name: PROXY_MIGRATE_ON_STARTUP
               value: {{ ternary "1" "0" .Values.store.migrateOnStartup | quote }}
+            - name: PROXY_EVIDENCE_STORE
+              value: {{ .Values.evidenceStore.mode | quote }}
+            {{- if eq .Values.evidenceStore.mode "s3" }}
+            - name: PROXY_EVIDENCE_S3_ENDPOINT
+              value: {{ required "evidenceStore.s3.endpoint is required when evidenceStore.mode=s3" .Values.evidenceStore.s3.endpoint | quote }}
+            - name: PROXY_EVIDENCE_S3_REGION
+              value: {{ .Values.evidenceStore.s3.region | quote }}
+            - name: PROXY_EVIDENCE_S3_BUCKET
+              value: {{ required "evidenceStore.s3.bucket is required when evidenceStore.mode=s3" .Values.evidenceStore.s3.bucket | quote }}
+            - name: PROXY_EVIDENCE_S3_FORCE_PATH_STYLE
+              value: {{ ternary "1" "0" .Values.evidenceStore.s3.forcePathStyle | quote }}
+            - name: PROXY_EVIDENCE_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "evidenceStore.s3.accessKeyIdSecret.name is required when evidenceStore.mode=s3" .Values.evidenceStore.s3.accessKeyIdSecret.name }}
+                  key: {{ .Values.evidenceStore.s3.accessKeyIdSecret.key }}
+            - name: PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "evidenceStore.s3.secretAccessKeySecret.name is required when evidenceStore.mode=s3" .Values.evidenceStore.s3.secretAccessKeySecret.name }}
+                  key: {{ .Values.evidenceStore.s3.secretAccessKeySecret.key }}
+            {{- end }}
             {{- if .Values.buildId }}
             - name: PROXY_BUILD
               value: {{ .Values.buildId | quote }}

@@ -8,18 +8,37 @@ This chart deploys:
 
 ## Quick start
 
-1) Create a secret containing `DATABASE_URL`:
+1) Create required secrets:
 
 ```bash
 kubectl create secret generic nooterra-db --from-literal=DATABASE_URL='postgres://...'
+kubectl create secret generic nooterra-evidence-s3 \
+  --from-literal=ACCESS_KEY_ID='...' \
+  --from-literal=SECRET_ACCESS_KEY='...'
 ```
 
 2) Install:
 
 ```bash
 helm upgrade --install nooterra deploy/helm/nooterra \
+  -f deploy/helm/nooterra/values-prod-example.yaml \
   --set store.databaseUrlSecret.name=nooterra-db
 ```
+
+## Evidence store (API)
+
+`evidenceStore` config controls where API evidence/artifact bytes are stored.
+
+- `mode: fs`: local filesystem under the API pod.
+- `mode: s3`: API uses S3 via:
+  - `evidenceStore.s3.endpoint`
+  - `evidenceStore.s3.region`
+  - `evidenceStore.s3.bucket`
+  - `evidenceStore.s3.forcePathStyle`
+  - `evidenceStore.s3.accessKeyIdSecret.{name,key}`
+  - `evidenceStore.s3.secretAccessKeySecret.{name,key}`
+
+Fail-closed render behavior: when `evidenceStore.mode=s3`, chart rendering fails if required S3 values are missing (`endpoint`, `bucket`, `accessKeyIdSecret.name`, `secretAccessKeySecret.name`).
 
 ## Export destinations + file secret refs
 
@@ -35,4 +54,3 @@ Pods run with:
 - dropped capabilities
 - `readOnlyRootFilesystem: true`
 - explicit `emptyDir` mounts for `/tmp` (and `/data` where needed)
-
