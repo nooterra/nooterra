@@ -138,6 +138,7 @@ import {
   buildCapabilityAttestationV1,
   evaluateCapabilityAttestationV1,
   getCapabilityAttestationLevelRank,
+  normalizeCapabilityIdentifier,
   revokeCapabilityAttestationV1,
   validateCapabilityAttestationV1
 } from "../core/capability-attestation.js";
@@ -10962,12 +10963,13 @@ export function createApi({
     capability = null
   } = {}) {
     const t = normalizeTenant(tenantId);
+    const capabilityFilter = typeof capability === "string" && capability.trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     if (typeof store.listCapabilityAttestations === "function") {
       return store.listCapabilityAttestations({
         tenantId: t,
         subjectAgentId,
         issuerAgentId,
-        capability,
+        capability: capabilityFilter,
         limit: 10_000,
         offset: 0
       });
@@ -10976,7 +10978,6 @@ export function createApi({
       const out = [];
       const subjectFilter = typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null;
       const issuerFilter = typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null;
-      const capabilityFilter = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
       for (const row of store.capabilityAttestations.values()) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
         if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
@@ -10999,7 +11000,8 @@ export function createApi({
     issuerAgentId = null,
     at = nowIso()
   } = {}) {
-    const effectiveCapability = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
+    const effectiveCapability =
+      typeof capability === "string" && capability.trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     if (!effectiveCapability) {
       return {
         isValid: false,
@@ -11282,7 +11284,8 @@ export function createApi({
     const window = parseReputationWindow(reputationWindow);
     const rankingStrategy = parseScoreStrategy(scoreStrategy);
 
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
     if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
       throw new TypeError("minTrustScore must be an integer within 0..100");
@@ -11411,7 +11414,8 @@ export function createApi({
     if (isPublicScope && visibilityFilter !== AGENT_CARD_VISIBILITY.PUBLIC) {
       throw new TypeError("public discovery visibility must be public");
     }
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
       allowNull: true,
       fieldName: "executionCoordinatorDid"
@@ -11834,7 +11838,8 @@ export function createApi({
     runtime = null
   } = {}) {
     const statusFilter = parseDiscoveryStatus(status);
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
       allowNull: true,
       fieldName: "executionCoordinatorDid"
@@ -56742,12 +56747,17 @@ export function createApi({
         let toolSideEffecting = null;
         let sinceCursor = null;
         let executionCoordinatorDid = null;
+        let capabilityFilter = null;
         try {
           const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
           toolSideEffecting =
             toolSideEffectingRaw === null
               ? null
               : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
+          capabilityFilter =
+            typeof url.searchParams.get("capability") === "string" && url.searchParams.get("capability").trim() !== ""
+              ? normalizeCapabilityIdentifier(url.searchParams.get("capability"), { name: "capability" })
+              : null;
           executionCoordinatorDid = parseExecutionCoordinatorDid(url.searchParams.get("executionCoordinatorDid"), {
             allowNull: true,
             fieldName: "executionCoordinatorDid"
@@ -56762,7 +56772,7 @@ export function createApi({
         }
 
         const query = {
-          capability: url.searchParams.get("capability"),
+          capability: capabilityFilter,
           executionCoordinatorDid,
           toolId: url.searchParams.get("toolId"),
           toolMcpName: url.searchParams.get("toolMcpName"),
@@ -57276,12 +57286,17 @@ export function createApi({
         let statusFilter = null;
         let visibilityFilter = null;
         let executionCoordinatorDidFilter = null;
+        let capabilityFilter = null;
         try {
           statusFilter = status && status.trim() !== "" ? parseDiscoveryStatus(status) : null;
           visibilityFilter = visibility && visibility.trim() !== "" ? parseAgentCardVisibility(visibility, { allowAll: false }) : null;
           executionCoordinatorDidFilter =
             typeof executionCoordinatorDid === "string" && executionCoordinatorDid.trim() !== ""
               ? parseExecutionCoordinatorDid(executionCoordinatorDid, { allowNull: false, fieldName: "executionCoordinatorDid" })
+              : null;
+          capabilityFilter =
+            typeof capability === "string" && capability.trim() !== ""
+              ? normalizeCapabilityIdentifier(capability, { name: "capability" })
               : null;
         } catch (err) {
           return sendError(res, 400, "invalid agent card query", { message: err?.message }, { code: "SCHEMA_INVALID" });
@@ -57294,7 +57309,7 @@ export function createApi({
               agentId: typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null,
               status: statusFilter === "all" ? null : statusFilter,
               visibility: visibilityFilter,
-              capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null,
+              capability: capabilityFilter,
               executionCoordinatorDid: executionCoordinatorDidFilter,
               runtime: typeof runtime === "string" && runtime.trim() !== "" ? runtime.trim().toLowerCase() : null,
               limit: safeLimit,
@@ -57307,9 +57322,7 @@ export function createApi({
               .filter((row) => (statusFilter && statusFilter !== "all" ? String(row.status ?? "").toLowerCase() === statusFilter : true))
               .filter((row) => (visibilityFilter ? String(row.visibility ?? "").toLowerCase() === visibilityFilter : true))
               .filter((row) =>
-                typeof capability === "string" && capability.trim() !== ""
-                  ? Array.isArray(row.capabilities) && row.capabilities.includes(capability.trim())
-                  : true
+                capabilityFilter ? Array.isArray(row.capabilities) && row.capabilities.includes(capabilityFilter) : true
               )
               .filter((row) =>
                 executionCoordinatorDidFilter
@@ -58296,9 +58309,15 @@ export function createApi({
         const attestationId =
           typeof body?.attestationId === "string" && body.attestationId.trim() !== "" ? body.attestationId.trim() : createId("catt");
         const subjectAgentId = typeof body?.subjectAgentId === "string" && body.subjectAgentId.trim() !== "" ? body.subjectAgentId.trim() : null;
-        const capability = typeof body?.capability === "string" && body.capability.trim() !== "" ? body.capability.trim() : null;
-        if (!subjectAgentId || !capability) {
+        const capabilityRaw = typeof body?.capability === "string" && body.capability.trim() !== "" ? body.capability.trim() : null;
+        if (!subjectAgentId || !capabilityRaw) {
           return sendError(res, 400, "subjectAgentId and capability are required", null, { code: "SCHEMA_INVALID" });
+        }
+        let capability = null;
+        try {
+          capability = normalizeCapabilityIdentifier(capabilityRaw, { name: "capability" });
+        } catch (err) {
+          return sendError(res, 400, "invalid capability attestation", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
         const subjectIdentity = await getAgentIdentityRecord({ tenantId, agentId: subjectAgentId });
         if (!subjectIdentity) return sendError(res, 404, "subject agent identity not found", null, { code: "NOT_FOUND" });
@@ -58406,8 +58425,13 @@ export function createApi({
         const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
         const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
         let statusFilter = null;
+        let capabilityFilter = null;
         try {
           statusFilter = parseCapabilityAttestationQueryStatus(statusRaw, { allowNull: true });
+          capabilityFilter =
+            typeof capability === "string" && capability.trim() !== ""
+              ? normalizeCapabilityIdentifier(capability, { name: "capability" })
+              : null;
         } catch (err) {
           return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
@@ -58419,7 +58443,7 @@ export function createApi({
             attestationId: typeof attestationId === "string" && attestationId.trim() !== "" ? attestationId.trim() : null,
             subjectAgentId: typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null,
             issuerAgentId: typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null,
-            capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null
+            capability: capabilityFilter
           });
         } catch (err) {
           return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
@@ -61221,7 +61245,15 @@ export function createApi({
       if (req.method === "GET" && path === "/agents") {
         const status = url.searchParams.get("status");
         const capabilityFilterRaw = url.searchParams.get("capability");
-        const capabilityFilter = capabilityFilterRaw && capabilityFilterRaw.trim() !== "" ? capabilityFilterRaw.trim() : null;
+        let capabilityFilter = null;
+        try {
+          capabilityFilter =
+            typeof capabilityFilterRaw === "string" && capabilityFilterRaw.trim() !== ""
+              ? normalizeCapabilityIdentifier(capabilityFilterRaw, { name: "capability" })
+              : null;
+        } catch (err) {
+          return sendError(res, 400, "invalid agent identity query", { message: err?.message });
+        }
         const minTrustScoreRaw = url.searchParams.get("minTrustScore");
         const includeReputationRaw = url.searchParams.get("includeReputation");
         const includeReputation = includeReputationRaw !== null && ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
@@ -61355,9 +61387,18 @@ export function createApi({
         }
 
         const capabilitiesRaw = Array.isArray(body?.capabilities) ? body.capabilities : [];
-        const capabilities = [...new Set(capabilitiesRaw.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
-          left.localeCompare(right)
-        );
+        const capabilitySet = new Set();
+        try {
+          for (let index = 0; index < capabilitiesRaw.length; index += 1) {
+            const raw = capabilitiesRaw[index];
+            const candidate = String(raw ?? "").trim();
+            if (!candidate) continue;
+            capabilitySet.add(normalizeCapabilityIdentifier(candidate, { name: `capabilities[${index}]` }));
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid agent identity", { message: err?.message });
+        }
+        const capabilities = Array.from(capabilitySet.values()).sort((left, right) => left.localeCompare(right));
 
         const nowAt = nowIso();
         const candidate = {

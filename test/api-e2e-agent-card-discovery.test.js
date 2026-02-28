@@ -8,6 +8,13 @@ import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js
 import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 
+const CAPABILITY_NAMESPACE_ERROR_PATTERN = Object.freeze({
+  scheme: /(CAPABILITY_[A-Z0-9_]*SCHEME[A-Z0-9_]*|scheme)/i,
+  format: /(CAPABILITY_[A-Z0-9_]*(FORMAT|NAMESPACE)[A-Z0-9_]*|format|lowercase|namespace)/i,
+  reserved: /(CAPABILITY_[A-Z0-9_]*RESERVED[A-Z0-9_]*|reserved)/i,
+  segmentLength: /(CAPABILITY_[A-Z0-9_]*(SEGMENT|LENGTH)[A-Z0-9_]*|segment|length)/i
+});
+
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
   const response = await request(api, {
@@ -145,6 +152,12 @@ async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, rea
   return response;
 }
 
+function assertCapabilityNamespaceErrorResponse(response, expectedPattern) {
+  assert.equal(response.statusCode, 400, response.body);
+  assert.equal(response.json?.code, "SCHEMA_INVALID");
+  assert.match(String(response.json?.details?.message ?? ""), expectedPattern);
+}
+
 async function upsertAgentSignerKeyLifecycle(
   api,
   {
@@ -278,6 +291,130 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   });
   assert.equal(invalidCapability.statusCode, 400, invalidCapability.body);
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: AgentCard capability namespace accepts legacy + capability URI forms", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  await registerAgent(api, {
+    agentId: "agt_card_cap_ns_legacy_1",
+    capabilities: ["travel.booking"]
+  });
+  await registerAgent(api, {
+    agentId: "agt_card_cap_ns_uri_1",
+    capabilities: ["capability://travel.booking@v2"]
+  });
+
+  const upsertLegacy = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_legacy_1" },
+    body: {
+      agentId: "agt_card_cap_ns_legacy_1",
+      displayName: "Capability Namespace Legacy",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-legacy", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertLegacy.statusCode, 201, upsertLegacy.body);
+  assert.equal(upsertLegacy.json?.agentCard?.capabilities?.includes("travel.booking"), true);
+
+  const upsertUri = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_uri_1" },
+    body: {
+      agentId: "agt_card_cap_ns_uri_1",
+      displayName: "Capability Namespace URI",
+      capabilities: ["capability://travel.booking@v2"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-uri", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertUri.statusCode, 201, upsertUri.body);
+  assert.equal(upsertUri.json?.agentCard?.capabilities?.includes("capability://travel.booking@v2"), true);
+
+  const discoverLegacy = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discoverLegacy.statusCode, 200, discoverLegacy.body);
+  assert.equal(discoverLegacy.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_legacy_1"), true);
+  assert.equal(discoverLegacy.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_uri_1"), false);
+
+  const discoverUri = await request(api, {
+    method: "GET",
+    path:
+      `/agent-cards/discover?capability=${encodeURIComponent("capability://travel.booking@v2")}` +
+      "&visibility=public&runtime=openclaw&status=active&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discoverUri.statusCode, 200, discoverUri.body);
+  assert.equal(discoverUri.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_uri_1"), true);
+  assert.equal(discoverUri.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_legacy_1"), false);
+});
+
+test("API e2e: agent-card discovery capability namespace validation fails closed deterministically", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_card_cap_ns_validation_1", capabilities: ["travel.booking"] });
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_validation_upsert_1" },
+    body: {
+      agentId: "agt_card_cap_ns_validation_1",
+      displayName: "Capability Namespace Validation",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-validation", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const invalidCases = [
+    {
+      name: "scheme",
+      capability: "https://travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.scheme
+    },
+    {
+      name: "format",
+      capability: "capability://Travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.format
+    },
+    {
+      name: "reserved",
+      capability: "capability://reserved.travel",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.reserved
+    },
+    {
+      name: "segment-length",
+      capability: `capability://travel.${"a".repeat(80)}`,
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.segmentLength
+    }
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const firstTenant = await request(api, {
+      method: "GET",
+      path: `/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}`
+    });
+    assertCapabilityNamespaceErrorResponse(firstTenant, invalidCase.pattern);
+
+    const secondTenant = await request(api, {
+      method: "GET",
+      path: `/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}`
+    });
+    assertCapabilityNamespaceErrorResponse(secondTenant, invalidCase.pattern);
+    assert.equal(firstTenant.json?.details?.message, secondTenant.json?.details?.message);
+
+    const publicResponse = await request(api, {
+      method: "GET",
+      path: `/public/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}&visibility=public`,
+      auth: "none"
+    });
+    assertCapabilityNamespaceErrorResponse(publicResponse, invalidCase.pattern);
+  }
 });
 
 test("API e2e: agent-card discovery filters by executionCoordinatorDid", async () => {

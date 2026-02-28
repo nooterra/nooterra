@@ -36,6 +36,10 @@ Runtime status: implemented.
 ## Invariants
 
 - `capabilities` MUST be a subset of the registered `AgentIdentity.v1` capabilities.
+- Each `capabilities[]` entry MUST follow the shared capability identifier policy:
+  - legacy non-URI strings are accepted for backward safety.
+  - URI form MUST be `capability://<namespace>[@vN]` with lowercase constrained namespace.
+  - reserved namespace and segment/length policy violations fail closed.
 - `agentId` MUST reference an existing agent identity.
 - `updatedAt` MUST move forward monotonically per card revision.
 - if present, `executionCoordinatorDid` MUST be a DID-like identifier (`:` required).
@@ -55,6 +59,8 @@ Runtime status: implemented.
 - `/public/agent-cards/discover` is cross-tenant and returns `visibility=public` cards only.
 - Non-public visibility filters are rejected fail-closed (`SCHEMA_INVALID`).
 - Agents under active emergency quarantine are excluded from public discoverability.
+- `capability` query filters on discover endpoints use the same capability identifier policy as `capabilities[]`.
+- Invalid capability scheme/format/reserved namespace/segment+length inputs fail closed (`SCHEMA_INVALID`) with deterministic reason-code-like detail messaging.
 - Tool descriptor filters are supported on discover endpoints:
   - `executionCoordinatorDid`
   - `toolId`

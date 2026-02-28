@@ -25,6 +25,7 @@ import { canonicalJsonStringify } from "../core/canonical-json.js";
 import { buildDeterministicZipStore, sha256HexBytes } from "../core/deterministic-zip.js";
 import { buildFinancePackBundleV1 } from "../core/finance-pack-bundle.js";
 import { buildMonthProofBundleV1 } from "../core/proof-bundle.js";
+import { normalizeCapabilityIdentifier } from "../core/capability-attestation.js";
 import {
   ARTIFACT_TYPE,
   buildMonthlyStatementV1,
@@ -1091,6 +1092,15 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         ? null
         : String(agentIdentity.owner.ownerId);
     const revision = parseSafeIntegerOrNull(agentIdentity.revision) ?? 0;
+    const capabilitiesIn = Array.isArray(agentIdentity.capabilities) ? agentIdentity.capabilities : [];
+    const capabilitySet = new Set();
+    for (let index = 0; index < capabilitiesIn.length; index += 1) {
+      const raw = capabilitiesIn[index];
+      const candidate = String(raw ?? "").trim();
+      if (!candidate) continue;
+      capabilitySet.add(normalizeCapabilityIdentifier(candidate, { name: `agentIdentity.capabilities[${index}]` }));
+    }
+    const capabilities = Array.from(capabilitySet.values()).sort((left, right) => left.localeCompare(right));
 
     const normalizedIdentity = {
       ...agentIdentity,
@@ -1105,6 +1115,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               ownerId: ownerId
             }
           : null,
+      capabilities,
       revision,
       createdAt,
       updatedAt
@@ -1666,7 +1677,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const normalizedAttestationId =
       attestationId ? String(attestationId) : capabilityAttestation.attestationId ? String(capabilityAttestation.attestationId) : null;
     if (!normalizedAttestationId) throw new TypeError("attestationId is required");
-    const normalizedAttestation = { ...capabilityAttestation, tenantId, attestationId: normalizedAttestationId };
+    const normalizedCapability = normalizeCapabilityIdentifier(capabilityAttestation.capability, { name: "capabilityAttestation.capability" });
+    const normalizedAttestation = {
+      ...capabilityAttestation,
+      capability: normalizedCapability,
+      tenantId,
+      attestationId: normalizedAttestationId
+    };
     await persistSnapshotAggregate(client, {
       tenantId,
       aggregateType: "capability_attestation",
@@ -4657,7 +4674,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
-    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const capabilityFilter =
+      capability === null || capability === undefined || String(capability).trim() === ""
+        ? null
+        : normalizeCapabilityIdentifier(capability, { name: "capability" });
     const executionCoordinatorDidFilter =
       executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
         ? null
@@ -5024,7 +5044,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
     if (visibilityFilter !== "public") throw new TypeError("visibility must be public");
-    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const capabilityFilter =
+      capability === null || capability === undefined || String(capability).trim() === ""
+        ? null
+        : normalizeCapabilityIdentifier(capability, { name: "capability" });
     const executionCoordinatorDidFilter =
       executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
         ? null
@@ -5799,7 +5822,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const attestationIdFilter = attestationId ? String(attestationId).trim() : null;
     const subjectFilter = subjectAgentId ? String(subjectAgentId).trim() : null;
     const issuerFilter = issuerAgentId ? String(issuerAgentId).trim() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
 
     const applyFilters = (rows) => {
       const out = [];

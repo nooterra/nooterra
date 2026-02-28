@@ -20,6 +20,7 @@ import { normalizeBillingPlanId } from "../core/billing-plans.js";
 import { validateAgentCardV1 } from "../core/agent-card.js";
 import { validateSessionV1 } from "../core/session-collab.js";
 import { validateStateCheckpointV1 } from "../core/state-checkpoint.js";
+import { normalizeCapabilityIdentifier } from "../core/capability-attestation.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const NOOTERRA_PAY_KEYSET_STORE_FILENAME = "nooterra-pay-keyset-store.json";
@@ -817,9 +818,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
 
     const capabilitiesIn = Array.isArray(agentIdentity.capabilities) ? agentIdentity.capabilities : [];
-    const capabilities = [...new Set(capabilitiesIn.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
-      left.localeCompare(right)
-    );
+    const capabilitySet = new Set();
+    for (let index = 0; index < capabilitiesIn.length; index += 1) {
+      const raw = capabilitiesIn[index];
+      const candidate = String(raw ?? "").trim();
+      if (!candidate) continue;
+      capabilitySet.add(normalizeCapabilityIdentifier(candidate, { name: `agentIdentity.capabilities[${index}]` }));
+    }
+    const capabilities = Array.from(capabilitySet.values()).sort((left, right) => left.localeCompare(right));
 
     const walletPolicyIn = agentIdentity.walletPolicy;
     if (walletPolicyIn !== undefined && walletPolicyIn !== null && (typeof walletPolicyIn !== "object" || Array.isArray(walletPolicyIn))) {
@@ -1143,7 +1149,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const agentFilter = agentId ? String(agentId).trim() : null;
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
@@ -1203,7 +1209,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       throw new TypeError("visibility must be public");
     }
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
@@ -1952,6 +1958,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     const attestationId = capabilityAttestation.attestationId ?? null;
     if (typeof attestationId !== "string" || attestationId.trim() === "") throw new TypeError("capabilityAttestation.attestationId is required");
+    normalizeCapabilityIdentifier(capabilityAttestation.capability, { name: "capabilityAttestation.capability" });
     const at = capabilityAttestation.updatedAt ?? capabilityAttestation.createdAt ?? new Date().toISOString();
     await store.commitTx({
       at,
@@ -1989,7 +1996,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const attestationIdFilter = attestationId ? String(attestationId).trim() : null;
     const subjectAgentIdFilter = subjectAgentId ? String(subjectAgentId).trim() : null;
     const issuerAgentIdFilter = issuerAgentId ? String(issuerAgentId).trim() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const safeLimit = Math.min(1000, limit);
 
     const out = [];
