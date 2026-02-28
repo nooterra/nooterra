@@ -60,6 +60,22 @@ function sha256HexUtf8(text) {
   return createHash("sha256").update(String(text), "utf8").digest("hex");
 }
 
+export function canonicalJsonStringifyDeterministic(value) {
+  return canonicalJsonStringify(value);
+}
+
+export function computeCanonicalSha256(value) {
+  return sha256HexUtf8(canonicalJsonStringify(value));
+}
+
+export function buildCanonicalEnvelope(value) {
+  const canonicalJson = canonicalJsonStringify(value);
+  return {
+    canonicalJson,
+    sha256: sha256HexUtf8(canonicalJson)
+  };
+}
+
 function normalizeIsoDate(value, { fallbackNow = false, name = "timestamp" } = {}) {
   const raw =
     typeof value === "string" && value.trim() !== ""
