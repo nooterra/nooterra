@@ -24,6 +24,8 @@ Without all six, public onboarding + paid tool path is incomplete.
 
 Reference baseline: `docs/ops/HOSTED_BASELINE_R2.md`.
 
+Self-host bundle path: `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md` (`deploy/compose/nooterra-self-host.topology.yml` + `deploy/compose/self-host.env.example`).
+
 ## 3) Minimum environment contract
 
 ### `nooterra-api`
@@ -99,3 +101,4 @@ A deployment is considered usable when all are true:
 3. One paid MCP tool call succeeds end-to-end with artifact output.
 4. Receipt verification succeeds and is replay-auditable.
 5. Rollback path is documented and tested.
+6. Self-host topology bundle gate is green (`npm run -s test:ops:self-host-topology-bundle-gate`, report: `artifacts/gates/self-host-topology-bundle-gate.json`).

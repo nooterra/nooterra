@@ -74,6 +74,15 @@ node scripts/ops/openclaw-operator-readiness-gate.mjs \
 ```
 
 Fail-closed behavior: this gate blocks if hosted evidence is missing/invalid/non-pass or if required self-host runtime keys are unresolved (`NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`).
+5. Run the self-host topology bundle gate path from `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md`:
+
+```bash
+npm run -s test:ops:self-host-topology-bundle-gate
+```
+
+Expected report path:
+
+`artifacts/gates/self-host-topology-bundle-gate.json`
 
 ## Phase 4: MCP compatibility verification
 
@@ -163,6 +172,7 @@ Expected report path:
 9. Rollback runbook has been rehearsed.
 10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
 11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
+12. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 
