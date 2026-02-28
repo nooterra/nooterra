@@ -131,6 +131,7 @@
     "test:ops:self-serve-gate": "node scripts/ci/run-self-serve-launch-gate.mjs",
     "test:ops:onboarding-policy-slo-gate": "node scripts/ci/run-onboarding-policy-slo-gate.mjs",
     "test:ops:onboarding-host-success-gate": "node scripts/ci/run-onboarding-host-success-gate.mjs",
+    "test:ops:acs-e10-readiness-gate": "node scripts/ci/run-acs-e10-readiness-gate.mjs",
     "test:ops:agent-substrate-fast-loop": "node scripts/ci/run-agent-substrate-fast-loop.mjs --bootstrap-local",
     "test:ops:agent-substrate-adversarial-harness": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs",
     "test:ops:agent-substrate-adversarial-harness:prompt-contagion": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs --profile prompt-contagion",

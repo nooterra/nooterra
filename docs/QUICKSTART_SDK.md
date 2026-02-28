@@ -2,15 +2,103 @@
 
 Goal: run one end-to-end agent transaction (register identities, append run events, verify `green`, release settlement) using `NooterraClient.firstVerifiedRun(...)`.
 
-## 0) Install deps
+## Package-consumer path (recommended)
+
+### 0) Install the SDK package
+
+```sh
+npm install nooterra-api-sdk
+```
+
+### 1) Set required environment variables
+
+```sh
+export NOOTERRA_BASE_URL="https://your-nooterra-api"
+export NOOTERRA_TENANT_ID="your_tenant_id"
+export NOOTERRA_API_KEY="keyId.secret"
+# optional for Magic Link deployments that enforce x-api-key:
+# export NOOTERRA_X_API_KEY="your_x_api_key"
+```
+
+### 2) Run a first verified transaction directly
+
+Create `first-verified-run.mjs`:
+
+```js
+import { NooterraClient } from "nooterra-api-sdk";
+
+const required = ["NOOTERRA_BASE_URL", "NOOTERRA_TENANT_ID", "NOOTERRA_API_KEY"];
+const missing = required.filter((key) => !process.env[key]);
+if (missing.length) {
+  throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+}
+
+const client = new NooterraClient({
+  baseUrl: process.env.NOOTERRA_BASE_URL,
+  tenantId: process.env.NOOTERRA_TENANT_ID,
+  apiKey: process.env.NOOTERRA_API_KEY,
+  xApiKey: process.env.NOOTERRA_X_API_KEY
+});
+
+const result = await client.firstVerifiedRun({
+  payeeAgent: { publicKeyPem: "...", owner: { ownerType: "service", ownerId: "svc_a" } },
+  payerAgent: { publicKeyPem: "...", owner: { ownerType: "service", ownerId: "svc_b" } },
+  payerCredit: { amountCents: 5000 },
+  settlement: { amountCents: 1200 },
+  run: { taskType: "translation" }
+});
+
+const verificationStatus =
+  result.verification?.body?.verification?.verificationStatus ??
+  result.verification?.body?.verificationStatus ??
+  null;
+
+console.log(
+  JSON.stringify(
+    {
+      runId: result.ids?.runId ?? null,
+      payeeAgentId: result.ids?.payeeAgentId ?? null,
+      payerAgentId: result.ids?.payerAgentId ?? null,
+      runStatus: result.runCompleted?.body?.run?.status ?? null,
+      verificationStatus,
+      settlementStatus: result.settlement?.body?.settlement?.status ?? null
+    },
+    null,
+    2
+  )
+);
+```
+
+Run it:
+
+```sh
+node first-verified-run.mjs
+```
+
+Expected output:
+
+```json
+{
+  "runId": "run_sdk_...",
+  "payeeAgentId": "agt_payee_...",
+  "payerAgentId": "agt_payer_...",
+  "runStatus": "completed",
+  "verificationStatus": "green",
+  "settlementStatus": "released"
+}
+```
+
+## Local/dev path (repo helpers)
+
+Use this path when running against a local checkout of this repo.
+
+### 0) Install repo deps
 
 ```sh
 npm ci
 ```
 
-## Fast Path (recommended)
-
-Use the helper scripts to avoid manual export churn across shells:
+### 1) Fast path with helper scripts
 
 ```sh
 npm run dev:env:init
@@ -43,16 +131,16 @@ Optional: make `sdk:first-run` create a disputable settlement window:
 NOOTERRA_SDK_DISPUTE_WINDOW_DAYS=3 npm run sdk:first-run
 ```
 
-## 1) Start the API with a local ops token
+### 2) Manual local API + API key flow
+
+Start the API with a local ops token:
 
 ```sh
 export PROXY_OPS_TOKEN=dev_ops_token
 npm run dev:api
 ```
 
-## 2) Create an API key for SDK calls
-
-In a second shell:
+In a second shell, create an API key for SDK calls:
 
 ```sh
 export NOOTERRA_BASE_URL=http://127.0.0.1:3000
@@ -67,26 +155,13 @@ export NOOTERRA_API_KEY="$(
 )"
 ```
 
-## 3) Run the SDK example
+Run the repo example:
 
 ```sh
 node scripts/examples/sdk-first-verified-run.mjs
 ```
 
-Expected output:
-
-```json
-{
-  "runId": "run_sdk_...",
-  "payeeAgentId": "agt_payee_...",
-  "payerAgentId": "agt_payer_...",
-  "runStatus": "completed",
-  "verificationStatus": "green",
-  "settlementStatus": "released"
-}
-```
-
-## 3b) Run ACS substrate smoke flow (JS SDK)
+### 3) ACS substrate smoke flow (JS SDK)
 
 This exercises discovery, delegation grants, authority grants, negotiation, work orders, state checkpoints, session lineage, reputation graph wrappers, and capability attestations end-to-end.
 
@@ -112,28 +187,7 @@ Expected output:
 }
 ```
 
-## 4) Use the helper directly in code
-
-```js
-import { NooterraClient } from "./packages/api-sdk/src/index.js";
-
-const client = new NooterraClient({
-  baseUrl: process.env.NOOTERRA_BASE_URL,
-  tenantId: process.env.NOOTERRA_TENANT_ID,
-  apiKey: process.env.NOOTERRA_API_KEY,
-  xApiKey: process.env.NOOTERRA_X_API_KEY // optional for Magic Link deployments that enforce x-api-key
-});
-
-const result = await client.firstVerifiedRun({
-  payeeAgent: { publicKeyPem: "...", owner: { ownerType: "service", ownerId: "svc_a" } },
-  payerAgent: { publicKeyPem: "...", owner: { ownerType: "service", ownerId: "svc_b" } },
-  payerCredit: { amountCents: 5000 },
-  settlement: { amountCents: 1200 },
-  run: { taskType: "translation" }
-});
-```
-
-## 5) Pull tenant analytics + trust graph (Magic Link)
+## Pull tenant analytics + trust graph (Magic Link)
 
 ```js
 const analytics = await client.getTenantAnalytics("tenant_default", { month: "2026-02", bucket: "day", limit: 20 });
@@ -141,7 +195,7 @@ const graph = await client.getTenantTrustGraph("tenant_default", { month: "2026-
 const diff = await client.diffTenantTrustGraph("tenant_default", { baseMonth: "2026-01", compareMonth: "2026-02", limit: 50 });
 ```
 
-Or run the prebuilt script:
+Or run the prebuilt script from this repo:
 
 ```sh
 NOOTERRA_BASE_URL=http://127.0.0.1:8787 \

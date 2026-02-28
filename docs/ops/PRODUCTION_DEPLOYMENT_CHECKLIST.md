@@ -99,12 +99,19 @@ This emits a machine-readable report at:
 
 `artifacts/ops/mcp-host-smoke.json`
 
-3. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
+3. Run MCP host cert matrix report:
+
+```bash
+npm run test:ci:mcp-host-cert-matrix -- \
+  --report artifacts/ops/mcp-host-cert-matrix.json
+```
+
+4. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
    Claude, Cursor, Nooterra, and OpenClaw.
 
-4. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
+5. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
 
-5. Run clean-env onboarding host success gate:
+6. Run clean-env onboarding host success gate:
 
 ```bash
 npm run test:ops:onboarding-host-success-gate -- \
@@ -133,6 +140,14 @@ npm run demo:mcp-paid-exa
 
 Ship only when all are true:
 
+Run ACS-E10 readiness summary after upstream artifacts are present:
+
+`npm run test:ops:acs-e10-readiness-gate`
+
+Expected report path:
+
+`artifacts/gates/acs-e10-readiness-gate.json`
+
 1. Kernel v0 ship gate, production cutover gate, and NOO-50 parity gate are green.
 2. Onboarding/policy SLO gate is green (`artifacts/gates/onboarding-policy-slo-gate.json`).
 3. Onboarding host success gate is green (`artifacts/gates/onboarding-host-success-gate.json`).
@@ -147,6 +162,7 @@ Ship only when all are true:
 8. Paid MCP run artifacts verify cleanly.
 9. Rollback runbook has been rehearsed.
 10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
+11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 
