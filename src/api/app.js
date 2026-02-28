@@ -59045,10 +59045,46 @@ export function createApi({
               }
             }
           }
-	          const workOrderAuthorityGrantRef =
-	            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
-	              ? existingWorkOrder.authorityGrantRef.trim()
-	              : null;
+		          const workOrderDelegationGrantRef =
+		            typeof existingWorkOrder?.delegationGrantRef === "string" && existingWorkOrder.delegationGrantRef.trim() !== ""
+		              ? existingWorkOrder.delegationGrantRef.trim()
+		              : null;
+		          let gateDelegationGrantRef = null;
+		          const gateDelegationCandidates = [
+		            linkedX402Gate?.delegationGrantRef,
+		            linkedX402Gate?.authorization?.delegationGrantRef,
+		            linkedX402Gate?.agentPassport?.delegationGrantRef
+		          ];
+		          for (const candidate of gateDelegationCandidates) {
+		            if (typeof candidate !== "string" || candidate.trim() === "") continue;
+		            try {
+		              gateDelegationGrantRef = normalizeOptionalX402RefInput(candidate.trim(), "delegationGrantRef", {
+		                allowNull: false,
+		                max: 200
+		              });
+		              break;
+		            } catch (err) {
+		              return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+		            }
+		          }
+		          if (workOrderDelegationGrantRef && gateDelegationGrantRef && workOrderDelegationGrantRef !== gateDelegationGrantRef) {
+		            return sendError(
+		              res,
+		              409,
+		              "work order settlement conflict",
+		              {
+		                message: "delegationGrantRef mismatch between work order and x402 gate binding",
+		                workOrderDelegationGrantRef,
+		                gateDelegationGrantRef
+		              },
+		              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+		            );
+		          }
+		          const effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
+		          const workOrderAuthorityGrantRef =
+		            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
+		              ? existingWorkOrder.authorityGrantRef.trim()
+		              : null;
 	          let gateAuthorityGrantRef = null;
 	          const gateAuthorityCandidates = [
 	            linkedX402Gate?.authorization?.authorityGrantRef,
@@ -59105,10 +59141,10 @@ export function createApi({
 	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
 	            );
 	          }
-		          const effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
-		          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRef) {
-		            return sendError(
-		              res,
+			          let effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
+			          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRef) {
+			            return sendError(
+			              res,
 		              409,
 		              "work order settlement blocked",
 		              {
@@ -59116,26 +59152,65 @@ export function createApi({
 		                message: "authority grant is required for work order settlement",
 		                workOrderId
 		              },
-		              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
-		            );
-		          }
-		          if (effectiveAuthorityGrantRef) {
+			              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+			            );
+			          }
+          const grantValidationAt = nowIso();
+          let resolvedDelegationGrant = null;
+          if (effectiveDelegationGrantRef) {
+            if (typeof store.getDelegationGrant !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: effectiveDelegationGrantRef });
+            if (!delegationGrant) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "X402_DELEGATION_GRANT_NOT_FOUND",
+                  message: "delegation grant was not found",
+                  delegationGrantRef: effectiveDelegationGrantRef
+                },
+                { code: "X402_DELEGATION_GRANT_NOT_FOUND" }
+              );
+            }
             try {
-              await resolveX402AuthorityGrantForAuthorization({
-                tenantId,
-		                gate: linkedX402Gate ?? {
-		                  payerAgentId: existingWorkOrder?.principalAgentId ?? null,
+              validateDelegationGrantV1(delegationGrant);
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "X402_DELEGATION_GRANT_INVALID",
+                  message: err?.message ?? null
+                },
+                { code: "X402_DELEGATION_GRANT_INVALID" }
+              );
+            }
+            resolvedDelegationGrant = delegationGrant;
+          }
+          let resolvedAuthorityGrant = null;
+          if (effectiveAuthorityGrantRef) {
+	            try {
+	              const authorityResolution = await resolveX402AuthorityGrantForAuthorization({
+	                tenantId,
+			                gate: linkedX402Gate ?? {
+			                  payerAgentId: existingWorkOrder?.principalAgentId ?? null,
 		                  toolId: workOrderToolId
 		                },
-			                authorityGrantRef: effectiveAuthorityGrantRef,
-			                nowAt: nowIso(),
-			                amountCents: settlementAmountCents,
-			                currency: settlementCurrency,
-			                payeeProviderId: gateProviderId ?? workOrderProviderId ?? null
-			              });
-		            } catch (err) {
-	              return sendError(
-	                res,
+				                authorityGrantRef: effectiveAuthorityGrantRef,
+				                nowAt: grantValidationAt,
+				                amountCents: settlementAmountCents,
+				                currency: settlementCurrency,
+				                payeeProviderId: gateProviderId ?? workOrderProviderId ?? null
+				              });
+			              resolvedAuthorityGrant = authorityResolution?.authorityGrant ?? null;
+			              effectiveAuthorityGrantRef = authorityResolution?.authorityGrantRef ?? effectiveAuthorityGrantRef;
+			            } catch (err) {
+		              return sendError(
+		                res,
 	                409,
 	                "work order settlement blocked",
 	                {
@@ -59143,11 +59218,35 @@ export function createApi({
 	                  message: err?.message ?? null,
 	                  ...(err?.details && typeof err.details === "object" ? err.details : {})
 	                },
-	                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
-	              );
-	            }
-	          }
-	          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
+		                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+		              );
+		            }
+		          }
+          if (resolvedDelegationGrant && resolvedAuthorityGrant) {
+            try {
+              await assertDelegationGrantWithinAuthorityGrant({
+                tenantId,
+                nowAt: grantValidationAt,
+                delegationGrant: resolvedDelegationGrant,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                authorityGrant: resolvedAuthorityGrant,
+                authorityGrantRef: effectiveAuthorityGrantRef
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+                  message: err?.message ?? null,
+                  ...(err?.details && typeof err.details === "object" ? err.details : {})
+                },
+                { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
+              );
+            }
+          }
+		          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
           const promptRiskSessionRef =
             sessionRef ??
             (typeof linkedX402Gate?.sessionRef === "string" && linkedX402Gate.sessionRef.trim() !== ""
