@@ -84,6 +84,11 @@ import {
   AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY,
   AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL,
   AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL,
+  FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION,
+  FEDERATION_DISPUTE_POLICY_PATH,
+  FEDERATION_DISPUTE_PRIMARY_PLANE,
+  FEDERATION_DISPUTE_COUNTERPART_STATUS,
+  FEDERATION_DISPUTE_TIE_BREAK,
   AGENT_RUN_SETTLEMENT_DECISION_MODE,
   AGENT_RUN_SETTLEMENT_DECISION_STATUS,
   AGENT_RUN_SETTLEMENT_STATUS,
@@ -40763,6 +40768,12 @@ export function createApi({
             const settlementAgentIds = collectAgentIdsForAuditLineage(settlement);
             const settlementTraceIds = collectTraceIdsForAuditLineage(settlement);
             if (!matchesFilters({ agentIds: settlementAgentIds, traceIds: settlementTraceIds })) continue;
+            const settlementFederationJurisdiction =
+              settlement?.disputeResolution?.federationJurisdiction && typeof settlement.disputeResolution.federationJurisdiction === "object"
+                ? settlement.disputeResolution.federationJurisdiction
+                : settlement?.disputeContext?.federationJurisdiction && typeof settlement.disputeContext.federationJurisdiction === "object"
+                  ? settlement.disputeContext.federationJurisdiction
+                  : null;
             records.push({
               kind: "RUN_SETTLEMENT",
               recordId: String(settlement.settlementId ?? run.runId ?? ""),
@@ -40773,7 +40784,11 @@ export function createApi({
               refs: {
                 runId: run.runId ?? null,
                 settlementId: settlement.settlementId ?? null,
-                disputeStatus: settlement?.dispute?.status ?? null
+                disputeStatus: settlement?.dispute?.status ?? null,
+                federationDisputePolicyPath: settlementFederationJurisdiction?.policyPath ?? null,
+                federationDisputeCoordinationId: settlementFederationJurisdiction?.disputeCoordinationId ?? null,
+                federationDisputeCounterpartStatus: settlementFederationJurisdiction?.counterpartStatus ?? null,
+                federationDisputeContinuityHash: settlementFederationJurisdiction?.continuityHash ?? null
               }
             });
           }
@@ -63748,6 +63763,234 @@ export function createApi({
         }
 
         const nowAt = nowIso();
+        const FEDERATION_DISPUTE_REASON_CODE = Object.freeze({
+          JURISDICTION_REQUIRED: "FEDERATION_DISPUTE_JURISDICTION_REQUIRED",
+          POLICY_MISMATCH: "FEDERATION_DISPUTE_JURISDICTION_POLICY_MISMATCH",
+          AUTHORIZATION_REQUIRED: "FEDERATION_DISPUTE_AUTHORIZATION_REQUIRED",
+          EVIDENCE_REQUIRED: "FEDERATION_DISPUTE_EVIDENCE_REQUIRED"
+        });
+        const normalizeFederatedDisputeString = (value, { name, allowNull = true, max = 256 } = {}) => {
+          if (value === null || value === undefined) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          const text = String(value).trim();
+          if (!text) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          if (text.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+          return text;
+        };
+        const normalizeFederatedDisputeStringArray = (value, { name } = {}) => {
+          if (value === null || value === undefined) return [];
+          if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
+          const out = [];
+          const seen = new Set();
+          for (let index = 0; index < value.length; index += 1) {
+            const item = normalizeFederatedDisputeString(value[index], {
+              name: `${name}[${index}]`,
+              allowNull: false,
+              max: 512
+            });
+            if (seen.has(item)) continue;
+            seen.add(item);
+            out.push(item);
+          }
+          out.sort((left, right) => left.localeCompare(right));
+          return out;
+        };
+        const normalizeFederatedDisputeJurisdictionInput = (value, { name = "federationJurisdiction", allowNull = true } = {}) => {
+          if (value === null || value === undefined) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new TypeError(`${name} must be an object`);
+          }
+          const policyPath = String(value.policyPath ?? FEDERATION_DISPUTE_POLICY_PATH.LOCAL_PRIMARY)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_POLICY_PATH).includes(policyPath)) {
+            throw new TypeError(
+              `${name}.policyPath must be ${Object.values(FEDERATION_DISPUTE_POLICY_PATH).join("|")}`
+            );
+          }
+          const primaryPlane = String(value.primaryPlane ?? FEDERATION_DISPUTE_PRIMARY_PLANE.LOCAL)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_PRIMARY_PLANE).includes(primaryPlane)) {
+            throw new TypeError(
+              `${name}.primaryPlane must be ${Object.values(FEDERATION_DISPUTE_PRIMARY_PLANE).join("|")}`
+            );
+          }
+          const counterpartStatus = String(value.counterpartStatus ?? FEDERATION_DISPUTE_COUNTERPART_STATUS.REACHABLE)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_COUNTERPART_STATUS).includes(counterpartStatus)) {
+            throw new TypeError(
+              `${name}.counterpartStatus must be ${Object.values(FEDERATION_DISPUTE_COUNTERPART_STATUS).join("|")}`
+            );
+          }
+          const tieBreaker = String(value.tieBreaker ?? FEDERATION_DISPUTE_TIE_BREAK.NONE)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_TIE_BREAK).includes(tieBreaker)) {
+            throw new TypeError(
+              `${name}.tieBreaker must be ${Object.values(FEDERATION_DISPUTE_TIE_BREAK).join("|")}`
+            );
+          }
+          const continuityHashRaw = normalizeFederatedDisputeString(value.continuityHash, {
+            name: `${name}.continuityHash`,
+            allowNull: true,
+            max: 64
+          });
+          const continuityHash = continuityHashRaw ? continuityHashRaw.toLowerCase() : null;
+          if (continuityHash && !/^[0-9a-f]{64}$/.test(continuityHash)) {
+            throw new TypeError(`${name}.continuityHash must be a 64-character lowercase hex sha256`);
+          }
+          const asOf = normalizeFederatedDisputeString(value.asOf, {
+            name: `${name}.asOf`,
+            allowNull: true,
+            max: 64
+          });
+          if (asOf && !Number.isFinite(Date.parse(asOf))) {
+            throw new TypeError(`${name}.asOf must be an ISO date-time`);
+          }
+          return normalizeForCanonicalJson(
+            {
+              schemaVersion: FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION,
+              policyPath,
+              primaryPlane,
+              counterpartStatus,
+              tieBreaker,
+              disputeCoordinationId: normalizeFederatedDisputeString(value.disputeCoordinationId, {
+                name: `${name}.disputeCoordinationId`,
+                allowNull: true
+              }),
+              authorizationRef: normalizeFederatedDisputeString(value.authorizationRef, {
+                name: `${name}.authorizationRef`,
+                allowNull: true,
+                max: 512
+              }),
+              reasonCode: normalizeFederatedDisputeString(value.reasonCode, {
+                name: `${name}.reasonCode`,
+                allowNull: true,
+                max: 120
+              }),
+              continuityHash,
+              asOf,
+              evidenceRefs: normalizeFederatedDisputeStringArray(value.evidenceRefs, {
+                name: `${name}.evidenceRefs`
+              }),
+              invocationRefs: normalizeFederatedDisputeStringArray(value.invocationRefs, {
+                name: `${name}.invocationRefs`
+              })
+            },
+            { path: "$" }
+          );
+        };
+        const evaluateFederatedDisputeJurisdiction = ({ action: disputeAction, jurisdiction }) => {
+          if (!jurisdiction || typeof jurisdiction !== "object" || Array.isArray(jurisdiction)) return { ok: true };
+          if (disputeAction !== "close") return { ok: true };
+          const policyPath = String(jurisdiction.policyPath ?? "").trim().toLowerCase();
+          const counterpartStatus = String(jurisdiction.counterpartStatus ?? "").trim().toLowerCase();
+          const tieBreaker = String(jurisdiction.tieBreaker ?? "").trim().toLowerCase();
+          const authorizationRef = normalizeFederatedDisputeString(jurisdiction.authorizationRef, {
+            name: "federationJurisdiction.authorizationRef",
+            allowNull: true,
+            max: 512
+          });
+          const evidenceRefs = Array.isArray(jurisdiction.evidenceRefs) ? jurisdiction.evidenceRefs : [];
+          if (
+            (counterpartStatus === FEDERATION_DISPUTE_COUNTERPART_STATUS.DISAGREED ||
+              counterpartStatus === FEDERATION_DISPUTE_COUNTERPART_STATUS.UNAVAILABLE) &&
+            policyPath !== FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK
+          ) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.POLICY_MISMATCH,
+              message: "federated dispute close requires tie_break policy path when counterpart is disagreed or unavailable",
+              details: { policyPath, counterpartStatus }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && tieBreaker === FEDERATION_DISPUTE_TIE_BREAK.NONE) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.POLICY_MISMATCH,
+              message: "tie_break policy path requires a tieBreaker",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && !authorizationRef) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.AUTHORIZATION_REQUIRED,
+              message: "tie_break jurisdiction requires authorizationRef",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && evidenceRefs.length === 0) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.EVIDENCE_REQUIRED,
+              message: "tie_break jurisdiction requires evidenceRefs",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          return { ok: true };
+        };
+        const buildFederatedDisputeContinuityHash = ({ action: disputeAction, disputeId, jurisdiction }) =>
+          sha256Hex(
+            canonicalJsonStringify(
+              normalizeForCanonicalJson(
+                {
+                  schemaVersion: "FederationDisputeAuditContinuityHashPayload.v1",
+                  tenantId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: disputeId ?? null,
+                  action: disputeAction,
+                  jurisdiction: {
+                    policyPath: jurisdiction?.policyPath ?? null,
+                    primaryPlane: jurisdiction?.primaryPlane ?? null,
+                    counterpartStatus: jurisdiction?.counterpartStatus ?? null,
+                    tieBreaker: jurisdiction?.tieBreaker ?? null,
+                    disputeCoordinationId: jurisdiction?.disputeCoordinationId ?? null,
+                    authorizationRef: jurisdiction?.authorizationRef ?? null,
+                    evidenceRefs: Array.isArray(jurisdiction?.evidenceRefs) ? jurisdiction.evidenceRefs : [],
+                    invocationRefs: Array.isArray(jurisdiction?.invocationRefs) ? jurisdiction.invocationRefs : []
+                  }
+                },
+                { path: "$" }
+              )
+            )
+          );
+        const rawFederatedDisputeJurisdiction =
+          body?.federationJurisdiction !== undefined
+            ? body.federationJurisdiction
+            : settlement?.disputeContext?.federationJurisdiction ?? null;
+        let federatedDisputeJurisdiction = null;
+        try {
+          federatedDisputeJurisdiction = normalizeFederatedDisputeJurisdictionInput(rawFederatedDisputeJurisdiction, {
+            allowNull: true
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid federation dispute jurisdiction", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        const federationJurisdictionCheck = evaluateFederatedDisputeJurisdiction({
+          action,
+          jurisdiction: federatedDisputeJurisdiction
+        });
+        if (!federationJurisdictionCheck.ok) {
+          return sendError(
+            res,
+            409,
+            federationJurisdictionCheck.message,
+            federationJurisdictionCheck.details ?? null,
+            { code: federationJurisdictionCheck.code }
+          );
+        }
         if (action === "open") {
           const endsAt = settlementDisputeWindowEndsAtMs(settlement);
           const nowMs = Date.parse(nowAt);
@@ -63830,7 +64073,8 @@ export function createApi({
                 reason: body?.reason ?? null,
                 evidenceRefs: body?.evidenceRefs,
                 channel: body?.disputeChannel ?? body?.channel,
-                escalationLevel: body?.escalationLevel
+                escalationLevel: body?.escalationLevel,
+                federationJurisdiction: null
               }
             : null;
         let resolutionInput = null;
@@ -63846,7 +64090,32 @@ export function createApi({
           if (body?.resolutionEscalationLevel !== undefined) mergedResolution.escalationLevel = body.resolutionEscalationLevel;
           if (body?.resolutionReleaseRatePct !== undefined) mergedResolution.releaseRatePct = body.resolutionReleaseRatePct;
           if (body?.resolutionEvidenceRefs !== undefined) mergedResolution.evidenceRefs = body.resolutionEvidenceRefs;
+          mergedResolution.federationJurisdiction = null;
           resolutionInput = mergedResolution;
+        }
+        let federatedDisputeJurisdictionWithContinuity = null;
+        if (federatedDisputeJurisdiction) {
+          const disputeIdForContinuity = body?.disputeId ?? settlement?.disputeId ?? `dsp_${runId}`;
+          const continuityHash = buildFederatedDisputeContinuityHash({
+            action,
+            disputeId: disputeIdForContinuity,
+            jurisdiction: federatedDisputeJurisdiction
+          });
+          federatedDisputeJurisdictionWithContinuity = normalizeForCanonicalJson(
+            {
+              ...federatedDisputeJurisdiction,
+              continuityHash,
+              asOf: nowAt
+            },
+            { path: "$" }
+          );
+          if (action === "open" && disputeContextInput && typeof disputeContextInput === "object" && !Array.isArray(disputeContextInput)) {
+            disputeContextInput.federationJurisdiction = federatedDisputeJurisdictionWithContinuity;
+          }
+          if (action === "close") {
+            if (!resolutionInput || typeof resolutionInput !== "object" || Array.isArray(resolutionInput)) resolutionInput = {};
+            resolutionInput.federationJurisdiction = federatedDisputeJurisdictionWithContinuity;
+          }
         }
         if (action === "close" && (signedVerdict || signedArbitrationVerdict)) {
           const nowMs = Date.parse(nowAt);
@@ -63996,7 +64265,10 @@ export function createApi({
               evidenceRefs: mergeUniqueStringArrays(
                 Array.isArray(resolutionInput?.evidenceRefs) ? resolutionInput.evidenceRefs : [],
                 Array.isArray(signedVerdict?.evidenceRefs) ? signedVerdict.evidenceRefs : [],
-                Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
+                Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : [],
+                Array.isArray(federatedDisputeJurisdictionWithContinuity?.evidenceRefs)
+                  ? federatedDisputeJurisdictionWithContinuity.evidenceRefs
+                  : []
               )
             });
             if (!disputeCloseBinding.ok) {
@@ -64181,15 +64453,18 @@ export function createApi({
           });
           if (escalateBindingBlocked) return;
           try {
-            settlement = patchAgentRunSettlementDisputeContext({
-              settlement,
-              contextPatch: {
-                escalationLevel: requestedEscalationLevel,
-                channel: channelInput,
-                reason
-              },
-              at: nowAt
-            });
+              settlement = patchAgentRunSettlementDisputeContext({
+                settlement,
+                contextPatch: {
+                  escalationLevel: requestedEscalationLevel,
+                  channel: channelInput,
+                  reason,
+                  ...(federatedDisputeJurisdictionWithContinuity
+                    ? { federationJurisdiction: federatedDisputeJurisdictionWithContinuity }
+                    : {})
+                },
+                at: nowAt
+              });
           } catch (err) {
             return sendError(res, 409, "dispute escalation rejected", { message: err?.message }, { code: "TRANSITION_ILLEGAL" });
           }
