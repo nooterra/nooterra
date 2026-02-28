@@ -146,6 +146,47 @@ function asErrorResult(err) {
   return { content: [contentText(JSON.stringify(out, null, 2))], isError: true };
 }
 
+function normalizeToolFailureMessage(value) {
+  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  return null;
+}
+
+function detectToolResultFailure(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(result, key);
+  const rawError = hasOwn("error") ? result.error : null;
+  const hasError =
+    rawError !== null &&
+    rawError !== undefined &&
+    !(typeof rawError === "string" && rawError.trim() === "");
+  const statusCode =
+    Number.isInteger(result.statusCode) ? result.statusCode : Number.isInteger(result.status) ? result.status : null;
+  const okValue = hasOwn("ok") ? result.ok : undefined;
+  const failed = okValue === false || hasError || (Number.isInteger(statusCode) && statusCode >= 400);
+  if (!failed) return null;
+
+  const rawErrorMessage =
+    normalizeToolFailureMessage(rawError) ||
+    (rawError && typeof rawError === "object"
+      ? normalizeToolFailureMessage(rawError.message) || normalizeToolFailureMessage(rawError.error)
+      : null);
+  const message =
+    rawErrorMessage ||
+    normalizeToolFailureMessage(result.message) ||
+    "tool result indicates upstream failure";
+  const code =
+    normalizeToolFailureMessage(result.code) ||
+    (rawError && typeof rawError === "object" ? normalizeToolFailureMessage(rawError.code) : null);
+
+  return {
+    message,
+    code,
+    statusCode: Number.isInteger(statusCode) ? statusCode : null,
+    details: redactSecrets(result)
+  };
+}
+
 function makeIdempotencyKey(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
@@ -4111,6 +4152,14 @@ async function main() {
           }
 
           const durationMs = nowMs() - started;
+          const detectedFailure = detectToolResultFailure(result);
+          if (detectedFailure) {
+            const err = new Error(detectedFailure.message);
+            if (detectedFailure.code) err.code = detectedFailure.code;
+            if (Number.isInteger(detectedFailure.statusCode)) err.statusCode = detectedFailure.statusCode;
+            err.details = detectedFailure.details ?? null;
+            throw err;
+          }
           const toolResult = { ...asTextResult({ tool: name, durationMs, result }), isError: false };
           if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: toolResult });
         } catch (err) {
