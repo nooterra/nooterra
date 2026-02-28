@@ -46,6 +46,48 @@ Runtime status: implemented.
 - If present, `tools[].toolId` MUST be unique within a card.
 - If present, each `tools[]` entry MUST validate as `ToolDescriptor.v1`.
 
+## Nooterra Verified listing convention (no contract drift)
+
+To list `Nooterra Verified` on an `AgentCard.v1`, use existing optional fields only.
+
+Rules:
+
+1. Keep top-level schema unchanged (`schemaVersion: "AgentCard.v1"`); do not add top-level keys such as `verified`, `badge`, or `programs`.
+2. Use one `attestations[]` row for the verification claim.
+3. Use deterministic tags and metadata keys for listing/search consistency.
+4. Bind evidence with lowercase hex `sha256` in `attestations[].proofHash` and `metadata.nooterraVerified.gateReportSha256`.
+
+Recommended listing fragment:
+
+```json
+{
+  "attestations": [
+    {
+      "type": "program.nooterra_verified",
+      "level": "collaboration",
+      "issuer": "Nooterra Verified",
+      "credentialRef": "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      "proofHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "issuedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "tags": [
+    "program:nooterra-verified",
+    "program:nooterra-verified:collaboration"
+  ],
+  "metadata": {
+    "nooterraVerified": {
+      "schemaVersion": "NooterraVerifiedListing.v1",
+      "label": "Nooterra Verified",
+      "level": "collaboration",
+      "gateReportSchemaVersion": "NooterraVerifiedGateReport.v1",
+      "gateReportRef": "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      "gateReportSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  }
+}
+```
+
 ## API surface
 
 - `POST /agent-cards`
