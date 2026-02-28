@@ -5256,7 +5256,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     properties: {
       ok: { type: "boolean" },
       invocationId: { type: "string" },
-      status: { type: "string", enum: ["accepted", "success", "error", "timeout", "denied"] },
+      status: { type: "string", enum: ["accepted", "queued", "success", "error", "timeout", "denied"] },
+      queuedAt: { type: "string", nullable: true },
       result: { type: "object", additionalProperties: true, nullable: true }
     }
   };
@@ -9921,6 +9922,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: FederationInvokeResponse } } },
+            202: { description: "Accepted", content: { "application/json": { schema: FederationInvokeResponse } } },
             400: {
               description: "Bad Request",
               "x-nooterra-known-error-codes": [...FederationInvokeBadRequestKnownErrorCodes],

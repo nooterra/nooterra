@@ -18560,11 +18560,16 @@
             "type": "string",
             "enum": [
               "accepted",
+              "queued",
               "success",
               "error",
               "timeout",
               "denied"
             ]
+          },
+          "queuedAt": {
+            "type": "string",
+            "nullable": true
           },
           "result": {
             "type": "object",
@@ -86883,11 +86888,60 @@
                       "type": "string",
                       "enum": [
                         "accepted",
+                        "queued",
                         "success",
                         "error",
                         "timeout",
                         "denied"
                       ]
+                    },
+                    "queuedAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "invocationId",
+                    "status"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "invocationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "accepted",
+                        "queued",
+                        "success",
+                        "error",
+                        "timeout",
+                        "denied"
+                      ]
+                    },
+                    "queuedAt": {
+                      "type": "string",
+                      "nullable": true
                     },
                     "result": {
                       "type": "object",

@@ -128,6 +128,30 @@ test("federation policy: selects namespace route by exact target DID", () => {
   assert.equal(checked.upstreamBaseUrl, "https://bravo.nooterra.test");
 });
 
+test("federation policy: incoming invoke does not require outbound namespace transport", () => {
+  const policy = buildFederationProxyPolicy({
+    env: {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+    },
+    fallbackBaseUrl: null
+  });
+  const checked = evaluateFederationTrustAndRoute({
+    endpoint: "invoke",
+    envelope: validateFederationEnvelope({
+      endpoint: "invoke",
+      body: invokeEnvelope({
+        originDid: "did:nooterra:coord_bravo",
+        targetDid: "did:nooterra:coord_alpha"
+      })
+    }).envelope,
+    policy
+  });
+  assert.equal(checked.ok, true);
+  assert.equal(checked.direction, "incoming");
+  assert.equal(checked.upstreamBaseUrl, null);
+});
+
 test("federation policy: validate envelope bad-request codes stay aligned with shared OpenAPI constants", () => {
   const invokeCases = [
     null,

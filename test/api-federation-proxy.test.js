@@ -186,6 +186,46 @@ test("api federation proxy: fails closed when signature block is malformed", asy
   }
 });
 
+test("api federation proxy: incoming invoke enqueues locally with deterministic replay", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const payload = invokeEnvelope({
+      invocationId: "inv_incoming_queued_1",
+      originDid: "did:nooterra:coord_bravo",
+      targetDid: "did:nooterra:coord_alpha"
+    });
+    const first = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: payload,
+      auth: "none"
+    });
+    const second = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: payload,
+      auth: "none"
+    });
+
+    assert.equal(first.statusCode, 202);
+    assert.equal(first.json?.ok, true);
+    assert.equal(first.json?.invocationId, "inv_incoming_queued_1");
+    assert.equal(first.json?.status, "queued");
+    assert.equal(typeof first.json?.queuedAt, "string");
+    assert.equal(second.statusCode, 202);
+    assert.equal(second.headers?.get?.("x-federation-replay"), "duplicate");
+    assert.equal(second.json?.invocationId, "inv_incoming_queued_1");
+    assert.equal(second.json?.status, "queued");
+    assert.equal(second.json?.queuedAt, first.json?.queuedAt);
+  } finally {
+    restore();
+  }
+});
+
 test("api federation proxy: routes by namespace DID with explicit route map", async () => {
   const callsA = [];
   const callsB = [];

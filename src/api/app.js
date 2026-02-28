@@ -628,6 +628,33 @@ export function createApi({
   });
   const federationReplayLedger = createFederationReplayLedger();
   const federationStatsTracker = createFederationStatsTracker({ now: nowIso });
+  const federationIncomingInvokeRows = new Map();
+  const federationIncomingDispatchQueue = [];
+
+  function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
+    const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const existing = federationIncomingInvokeRows.get(queueKey);
+    if (existing) return existing;
+    const row = {
+      schemaVersion: "FederationInvokeQueueEntry.v1",
+      queuedAt: nowIso(),
+      invocationId: envelope.invocationId,
+      traceId: typeof body?.trace?.traceId === "string" && body.trace.traceId.trim() !== "" ? body.trace.traceId.trim() : null,
+      capabilityId: envelope.capabilityId ?? null,
+      agentDid: typeof body?.agentDid === "string" && body.agentDid.trim() !== "" ? body.agentDid.trim() : null,
+      mandateId: typeof body?.mandateId === "string" && body.mandateId.trim() !== "" ? body.mandateId.trim() : null,
+      constraints: body?.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints) ? body.constraints : null,
+      input: body?.payload ?? null,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      requestHash,
+      isFederation: true,
+      status: "queued"
+    };
+    federationIncomingInvokeRows.set(queueKey, row);
+    federationIncomingDispatchQueue.push(queueKey);
+    return row;
+  }
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -30013,6 +30040,63 @@ export function createApi({
         // ignore
       }
       return res.end(replayClaim.response.bodyBytes);
+    }
+
+    if (endpoint === "invoke" && routeCheck.direction === "incoming") {
+      const queued = enqueueIncomingFederationInvoke({
+        envelope: envelopeCheck.envelope,
+        body: parsedBody,
+        requestHash
+      });
+      const responseBody = {
+        ok: true,
+        invocationId: envelopeCheck.envelope.invocationId,
+        status: "queued",
+        queuedAt: queued.queuedAt
+      };
+      const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
+      try {
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("x-federation-dispatch-channel", "local");
+      } catch {
+        // ignore
+      }
+      federationReplayLedger.complete({
+        key: replayKey,
+        requestHash,
+        response: {
+          statusCode: 202,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-federation-dispatch-channel": "local"
+          },
+          bodyBytes: bytes
+        }
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "queued",
+        statusCode: 202
+      });
+      res.statusCode = 202;
+      return res.end(bytes);
+    }
+
+    if (endpoint === "result" && routeCheck.direction === "incoming") {
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "result_not_implemented",
+        statusCode: 403,
+        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
+      return sendError(
+        res,
+        403,
+        "federation result ingestion is not implemented",
+        { reason: "result_ingestion_not_implemented" },
+        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
+      );
     }
 
     const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
