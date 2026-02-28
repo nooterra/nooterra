@@ -11542,14 +11542,15 @@ export function createApi({
       cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
     }
 
-    let quarantinedAgentScopedKeys = null;
-    if (isPublicScope) {
-      quarantinedAgentScopedKeys = new Set();
-      const publicTenantIds = [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
-        left.localeCompare(right)
-      );
+    const quarantinedAgentScopedKeys = new Set();
+    {
+      const quarantineTenantIds = isPublicScope
+        ? [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
+            left.localeCompare(right)
+          )
+        : [t];
       if (typeof store.listEmergencyControlState === "function") {
-        for (const cardTenantId of publicTenantIds) {
+        for (const cardTenantId of quarantineTenantIds) {
           // eslint-disable-next-line no-await-in-loop
           const controls = await store.listEmergencyControlState({
             tenantId: cardTenantId,
@@ -11580,6 +11581,7 @@ export function createApi({
           const scopeId = typeof control.scopeId === "string" && control.scopeId.trim() !== "" ? control.scopeId.trim() : null;
           if (!scopeId) continue;
           const controlTenantId = normalizeTenantId(control.tenantId ?? DEFAULT_TENANT_ID);
+          if (!isPublicScope && controlTenantId !== t) continue;
           quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: controlTenantId, id: scopeId }));
         }
       }
@@ -11633,7 +11635,7 @@ export function createApi({
         if (!hasToolMatch) continue;
       }
       const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
-      if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
+      if (quarantinedAgentScopedKeys.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (isPublicScope && abuseSuppressedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({

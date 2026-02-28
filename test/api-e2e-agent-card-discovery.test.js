@@ -128,13 +128,14 @@ async function openRunDispute({
   assert.equal(opened.statusCode, 200, opened.body);
 }
 
-async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null }) {
+async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null, tenantId = null }) {
   const response = await request(api, {
     method: "POST",
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-nooterra-protocol": "1.0"
+      "x-nooterra-protocol": "1.0",
+      ...(tenantId ? { "x-proxy-tenant-id": tenantId } : {})
     },
     body: {
       status,
@@ -773,6 +774,88 @@ test("API e2e: /public/agent-cards/discover excludes quarantined agents", async 
   const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(agentIds.has(activeAgentId), true);
   assert.equal(agentIds.has(quarantinedAgentId), false);
+});
+
+test("API e2e: /agent-cards/discover excludes quarantined and throttled agents for tenant scope", async () => {
+  const store = createStore();
+  const api = createApi({ store, opsToken: "tok_ops" });
+  const tenantId = "tenant_discovery_scope_controls_1";
+
+  async function registerTenantAgent(agentId) {
+    const { publicKeyPem } = createEd25519Keypair();
+    const response = await request(api, {
+      method: "POST",
+      path: "/agents/register",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": `agent_register_${tenantId}_${agentId}`
+      },
+      body: {
+        agentId,
+        displayName: `Agent ${agentId}`,
+        owner: { ownerType: "service", ownerId: `svc_${tenantId}` },
+        publicKeyPem,
+        capabilities: ["travel.booking"]
+      }
+    });
+    assert.equal(response.statusCode, 201, response.body);
+  }
+
+  const activeAgentId = "agt_card_tenant_controls_active_1";
+  const quarantinedAgentId = "agt_card_tenant_controls_quarantined_1";
+  const throttledAgentId = "agt_card_tenant_controls_throttled_1";
+  for (const agentId of [activeAgentId, quarantinedAgentId, throttledAgentId]) {
+    await registerTenantAgent(agentId);
+    const upserted = await request(api, {
+      method: "POST",
+      path: "/agent-cards",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": `agent_card_${tenantId}_${agentId}`
+      },
+      body: {
+        agentId,
+        displayName: `Card ${agentId}`,
+        capabilities: ["travel.booking"],
+        visibility: "public",
+        host: { runtime: "openclaw", endpoint: `https://example.test/tenant/${agentId}`, protocols: ["mcp"] }
+      }
+    });
+    assert.equal(upserted.statusCode, 201, upserted.body);
+  }
+
+  await store.appendEmergencyControlEvent({
+    tenantId,
+    event: {
+      eventId: "evt_agent_card_tenant_scope_quarantine_1",
+      action: "quarantine",
+      controlType: "quarantine",
+      scope: { type: "agent", id: quarantinedAgentId },
+      actor: { type: "operator", id: "ops_tenant_scope_1" },
+      reason: "tenant discovery quarantine exclusion test"
+    }
+  });
+
+  const throttledLifecycle = await setX402AgentLifecycle(api, {
+    tenantId,
+    agentId: throttledAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMIT_EXCEEDED",
+    idempotencyKey: "agent_card_tenant_scope_throttle_1"
+  });
+  assert.equal(throttledLifecycle.statusCode, 200, throttledLifecycle.body);
+  assert.equal(throttledLifecycle.json?.lifecycle?.status, "throttled");
+
+  const tenantDiscover = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    headers: { "x-proxy-tenant-id": tenantId }
+  });
+  assert.equal(tenantDiscover.statusCode, 200, tenantDiscover.body);
+  const agentIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(quarantinedAgentId), false);
+  assert.equal(agentIds.has(throttledAgentId), false);
 });
 
 test("API e2e: /agent-cards/:agentId/abuse-reports suppresses public discovery at threshold", async () => {
