@@ -129,7 +129,7 @@ test("API e2e: task negotiation quote->offer->acceptance lifecycle", async () =>
 });
 
 test("API e2e: work-order settlement enforces acceptance hash binding", async () => {
-  const api = createApi({ opsToken: "tok_ops" });
+  const api = createApi({ opsToken: "tok_ops", workOrderRequireAcceptanceBinding: true });
   const buyerAgentId = "agt_task_bind_buyer_1";
   const sellerAgentId = "agt_task_bind_seller_1";
   await registerAgent(api, { agentId: buyerAgentId, capabilities: ["analysis.generic"] });
@@ -256,6 +256,73 @@ test("API e2e: work-order settlement enforces acceptance hash binding", async ()
   });
   assert.equal(settle.statusCode, 200, settle.body);
   assert.equal(settle.json?.workOrder?.status, "settled");
+});
+
+test("API e2e: work-order settlement fails closed when acceptance binding is required and missing", async () => {
+  const api = createApi({ opsToken: "tok_ops", workOrderRequireAcceptanceBinding: true });
+  const buyerAgentId = "agt_task_bind_required_buyer_1";
+  const sellerAgentId = "agt_task_bind_required_seller_1";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: ["analysis.generic"] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: ["analysis.generic"] });
+
+  const workOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_bind_required_1" },
+    body: {
+      workOrderId: "workord_bind_required_1",
+      principalAgentId: buyerAgentId,
+      subAgentId: sellerAgentId,
+      requiredCapability: "analysis.generic",
+      specification: { taskType: "analysis" },
+      pricing: {
+        amountCents: 275,
+        currency: "USD"
+      }
+    }
+  });
+  assert.equal(workOrder.statusCode, 201, workOrder.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_bind_required_1/accept",
+    headers: { "x-idempotency-key": "work_order_accept_bind_required_1" },
+    body: { acceptedByAgentId: sellerAgentId }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_bind_required_1/complete",
+    headers: { "x-idempotency-key": "work_order_complete_bind_required_1" },
+    body: {
+      receiptId: "worec_bind_required_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://analysis/acceptance-required/1" },
+      evidenceRefs: ["artifact://analysis/acceptance-required/1"],
+      amountCents: 275,
+      currency: "USD",
+      deliveredAt: "2026-02-28T02:00:00.000Z",
+      completedAt: "2026-02-28T02:01:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_bind_required_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_bind_required_1" },
+    body: {
+      completionReceiptId: "worec_bind_required_1",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      x402GateId: "x402gate_bind_required_1",
+      x402RunId: "run_bind_required_1"
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(blocked.json?.details?.reasonCode, "WORK_ORDER_ACCEPTANCE_BINDING_REQUIRED");
+  assert.match(String(blocked.json?.details?.message ?? blocked.json?.message ?? ""), /acceptance binding is required/i);
 });
 
 test("API e2e: task negotiation routes fail closed when participant lifecycle is non-active", async () => {

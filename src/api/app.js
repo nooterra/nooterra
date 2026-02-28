@@ -475,6 +475,7 @@ export function createApi({
   x402RequireAgentPassport = null,
   x402RequireExecutionIntent = null,
   x402RequireAuthorityGrant = null,
+  workOrderRequireAcceptanceBinding = null,
   x402PromptRiskForceMode = null,
   x402PromptRiskForceModeByPrincipal = null,
   x402SessionTaintEscalateAmountCents = null,
@@ -3087,6 +3088,12 @@ export function createApi({
     const raw =
       x402RequireAuthorityGrant ??
       (typeof process !== "undefined" ? process.env.X402_REQUIRE_AUTHORITY_GRANT : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const workOrderRequireAcceptanceBindingValue = (() => {
+    const raw =
+      workOrderRequireAcceptanceBinding ??
+      (typeof process !== "undefined" ? process.env.WORK_ORDER_REQUIRE_ACCEPTANCE_BINDING : null);
     return parseBooleanLike(raw, false);
   })();
   const x402QuoteTtlSecondsValue = (() => {
@@ -58417,6 +58424,19 @@ export function createApi({
             !Array.isArray(existingWorkOrder.acceptanceBinding)
               ? existingWorkOrder.acceptanceBinding
               : null;
+          if (workOrderRequireAcceptanceBindingValue && !workOrderAcceptanceBinding) {
+            return sendError(
+              res,
+              409,
+              "work order settlement blocked",
+              {
+                reasonCode: "WORK_ORDER_ACCEPTANCE_BINDING_REQUIRED",
+                message: "acceptance binding is required for work order settlement",
+                workOrderId
+              },
+              { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+            );
+          }
           if (workOrderAcceptanceBinding) {
             const boundAcceptanceId =
               typeof workOrderAcceptanceBinding.acceptanceId === "string" && workOrderAcceptanceBinding.acceptanceId.trim() !== ""
