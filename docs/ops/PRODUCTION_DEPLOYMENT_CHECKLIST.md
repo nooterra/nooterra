@@ -84,6 +84,16 @@ Expected report path:
 
 `artifacts/gates/self-host-topology-bundle-gate.json`
 
+6. Run the ACS self-host upgrade/migration gate path from `docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`:
+
+```bash
+npm run -s test:ops:self-host-upgrade-migration-gate
+```
+
+Expected report path:
+
+`artifacts/gates/self-host-upgrade-migration-gate.json`
+
 ## Phase 4: MCP compatibility verification
 
 1. Run core MCP automated tests:
@@ -169,10 +179,11 @@ Expected report path:
 6. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
 7. MCP compatibility matrix is green for supported hosts.
 8. Paid MCP run artifacts verify cleanly.
-9. Rollback runbook has been rehearsed.
+9. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
 10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
 11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
 12. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
+13. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 

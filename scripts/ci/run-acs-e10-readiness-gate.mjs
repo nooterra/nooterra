@@ -14,6 +14,7 @@ const DEFAULT_OPENCLAW_OPERATOR_READINESS_PATH = "artifacts/gates/openclaw-opera
 const DEFAULT_ONBOARDING_HOST_SUCCESS_PATH = "artifacts/gates/onboarding-host-success-gate.json";
 const DEFAULT_MCP_HOST_CERT_MATRIX_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_PUBLIC_ONBOARDING_GATE_PATH = "artifacts/gates/public-onboarding-gate.json";
+const DEFAULT_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH = "artifacts/gates/self-host-upgrade-migration-gate.json";
 
 const REQUIRED_ONBOARDING_DOC_PATHS = Object.freeze([
   "docs/QUICKSTART_MCP.md",
@@ -36,6 +37,7 @@ function usage() {
     "  --onboarding-host-success <file> Onboarding host success gate report path",
     "  --mcp-host-cert-matrix <file>   MCP host certification matrix report path",
     "  --public-onboarding-gate <file> Public onboarding gate report path",
+    "  --self-host-upgrade-gate <file> Self-host upgrade+migration gate report path",
     "  --captured-at <iso>             Optional explicit capture timestamp",
     "  --help                          Show help",
     "",
@@ -46,6 +48,7 @@ function usage() {
     "  ACS_E10_ONBOARDING_HOST_SUCCESS_PATH",
     "  ACS_E10_MCP_HOST_CERT_MATRIX_PATH",
     "  ACS_E10_PUBLIC_ONBOARDING_GATE_PATH",
+    "  ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH",
     "  ACS_E10_CAPTURED_AT"
   ].join("\n");
 }
@@ -146,6 +149,11 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       cwd,
       normalizeOptionalString(env.ACS_E10_PUBLIC_ONBOARDING_GATE_PATH) ?? DEFAULT_PUBLIC_ONBOARDING_GATE_PATH
     ),
+    selfHostUpgradeMigrationGatePath: path.resolve(
+      cwd,
+      normalizeOptionalString(env.ACS_E10_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH) ??
+        DEFAULT_SELF_HOST_UPGRADE_MIGRATION_GATE_PATH
+    ),
     capturedAt: normalizeOptionalString(env.ACS_E10_CAPTURED_AT)
   };
 
@@ -195,6 +203,13 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       const value = normalizeOptionalString(argv[i + 1]);
       if (!value) throw new Error("--public-onboarding-gate requires a file path");
       out.publicOnboardingGatePath = path.resolve(cwd, value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--self-host-upgrade-gate") {
+      const value = normalizeOptionalString(argv[i + 1]);
+      if (!value) throw new Error("--self-host-upgrade-gate requires a file path");
+      out.selfHostUpgradeMigrationGatePath = path.resolve(cwd, value);
       i += 1;
       continue;
     }
@@ -266,6 +281,44 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
         detail: {
           path: toPathRef(args.hostedEvidencePath),
           message: `Hosted baseline evidence is required and must be valid JSON: ${err?.message ?? String(err)}`
+        }
+      })
+    );
+  }
+
+  let selfHostUpgradeMigrationGateRef = null;
+  try {
+    selfHostUpgradeMigrationGateRef = await readJsonWithHash(args.selfHostUpgradeMigrationGatePath);
+    const schemaOk = selfHostUpgradeMigrationGateRef.json?.schemaVersion === "SelfHostUpgradeMigrationGateReport.v1";
+    const verdictOk = selfHostUpgradeMigrationGateRef.json?.verdict?.ok === true;
+    checks.push(
+      buildCheck({
+        id: "self_host_upgrade_migration_gate_green",
+        ok: schemaOk && verdictOk,
+        failureCode: !schemaOk ? "self_host_upgrade_migration_schema_invalid" : "self_host_upgrade_migration_not_green",
+        detail: {
+          path: selfHostUpgradeMigrationGateRef.path,
+          sha256: selfHostUpgradeMigrationGateRef.sha256,
+          schemaVersion: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.schemaVersion),
+          verdictOk,
+          verdictStatus: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.verdict?.status),
+          artifactHash: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.artifactHash),
+          message:
+            schemaOk && verdictOk
+              ? "Self-host upgrade+migration gate report is green."
+              : "Self-host upgrade+migration gate must be SelfHostUpgradeMigrationGateReport.v1 with verdict.ok=true."
+        }
+      })
+    );
+  } catch (err) {
+    checks.push(
+      buildCheck({
+        id: "self_host_upgrade_migration_gate_green",
+        ok: false,
+        failureCode: "self_host_upgrade_migration_missing_or_invalid",
+        detail: {
+          path: toPathRef(args.selfHostUpgradeMigrationGatePath),
+          message: `Self-host upgrade+migration gate report is required and must be valid JSON: ${err?.message ?? String(err)}`
         }
       })
     );
@@ -470,7 +523,8 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
       openclawReadinessPath: toPathRef(args.openclawReadinessPath),
       onboardingHostSuccessPath: toPathRef(args.onboardingHostSuccessPath),
       mcpHostCertMatrixPath: toPathRef(args.mcpHostCertMatrixPath),
-      publicOnboardingGatePath: toPathRef(args.publicOnboardingGatePath)
+      publicOnboardingGatePath: toPathRef(args.publicOnboardingGatePath),
+      selfHostUpgradeMigrationGatePath: toPathRef(args.selfHostUpgradeMigrationGatePath)
     },
     sources: {
       hostedBaselineEvidence: hostedBaselineRef
@@ -517,6 +571,15 @@ export async function runAcsE10ReadinessGate(args, cwd = process.cwd()) {
             sha256: publicOnboardingGateRef.sha256,
             schemaVersion: normalizeOptionalString(publicOnboardingGateRef.json?.schemaVersion),
             ok: publicOnboardingGateRef.json?.ok === true
+          }
+        : null,
+      selfHostUpgradeMigrationGate: selfHostUpgradeMigrationGateRef
+        ? {
+            path: selfHostUpgradeMigrationGateRef.path,
+            sha256: selfHostUpgradeMigrationGateRef.sha256,
+            schemaVersion: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.schemaVersion),
+            verdictOk: selfHostUpgradeMigrationGateRef.json?.verdict?.ok === true,
+            artifactHash: normalizeOptionalString(selfHostUpgradeMigrationGateRef.json?.artifactHash)
           }
         : null
     },

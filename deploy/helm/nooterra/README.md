@@ -54,3 +54,21 @@ Pods run with:
 - dropped capabilities
 - `readOnlyRootFilesystem: true`
 - explicit `emptyDir` mounts for `/tmp` (and `/data` where needed)
+
+## Probe configuration
+
+API and receiver deployments expose configurable probe settings:
+
+- `api.readinessProbe`, `api.livenessProbe`, `api.startupProbe`
+- `receiver.readinessProbe`, `receiver.livenessProbe`, `receiver.startupProbe`
+
+Each probe supports:
+
+- `path`
+- `initialDelaySeconds`
+- `periodSeconds`
+- `timeoutSeconds`
+- `failureThreshold`
+- readiness probes also support `successThreshold`
+
+Defaults preserve existing readiness/liveness timings and add an explicit startup probe for safer cold-start behavior.

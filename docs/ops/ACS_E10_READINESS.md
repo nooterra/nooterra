@@ -4,6 +4,9 @@ The ACS-E10 readiness summary artifact is the operator rollup for go-live readin
 It binds the key hosted, onboarding, and MCP host readiness artifacts into one
 machine-readable decision report.
 
+For the self-host ACS control-plane upgrade/migration evidence path, see:
+`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`.
+
 ## Required upstream artifacts
 
 ACS-E10 consumes these artifacts:
@@ -18,6 +21,8 @@ ACS-E10 consumes these artifacts:
    `artifacts/ops/mcp-host-cert-matrix.json`
 5. Public onboarding gate:
    `artifacts/gates/public-onboarding-gate.json`
+6. Self-host upgrade/migration gate:
+   `artifacts/gates/self-host-upgrade-migration-gate.json`
 
 ## Command sequence
 
@@ -53,6 +58,8 @@ npm run test:ops:onboarding-host-success-gate -- \
 
 npm run test:ci:mcp-host-cert-matrix -- \
   --report artifacts/ops/mcp-host-cert-matrix.json
+
+npm run -s test:ops:self-host-upgrade-migration-gate
 
 npm run test:ops:acs-e10-readiness-gate
 ```

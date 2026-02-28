@@ -8,6 +8,7 @@ import Ajv from "ajv";
 const REPO_ROOT = process.cwd();
 const SCHEMA_PATH = path.join(REPO_ROOT, "deploy/helm/nooterra/values.schema.json");
 const API_TEMPLATE_PATH = path.join(REPO_ROOT, "deploy/helm/nooterra/templates/api-deployment.yaml");
+const RECEIVER_TEMPLATE_PATH = path.join(REPO_ROOT, "deploy/helm/nooterra/templates/receiver-deployment.yaml");
 
 function makeBaseConfig() {
   return {
@@ -91,6 +92,80 @@ test("nooterra helm values schema: allows s3 mode with complete credential refs"
   assert.equal(valid, true, `expected complete s3 mode config to validate: ${JSON.stringify(validate.errors)}`);
 });
 
+test("nooterra helm values schema: allows explicit api and receiver probe settings", async () => {
+  const schema = JSON.parse(await fs.readFile(SCHEMA_PATH, "utf8"));
+  const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  const config = makeBaseConfig();
+  config.api = {
+    readinessProbe: {
+      path: "/healthz",
+      initialDelaySeconds: 1,
+      periodSeconds: 4,
+      timeoutSeconds: 2,
+      failureThreshold: 4,
+      successThreshold: 1
+    },
+    livenessProbe: {
+      path: "/health",
+      initialDelaySeconds: 3,
+      periodSeconds: 8,
+      timeoutSeconds: 2,
+      failureThreshold: 3
+    },
+    startupProbe: {
+      path: "/health",
+      initialDelaySeconds: 0,
+      periodSeconds: 5,
+      timeoutSeconds: 2,
+      failureThreshold: 30
+    }
+  };
+  config.receiver.readinessProbe = {
+    path: "/ready",
+    initialDelaySeconds: 2,
+    periodSeconds: 5,
+    timeoutSeconds: 2,
+    failureThreshold: 3,
+    successThreshold: 1
+  };
+  config.receiver.livenessProbe = {
+    path: "/health",
+    initialDelaySeconds: 5,
+    periodSeconds: 10,
+    timeoutSeconds: 2,
+    failureThreshold: 3
+  };
+  config.receiver.startupProbe = {
+    path: "/health",
+    initialDelaySeconds: 0,
+    periodSeconds: 6,
+    timeoutSeconds: 2,
+    failureThreshold: 20
+  };
+  const valid = validate(config);
+  assert.equal(valid, true, `expected probe-configured values to validate: ${JSON.stringify(validate.errors)}`);
+});
+
+test("nooterra helm values schema: fails closed for invalid startup probe period", async () => {
+  const schema = JSON.parse(await fs.readFile(SCHEMA_PATH, "utf8"));
+  const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  const config = makeBaseConfig();
+  config.api = {
+    startupProbe: {
+      path: "/health",
+      initialDelaySeconds: 0,
+      periodSeconds: 0,
+      timeoutSeconds: 2,
+      failureThreshold: 30
+    }
+  };
+  const valid = validate(config);
+  assert.equal(valid, false);
+  const errorText = JSON.stringify(validate.errors ?? []);
+  assert.match(errorText, /startupProbe/i);
+  assert.match(errorText, /periodSeconds/i);
+});
+
 test("nooterra api deployment template wires explicit evidence store envs", async () => {
   const text = await fs.readFile(API_TEMPLATE_PATH, "utf8");
   assert.match(text, /PROXY_EVIDENCE_STORE/);
@@ -100,4 +175,24 @@ test("nooterra api deployment template wires explicit evidence store envs", asyn
   assert.match(text, /PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY/);
   assert.match(text, /evidenceStore\.s3\.accessKeyIdSecret\.name is required when evidenceStore\.mode=s3/);
   assert.match(text, /evidenceStore\.s3\.secretAccessKeySecret\.name is required when evidenceStore\.mode=s3/);
+});
+
+test("nooterra deployment templates wire api and receiver startup/readiness/liveness probes from values", async () => {
+  const apiTemplate = await fs.readFile(API_TEMPLATE_PATH, "utf8");
+  const receiverTemplate = await fs.readFile(RECEIVER_TEMPLATE_PATH, "utf8");
+
+  assert.match(apiTemplate, /readinessProbe:/);
+  assert.match(apiTemplate, /path: \{\{ \.Values\.api\.readinessProbe\.path \| quote \}\}/);
+  assert.match(apiTemplate, /initialDelaySeconds: \{\{ \.Values\.api\.readinessProbe\.initialDelaySeconds \}\}/);
+  assert.match(apiTemplate, /livenessProbe:/);
+  assert.match(apiTemplate, /path: \{\{ \.Values\.api\.livenessProbe\.path \| quote \}\}/);
+  assert.match(apiTemplate, /startupProbe:/);
+  assert.match(apiTemplate, /path: \{\{ \.Values\.api\.startupProbe\.path \| quote \}\}/);
+
+  assert.match(receiverTemplate, /readinessProbe:/);
+  assert.match(receiverTemplate, /path: \{\{ \.Values\.receiver\.readinessProbe\.path \| quote \}\}/);
+  assert.match(receiverTemplate, /livenessProbe:/);
+  assert.match(receiverTemplate, /path: \{\{ \.Values\.receiver\.livenessProbe\.path \| quote \}\}/);
+  assert.match(receiverTemplate, /startupProbe:/);
+  assert.match(receiverTemplate, /path: \{\{ \.Values\.receiver\.startupProbe\.path \| quote \}\}/);
 });

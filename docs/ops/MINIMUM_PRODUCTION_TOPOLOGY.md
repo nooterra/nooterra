@@ -26,6 +26,8 @@ Reference baseline: `docs/ops/HOSTED_BASELINE_R2.md`.
 
 Self-host bundle path: `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md` (`deploy/compose/nooterra-self-host.topology.yml` + `deploy/compose/self-host.env.example`).
 
+Self-host upgrade/migration runbook: `docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`.
+
 ## 3) Minimum environment contract
 
 ### `nooterra-api`
@@ -100,5 +102,6 @@ A deployment is considered usable when all are true:
 2. Hosted baseline evidence command passes for the environment.
 3. One paid MCP tool call succeeds end-to-end with artifact output.
 4. Receipt verification succeeds and is replay-auditable.
-5. Rollback path is documented and tested.
+5. Rollback path is documented and tested (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
 6. Self-host topology bundle gate is green (`npm run -s test:ops:self-host-topology-bundle-gate`, report: `artifacts/gates/self-host-topology-bundle-gate.json`).
+7. Self-host upgrade/migration gate is green (`npm run -s test:ops:self-host-upgrade-migration-gate`, report: `artifacts/gates/self-host-upgrade-migration-gate.json`).

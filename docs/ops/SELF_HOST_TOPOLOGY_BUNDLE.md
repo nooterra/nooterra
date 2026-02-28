@@ -45,3 +45,19 @@ npm run -s test:ops:self-host-topology-bundle-gate
 Expected machine-readable report path:
 
 `artifacts/gates/self-host-topology-bundle-gate.json`
+
+## Upgrade and migration playbook
+
+For ACS control-plane self-host upgrades/migrations, follow:
+
+`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`
+
+Required gate path:
+
+```bash
+npm run -s test:ops:self-host-upgrade-migration-gate
+```
+
+Expected machine-readable report path:
+
+`artifacts/gates/self-host-upgrade-migration-gate.json`

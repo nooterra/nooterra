@@ -11,6 +11,25 @@ api:
   service:
     type: ClusterIP
     port: 3000
+  readinessProbe:
+    path: /healthz
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
   resources:
     requests:
       cpu: 100m
@@ -107,6 +126,25 @@ receiver:
   service:
     type: ClusterIP
     port: 4000
+  readinessProbe:
+    path: /ready
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
   resources:
     requests:
       cpu: 50m
