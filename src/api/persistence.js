@@ -45,6 +45,16 @@ const EMERGENCY_ACTION = Object.freeze({
   RESUME: "resume"
 });
 const EMERGENCY_ACTIONS = new Set(Object.values(EMERGENCY_ACTION));
+const AUTONOMOUS_ROUTINE_STATUS = Object.freeze({
+  ACTIVE: "active",
+  PAUSED: "paused"
+});
+const AUTONOMOUS_ROUTINE_STATUSES = new Set(Object.values(AUTONOMOUS_ROUTINE_STATUS));
+const AUTONOMOUS_ROUTINE_CONTROL_ACTION = Object.freeze({
+  KILL_SWITCH: "kill-switch",
+  RESUME: "resume"
+});
+const AUTONOMOUS_ROUTINE_CONTROL_ACTIONS = new Set(Object.values(AUTONOMOUS_ROUTINE_CONTROL_ACTION));
 
 function normalizeEmergencyScopeTypeForReplay(raw) {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
@@ -87,6 +97,32 @@ function normalizeEmergencyResumeControlTypesForReplay(raw) {
 function emergencyControlStateStoreKey({ tenantId, scopeType, scopeId, controlType }) {
   const scopeToken = scopeType === EMERGENCY_SCOPE_TYPE.TENANT ? "*" : String(scopeId);
   return makeScopedKey({ tenantId, id: `${scopeType}::${scopeToken}::${controlType}` });
+}
+
+function normalizeAutonomousRoutineStatusForReplay(raw) {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!AUTONOMOUS_ROUTINE_STATUSES.has(value)) throw new TypeError("invalid autonomous routine status");
+  return value;
+}
+
+function normalizeAutonomousRoutineControlActionForReplay(raw) {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!AUTONOMOUS_ROUTINE_CONTROL_ACTIONS.has(value)) throw new TypeError("invalid autonomous routine control action");
+  return value;
+}
+
+function autonomousRoutinePolicyStoreKey({ tenantId, routineId }) {
+  const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+  if (!normalizedRoutineId) throw new TypeError("routineId is required");
+  return makeScopedKey({ tenantId, id: normalizedRoutineId });
+}
+
+function autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId }) {
+  const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+  const normalizedExecutionId = typeof executionId === "string" ? executionId.trim() : "";
+  if (!normalizedRoutineId) throw new TypeError("routineId is required");
+  if (!normalizedExecutionId) throw new TypeError("executionId is required");
+  return makeScopedKey({ tenantId, id: `${normalizedRoutineId}::${normalizedExecutionId}` });
 }
 
 export function createFileTxLog({ dir, filename = "proxy-tx.log" }) {
@@ -437,6 +473,228 @@ export function applyTxRecord(store, record) {
       } else {
         putState(controlType, true);
       }
+      continue;
+    }
+
+    if (kind === "AUTONOMOUS_ROUTINE_POLICY_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const routine = op.routine ?? null;
+      if (!routine || typeof routine !== "object" || Array.isArray(routine)) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires routine");
+      }
+      const routineIdRaw = routine.routineId ?? routine.id ?? null;
+      if (routineIdRaw === null || routineIdRaw === undefined || String(routineIdRaw).trim() === "") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires routine.routineId");
+      }
+      const routineId = String(routineIdRaw).trim();
+      const status = normalizeAutonomousRoutineStatusForReplay(routine.status ?? AUTONOMOUS_ROUTINE_STATUS.ACTIVE);
+      const spendingLimits =
+        routine.spendingLimits && typeof routine.spendingLimits === "object" && !Array.isArray(routine.spendingLimits) ? routine.spendingLimits : null;
+      if (!spendingLimits) throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires routine.spendingLimits");
+      const currency = typeof spendingLimits.currency === "string" ? spendingLimits.currency.trim().toUpperCase() : "";
+      if (!currency) throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires routine.spendingLimits.currency");
+      const maxPerExecutionMicros = Number(spendingLimits.maxPerExecutionMicros);
+      const maxPerDayMicros = Number(spendingLimits.maxPerDayMicros);
+      if (!Number.isSafeInteger(maxPerExecutionMicros) || maxPerExecutionMicros < 0) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires non-negative routine.spendingLimits.maxPerExecutionMicros");
+      }
+      if (!Number.isSafeInteger(maxPerDayMicros) || maxPerDayMicros < 0) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires non-negative routine.spendingLimits.maxPerDayMicros");
+      }
+      if (maxPerDayMicros < maxPerExecutionMicros) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires maxPerDayMicros >= maxPerExecutionMicros");
+      }
+      const killSwitch =
+        routine.killSwitch && typeof routine.killSwitch === "object" && !Array.isArray(routine.killSwitch) ? routine.killSwitch : {};
+      if (killSwitch.active !== undefined && typeof killSwitch.active !== "boolean") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires boolean routine.killSwitch.active when provided");
+      }
+      const killSwitchRevision =
+        killSwitch.revision === undefined || killSwitch.revision === null ? 0 : Number(killSwitch.revision);
+      if (!Number.isSafeInteger(killSwitchRevision) || killSwitchRevision < 0) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_POLICY_UPSERT requires non-negative routine.killSwitch.revision");
+      }
+
+      if (!(store.autonomousRoutinePolicies instanceof Map)) store.autonomousRoutinePolicies = new Map();
+      const key = autonomousRoutinePolicyStoreKey({ tenantId, routineId });
+      const existing = store.autonomousRoutinePolicies.get(key) ?? null;
+      const updatedAt =
+        typeof routine.updatedAt === "string" && routine.updatedAt.trim() !== "" ? routine.updatedAt.trim() : record.at ?? new Date().toISOString();
+      const createdAt =
+        typeof routine.createdAt === "string" && routine.createdAt.trim() !== ""
+          ? routine.createdAt.trim()
+          : existing?.createdAt ?? updatedAt;
+      const normalizedRoutine = {
+        ...routine,
+        schemaVersion:
+          typeof routine.schemaVersion === "string" && routine.schemaVersion.trim() !== ""
+            ? routine.schemaVersion.trim()
+            : "AutonomousRoutinePolicy.v1",
+        tenantId,
+        routineId,
+        status,
+        spendingLimits: {
+          ...spendingLimits,
+          currency,
+          maxPerExecutionMicros,
+          maxPerDayMicros
+        },
+        killSwitch: {
+          active: killSwitch.active === true,
+          revision: killSwitchRevision,
+          updatedAt: typeof killSwitch.updatedAt === "string" && killSwitch.updatedAt.trim() !== "" ? killSwitch.updatedAt.trim() : null,
+          reasonCode:
+            killSwitch.reasonCode === null || killSwitch.reasonCode === undefined || String(killSwitch.reasonCode).trim() === ""
+              ? null
+              : String(killSwitch.reasonCode).trim(),
+          reason:
+            killSwitch.reason === null || killSwitch.reason === undefined || String(killSwitch.reason).trim() === ""
+              ? null
+              : String(killSwitch.reason).trim(),
+          lastIncidentId:
+            killSwitch.lastIncidentId === null || killSwitch.lastIncidentId === undefined || String(killSwitch.lastIncidentId).trim() === ""
+              ? null
+              : String(killSwitch.lastIncidentId).trim()
+        },
+        createdAt,
+        updatedAt
+      };
+      store.autonomousRoutinePolicies.set(key, normalizedRoutine);
+      continue;
+    }
+
+    if (kind === "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const event = op.event ?? null;
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND requires event");
+      }
+      const incidentIdRaw = event.incidentId ?? event.eventId ?? event.id ?? op.incidentId ?? null;
+      if (incidentIdRaw === null || incidentIdRaw === undefined || String(incidentIdRaw).trim() === "") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND requires event.incidentId");
+      }
+      const routineIdRaw = event.routineId ?? op.routineId ?? null;
+      if (routineIdRaw === null || routineIdRaw === undefined || String(routineIdRaw).trim() === "") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND requires event.routineId");
+      }
+      const incidentId = String(incidentIdRaw).trim();
+      const routineId = String(routineIdRaw).trim();
+      const action = normalizeAutonomousRoutineControlActionForReplay(event.action ?? op.action ?? null);
+      const effectiveAt =
+        typeof event.effectiveAt === "string" && event.effectiveAt.trim() !== "" ? event.effectiveAt.trim() : record.at ?? new Date().toISOString();
+      const createdAt =
+        typeof event.createdAt === "string" && event.createdAt.trim() !== "" ? event.createdAt.trim() : effectiveAt;
+
+      if (!(store.autonomousRoutinePolicies instanceof Map)) store.autonomousRoutinePolicies = new Map();
+      if (!(store.autonomousRoutineControlEvents instanceof Map)) store.autonomousRoutineControlEvents = new Map();
+      const routineKey = autonomousRoutinePolicyStoreKey({ tenantId, routineId });
+      const existingRoutine = store.autonomousRoutinePolicies.get(routineKey) ?? null;
+      if (!existingRoutine) throw new TypeError("AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND routine was not found");
+
+      const eventKey = makeScopedKey({ tenantId, id: incidentId });
+      const normalizedEvent = {
+        ...event,
+        schemaVersion:
+          typeof event.schemaVersion === "string" && event.schemaVersion.trim() !== ""
+            ? event.schemaVersion.trim()
+            : "AutonomousRoutineControlEvent.v1",
+        tenantId,
+        incidentId,
+        routineId,
+        action,
+        effectiveAt,
+        createdAt
+      };
+      const existingEvent = store.autonomousRoutineControlEvents.get(eventKey) ?? null;
+      if (existingEvent) {
+        if (canonicalJsonStringify(existingEvent) !== canonicalJsonStringify(normalizedEvent)) {
+          const err = new Error("autonomous routine control event conflict");
+          err.code = "AUTONOMOUS_ROUTINE_CONTROL_EVENT_CONFLICT";
+          err.statusCode = 409;
+          throw err;
+        }
+        continue;
+      }
+      store.autonomousRoutineControlEvents.set(eventKey, normalizedEvent);
+
+      const previousKillSwitch =
+        existingRoutine.killSwitch && typeof existingRoutine.killSwitch === "object" && !Array.isArray(existingRoutine.killSwitch)
+          ? existingRoutine.killSwitch
+          : {};
+      const previousRevision = Number(previousKillSwitch.revision);
+      const nextRevision = Number.isSafeInteger(previousRevision) && previousRevision >= 0 ? previousRevision + 1 : 1;
+      const nextKillSwitchActive = action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH;
+      const nextRoutine = {
+        ...existingRoutine,
+        killSwitch: {
+          active: nextKillSwitchActive,
+          revision: nextRevision,
+          updatedAt: effectiveAt,
+          reasonCode:
+            nextKillSwitchActive &&
+            !(event.reasonCode === null || event.reasonCode === undefined || String(event.reasonCode).trim() === "")
+              ? String(event.reasonCode).trim()
+              : null,
+          reason:
+            nextKillSwitchActive && !(event.reason === null || event.reason === undefined || String(event.reason).trim() === "")
+              ? String(event.reason).trim()
+              : null,
+          lastIncidentId: incidentId
+        },
+        updatedAt: effectiveAt
+      };
+      store.autonomousRoutinePolicies.set(routineKey, nextRoutine);
+      continue;
+    }
+
+    if (kind === "AUTONOMOUS_ROUTINE_EXECUTION_APPEND") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const execution = op.execution ?? null;
+      if (!execution || typeof execution !== "object" || Array.isArray(execution)) {
+        throw new TypeError("AUTONOMOUS_ROUTINE_EXECUTION_APPEND requires execution");
+      }
+      const routineIdRaw = execution.routineId ?? op.routineId ?? null;
+      const executionIdRaw = execution.executionId ?? execution.id ?? op.executionId ?? null;
+      if (routineIdRaw === null || routineIdRaw === undefined || String(routineIdRaw).trim() === "") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_EXECUTION_APPEND requires execution.routineId");
+      }
+      if (executionIdRaw === null || executionIdRaw === undefined || String(executionIdRaw).trim() === "") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_EXECUTION_APPEND requires execution.executionId");
+      }
+      const routineId = String(routineIdRaw).trim();
+      const executionId = String(executionIdRaw).trim();
+      if (!(store.autonomousRoutinePolicies instanceof Map)) store.autonomousRoutinePolicies = new Map();
+      if (!(store.autonomousRoutineExecutions instanceof Map)) store.autonomousRoutineExecutions = new Map();
+
+      const routine = store.autonomousRoutinePolicies.get(autonomousRoutinePolicyStoreKey({ tenantId, routineId })) ?? null;
+      if (!routine) throw new TypeError("AUTONOMOUS_ROUTINE_EXECUTION_APPEND routine was not found");
+      const decision =
+        execution.decision && typeof execution.decision === "object" && !Array.isArray(execution.decision) ? execution.decision : null;
+      if (!decision || typeof decision.allowed !== "boolean") {
+        throw new TypeError("AUTONOMOUS_ROUTINE_EXECUTION_APPEND requires execution.decision.allowed");
+      }
+      const normalizedExecution = {
+        ...execution,
+        schemaVersion:
+          typeof execution.schemaVersion === "string" && execution.schemaVersion.trim() !== ""
+            ? execution.schemaVersion.trim()
+            : "AutonomousRoutineExecutionReceipt.v1",
+        tenantId,
+        routineId,
+        executionId
+      };
+      const key = autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId });
+      const existing = store.autonomousRoutineExecutions.get(key) ?? null;
+      if (existing) {
+        if (canonicalJsonStringify(existing) !== canonicalJsonStringify(normalizedExecution)) {
+          const err = new Error("autonomous routine execution conflict");
+          err.code = "AUTONOMOUS_ROUTINE_EXECUTION_CONFLICT";
+          err.statusCode = 409;
+          throw err;
+        }
+        continue;
+      }
+      store.autonomousRoutineExecutions.set(key, normalizedExecution);
       continue;
     }
 

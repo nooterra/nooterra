@@ -7227,6 +7227,1625 @@
           }
         }
       },
+      "AutonomousRoutineUpsertRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "routine": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "routineId",
+              "name",
+              "taskTemplate",
+              "policyGuardrails",
+              "spendingLimits"
+            ],
+            "properties": {
+              "routineId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string",
+                "nullable": true
+              },
+              "cadence": {
+                "type": "string",
+                "nullable": true
+              },
+              "taskTemplate": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused"
+                ]
+              },
+              "policyGuardrails": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "allowPaidExecution",
+                  "requireHumanApproval",
+                  "allowExternalNetwork"
+                ],
+                "properties": {
+                  "allowPaidExecution": {
+                    "type": "boolean"
+                  },
+                  "requireHumanApproval": {
+                    "type": "boolean"
+                  },
+                  "allowExternalNetwork": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "spendingLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "currency",
+                  "maxPerExecutionMicros",
+                  "maxPerDayMicros"
+                ],
+                "properties": {
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "maxPerExecutionMicros": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "maxPerDayMicros": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              }
+            }
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "cadence": {
+            "type": "string",
+            "nullable": true
+          },
+          "taskTemplate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ]
+          },
+          "policyGuardrails": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allowPaidExecution",
+              "requireHumanApproval",
+              "allowExternalNetwork"
+            ],
+            "properties": {
+              "allowPaidExecution": {
+                "type": "boolean"
+              },
+              "requireHumanApproval": {
+                "type": "boolean"
+              },
+              "allowExternalNetwork": {
+                "type": "boolean"
+              }
+            }
+          },
+          "spendingLimits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "currency",
+              "maxPerExecutionMicros",
+              "maxPerDayMicros"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "maxPerExecutionMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxPerDayMicros": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "AutonomousRoutineControlRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "kill-switch",
+              "resume",
+              "enable",
+              "disable"
+            ]
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "AutonomousRoutinePolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "routineId",
+          "name",
+          "description",
+          "cadence",
+          "taskTemplate",
+          "status",
+          "policyGuardrails",
+          "spendingLimits",
+          "killSwitch",
+          "metadata",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "AutonomousRoutinePolicy.v1"
+            ]
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "cadence": {
+            "type": "string",
+            "nullable": true
+          },
+          "taskTemplate": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ]
+          },
+          "policyGuardrails": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allowPaidExecution",
+              "requireHumanApproval",
+              "allowExternalNetwork"
+            ],
+            "properties": {
+              "allowPaidExecution": {
+                "type": "boolean"
+              },
+              "requireHumanApproval": {
+                "type": "boolean"
+              },
+              "allowExternalNetwork": {
+                "type": "boolean"
+              }
+            }
+          },
+          "spendingLimits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "currency",
+              "maxPerExecutionMicros",
+              "maxPerDayMicros"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "maxPerExecutionMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxPerDayMicros": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "killSwitch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "active",
+              "revision",
+              "updatedAt",
+              "reasonCode",
+              "reason",
+              "lastIncidentId"
+            ],
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "reasonCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              },
+              "lastIncidentId": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AutonomousRoutinePolicyResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "routine"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "created": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routine": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "routineId",
+              "name",
+              "description",
+              "cadence",
+              "taskTemplate",
+              "status",
+              "policyGuardrails",
+              "spendingLimits",
+              "killSwitch",
+              "metadata",
+              "createdAt",
+              "updatedAt"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "AutonomousRoutinePolicy.v1"
+                ]
+              },
+              "routineId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string",
+                "nullable": true
+              },
+              "cadence": {
+                "type": "string",
+                "nullable": true
+              },
+              "taskTemplate": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused"
+                ]
+              },
+              "policyGuardrails": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "allowPaidExecution",
+                  "requireHumanApproval",
+                  "allowExternalNetwork"
+                ],
+                "properties": {
+                  "allowPaidExecution": {
+                    "type": "boolean"
+                  },
+                  "requireHumanApproval": {
+                    "type": "boolean"
+                  },
+                  "allowExternalNetwork": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "spendingLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "currency",
+                  "maxPerExecutionMicros",
+                  "maxPerDayMicros"
+                ],
+                "properties": {
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "maxPerExecutionMicros": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "maxPerDayMicros": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "killSwitch": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "active",
+                  "revision",
+                  "updatedAt",
+                  "reasonCode",
+                  "reason",
+                  "lastIncidentId"
+                ],
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "lastIncidentId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "AutonomousRoutinePolicyListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "status",
+          "killSwitchActive",
+          "limit",
+          "offset",
+          "routines"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ],
+            "nullable": true
+          },
+          "killSwitchActive": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "routines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "routineId",
+                "name",
+                "description",
+                "cadence",
+                "taskTemplate",
+                "status",
+                "policyGuardrails",
+                "spendingLimits",
+                "killSwitch",
+                "metadata",
+                "createdAt",
+                "updatedAt"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "type": "string",
+                  "enum": [
+                    "AutonomousRoutinePolicy.v1"
+                  ]
+                },
+                "routineId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "cadence": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "taskTemplate": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "paused"
+                  ]
+                },
+                "policyGuardrails": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "allowPaidExecution",
+                    "requireHumanApproval",
+                    "allowExternalNetwork"
+                  ],
+                  "properties": {
+                    "allowPaidExecution": {
+                      "type": "boolean"
+                    },
+                    "requireHumanApproval": {
+                      "type": "boolean"
+                    },
+                    "allowExternalNetwork": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "spendingLimits": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "currency",
+                    "maxPerExecutionMicros",
+                    "maxPerDayMicros"
+                  ],
+                  "properties": {
+                    "currency": {
+                      "type": "string",
+                      "pattern": "^[A-Z]{3}$"
+                    },
+                    "maxPerExecutionMicros": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "maxPerDayMicros": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                },
+                "killSwitch": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "active",
+                    "revision",
+                    "updatedAt",
+                    "reasonCode",
+                    "reason",
+                    "lastIncidentId"
+                  ],
+                  "properties": {
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "reasonCode": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "lastIncidentId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AutonomousRoutineControlEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "incidentId",
+          "tenantId",
+          "routineId",
+          "action",
+          "requestedBy",
+          "requestId",
+          "createdAt",
+          "effectiveAt"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "AutonomousRoutineControlEvent.v1"
+            ]
+          },
+          "incidentId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "kill-switch",
+              "resume"
+            ]
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "keyId",
+              "principalId"
+            ],
+            "properties": {
+              "keyId": {
+                "type": "string",
+                "nullable": true
+              },
+              "principalId": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AutonomousRoutineControlResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "routineId",
+          "applied",
+          "action"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "kill-switch",
+              "resume"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "event": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "incidentId",
+              "tenantId",
+              "routineId",
+              "action",
+              "requestedBy",
+              "requestId",
+              "createdAt",
+              "effectiveAt"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "AutonomousRoutineControlEvent.v1"
+                ]
+              },
+              "incidentId": {
+                "type": "string"
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "routineId": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "kill-switch",
+                  "resume"
+                ]
+              },
+              "reasonCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              },
+              "requestedBy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "keyId",
+                  "principalId"
+                ],
+                "properties": {
+                  "keyId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "principalId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "requestId": {
+                "type": "string",
+                "nullable": true
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "effectiveAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "nullable": true
+          }
+        }
+      },
+      "AutonomousRoutineExecuteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "execution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "executionId",
+              "requestedAt",
+              "requestedSpendMicros",
+              "currency"
+            ],
+            "properties": {
+              "executionId": {
+                "type": "string"
+              },
+              "routineId": {
+                "type": "string",
+                "nullable": true
+              },
+              "requestedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "requestedSpendMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "expectedPolicyRevision": {
+                "type": "integer",
+                "minimum": 0,
+                "nullable": true
+              },
+              "taskInputHash": {
+                "type": "string",
+                "nullable": true
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              }
+            }
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requestedSpendMicros": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "expectedPolicyRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "taskInputHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "AutonomousRoutineExecutionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "tenantId",
+          "routineId",
+          "executionId",
+          "requestedAt",
+          "executedAt",
+          "requestedSpendMicros",
+          "currency",
+          "dailySpendBeforeMicros",
+          "dailySpendAfterMicros",
+          "policyRef",
+          "decision",
+          "decisionHash",
+          "taskInputHash",
+          "context",
+          "requestedBy",
+          "requestId"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "AutonomousRoutineExecutionReceipt.v1"
+            ]
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requestedSpendMicros": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "dailySpendBeforeMicros": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dailySpendAfterMicros": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policyRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "routineId",
+              "policyRevision",
+              "policyHash"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "AutonomousRoutinePolicy.v1"
+                ]
+              },
+              "routineId": {
+                "type": "string"
+              },
+              "policyRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "policyHash": {
+                "type": "string"
+              }
+            }
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allowed",
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "allowed": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": "string",
+                "nullable": true
+              },
+              "message": {
+                "type": "string",
+                "nullable": true
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              }
+            }
+          },
+          "decisionHash": {
+            "type": "string"
+          },
+          "taskInputHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "requestedBy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "principalId",
+              "keyId"
+            ],
+            "properties": {
+              "principalId": {
+                "type": "string",
+                "nullable": true
+              },
+              "keyId": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AutonomousRoutineExecutionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "routineId",
+          "execution"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "execution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "tenantId",
+              "routineId",
+              "executionId",
+              "requestedAt",
+              "executedAt",
+              "requestedSpendMicros",
+              "currency",
+              "dailySpendBeforeMicros",
+              "dailySpendAfterMicros",
+              "policyRef",
+              "decision",
+              "decisionHash",
+              "taskInputHash",
+              "context",
+              "requestedBy",
+              "requestId"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "AutonomousRoutineExecutionReceipt.v1"
+                ]
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "routineId": {
+                "type": "string"
+              },
+              "executionId": {
+                "type": "string"
+              },
+              "requestedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "executedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "requestedSpendMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "dailySpendBeforeMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dailySpendAfterMicros": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "policyRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "schemaVersion",
+                  "routineId",
+                  "policyRevision",
+                  "policyHash"
+                ],
+                "properties": {
+                  "schemaVersion": {
+                    "type": "string",
+                    "enum": [
+                      "AutonomousRoutinePolicy.v1"
+                    ]
+                  },
+                  "routineId": {
+                    "type": "string"
+                  },
+                  "policyRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "policyHash": {
+                    "type": "string"
+                  }
+                }
+              },
+              "decision": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "allowed",
+                  "code",
+                  "message",
+                  "details"
+                ],
+                "properties": {
+                  "allowed": {
+                    "type": "boolean"
+                  },
+                  "code": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "details": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
+                  }
+                }
+              },
+              "decisionHash": {
+                "type": "string"
+              },
+              "taskInputHash": {
+                "type": "string",
+                "nullable": true
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              },
+              "requestedBy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "principalId",
+                  "keyId"
+                ],
+                "properties": {
+                  "principalId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "requestId": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "AutonomousRoutineExecutionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "routineId",
+          "allowed",
+          "limit",
+          "offset",
+          "executions"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "executions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "tenantId",
+                "routineId",
+                "executionId",
+                "requestedAt",
+                "executedAt",
+                "requestedSpendMicros",
+                "currency",
+                "dailySpendBeforeMicros",
+                "dailySpendAfterMicros",
+                "policyRef",
+                "decision",
+                "decisionHash",
+                "taskInputHash",
+                "context",
+                "requestedBy",
+                "requestId"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "type": "string",
+                  "enum": [
+                    "AutonomousRoutineExecutionReceipt.v1"
+                  ]
+                },
+                "tenantId": {
+                  "type": "string"
+                },
+                "routineId": {
+                  "type": "string"
+                },
+                "executionId": {
+                  "type": "string"
+                },
+                "requestedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "executedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "requestedSpendMicros": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "dailySpendBeforeMicros": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "dailySpendAfterMicros": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "policyRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schemaVersion",
+                    "routineId",
+                    "policyRevision",
+                    "policyHash"
+                  ],
+                  "properties": {
+                    "schemaVersion": {
+                      "type": "string",
+                      "enum": [
+                        "AutonomousRoutinePolicy.v1"
+                      ]
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "policyRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "policyHash": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "decision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "allowed",
+                    "code",
+                    "message",
+                    "details"
+                  ],
+                  "properties": {
+                    "allowed": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    }
+                  }
+                },
+                "decisionHash": {
+                  "type": "string"
+                },
+                "taskInputHash": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "context": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "nullable": true
+                },
+                "requestedBy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "principalId",
+                    "keyId"
+                  ],
+                  "properties": {
+                    "principalId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "keyId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                },
+                "requestId": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "AutonomousRoutineIncidentListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "routineId",
+          "action",
+          "limit",
+          "offset",
+          "incidents"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "routineId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "kill-switch",
+              "resume"
+            ],
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "incidents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "incidentId",
+                "tenantId",
+                "routineId",
+                "action",
+                "requestedBy",
+                "requestId",
+                "createdAt",
+                "effectiveAt"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "type": "string",
+                  "enum": [
+                    "AutonomousRoutineControlEvent.v1"
+                  ]
+                },
+                "incidentId": {
+                  "type": "string"
+                },
+                "tenantId": {
+                  "type": "string"
+                },
+                "routineId": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "kill-switch",
+                    "resume"
+                  ]
+                },
+                "reasonCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "reason": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "requestedBy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "keyId",
+                    "principalId"
+                  ],
+                  "properties": {
+                    "keyId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "principalId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                },
+                "requestId": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "effectiveAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
       "MarketplaceAgreementAcceptanceSignatureV2": {
         "type": "object",
         "additionalProperties": false,
@@ -17088,6 +18707,28 @@
             }
           },
           "comparisons": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "RunSettlementExplainabilityResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId",
+          "explainability",
+          "replay"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "explainability": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "replay": {
             "type": "object",
             "additionalProperties": true
           }
@@ -49063,6 +50704,19 @@
               "type": "boolean",
               "default": true
             }
+          },
+          {
+            "name": "memoryScope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "personal",
+                "team",
+                "delegated"
+              ]
+            }
           }
         ],
         "security": [
@@ -49954,6 +51608,26 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
             "content": {
               "application/json": {
                 "schema": {
@@ -75447,6 +77121,158 @@
         }
       }
     },
+    "/runs/{runId}/settlement/explainability": {
+      "get": {
+        "summary": "Build deterministic settlement explainability timeline and support summary export",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "runId",
+                    "explainability",
+                    "replay"
+                  ],
+                  "properties": {
+                    "runId": {
+                      "type": "string"
+                    },
+                    "explainability": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "replay": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID",
+              "POLICY_REPLAY_FAILED"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID",
+                                "POLICY_REPLAY_FAILED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/runs/{runId}/settlement/resolve": {
       "post": {
         "summary": "Manually resolve a locked run settlement",
@@ -84368,6 +86194,3099 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines": {
+      "get": {
+        "summary": "List autonomous routine policies and kill-switch state",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "paused",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "killSwitchActive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read",
+          "ops_write"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "status",
+                    "killSwitchActive",
+                    "limit",
+                    "offset",
+                    "routines"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "paused"
+                      ],
+                      "nullable": true
+                    },
+                    "killSwitchActive": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "routines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "routineId",
+                          "name",
+                          "description",
+                          "cadence",
+                          "taskTemplate",
+                          "status",
+                          "policyGuardrails",
+                          "spendingLimits",
+                          "killSwitch",
+                          "metadata",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "AutonomousRoutinePolicy.v1"
+                            ]
+                          },
+                          "routineId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "cadence": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "taskTemplate": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "paused"
+                            ]
+                          },
+                          "policyGuardrails": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "allowPaidExecution",
+                              "requireHumanApproval",
+                              "allowExternalNetwork"
+                            ],
+                            "properties": {
+                              "allowPaidExecution": {
+                                "type": "boolean"
+                              },
+                              "requireHumanApproval": {
+                                "type": "boolean"
+                              },
+                              "allowExternalNetwork": {
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "spendingLimits": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "currency",
+                              "maxPerExecutionMicros",
+                              "maxPerDayMicros"
+                            ],
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "maxPerExecutionMicros": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "maxPerDayMicros": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "killSwitch": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "active",
+                              "revision",
+                              "updatedAt",
+                              "reasonCode",
+                              "reason",
+                              "lastIncidentId"
+                            ],
+                            "properties": {
+                              "active": {
+                                "type": "boolean"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              },
+                              "reasonCode": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "reason": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "lastIncidentId": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "metadata": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create or update an autonomous routine policy",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "routine": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "routineId",
+                      "name",
+                      "taskTemplate",
+                      "policyGuardrails",
+                      "spendingLimits"
+                    ],
+                    "properties": {
+                      "routineId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "cadence": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "taskTemplate": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "active",
+                          "paused"
+                        ]
+                      },
+                      "policyGuardrails": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "allowPaidExecution",
+                          "requireHumanApproval",
+                          "allowExternalNetwork"
+                        ],
+                        "properties": {
+                          "allowPaidExecution": {
+                            "type": "boolean"
+                          },
+                          "requireHumanApproval": {
+                            "type": "boolean"
+                          },
+                          "allowExternalNetwork": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      "spendingLimits": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "currency",
+                          "maxPerExecutionMicros",
+                          "maxPerDayMicros"
+                        ],
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "maxPerExecutionMicros": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "maxPerDayMicros": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "metadata": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "routineId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "cadence": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "taskTemplate": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "paused"
+                    ]
+                  },
+                  "policyGuardrails": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "allowPaidExecution",
+                      "requireHumanApproval",
+                      "allowExternalNetwork"
+                    ],
+                    "properties": {
+                      "allowPaidExecution": {
+                        "type": "boolean"
+                      },
+                      "requireHumanApproval": {
+                        "type": "boolean"
+                      },
+                      "allowExternalNetwork": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "spendingLimits": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "currency",
+                      "maxPerExecutionMicros",
+                      "maxPerDayMicros"
+                    ],
+                    "properties": {
+                      "currency": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                      },
+                      "maxPerExecutionMicros": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "maxPerDayMicros": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routine"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "created": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routine": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "routineId",
+                        "name",
+                        "description",
+                        "cadence",
+                        "taskTemplate",
+                        "status",
+                        "policyGuardrails",
+                        "spendingLimits",
+                        "killSwitch",
+                        "metadata",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutinePolicy.v1"
+                          ]
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cadence": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "taskTemplate": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused"
+                          ]
+                        },
+                        "policyGuardrails": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowPaidExecution",
+                            "requireHumanApproval",
+                            "allowExternalNetwork"
+                          ],
+                          "properties": {
+                            "allowPaidExecution": {
+                              "type": "boolean"
+                            },
+                            "requireHumanApproval": {
+                              "type": "boolean"
+                            },
+                            "allowExternalNetwork": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendingLimits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerExecutionMicros",
+                            "maxPerDayMicros"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{3}$"
+                            },
+                            "maxPerExecutionMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxPerDayMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "killSwitch": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "active",
+                            "revision",
+                            "updatedAt",
+                            "reasonCode",
+                            "reason",
+                            "lastIncidentId"
+                          ],
+                          "properties": {
+                            "active": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "reasonCode": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "reason": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "lastIncidentId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routine"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "created": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routine": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "routineId",
+                        "name",
+                        "description",
+                        "cadence",
+                        "taskTemplate",
+                        "status",
+                        "policyGuardrails",
+                        "spendingLimits",
+                        "killSwitch",
+                        "metadata",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutinePolicy.v1"
+                          ]
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cadence": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "taskTemplate": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused"
+                          ]
+                        },
+                        "policyGuardrails": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowPaidExecution",
+                            "requireHumanApproval",
+                            "allowExternalNetwork"
+                          ],
+                          "properties": {
+                            "allowPaidExecution": {
+                              "type": "boolean"
+                            },
+                            "requireHumanApproval": {
+                              "type": "boolean"
+                            },
+                            "allowExternalNetwork": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendingLimits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerExecutionMicros",
+                            "maxPerDayMicros"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{3}$"
+                            },
+                            "maxPerExecutionMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxPerDayMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "killSwitch": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "active",
+                            "revision",
+                            "updatedAt",
+                            "reasonCode",
+                            "reason",
+                            "lastIncidentId"
+                          ],
+                          "properties": {
+                            "active": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "reasonCode": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "reason": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "lastIncidentId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines/{routineId}": {
+      "get": {
+        "summary": "Get an autonomous routine policy by routineId",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "routineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read",
+          "ops_write"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routine"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "created": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routine": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "routineId",
+                        "name",
+                        "description",
+                        "cadence",
+                        "taskTemplate",
+                        "status",
+                        "policyGuardrails",
+                        "spendingLimits",
+                        "killSwitch",
+                        "metadata",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutinePolicy.v1"
+                          ]
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cadence": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "taskTemplate": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused"
+                          ]
+                        },
+                        "policyGuardrails": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowPaidExecution",
+                            "requireHumanApproval",
+                            "allowExternalNetwork"
+                          ],
+                          "properties": {
+                            "allowPaidExecution": {
+                              "type": "boolean"
+                            },
+                            "requireHumanApproval": {
+                              "type": "boolean"
+                            },
+                            "allowExternalNetwork": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "spendingLimits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "currency",
+                            "maxPerExecutionMicros",
+                            "maxPerDayMicros"
+                          ],
+                          "properties": {
+                            "currency": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{3}$"
+                            },
+                            "maxPerExecutionMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "maxPerDayMicros": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          }
+                        },
+                        "killSwitch": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "active",
+                            "revision",
+                            "updatedAt",
+                            "reasonCode",
+                            "reason",
+                            "lastIncidentId"
+                          ],
+                          "properties": {
+                            "active": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "reasonCode": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "reason": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "lastIncidentId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines/{routineId}/kill-switch": {
+      "post": {
+        "summary": "Apply routine-level kill-switch or resume control",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          },
+          {
+            "name": "routineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "kill-switch",
+                      "resume",
+                      "enable",
+                      "disable"
+                    ]
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "incidentId",
+                        "tenantId",
+                        "routineId",
+                        "action",
+                        "requestedBy",
+                        "requestId",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutineControlEvent.v1"
+                          ]
+                        },
+                        "incidentId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "keyId",
+                            "principalId"
+                          ],
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "incidentId",
+                        "tenantId",
+                        "routineId",
+                        "action",
+                        "requestedBy",
+                        "requestId",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutineControlEvent.v1"
+                          ]
+                        },
+                        "incidentId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "keyId",
+                            "principalId"
+                          ],
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines/{routineId}/execute": {
+      "post": {
+        "summary": "Execute an autonomous routine under policy guardrails",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          },
+          {
+            "name": "routineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "execution": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "executionId",
+                      "requestedAt",
+                      "requestedSpendMicros",
+                      "currency"
+                    ],
+                    "properties": {
+                      "executionId": {
+                        "type": "string"
+                      },
+                      "routineId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "requestedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "requestedSpendMicros": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "currency": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                      },
+                      "expectedPolicyRevision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "nullable": true
+                      },
+                      "taskInputHash": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "context": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "executionId": {
+                    "type": "string"
+                  },
+                  "routineId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "requestedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "requestedSpendMicros": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "expectedPolicyRevision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "nullable": true
+                  },
+                  "taskInputHash": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "context": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "execution"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "execution": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "routineId",
+                        "executionId",
+                        "requestedAt",
+                        "executedAt",
+                        "requestedSpendMicros",
+                        "currency",
+                        "dailySpendBeforeMicros",
+                        "dailySpendAfterMicros",
+                        "policyRef",
+                        "decision",
+                        "decisionHash",
+                        "taskInputHash",
+                        "context",
+                        "requestedBy",
+                        "requestId"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutineExecutionReceipt.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "executionId": {
+                          "type": "string"
+                        },
+                        "requestedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "executedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "requestedSpendMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "dailySpendBeforeMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "dailySpendAfterMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "policyRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "routineId",
+                            "policyRevision",
+                            "policyHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AutonomousRoutinePolicy.v1"
+                              ]
+                            },
+                            "routineId": {
+                              "type": "string"
+                            },
+                            "policyRevision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "policyHash": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "decision": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowed",
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean"
+                            },
+                            "code": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "message": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "details": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "decisionHash": {
+                          "type": "string"
+                        },
+                        "taskInputHash": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "context": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalId",
+                            "keyId"
+                          ],
+                          "properties": {
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "execution"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "execution": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "routineId",
+                        "executionId",
+                        "requestedAt",
+                        "executedAt",
+                        "requestedSpendMicros",
+                        "currency",
+                        "dailySpendBeforeMicros",
+                        "dailySpendAfterMicros",
+                        "policyRef",
+                        "decision",
+                        "decisionHash",
+                        "taskInputHash",
+                        "context",
+                        "requestedBy",
+                        "requestId"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutineExecutionReceipt.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "executionId": {
+                          "type": "string"
+                        },
+                        "requestedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "executedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "requestedSpendMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "dailySpendBeforeMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "dailySpendAfterMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "policyRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "routineId",
+                            "policyRevision",
+                            "policyHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AutonomousRoutinePolicy.v1"
+                              ]
+                            },
+                            "routineId": {
+                              "type": "string"
+                            },
+                            "policyRevision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "policyHash": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "decision": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowed",
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean"
+                            },
+                            "code": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "message": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "details": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "decisionHash": {
+                          "type": "string"
+                        },
+                        "taskInputHash": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "context": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalId",
+                            "keyId"
+                          ],
+                          "properties": {
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "execution"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "execution": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "routineId",
+                        "executionId",
+                        "requestedAt",
+                        "executedAt",
+                        "requestedSpendMicros",
+                        "currency",
+                        "dailySpendBeforeMicros",
+                        "dailySpendAfterMicros",
+                        "policyRef",
+                        "decision",
+                        "decisionHash",
+                        "taskInputHash",
+                        "context",
+                        "requestedBy",
+                        "requestId"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AutonomousRoutineExecutionReceipt.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "routineId": {
+                          "type": "string"
+                        },
+                        "executionId": {
+                          "type": "string"
+                        },
+                        "requestedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "executedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "requestedSpendMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "dailySpendBeforeMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "dailySpendAfterMicros": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "policyRef": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "routineId",
+                            "policyRevision",
+                            "policyHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AutonomousRoutinePolicy.v1"
+                              ]
+                            },
+                            "routineId": {
+                              "type": "string"
+                            },
+                            "policyRevision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "policyHash": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "decision": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "allowed",
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "properties": {
+                            "allowed": {
+                              "type": "boolean"
+                            },
+                            "code": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "message": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "details": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "decisionHash": {
+                          "type": "string"
+                        },
+                        "taskInputHash": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "context": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "principalId",
+                            "keyId"
+                          ],
+                          "properties": {
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines/{routineId}/executions": {
+      "get": {
+        "summary": "List autonomous routine execution receipts",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "routineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "allowed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read",
+          "ops_write"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "allowed",
+                    "limit",
+                    "offset",
+                    "executions"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "allowed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "executions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "tenantId",
+                          "routineId",
+                          "executionId",
+                          "requestedAt",
+                          "executedAt",
+                          "requestedSpendMicros",
+                          "currency",
+                          "dailySpendBeforeMicros",
+                          "dailySpendAfterMicros",
+                          "policyRef",
+                          "decision",
+                          "decisionHash",
+                          "taskInputHash",
+                          "context",
+                          "requestedBy",
+                          "requestId"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "AutonomousRoutineExecutionReceipt.v1"
+                            ]
+                          },
+                          "tenantId": {
+                            "type": "string"
+                          },
+                          "routineId": {
+                            "type": "string"
+                          },
+                          "executionId": {
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "executedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "requestedSpendMicros": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "dailySpendBeforeMicros": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "dailySpendAfterMicros": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "policyRef": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "routineId",
+                              "policyRevision",
+                              "policyHash"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "AutonomousRoutinePolicy.v1"
+                                ]
+                              },
+                              "routineId": {
+                                "type": "string"
+                              },
+                              "policyRevision": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "policyHash": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "decision": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "allowed",
+                              "code",
+                              "message",
+                              "details"
+                            ],
+                            "properties": {
+                              "allowed": {
+                                "type": "boolean"
+                              },
+                              "code": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "message": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "details": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "decisionHash": {
+                            "type": "string"
+                          },
+                          "taskInputHash": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "context": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                          },
+                          "requestedBy": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "principalId",
+                              "keyId"
+                            ],
+                            "properties": {
+                              "principalId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "keyId": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/routines/{routineId}/incidents": {
+      "get": {
+        "summary": "List autonomous routine control incidents",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "routineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "kill-switch",
+                "resume"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read",
+          "ops_write"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "routineId",
+                    "action",
+                    "limit",
+                    "offset",
+                    "incidents"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "routineId": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "kill-switch",
+                        "resume"
+                      ],
+                      "nullable": true
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "incidents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "incidentId",
+                          "tenantId",
+                          "routineId",
+                          "action",
+                          "requestedBy",
+                          "requestId",
+                          "createdAt",
+                          "effectiveAt"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "AutonomousRoutineControlEvent.v1"
+                            ]
+                          },
+                          "incidentId": {
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "type": "string"
+                          },
+                          "routineId": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "type": "string",
+                            "enum": [
+                              "kill-switch",
+                              "resume"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "reason": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "requestedBy": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "keyId",
+                              "principalId"
+                            ],
+                            "properties": {
+                              "keyId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "principalId": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "effectiveAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {

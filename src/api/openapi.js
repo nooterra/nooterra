@@ -3417,6 +3417,342 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const AutonomousRoutineStatus = {
+    type: "string",
+    enum: ["active", "paused"]
+  };
+
+  const AutonomousRoutineControlAction = {
+    type: "string",
+    enum: ["kill-switch", "resume"]
+  };
+
+  const AutonomousRoutinePolicyGuardrails = {
+    type: "object",
+    additionalProperties: false,
+    required: ["allowPaidExecution", "requireHumanApproval", "allowExternalNetwork"],
+    properties: {
+      allowPaidExecution: { type: "boolean" },
+      requireHumanApproval: { type: "boolean" },
+      allowExternalNetwork: { type: "boolean" }
+    }
+  };
+
+  const AutonomousRoutineSpendingLimits = {
+    type: "object",
+    additionalProperties: false,
+    required: ["currency", "maxPerExecutionMicros", "maxPerDayMicros"],
+    properties: {
+      currency: { type: "string", pattern: "^[A-Z]{3}$" },
+      maxPerExecutionMicros: { type: "integer", minimum: 0 },
+      maxPerDayMicros: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const AutonomousRoutineKillSwitchState = {
+    type: "object",
+    additionalProperties: false,
+    required: ["active", "revision", "updatedAt", "reasonCode", "reason", "lastIncidentId"],
+    properties: {
+      active: { type: "boolean" },
+      revision: { type: "integer", minimum: 0 },
+      updatedAt: { type: "string", format: "date-time", nullable: true },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      lastIncidentId: { type: "string", nullable: true }
+    }
+  };
+
+  const AutonomousRoutinePolicy = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "routineId",
+      "name",
+      "description",
+      "cadence",
+      "taskTemplate",
+      "status",
+      "policyGuardrails",
+      "spendingLimits",
+      "killSwitch",
+      "metadata",
+      "createdAt",
+      "updatedAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AutonomousRoutinePolicy.v1"] },
+      routineId: { type: "string" },
+      name: { type: "string" },
+      description: { type: "string", nullable: true },
+      cadence: { type: "string", nullable: true },
+      taskTemplate: { type: "string" },
+      status: AutonomousRoutineStatus,
+      policyGuardrails: AutonomousRoutinePolicyGuardrails,
+      spendingLimits: AutonomousRoutineSpendingLimits,
+      killSwitch: AutonomousRoutineKillSwitchState,
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const AutonomousRoutineUpsertRequest = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      routine: {
+        type: "object",
+        additionalProperties: false,
+        required: ["routineId", "name", "taskTemplate", "policyGuardrails", "spendingLimits"],
+        properties: {
+          routineId: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string", nullable: true },
+          cadence: { type: "string", nullable: true },
+          taskTemplate: { type: "string" },
+          status: AutonomousRoutineStatus,
+          policyGuardrails: AutonomousRoutinePolicyGuardrails,
+          spendingLimits: AutonomousRoutineSpendingLimits,
+          metadata: { type: "object", additionalProperties: true, nullable: true }
+        }
+      },
+      routineId: { type: "string" },
+      name: { type: "string" },
+      description: { type: "string", nullable: true },
+      cadence: { type: "string", nullable: true },
+      taskTemplate: { type: "string" },
+      status: AutonomousRoutineStatus,
+      policyGuardrails: AutonomousRoutinePolicyGuardrails,
+      spendingLimits: AutonomousRoutineSpendingLimits,
+      metadata: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const AutonomousRoutineControlEvent = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "incidentId", "tenantId", "routineId", "action", "requestedBy", "requestId", "createdAt", "effectiveAt"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AutonomousRoutineControlEvent.v1"] },
+      incidentId: { type: "string" },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      action: AutonomousRoutineControlAction,
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      requestedBy: {
+        type: "object",
+        additionalProperties: false,
+        required: ["keyId", "principalId"],
+        properties: {
+          keyId: { type: "string", nullable: true },
+          principalId: { type: "string", nullable: true }
+        }
+      },
+      requestId: { type: "string", nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      effectiveAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const AutonomousRoutineControlRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["action"],
+    properties: {
+      action: { type: "string", enum: ["kill-switch", "resume", "enable", "disable"] },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      effectiveAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const AutonomousRoutineControlResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "routineId", "applied", "action"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      applied: { type: "boolean" },
+      action: AutonomousRoutineControlAction,
+      reason: { type: "string", nullable: true },
+      event: { ...AutonomousRoutineControlEvent, nullable: true }
+    }
+  };
+
+  const AutonomousRoutineExecutionDecision = {
+    type: "object",
+    additionalProperties: false,
+    required: ["allowed", "code", "message", "details"],
+    properties: {
+      allowed: { type: "boolean" },
+      code: { type: "string", nullable: true },
+      message: { type: "string", nullable: true },
+      details: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const AutonomousRoutineExecutionReceipt = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "routineId",
+      "executionId",
+      "requestedAt",
+      "executedAt",
+      "requestedSpendMicros",
+      "currency",
+      "dailySpendBeforeMicros",
+      "dailySpendAfterMicros",
+      "policyRef",
+      "decision",
+      "decisionHash",
+      "taskInputHash",
+      "context",
+      "requestedBy",
+      "requestId"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AutonomousRoutineExecutionReceipt.v1"] },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      executionId: { type: "string" },
+      requestedAt: { type: "string", format: "date-time" },
+      executedAt: { type: "string", format: "date-time" },
+      requestedSpendMicros: { type: "integer", minimum: 0 },
+      currency: { type: "string", pattern: "^[A-Z]{3}$" },
+      dailySpendBeforeMicros: { type: "integer", minimum: 0 },
+      dailySpendAfterMicros: { type: "integer", minimum: 0 },
+      policyRef: { type: "object", additionalProperties: false, required: ["schemaVersion", "routineId", "policyRevision", "policyHash"], properties: {
+        schemaVersion: { type: "string", enum: ["AutonomousRoutinePolicy.v1"] },
+        routineId: { type: "string" },
+        policyRevision: { type: "integer", minimum: 0 },
+        policyHash: { type: "string" }
+      } },
+      decision: AutonomousRoutineExecutionDecision,
+      decisionHash: { type: "string" },
+      taskInputHash: { type: "string", nullable: true },
+      context: { type: "object", additionalProperties: true, nullable: true },
+      requestedBy: {
+        type: "object",
+        additionalProperties: false,
+        required: ["principalId", "keyId"],
+        properties: {
+          principalId: { type: "string", nullable: true },
+          keyId: { type: "string", nullable: true }
+        }
+      },
+      requestId: { type: "string", nullable: true }
+    }
+  };
+
+  const AutonomousRoutineExecuteRequest = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      execution: {
+        type: "object",
+        additionalProperties: false,
+        required: ["executionId", "requestedAt", "requestedSpendMicros", "currency"],
+        properties: {
+          executionId: { type: "string" },
+          routineId: { type: "string", nullable: true },
+          requestedAt: { type: "string", format: "date-time" },
+          requestedSpendMicros: { type: "integer", minimum: 0 },
+          currency: { type: "string", pattern: "^[A-Z]{3}$" },
+          expectedPolicyRevision: { type: "integer", minimum: 0, nullable: true },
+          taskInputHash: { type: "string", nullable: true },
+          context: { type: "object", additionalProperties: true, nullable: true }
+        }
+      },
+      executionId: { type: "string" },
+      routineId: { type: "string", nullable: true },
+      requestedAt: { type: "string", format: "date-time" },
+      requestedSpendMicros: { type: "integer", minimum: 0 },
+      currency: { type: "string", pattern: "^[A-Z]{3}$" },
+      expectedPolicyRevision: { type: "integer", minimum: 0, nullable: true },
+      taskInputHash: { type: "string", nullable: true },
+      context: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const AutonomousRoutinePolicyResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "routine"],
+    properties: {
+      ok: { type: "boolean" },
+      created: { type: "boolean", nullable: true },
+      tenantId: { type: "string" },
+      routine: AutonomousRoutinePolicy
+    }
+  };
+
+  const AutonomousRoutinePolicyListResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "status", "killSwitchActive", "limit", "offset", "routines"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      status: { ...AutonomousRoutineStatus, nullable: true },
+      killSwitchActive: { type: "boolean", nullable: true },
+      limit: { type: "integer", minimum: 1 },
+      offset: { type: "integer", minimum: 0 },
+      routines: { type: "array", items: AutonomousRoutinePolicy }
+    }
+  };
+
+  const AutonomousRoutineExecutionResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "routineId", "execution"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      code: { type: "string", nullable: true },
+      message: { type: "string", nullable: true },
+      execution: AutonomousRoutineExecutionReceipt
+    }
+  };
+
+  const AutonomousRoutineExecutionListResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "routineId", "allowed", "limit", "offset", "executions"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      allowed: { type: "boolean", nullable: true },
+      limit: { type: "integer", minimum: 1 },
+      offset: { type: "integer", minimum: 0 },
+      executions: { type: "array", items: AutonomousRoutineExecutionReceipt }
+    }
+  };
+
+  const AutonomousRoutineIncidentListResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "routineId", "action", "limit", "offset", "incidents"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      routineId: { type: "string" },
+      action: { ...AutonomousRoutineControlAction, nullable: true },
+      limit: { type: "integer", minimum: 1 },
+      offset: { type: "integer", minimum: 0 },
+      incidents: { type: "array", items: AutonomousRoutineControlEvent }
+    }
+  };
+
   const MarketplaceAgreementAcceptanceSignatureV2 = {
     type: "object",
     additionalProperties: false,
@@ -4762,6 +5098,17 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const RunSettlementExplainabilityResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["runId", "explainability", "replay"],
+    properties: {
+      runId: { type: "string" },
+      explainability: { type: "object", additionalProperties: true },
+      replay: { type: "object", additionalProperties: true }
+    }
+  };
+
   const ToolCallReplayEvaluateResponse = {
     type: "object",
     additionalProperties: false,
@@ -5469,6 +5816,18 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         OpsEmergencyKillSwitchRequest,
         OpsEmergencyResumeRequest,
         OpsEmergencyControlResponse,
+        AutonomousRoutineUpsertRequest,
+        AutonomousRoutineControlRequest,
+        AutonomousRoutinePolicy,
+        AutonomousRoutinePolicyResponse,
+        AutonomousRoutinePolicyListResponse,
+        AutonomousRoutineControlEvent,
+        AutonomousRoutineControlResponse,
+        AutonomousRoutineExecuteRequest,
+        AutonomousRoutineExecutionReceipt,
+        AutonomousRoutineExecutionResponse,
+        AutonomousRoutineExecutionListResponse,
+        AutonomousRoutineIncidentListResponse,
         MarketplaceAgreementAcceptanceSignatureV2,
         MarketplaceAgreementChangeOrderAcceptanceSignatureV2,
         MarketplaceAgreementCancellationAcceptanceSignatureV2,
@@ -5505,6 +5864,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         ArbitrationCaseV1,
         RunSettlementPolicyReplayResponse,
         RunSettlementReplayEvaluateResponse,
+        RunSettlementExplainabilityResponse,
         ToolCallReplayEvaluateResponse,
         ReputationFactsResponse,
         MonthCloseRequest,
@@ -7922,7 +8282,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
             { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
             { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } },
-            { name: "includeTranscript", in: "query", required: false, schema: { type: "boolean", default: true } }
+            { name: "includeTranscript", in: "query", required: false, schema: { type: "boolean", default: true } },
+            { name: "memoryScope", in: "query", required: false, schema: { type: "string", enum: ["personal", "team", "delegated"] } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
           responses: {
@@ -7946,6 +8307,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               }
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
           }
@@ -9201,6 +9563,38 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/runs/{runId}/settlement/explainability": {
+        get: {
+          summary: "Build deterministic settlement explainability timeline and support summary export",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "runId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: RunSettlementExplainabilityResponse
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": ["RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID", "POLICY_REPLAY_FAILED"],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(["RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID", "POLICY_REPLAY_FAILED"])
+                }
+              }
+            }
+          }
+        }
+      },
       "/runs/{runId}/settlement/resolve": {
         post: {
           summary: "Manually resolve a locked run settlement",
@@ -9871,6 +10265,150 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/routines": {
+        get: {
+          summary: "List autonomous routine policies and kill-switch state",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "paused", "all"] } },
+            { name: "killSwitchActive", in: "query", required: false, schema: { type: "string", enum: ["true", "false", "all"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read", "ops_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutinePolicyListResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Create or update an autonomous routine policy",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_write"],
+          requestBody: { required: true, content: { "application/json": { schema: AutonomousRoutineUpsertRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutinePolicyResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: AutonomousRoutinePolicyResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/routines/{routineId}": {
+        get: {
+          summary: "Get an autonomous routine policy by routineId",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "routineId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read", "ops_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutinePolicyResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/routines/{routineId}/kill-switch": {
+        post: {
+          summary: "Apply routine-level kill-switch or resume control",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "routineId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_write"],
+          requestBody: { required: true, content: { "application/json": { schema: AutonomousRoutineControlRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutineControlResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: AutonomousRoutineControlResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/routines/{routineId}/execute": {
+        post: {
+          summary: "Execute an autonomous routine under policy guardrails",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "routineId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_write"],
+          requestBody: { required: true, content: { "application/json": { schema: AutonomousRoutineExecuteRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutineExecutionResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: AutonomousRoutineExecutionResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: AutonomousRoutineExecutionResponse } } }
+          }
+        }
+      },
+      "/ops/routines/{routineId}/executions": {
+        get: {
+          summary: "List autonomous routine execution receipts",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "routineId", in: "path", required: true, schema: { type: "string" } },
+            { name: "allowed", in: "query", required: false, schema: { type: "string", enum: ["true", "false", "all"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read", "ops_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutineExecutionListResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/routines/{routineId}/incidents": {
+        get: {
+          summary: "List autonomous routine control incidents",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "routineId", in: "path", required: true, schema: { type: "string" } },
+            { name: "action", in: "query", required: false, schema: { type: "string", enum: ["kill-switch", "resume"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read", "ops_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AutonomousRoutineIncidentListResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

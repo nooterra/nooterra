@@ -183,6 +183,10 @@ import {
   validateSessionEventPayloadV1,
   validateSessionV1
 } from "../core/session-collab.js";
+import {
+  evaluateSessionMemoryReadAccessV1,
+  parseSessionMemoryAccessScope
+} from "../core/session-memory-access.js";
 import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../core/session-replay-pack.js";
 import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../core/session-transcript.js";
 import {
@@ -249,6 +253,10 @@ import {
 } from "../core/sla-events.js";
 import { buildAuditExport, buildEvidenceExport } from "../core/audit-export.js";
 import { buildAuditLineageV1 } from "../core/audit-lineage.js";
+import {
+  RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE,
+  buildRunSettlementExplainabilityV1
+} from "../core/settlement-explainability.js";
 import { DEFAULT_TENANT_ID, makeScopedKey, normalizeTenantId, parseScopedKey } from "../core/tenancy.js";
 import {
   COVERAGE_FEE_MODEL,
@@ -571,6 +579,19 @@ export function createApi({
     EMERGENCY_ROLE.INCIDENT_COMMANDER
   ]);
   const EMERGENCY_ALLOWED_ROLES_SENSITIVE = new Set([EMERGENCY_ROLE.OPS_ADMIN, EMERGENCY_ROLE.INCIDENT_COMMANDER]);
+  const AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION = "AutonomousRoutinePolicy.v1";
+  const AUTONOMOUS_ROUTINE_CONTROL_EVENT_SCHEMA_VERSION = "AutonomousRoutineControlEvent.v1";
+  const AUTONOMOUS_ROUTINE_EXECUTION_SCHEMA_VERSION = "AutonomousRoutineExecutionReceipt.v1";
+  const AUTONOMOUS_ROUTINE_STATUS = Object.freeze({
+    ACTIVE: "active",
+    PAUSED: "paused"
+  });
+  const AUTONOMOUS_ROUTINE_STATUSES = new Set(Object.values(AUTONOMOUS_ROUTINE_STATUS));
+  const AUTONOMOUS_ROUTINE_CONTROL_ACTION = Object.freeze({
+    KILL_SWITCH: "kill-switch",
+    RESUME: "resume"
+  });
+  const AUTONOMOUS_ROUTINE_CONTROL_ACTIONS = new Set(Object.values(AUTONOMOUS_ROUTINE_CONTROL_ACTION));
 
   const opsTokensRaw = opsTokens ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKENS ?? null) : null);
   const legacyOpsTokenRaw = opsToken ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKEN ?? null) : null);
@@ -13186,6 +13207,463 @@ export function createApi({
     );
   }
 
+  function autonomousRoutinePolicyStoreKey({ tenantId, routineId }) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+    if (!normalizedRoutineId) throw new TypeError("routineId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: normalizedRoutineId });
+  }
+
+  function autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId }) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+    const normalizedExecutionId = typeof executionId === "string" ? executionId.trim() : "";
+    if (!normalizedRoutineId) throw new TypeError("routineId is required");
+    if (!normalizedExecutionId) throw new TypeError("executionId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: `${normalizedRoutineId}::${normalizedExecutionId}` });
+  }
+
+  function normalizeAutonomousRoutineStatusInput(value, { fieldPath = "status", allowNull = false } = {}) {
+    if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!AUTONOMOUS_ROUTINE_STATUSES.has(normalized)) throw new TypeError(`${fieldPath} must be active|paused`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineControlActionInput(value, { fieldPath = "action" } = {}) {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "enable") return AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH;
+    if (normalized === "disable") return AUTONOMOUS_ROUTINE_CONTROL_ACTION.RESUME;
+    if (!AUTONOMOUS_ROUTINE_CONTROL_ACTIONS.has(normalized)) throw new TypeError(`${fieldPath} must be kill-switch|resume|enable|disable`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineCurrencyInput(value, { fieldPath = "currency" } = {}) {
+    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+    if (!/^[A-Z]{3}$/.test(normalized)) throw new TypeError(`${fieldPath} must be a 3-letter ISO currency code`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineMicrosInput(value, { fieldPath }) {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${fieldPath} must be a non-negative safe integer`);
+    return parsed;
+  }
+
+  function normalizeAutonomousRoutinePolicyGuardrailsInput(rawValue, { fieldPath = "policyGuardrails" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const allowPaidExecution = rawValue.allowPaidExecution === true;
+    const requireHumanApproval = rawValue.requireHumanApproval === true;
+    const allowExternalNetwork = rawValue.allowExternalNetwork === true;
+    return normalizeForCanonicalJson(
+      {
+        allowPaidExecution,
+        requireHumanApproval,
+        allowExternalNetwork
+      },
+      { path: fieldPath }
+    );
+  }
+
+  function normalizeAutonomousRoutineSpendingLimitsInput(rawValue, { fieldPath = "spendingLimits" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const currency = normalizeAutonomousRoutineCurrencyInput(rawValue.currency, { fieldPath: `${fieldPath}.currency` });
+    const maxPerExecutionMicros = normalizeAutonomousRoutineMicrosInput(rawValue.maxPerExecutionMicros, {
+      fieldPath: `${fieldPath}.maxPerExecutionMicros`
+    });
+    const maxPerDayMicros = normalizeAutonomousRoutineMicrosInput(rawValue.maxPerDayMicros, { fieldPath: `${fieldPath}.maxPerDayMicros` });
+    if (maxPerDayMicros < maxPerExecutionMicros) {
+      throw new TypeError(`${fieldPath}.maxPerDayMicros must be greater than or equal to maxPerExecutionMicros`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        currency,
+        maxPerExecutionMicros,
+        maxPerDayMicros
+      },
+      { path: fieldPath }
+    );
+  }
+
+  function normalizeAutonomousRoutinePolicyInput(rawValue, { fieldPath = "routine", existing = null } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const routineId = typeof rawValue.routineId === "string" ? rawValue.routineId.trim() : "";
+    if (!routineId) throw new TypeError(`${fieldPath}.routineId is required`);
+    const name = typeof rawValue.name === "string" ? rawValue.name.trim() : "";
+    if (!name) throw new TypeError(`${fieldPath}.name is required`);
+    const taskTemplate = typeof rawValue.taskTemplate === "string" ? rawValue.taskTemplate.trim() : "";
+    if (!taskTemplate) throw new TypeError(`${fieldPath}.taskTemplate is required`);
+    const cadence = rawValue.cadence === null || rawValue.cadence === undefined ? null : String(rawValue.cadence).trim() || null;
+    const description =
+      rawValue.description === null || rawValue.description === undefined ? null : String(rawValue.description).trim() || null;
+    const status = normalizeAutonomousRoutineStatusInput(rawValue.status ?? existing?.status ?? AUTONOMOUS_ROUTINE_STATUS.ACTIVE, {
+      fieldPath: `${fieldPath}.status`,
+      allowNull: false
+    });
+    const policyGuardrails = normalizeAutonomousRoutinePolicyGuardrailsInput(rawValue.policyGuardrails, {
+      fieldPath: `${fieldPath}.policyGuardrails`
+    });
+    const spendingLimits = normalizeAutonomousRoutineSpendingLimitsInput(rawValue.spendingLimits, {
+      fieldPath: `${fieldPath}.spendingLimits`
+    });
+    const metadata =
+      rawValue.metadata === null || rawValue.metadata === undefined
+        ? null
+        : typeof rawValue.metadata === "object" && !Array.isArray(rawValue.metadata)
+          ? normalizeForCanonicalJson(rawValue.metadata, { path: `${fieldPath}.metadata` })
+          : (() => {
+              throw new TypeError(`${fieldPath}.metadata must be object or null`);
+            })();
+    const createdAt =
+      typeof existing?.createdAt === "string" && Number.isFinite(Date.parse(existing.createdAt)) ? existing.createdAt : nowIso();
+    const previousKillSwitch =
+      existing?.killSwitch && typeof existing.killSwitch === "object" && !Array.isArray(existing.killSwitch) ? existing.killSwitch : null;
+    const inputKillSwitch =
+      rawValue.killSwitch && typeof rawValue.killSwitch === "object" && !Array.isArray(rawValue.killSwitch) ? rawValue.killSwitch : null;
+    if (inputKillSwitch && inputKillSwitch.active !== undefined && previousKillSwitch && Boolean(inputKillSwitch.active) !== Boolean(previousKillSwitch.active)) {
+      throw new TypeError(`${fieldPath}.killSwitch.active is read-only; use /ops/routines/{routineId}/kill-switch`);
+    }
+    if (inputKillSwitch && inputKillSwitch.active === true && !previousKillSwitch) {
+      throw new TypeError(`${fieldPath}.killSwitch.active cannot be enabled during create; use /ops/routines/{routineId}/kill-switch`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION,
+        routineId,
+        name,
+        description,
+        cadence,
+        taskTemplate,
+        status,
+        policyGuardrails,
+        spendingLimits,
+        killSwitch: {
+          active: previousKillSwitch?.active === true,
+          revision:
+            Number.isSafeInteger(Number(previousKillSwitch?.revision)) && Number(previousKillSwitch.revision) >= 0
+              ? Number(previousKillSwitch.revision)
+              : 0,
+          updatedAt: typeof previousKillSwitch?.updatedAt === "string" ? previousKillSwitch.updatedAt : null,
+          reasonCode: typeof previousKillSwitch?.reasonCode === "string" ? previousKillSwitch.reasonCode : null,
+          reason: typeof previousKillSwitch?.reason === "string" ? previousKillSwitch.reason : null,
+          lastIncidentId: typeof previousKillSwitch?.lastIncidentId === "string" ? previousKillSwitch.lastIncidentId : null
+        },
+        metadata,
+        createdAt,
+        updatedAt: nowIso()
+      },
+      { path: "$" }
+    );
+  }
+
+  function autonomousRoutineFeatureSupported() {
+    return (
+      typeof store.getAutonomousRoutinePolicy === "function" ||
+      typeof store.listAutonomousRoutinePolicies === "function" ||
+      store.autonomousRoutinePolicies instanceof Map
+    );
+  }
+
+  async function getAutonomousRoutinePolicyRecord({ tenantId, routineId }) {
+    if (typeof store.getAutonomousRoutinePolicy === "function") {
+      return await store.getAutonomousRoutinePolicy({ tenantId, routineId });
+    }
+    if (!(store.autonomousRoutinePolicies instanceof Map)) return null;
+    return store.autonomousRoutinePolicies.get(autonomousRoutinePolicyStoreKey({ tenantId, routineId })) ?? null;
+  }
+
+  async function listAutonomousRoutinePolicyRecords({
+    tenantId,
+    status = null,
+    killSwitchActive = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const statusFilter =
+      status === null || status === undefined || String(status).trim() === ""
+        ? null
+        : normalizeAutonomousRoutineStatusInput(status, { fieldPath: "status", allowNull: false });
+    if (killSwitchActive !== null && typeof killSwitchActive !== "boolean") throw new TypeError("killSwitchActive must be null or boolean");
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(1000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutinePolicies === "function") {
+      return await store.listAutonomousRoutinePolicies({
+        tenantId: normalizedTenantId,
+        status: statusFilter,
+        killSwitchActive,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutinePolicies instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutinePolicies.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (killSwitchActive !== null && Boolean(row?.killSwitch?.active) !== killSwitchActive) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.routineId ?? "").localeCompare(String(right?.routineId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function getAutonomousRoutineExecutionRecord({ tenantId, routineId, executionId }) {
+    if (!(store.autonomousRoutineExecutions instanceof Map)) return null;
+    return store.autonomousRoutineExecutions.get(autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId })) ?? null;
+  }
+
+  async function listAutonomousRoutineExecutionRecords({
+    tenantId,
+    routineId = null,
+    allowed = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const routineFilter = routineId === null ? null : String(routineId).trim();
+    if (routineFilter === "") throw new TypeError("routineId must be null or non-empty string");
+    if (allowed !== null && typeof allowed !== "boolean") throw new TypeError("allowed must be null or boolean");
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(2000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutineExecutions === "function") {
+      return await store.listAutonomousRoutineExecutions({
+        tenantId: normalizedTenantId,
+        routineId: routineFilter,
+        allowed,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutineExecutions instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutineExecutions.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (routineFilter !== null && String(row.routineId ?? "") !== routineFilter) continue;
+      if (allowed !== null && Boolean(row?.decision?.allowed) !== allowed) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.executedAt ?? ""))) ? Date.parse(String(left.executedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.executedAt ?? ""))) ? Date.parse(String(right.executedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.executionId ?? "").localeCompare(String(right?.executionId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function listAutonomousRoutineControlEventRecords({
+    tenantId,
+    routineId = null,
+    action = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const routineFilter = routineId === null ? null : String(routineId).trim();
+    if (routineFilter === "") throw new TypeError("routineId must be null or non-empty string");
+    const actionFilter =
+      action === null || action === undefined || String(action).trim() === ""
+        ? null
+        : normalizeAutonomousRoutineControlActionInput(action, { fieldPath: "action" });
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(2000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutineControlEvents === "function") {
+      return await store.listAutonomousRoutineControlEvents({
+        tenantId: normalizedTenantId,
+        routineId: routineFilter,
+        action: actionFilter,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutineControlEvents instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutineControlEvents.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (routineFilter !== null && String(row.routineId ?? "") !== routineFilter) continue;
+      if (actionFilter !== null && String(row.action ?? "").toLowerCase() !== actionFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.effectiveAt ?? ""))) ? Date.parse(String(left.effectiveAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.effectiveAt ?? ""))) ? Date.parse(String(right.effectiveAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.incidentId ?? "").localeCompare(String(right?.incidentId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  function normalizeAutonomousRoutineExecutionRequestInput(rawValue, { fieldPath = "execution" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const executionId = typeof rawValue.executionId === "string" ? rawValue.executionId.trim() : "";
+    if (!executionId) throw new TypeError(`${fieldPath}.executionId is required`);
+    const requestedAt = typeof rawValue.requestedAt === "string" ? rawValue.requestedAt.trim() : "";
+    if (!requestedAt || !Number.isFinite(Date.parse(requestedAt))) throw new TypeError(`${fieldPath}.requestedAt must be an ISO date-time`);
+    const requestedSpendMicros = normalizeAutonomousRoutineMicrosInput(rawValue.requestedSpendMicros, {
+      fieldPath: `${fieldPath}.requestedSpendMicros`
+    });
+    const currency = normalizeAutonomousRoutineCurrencyInput(rawValue.currency, { fieldPath: `${fieldPath}.currency` });
+    const expectedPolicyRevision =
+      rawValue.expectedPolicyRevision === null || rawValue.expectedPolicyRevision === undefined || rawValue.expectedPolicyRevision === ""
+        ? null
+        : normalizeAutonomousRoutineMicrosInput(rawValue.expectedPolicyRevision, { fieldPath: `${fieldPath}.expectedPolicyRevision` });
+    const taskInputHash =
+      rawValue.taskInputHash === null || rawValue.taskInputHash === undefined ? null : String(rawValue.taskInputHash).trim() || null;
+    const context =
+      rawValue.context === null || rawValue.context === undefined
+        ? null
+        : typeof rawValue.context === "object" && !Array.isArray(rawValue.context)
+          ? normalizeForCanonicalJson(rawValue.context, { path: `${fieldPath}.context` })
+          : (() => {
+              throw new TypeError(`${fieldPath}.context must be object or null`);
+            })();
+    return normalizeForCanonicalJson(
+      {
+        executionId,
+        requestedAt: new Date(requestedAt).toISOString(),
+        requestedSpendMicros,
+        currency,
+        expectedPolicyRevision,
+        taskInputHash,
+        context
+      },
+      { path: "$" }
+    );
+  }
+
+  function evaluateAutonomousRoutineExecutionDecision({ routine, execution, dailyApprovedSpendMicros }) {
+    if (!routine || typeof routine !== "object" || Array.isArray(routine)) {
+      return { allowed: false, code: "ROUTINE_NOT_FOUND", message: "routine not found" };
+    }
+    if (routine.status !== AUTONOMOUS_ROUTINE_STATUS.ACTIVE) {
+      return { allowed: false, code: "ROUTINE_INACTIVE", message: "routine is not active" };
+    }
+    if (routine?.killSwitch?.active === true) {
+      return { allowed: false, code: "ROUTINE_KILL_SWITCH_ACTIVE", message: "routine kill switch is active" };
+    }
+    const policyRevision = Number(routine?.killSwitch?.revision ?? 0);
+    if (
+      execution.expectedPolicyRevision !== null &&
+      (!Number.isSafeInteger(policyRevision) || policyRevision !== Number(execution.expectedPolicyRevision))
+    ) {
+      return {
+        allowed: false,
+        code: "ROUTINE_POLICY_REVISION_MISMATCH",
+        message: "routine policy revision mismatch",
+        details: {
+          expectedPolicyRevision: execution.expectedPolicyRevision,
+          actualPolicyRevision: Number.isSafeInteger(policyRevision) ? policyRevision : null
+        }
+      };
+    }
+    const allowPaidExecution = routine?.policyGuardrails?.allowPaidExecution === true;
+    if (!allowPaidExecution && execution.requestedSpendMicros > 0) {
+      return { allowed: false, code: "ROUTINE_PAID_EXECUTION_FORBIDDEN", message: "routine policy forbids paid execution" };
+    }
+    const routineCurrency = normalizeAutonomousRoutineCurrencyInput(routine.spendingLimits.currency, { fieldPath: "routine.spendingLimits.currency" });
+    if (execution.currency !== routineCurrency) {
+      return {
+        allowed: false,
+        code: "ROUTINE_SPEND_CURRENCY_MISMATCH",
+        message: "execution currency does not match routine spending policy"
+      };
+    }
+    if (execution.requestedSpendMicros > Number(routine.spendingLimits.maxPerExecutionMicros)) {
+      return { allowed: false, code: "ROUTINE_SPEND_LIMIT_EXCEEDED", message: "execution spend exceeds per-execution limit" };
+    }
+    if (Number(dailyApprovedSpendMicros) + execution.requestedSpendMicros > Number(routine.spendingLimits.maxPerDayMicros)) {
+      return { allowed: false, code: "ROUTINE_DAILY_SPEND_LIMIT_EXCEEDED", message: "execution spend exceeds daily routine limit" };
+    }
+    return { allowed: true, code: "ROUTINE_EXECUTION_ALLOWED", message: "execution allowed" };
+  }
+
+  function buildAutonomousRoutineExecutionReceipt({
+    tenantId,
+    routine,
+    execution,
+    decision,
+    dailyApprovedSpendMicros,
+    principalId = null,
+    authKeyId = null
+  }) {
+    const executedAt = execution.requestedAt;
+    const dailySpendBeforeMicros = Number(dailyApprovedSpendMicros);
+    const dailySpendAfterMicros = decision.allowed ? dailySpendBeforeMicros + execution.requestedSpendMicros : dailySpendBeforeMicros;
+    const decisionPayload = normalizeForCanonicalJson(
+      {
+        schemaVersion: "AutonomousRoutineExecutionDecisionPayload.v1",
+        tenantId: normalizeTenant(tenantId),
+        routineId: routine.routineId,
+        executionId: execution.executionId,
+        requestedAt: execution.requestedAt,
+        requestedSpendMicros: execution.requestedSpendMicros,
+        currency: execution.currency,
+        policyRevision: Number(routine?.killSwitch?.revision ?? 0),
+        dailySpendBeforeMicros,
+        dailySpendAfterMicros,
+        decision: {
+          allowed: decision.allowed === true,
+          code: decision.code ?? null,
+          message: decision.message ?? null
+        }
+      },
+      { path: "$" }
+    );
+    const decisionHash = sha256Hex(canonicalJsonStringify(decisionPayload));
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AUTONOMOUS_ROUTINE_EXECUTION_SCHEMA_VERSION,
+        tenantId: normalizeTenant(tenantId),
+        routineId: routine.routineId,
+        executionId: execution.executionId,
+        requestedAt: execution.requestedAt,
+        executedAt,
+        requestedSpendMicros: execution.requestedSpendMicros,
+        currency: execution.currency,
+        dailySpendBeforeMicros,
+        dailySpendAfterMicros,
+        policyRef: {
+          schemaVersion: AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION,
+          routineId: routine.routineId,
+          policyRevision: Number(routine?.killSwitch?.revision ?? 0),
+          policyHash: sha256Hex(canonicalJsonStringify(routine))
+        },
+        decision: {
+          allowed: decision.allowed === true,
+          code: decision.code ?? null,
+          message: decision.message ?? null,
+          details: decision.details ?? null
+        },
+        decisionHash,
+        taskInputHash: execution.taskInputHash ?? null,
+        context: execution.context ?? null,
+        requestedBy: {
+          principalId: principalId ?? null,
+          keyId: authKeyId ?? null
+        },
+        requestId: null
+      },
+      { path: "$" }
+    );
+  }
+
   function x402WalletPolicyStoreKey({ tenantId, sponsorWalletRef, policyRef, policyVersion }) {
     return makeScopedKey({
       tenantId: normalizeTenant(tenantId),
@@ -17587,6 +18065,217 @@ export function createApi({
       verification: verification ?? null,
       baseVerificationStatus
     });
+  }
+
+  function buildRunSettlementExplainabilityDiagnostic({ code, message, details = null } = {}) {
+    const normalizedCode = typeof code === "string" && code.trim() !== "" ? code.trim() : "lineage_unknown";
+    const normalizedMessage =
+      typeof message === "string" && message.trim() !== ""
+        ? message.trim()
+        : "run settlement explainability lineage diagnostics reported a validation error";
+    const normalizedDetails = details && typeof details === "object" && !Array.isArray(details) ? normalizeForCanonicalJson(details, { path: "$.details" }) : null;
+    return normalizeForCanonicalJson(
+      {
+        code: normalizedCode,
+        message: normalizedMessage,
+        details: normalizedDetails
+      },
+      { path: "$.diagnostic" }
+    );
+  }
+
+  function buildRunSettlementExplainabilityLineageDiagnostics({ runId, runEvents, settlement, kernelVerification } = {}) {
+    const diagnostics = [];
+    const normalizedRunId = typeof runId === "string" && runId.trim() !== "" ? runId.trim() : null;
+    const normalizedRunEvents = Array.isArray(runEvents) ? runEvents : [];
+    const settlementTrace =
+      settlement?.decisionTrace && typeof settlement.decisionTrace === "object" && !Array.isArray(settlement.decisionTrace)
+        ? settlement.decisionTrace
+        : null;
+
+    if (normalizedRunEvents.length === 0) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RUN_EVENT_HISTORY_MISSING,
+          message: "run event history is required for explainability timeline",
+          details: { runId: normalizedRunId }
+        })
+      );
+    }
+
+    if (!settlementTrace) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.DECISION_TRACE_MISSING,
+          message: "settlement decisionTrace is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+      return diagnostics;
+    }
+
+    const policyDecision =
+      settlementTrace.policyDecision && typeof settlementTrace.policyDecision === "object" && !Array.isArray(settlementTrace.policyDecision)
+        ? settlementTrace.policyDecision
+        : null;
+    if (!policyDecision) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.POLICY_DECISION_MISSING,
+          message: "settlement policy decision is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const decisionRecord =
+      settlementTrace.decisionRecord && typeof settlementTrace.decisionRecord === "object" && !Array.isArray(settlementTrace.decisionRecord)
+        ? settlementTrace.decisionRecord
+        : null;
+    if (!decisionRecord) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.DECISION_RECORD_MISSING,
+          message: "settlement decision record is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const settlementReceipt =
+      settlementTrace.settlementReceipt && typeof settlementTrace.settlementReceipt === "object" && !Array.isArray(settlementTrace.settlementReceipt)
+        ? settlementTrace.settlementReceipt
+        : null;
+    if (!settlementReceipt) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RECEIPT_MISSING,
+          message: "settlement receipt is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const settlementStatus = String(settlement?.status ?? "").toLowerCase();
+    const requiresResolutionEvent = settlementStatus !== "" && settlementStatus !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED;
+    if (requiresResolutionEvent) {
+      const resolutionEventId =
+        typeof settlement?.resolutionEventId === "string" && settlement.resolutionEventId.trim() !== "" ? settlement.resolutionEventId.trim() : null;
+      if (!resolutionEventId) {
+        diagnostics.push(
+          buildRunSettlementExplainabilityDiagnostic({
+            code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RESOLUTION_EVENT_MISSING,
+            message: "resolved settlement is missing resolutionEventId lineage reference",
+            details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null, settlementStatus }
+          })
+        );
+      } else {
+        const hasResolutionEvent = normalizedRunEvents.some((event) => String(event?.id ?? "") === resolutionEventId);
+        if (!hasResolutionEvent) {
+          diagnostics.push(
+            buildRunSettlementExplainabilityDiagnostic({
+              code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RESOLUTION_EVENT_NOT_FOUND,
+              message: "settlement resolutionEventId does not match any run event",
+              details: {
+                runId: normalizedRunId,
+                settlementId: settlement?.settlementId ?? null,
+                settlementStatus,
+                resolutionEventId
+              }
+            })
+          );
+        }
+      }
+    }
+
+    if (kernelVerification?.valid === false && Array.isArray(kernelVerification.errors)) {
+      for (const kernelErrorCode of kernelVerification.errors) {
+        diagnostics.push(
+          buildRunSettlementExplainabilityDiagnostic({
+            code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.KERNEL_BINDING_INVALID,
+            message: "settlement kernel verification failed",
+            details: {
+              runId: normalizedRunId,
+              settlementId: settlement?.settlementId ?? null,
+              kernelErrorCode: typeof kernelErrorCode === "string" ? kernelErrorCode : null
+            }
+          })
+        );
+      }
+    }
+    return diagnostics;
+  }
+
+  function collectRunSettlementExplainabilityTraceIds({ run, settlement, events, agreement, linkedTask } = {}) {
+    const traceIds = new Set();
+    const addTraceIds = (value) => {
+      for (const traceId of collectTraceIdsForAuditLineage(value)) traceIds.add(traceId);
+    };
+    addTraceIds(run);
+    addTraceIds(settlement);
+    addTraceIds(agreement);
+    addTraceIds(linkedTask);
+    for (const event of Array.isArray(events) ? events : []) {
+      addTraceIds(event);
+      if (event?.payload && typeof event.payload === "object" && !Array.isArray(event.payload)) addTraceIds(event.payload);
+    }
+    return [...traceIds.values()].sort((left, right) => left.localeCompare(right));
+  }
+
+  async function listRunSettlementExplainabilitySessionEvents({ tenantId, traceIds } = {}) {
+    const normalizedTraceIds = Array.isArray(traceIds)
+      ? [...new Set(traceIds.map((row) => (row === null || row === undefined ? "" : String(row).trim())).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    if (normalizedTraceIds.length === 0) return [];
+    const hasSessionListStore = typeof store.listSessions === "function" || store.sessions instanceof Map;
+    const hasSessionEventStore = typeof store.getSessionEvents === "function" || store.sessionEvents instanceof Map;
+    if (!hasSessionListStore || !hasSessionEventStore) return [];
+
+    const sessions = await listSessionRecords({ tenantId, limit: 1000, offset: 0 });
+    const traceFilter = new Set(normalizedTraceIds);
+    const rows = [];
+    for (const session of Array.isArray(sessions) ? sessions : []) {
+      const sessionId = typeof session?.sessionId === "string" ? session.sessionId : null;
+      if (!sessionId) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const events = await getSessionEventRecords({ tenantId, sessionId });
+      for (const event of Array.isArray(events) ? events : []) {
+        const eventPayload = event?.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : null;
+        const eventTraceIds = new Set([
+          ...collectTraceIdsForAuditLineage(event),
+          ...(eventPayload ? collectTraceIdsForAuditLineage(eventPayload) : [])
+        ]);
+        const matchedTraceIds = [...eventTraceIds.values()].filter((traceId) => traceFilter.has(traceId)).sort((left, right) => left.localeCompare(right));
+        if (matchedTraceIds.length === 0) continue;
+        rows.push(
+          normalizeForCanonicalJson(
+            {
+              sessionId,
+              eventId: event?.id ?? null,
+              eventType: event?.type ?? null,
+              at: event?.at ?? null,
+              chainHash: event?.chainHash ?? null,
+              prevChainHash: event?.prevChainHash ?? null,
+              payloadHash: event?.payloadHash ?? null,
+              traceIds: matchedTraceIds,
+              evidenceRefs: []
+            },
+            { path: "$.sessionEvent" }
+          )
+        );
+      }
+    }
+    rows.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.at ?? ""))) ? Date.parse(String(left.at)) : Number.MAX_SAFE_INTEGER;
+      const rightMs = Number.isFinite(Date.parse(String(right?.at ?? ""))) ? Date.parse(String(right.at)) : Number.MAX_SAFE_INTEGER;
+      if (leftMs !== rightMs) return leftMs - rightMs;
+      const bySession = String(left?.sessionId ?? "").localeCompare(String(right?.sessionId ?? ""));
+      if (bySession !== 0) return bySession;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+    return rows;
   }
 
   function parsePagination({ limitRaw, offsetRaw, defaultLimit = 50, maxLimit = 200 } = {}) {
@@ -33484,6 +34173,488 @@ export function createApi({
                     required: dualControlRequired,
                     requiredRoles: Array.from(allowedOperatorRoles.values())
                   }
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+        }
+
+        if (parts[1] === "routines") {
+          const hasReadScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          const hasWriteScope = requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!autonomousRoutineFeatureSupported()) {
+            return sendError(res, 501, "autonomous routines not supported for this store");
+          }
+
+          if (req.method === "GET" && parts.length === 2) {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            let status = null;
+            let killSwitchActive = null;
+            try {
+              const statusRaw = url.searchParams.get("status");
+              if (statusRaw !== null && statusRaw !== "") {
+                const normalizedStatusRaw = String(statusRaw).trim().toLowerCase();
+                status =
+                  normalizedStatusRaw === "all"
+                    ? null
+                    : normalizeAutonomousRoutineStatusInput(normalizedStatusRaw, { fieldPath: "status", allowNull: false });
+              }
+              const killSwitchRaw = url.searchParams.get("killSwitchActive");
+              if (killSwitchRaw !== null && killSwitchRaw !== "") {
+                const normalizedKillSwitchRaw = String(killSwitchRaw).trim().toLowerCase();
+                if (normalizedKillSwitchRaw === "all") killSwitchActive = null;
+                else if (normalizedKillSwitchRaw === "true" || normalizedKillSwitchRaw === "1") killSwitchActive = true;
+                else if (normalizedKillSwitchRaw === "false" || normalizedKillSwitchRaw === "0") killSwitchActive = false;
+                else throw new TypeError("killSwitchActive must be true|false|all");
+              }
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const routines = await listAutonomousRoutinePolicyRecords({
+              tenantId,
+              status,
+              killSwitchActive,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, status, killSwitchActive, limit, offset, routines });
+          }
+
+          if (req.method === "POST" && parts.length === 2) {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            const routineInput =
+              body?.routine && typeof body.routine === "object" && !Array.isArray(body.routine) ? body.routine : body;
+            let existingRoutine = null;
+            const requestedRoutineId =
+              typeof routineInput?.routineId === "string" && routineInput.routineId.trim() !== "" ? routineInput.routineId.trim() : null;
+            if (requestedRoutineId) {
+              existingRoutine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId: requestedRoutineId });
+            }
+            let routine = null;
+            try {
+              routine = normalizeAutonomousRoutinePolicyInput(routineInput, {
+                fieldPath: "routine",
+                existing: existingRoutine
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const created = existingRoutine ? false : true;
+            const statusCode = created ? 201 : 200;
+            const responseBody = {
+              ok: true,
+              created,
+              tenantId,
+              routine
+            };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_POLICY_UPSERT", tenantId, routine }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTONOMOUS_ROUTINE_POLICY_UPSERT",
+                targetType: "autonomous_routine_policy",
+                targetId: routine.routineId,
+                details: {
+                  status: routine.status,
+                  killSwitchActive: routine?.killSwitch?.active === true,
+                  spendingLimits: routine.spendingLimits
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+
+          if (req.method === "GET" && parts.length === 3) {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            return sendJson(res, 200, { ok: true, tenantId, routine });
+          }
+
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "executions") {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            const allowedRaw = url.searchParams.get("allowed");
+            let allowed = null;
+            if (allowedRaw !== null && allowedRaw !== "") {
+              const normalizedAllowed = String(allowedRaw).trim().toLowerCase();
+              if (normalizedAllowed === "all") allowed = null;
+              else if (normalizedAllowed === "true" || normalizedAllowed === "1") allowed = true;
+              else if (normalizedAllowed === "false" || normalizedAllowed === "0") allowed = false;
+              else return sendError(res, 400, "allowed must be true|false|all", null, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const executions = await listAutonomousRoutineExecutionRecords({
+              tenantId,
+              routineId,
+              allowed,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, routineId, allowed, limit, offset, executions });
+          }
+
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "incidents") {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            const actionRaw = url.searchParams.get("action");
+            let action = null;
+            try {
+              action =
+                actionRaw === null || actionRaw === undefined || String(actionRaw).trim() === ""
+                  ? null
+                  : normalizeAutonomousRoutineControlActionInput(actionRaw, { fieldPath: "action" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine incident query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const incidents = await listAutonomousRoutineControlEventRecords({
+              tenantId,
+              routineId,
+              action,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, routineId, action, limit, offset, incidents });
+          }
+
+          if (req.method === "POST" && parts.length === 4 && parts[3] === "kill-switch") {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            let action = null;
+            try {
+              action = normalizeAutonomousRoutineControlActionInput(body?.action ?? null, { fieldPath: "action" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine control action", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const effectiveAt =
+              typeof body?.effectiveAt === "string" && body.effectiveAt.trim() !== ""
+                ? body.effectiveAt.trim()
+                : nowIso();
+            if (!Number.isFinite(Date.parse(effectiveAt))) {
+              return sendError(res, 400, "effectiveAt must be an ISO timestamp", null, { code: "SCHEMA_INVALID" });
+            }
+            const reasonCode =
+              body?.reasonCode === null || body?.reasonCode === undefined || String(body.reasonCode).trim() === ""
+                ? null
+                : String(body.reasonCode).trim().slice(0, 120);
+            const reason =
+              body?.reason === null || body?.reason === undefined || String(body.reason).trim() === ""
+                ? null
+                : String(body.reason).trim().slice(0, 500);
+            const currentlyActive = routine?.killSwitch?.active === true;
+            if ((action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH && currentlyActive) || (action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.RESUME && !currentlyActive)) {
+              const responseBody = {
+                ok: true,
+                tenantId,
+                routineId,
+                applied: false,
+                action,
+                reason: action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH ? "already_active" : "already_inactive"
+              };
+              if (idemStoreKey) {
+                await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+              }
+              return sendJson(res, 200, responseBody);
+            }
+
+            const event = normalizeForCanonicalJson(
+              {
+                schemaVersion: AUTONOMOUS_ROUTINE_CONTROL_EVENT_SCHEMA_VERSION,
+                incidentId: createId("rctl"),
+                tenantId,
+                routineId,
+                action,
+                reasonCode,
+                reason,
+                requestedBy: {
+                  keyId: auth.ok ? (auth.keyId ?? null) : null,
+                  principalId: principalId ?? null
+                },
+                requestId,
+                createdAt: nowIso(),
+                effectiveAt
+              },
+              { path: "$" }
+            );
+            const statusCode = action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH ? 201 : 200;
+            const responseBody = {
+              ok: true,
+              tenantId,
+              routineId,
+              applied: true,
+              action,
+              event
+            };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND", tenantId, event }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND",
+                targetType: "autonomous_routine_control",
+                targetId: `${routineId}:${action}`,
+                details: {
+                  routineId,
+                  action,
+                  reasonCode,
+                  reason
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+
+          if (req.method === "POST" && parts.length === 4 && parts[3] === "execute") {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            const executionInput =
+              body?.execution && typeof body.execution === "object" && !Array.isArray(body.execution) ? body.execution : body;
+            if (
+              executionInput?.routineId !== null &&
+              executionInput?.routineId !== undefined &&
+              String(executionInput.routineId).trim() !== "" &&
+              String(executionInput.routineId).trim() !== routineId
+            ) {
+              return sendError(res, 400, "execution.routineId must match path routineId", null, { code: "SCHEMA_INVALID" });
+            }
+            let execution = null;
+            try {
+              execution = normalizeAutonomousRoutineExecutionRequestInput(executionInput, { fieldPath: "execution" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine execution request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const existingExecution = await getAutonomousRoutineExecutionRecord({
+              tenantId,
+              routineId,
+              executionId: execution.executionId
+            });
+            if (existingExecution) {
+              const existingRequestedAt = String(existingExecution.requestedAt ?? "");
+              const existingRequestedSpendMicros = Number(existingExecution.requestedSpendMicros);
+              const existingCurrency = String(existingExecution.currency ?? "").toUpperCase();
+              const existingTaskInputHash =
+                existingExecution.taskInputHash === null || existingExecution.taskInputHash === undefined
+                  ? null
+                  : String(existingExecution.taskInputHash);
+              const incomingTaskInputHash = execution.taskInputHash === null || execution.taskInputHash === undefined ? null : execution.taskInputHash;
+              const existingContextHash = sha256Hex(canonicalJsonStringify(existingExecution.context ?? null));
+              const incomingContextHash = sha256Hex(canonicalJsonStringify(execution.context ?? null));
+              const existingPolicyRevision = Number(existingExecution?.policyRef?.policyRevision ?? 0);
+              const expectedPolicyRevisionMatches =
+                execution.expectedPolicyRevision === null ? true : existingPolicyRevision === Number(execution.expectedPolicyRevision);
+              const mismatch =
+                existingRequestedAt !== execution.requestedAt ||
+                !Number.isSafeInteger(existingRequestedSpendMicros) ||
+                existingRequestedSpendMicros !== execution.requestedSpendMicros ||
+                existingCurrency !== execution.currency ||
+                existingTaskInputHash !== incomingTaskInputHash ||
+                existingContextHash !== incomingContextHash ||
+                !expectedPolicyRevisionMatches;
+              if (mismatch) {
+                return sendError(
+                  res,
+                  409,
+                  "autonomous routine execution conflict",
+                  null,
+                  { code: "AUTONOMOUS_ROUTINE_EXECUTION_CONFLICT" }
+                );
+              }
+              const existingAllowed = existingExecution?.decision?.allowed === true;
+              const statusCode = existingAllowed ? 200 : 409;
+              const responseBody = existingAllowed
+                ? { ok: true, tenantId, routineId, execution: existingExecution }
+                : {
+                    ok: false,
+                    tenantId,
+                    routineId,
+                    code: existingExecution?.decision?.code ?? "ROUTINE_EXECUTION_BLOCKED",
+                    message: existingExecution?.decision?.message ?? "routine execution blocked",
+                    execution: existingExecution
+                  };
+              return sendJson(res, statusCode, responseBody);
+            }
+
+            let dailyApprovedSpendMicros = 0;
+            const requestedDatePrefix = String(execution.requestedAt).slice(0, 10);
+            if (store.autonomousRoutineExecutions instanceof Map) {
+              for (const row of store.autonomousRoutineExecutions.values()) {
+                if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+                if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizeTenant(tenantId)) continue;
+                if (String(row.routineId ?? "") !== routineId) continue;
+                if (row?.decision?.allowed !== true) continue;
+                if (String(row.executedAt ?? "").slice(0, 10) !== requestedDatePrefix) continue;
+                const spendMicros = Number(row.requestedSpendMicros);
+                if (Number.isSafeInteger(spendMicros) && spendMicros > 0) dailyApprovedSpendMicros += spendMicros;
+              }
+            } else {
+              const approvedExecutions = await listAutonomousRoutineExecutionRecords({
+                tenantId,
+                routineId,
+                allowed: true,
+                limit: 2000,
+                offset: 0
+              });
+              for (const row of approvedExecutions) {
+                if (String(row.executedAt ?? "").slice(0, 10) !== requestedDatePrefix) continue;
+                const spendMicros = Number(row.requestedSpendMicros);
+                if (Number.isSafeInteger(spendMicros) && spendMicros > 0) dailyApprovedSpendMicros += spendMicros;
+              }
+            }
+
+            const decision = evaluateAutonomousRoutineExecutionDecision({
+              routine,
+              execution,
+              dailyApprovedSpendMicros
+            });
+            const receipt = buildAutonomousRoutineExecutionReceipt({
+              tenantId,
+              routine,
+              execution,
+              decision,
+              dailyApprovedSpendMicros,
+              principalId,
+              authKeyId: auth.ok ? (auth.keyId ?? null) : null
+            });
+
+            const statusCode = decision.allowed ? 201 : 409;
+            const responseBody = decision.allowed
+              ? {
+                  ok: true,
+                  tenantId,
+                  routineId,
+                  execution: receipt
+                }
+              : {
+                  ok: false,
+                  tenantId,
+                  routineId,
+                  code: decision.code ?? "ROUTINE_EXECUTION_BLOCKED",
+                  message: decision.message ?? "routine execution blocked",
+                  execution: receipt
+                };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_EXECUTION_APPEND", tenantId, execution: receipt }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: decision.allowed ? "AUTONOMOUS_ROUTINE_EXECUTION_ALLOWED" : "AUTONOMOUS_ROUTINE_EXECUTION_BLOCKED",
+                targetType: "autonomous_routine_execution",
+                targetId: `${routineId}:${execution.executionId}`,
+                details: {
+                  routineId,
+                  executionId: execution.executionId,
+                  allowed: decision.allowed === true,
+                  code: decision.code ?? null,
+                  requestedSpendMicros: execution.requestedSpendMicros,
+                  currency: execution.currency,
+                  requestedAt: execution.requestedAt
                 }
               })
             });
@@ -53979,13 +55150,16 @@ export function createApi({
           const signRaw = url.searchParams.get("sign");
           const signerKeyIdRaw = url.searchParams.get("signerKeyId");
           const includeTranscriptRaw = url.searchParams.get("includeTranscript");
+          const memoryScopeRaw = url.searchParams.get("memoryScope");
           let signReplayExport = false;
           let signerKeyId = null;
           let includeTranscript = true;
+          let memoryScope = null;
           try {
             signReplayExport = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
             signerKeyId = parseSessionArtifactSignerKeyId(signerKeyIdRaw, { allowNull: true });
             includeTranscript = parseBooleanQueryValue(includeTranscriptRaw, { defaultValue: true, name: "includeTranscript" });
+            memoryScope = parseSessionMemoryAccessScope(memoryScopeRaw, { allowNull: true, name: "memoryScope" });
             if (!signReplayExport && signerKeyId !== null) {
               throw new TypeError("signerKeyId requires sign=true");
             }
@@ -53995,6 +55169,59 @@ export function createApi({
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+          if (typeof store.appendOpsAudit !== "function") {
+            return sendError(res, 501, "session memory access audit not supported for this store", { sessionId }, { code: "AUDIT_LOG_UNSUPPORTED" });
+          }
+
+          let callerPrincipalId = null;
+          try {
+            callerPrincipalId = normalizePrincipalId(req?.headers ?? {});
+          } catch {
+            callerPrincipalId = typeof principalId === "string" && principalId.trim() !== "" ? principalId.trim() : null;
+          }
+
+          const memoryAccess = evaluateSessionMemoryReadAccessV1({
+            principalId: callerPrincipalId,
+            participants: Array.isArray(session?.participants) ? session.participants : [],
+            policy: session?.metadata?.memoryAccessPolicy ?? null,
+            scope: memoryScope
+          });
+          if (!memoryAccess.ok) {
+            try {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "SESSION_MEMORY_READ_DENIED",
+                  targetType: "session",
+                  targetId: sessionId,
+                  details: {
+                    path: `/sessions/${sessionId}/replay-export`,
+                    sessionId,
+                    principalId: callerPrincipalId ?? null,
+                    requestedScope: memoryScope ?? null,
+                    resolvedScope: memoryAccess.scope ?? null,
+                    reasonCode: memoryAccess.code ?? null,
+                    policyHash: memoryAccess.policyHash ?? null
+                  }
+                })
+              });
+            } catch (err) {
+              return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+            }
+            return sendError(
+              res,
+              403,
+              "session memory access denied",
+              {
+                sessionId,
+                principalId: callerPrincipalId ?? null,
+                requestedScope: memoryScope ?? null,
+                resolvedScope: memoryAccess.scope ?? null
+              },
+              { code: memoryAccess.code ?? "SESSION_MEMORY_ACCESS_DENIED" }
+            );
+          }
+
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay export" });
           if (!verified.ok) {
             return sendError(
@@ -54095,6 +55322,29 @@ export function createApi({
             memoryExportRef,
             importVerification
           });
+          try {
+            await store.appendOpsAudit({
+              tenantId,
+              audit: makeOpsAudit({
+                action: "SESSION_MEMORY_READ_ALLOWED",
+                targetType: "session",
+                targetId: sessionId,
+                details: {
+                  path: `/sessions/${sessionId}/replay-export`,
+                  sessionId,
+                  principalId: callerPrincipalId ?? null,
+                  requestedScope: memoryScope ?? null,
+                  resolvedScope: memoryAccess.scope ?? null,
+                  policyHash: memoryAccess.policyHash ?? null,
+                  replayPackHash: replayPack?.packHash ?? null,
+                  memoryExportHash: exportMetadata?.memoryExportHash ?? null,
+                  exportHash: exportMetadata?.exportHash ?? null
+                }
+              })
+            });
+          } catch (err) {
+            return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+          }
           return sendJson(res, 200, { ok: true, replayPack, transcript, memoryExport, memoryExportRef, exportMetadata });
         }
 
@@ -62418,6 +63668,132 @@ export function createApi({
             decisionRecordReplayCriticalMatchesStored: replayCriticalMatchesStored,
             verifierRefMatchesStored,
             kernelBindingsValid: kernelVerification.valid === true
+          }
+        });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "explainability" && parts.length === 4 && req.method === "GET") {
+        const runId = parts[1];
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        const events = await getAgentRunEvents(tenantId, runId);
+        const verification = computeAgentRunVerification({ run, events });
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        const agreement =
+          linkedTask?.agreement && typeof linkedTask.agreement === "object" && !Array.isArray(linkedTask.agreement) ? linkedTask.agreement : null;
+
+        let replayVerificationStatus = run?.status === "failed" ? "red" : verification?.verificationStatus ?? "amber";
+        let replayDecision =
+          settlement?.decisionTrace?.policyDecision &&
+          typeof settlement.decisionTrace.policyDecision === "object" &&
+          !Array.isArray(settlement.decisionTrace.policyDecision)
+            ? settlement.decisionTrace.policyDecision
+            : null;
+        let agreementPolicyMaterial = null;
+        let replayVerifierExecution = null;
+        if (agreement) {
+          agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
+          replayVerifierExecution = evaluateRunSettlementVerifierExecution({
+            verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+            run,
+            verification
+          });
+          replayVerificationStatus = replayVerifierExecution.verificationStatus;
+          try {
+            replayDecision = evaluateSettlementPolicy({
+              policy: agreementPolicyMaterial.policy ?? null,
+              verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+              verificationStatus: replayVerificationStatus,
+              runStatus: run.status === "failed" ? "failed" : "completed",
+              amountCents: settlement.amountCents
+            });
+          } catch (err) {
+            return sendError(res, 409, "run settlement explainability replay failed", { message: err?.message }, { code: "POLICY_REPLAY_FAILED" });
+          }
+          replayDecision = applyAgreementMilestoneRelease({
+            policyDecision: replayDecision,
+            agreement,
+            run,
+            verification,
+            amountCents: settlement.amountCents
+          }).decision;
+        }
+
+        const kernelVerification = verifySettlementKernelArtifacts({ settlement, runId });
+        const lineageDiagnostics = buildRunSettlementExplainabilityLineageDiagnostics({
+          runId,
+          runEvents: events,
+          settlement,
+          kernelVerification
+        });
+        if (lineageDiagnostics.length > 0) {
+          return sendError(
+            res,
+            409,
+            "run settlement explainability blocked",
+            normalizeForCanonicalJson(
+              {
+                runId,
+                settlementId: settlement?.settlementId ?? null,
+                diagnostics: lineageDiagnostics,
+                kernelVerification
+              },
+              { path: "$.details" }
+            ),
+            { code: "RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID" }
+          );
+        }
+
+        const traceIds = collectRunSettlementExplainabilityTraceIds({
+          run,
+          settlement,
+          events,
+          agreement,
+          linkedTask
+        });
+        let sessionEvents = [];
+        try {
+          sessionEvents = await listRunSettlementExplainabilitySessionEvents({ tenantId, traceIds });
+        } catch {
+          sessionEvents = [];
+        }
+        const explainability = buildRunSettlementExplainabilityV1({
+          tenantId,
+          runId,
+          run,
+          settlement,
+          runEvents: events,
+          sessionEvents,
+          policyVerdict: replayDecision,
+          verificationStatus: replayVerificationStatus,
+          traceIds,
+          lineageDiagnostics: []
+        });
+        return sendJson(res, 200, {
+          runId,
+          explainability,
+          replay: {
+            policyVersion: agreementPolicyMaterial?.policyVersion ?? null,
+            policyHash: agreementPolicyMaterial?.policyHash ?? null,
+            verificationMethodHash: agreementPolicyMaterial?.verificationMethodHash ?? null,
+            policyRef: agreementPolicyMaterial?.policyRef ?? null,
+            verifierRef: replayVerifierExecution?.verifierRef ?? null,
+            verificationStatus: replayVerificationStatus,
+            decision: replayDecision
           }
         });
       }
