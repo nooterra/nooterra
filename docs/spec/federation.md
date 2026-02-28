@@ -12,12 +12,13 @@ Runtime config:
 - `COORDINATOR_DID` (or `PROXY_COORDINATOR_DID`): local coordinator DID-like identifier.
 - `PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS`: comma-separated trusted peer coordinator DIDs.
 - `PROXY_FEDERATION_NAMESPACE_ROUTES`: JSON object mapping target coordinator DID -> absolute federation upstream base URL.
-- `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `PROXY_COORDINATOR_SIGNING_KEY_ID`: optional envelope signing key material.
+- `COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `COORDINATOR_SIGNING_KEY_ID` (or `COORDINATOR_SIGNING_KEY`): optional envelope signing key material.
+- `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `PROXY_COORDINATOR_SIGNING_KEY_ID` remain supported aliases.
 
 Fail-closed rules:
 - Federation is considered enabled when any federation identity/trust/signing input is configured.
 - When federation is enabled, local coordinator identity MUST be configured (`COORDINATOR_DID` or `PROXY_COORDINATOR_DID`). Missing local identity is a hard startup error.
-- When `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` is configured, `PROXY_COORDINATOR_SIGNING_KEY_ID` MUST also be configured. Missing key id is a hard startup error.
+- When signing private key material is configured, signing key id MUST also be configured. Missing key id is a hard startup error.
 - Unknown or untrusted peer coordinator DIDs MUST be rejected at trust evaluation boundaries.
 - Namespace route selection MUST use exact target DID lookup; missing target DID route MUST fail closed when namespace routing config is enabled.
 - Implementations MUST emit deterministic error codes for identity/trust/signing failures and MUST NOT continue with best-effort federation delivery.

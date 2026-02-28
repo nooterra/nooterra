@@ -82,6 +82,12 @@ export function buildFederationProxyPolicy({ env = process.env, fallbackBaseUrl 
   };
 }
 
+export function isTrustedFederationCoordinatorDid({ policy, did }) {
+  const normalizedDid = normalizeDid(did);
+  if (!normalizedDid) return false;
+  return Boolean(policy?.trustedCoordinatorDidSet?.has(normalizedDid));
+}
+
 function envelopeError(statusCode, code, message, details = null) {
   return { ok: false, statusCode, code, message, details };
 }
@@ -174,7 +180,7 @@ export function evaluateFederationTrustAndRoute({ endpoint, envelope, policy }) 
   }
 
   const peerDid = localMatchesOrigin ? targetDid : originDid;
-  if (!policy.trustedCoordinatorDidSet?.has(peerDid)) {
+  if (!isTrustedFederationCoordinatorDid({ policy, did: peerDid })) {
     return envelopeError(403, FEDERATION_ERROR_CODE.UNTRUSTED_COORDINATOR, "federation peer coordinator is not trusted", { peerDid });
   }
 

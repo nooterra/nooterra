@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../src/federation/proxy-policy.js";
+import {
+  buildFederationProxyPolicy,
+  evaluateFederationTrustAndRoute,
+  isTrustedFederationCoordinatorDid,
+  validateFederationEnvelope
+} from "../src/federation/proxy-policy.js";
 import { FEDERATION_ERROR_CODE, FEDERATION_OPENAPI_ERROR_CODES } from "../src/federation/error-codes.js";
 
 function invokeEnvelope(overrides = {}) {
@@ -60,6 +65,44 @@ test("federation policy: fails closed when peer is not trusted", () => {
 
   assert.equal(checked.ok, false);
   assert.equal(checked.code, FEDERATION_ERROR_CODE.UNTRUSTED_COORDINATOR);
+});
+
+test("federation policy: trusted coordinator helper is deterministic and strict", () => {
+  const policy = buildFederationProxyPolicy({
+    env: {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo,did:nooterra:coord_charlie"
+    },
+    fallbackBaseUrl: "https://federation.nooterra.test"
+  });
+  assert.equal(
+    isTrustedFederationCoordinatorDid({
+      policy,
+      did: "did:nooterra:coord_bravo"
+    }),
+    true
+  );
+  assert.equal(
+    isTrustedFederationCoordinatorDid({
+      policy,
+      did: " did:nooterra:coord_bravo "
+    }),
+    true
+  );
+  assert.equal(
+    isTrustedFederationCoordinatorDid({
+      policy,
+      did: "did:nooterra:coord_delta"
+    }),
+    false
+  );
+  assert.equal(
+    isTrustedFederationCoordinatorDid({
+      policy,
+      did: "coord_delta"
+    }),
+    false
+  );
 });
 
 test("federation policy: selects namespace route by exact target DID", () => {
