@@ -226,6 +226,57 @@ test("api federation proxy: incoming invoke enqueues locally with deterministic 
   }
 });
 
+test("api federation proxy: incoming result ingests once with deterministic replay", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const payload = resultEnvelope({
+      invocationId: "inv_incoming_result_1",
+      originDid: "did:nooterra:coord_bravo",
+      targetDid: "did:nooterra:coord_alpha"
+    });
+    const first = await request(api, {
+      method: "POST",
+      path: "/v1/federation/result",
+      body: payload,
+      auth: "none"
+    });
+    const second = await request(api, {
+      method: "POST",
+      path: "/v1/federation/result",
+      body: payload,
+      auth: "none"
+    });
+    const conflict = await request(api, {
+      method: "POST",
+      path: "/v1/federation/result",
+      body: {
+        ...payload,
+        result: { ok: false, changed: true }
+      },
+      auth: "none"
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.json?.ok, true);
+    assert.equal(first.json?.invocationId, "inv_incoming_result_1");
+    assert.equal(first.json?.status, "success");
+    assert.equal(typeof first.json?.receiptId, "string");
+    assert.equal(typeof first.json?.acceptedAt, "string");
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.headers?.get?.("x-federation-replay"), "duplicate");
+    assert.equal(second.json?.receiptId, first.json?.receiptId);
+    assert.equal(second.json?.acceptedAt, first.json?.acceptedAt);
+    assert.equal(conflict.statusCode, 409);
+    assert.equal(conflict.json?.code, "FEDERATION_ENVELOPE_CONFLICT");
+  } finally {
+    restore();
+  }
+});
+
 test("api federation proxy: routes by namespace DID with explicit route map", async () => {
   const callsA = [];
   const callsB = [];

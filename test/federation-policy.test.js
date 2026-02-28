@@ -22,6 +22,19 @@ function invokeEnvelope(overrides = {}) {
   };
 }
 
+function resultEnvelope(overrides = {}) {
+  return {
+    version: "1.0",
+    type: "coordinatorResult",
+    invocationId: "inv_policy_result_1",
+    originDid: "did:nooterra:coord_bravo",
+    targetDid: "did:nooterra:coord_alpha",
+    status: "success",
+    result: { ok: true },
+    ...overrides
+  };
+}
+
 test("federation policy: validates invoke envelope", () => {
   const ok = validateFederationEnvelope({ endpoint: "invoke", body: invokeEnvelope() });
   assert.equal(ok.ok, true);
@@ -141,6 +154,30 @@ test("federation policy: incoming invoke does not require outbound namespace tra
     envelope: validateFederationEnvelope({
       endpoint: "invoke",
       body: invokeEnvelope({
+        originDid: "did:nooterra:coord_bravo",
+        targetDid: "did:nooterra:coord_alpha"
+      })
+    }).envelope,
+    policy
+  });
+  assert.equal(checked.ok, true);
+  assert.equal(checked.direction, "incoming");
+  assert.equal(checked.upstreamBaseUrl, null);
+});
+
+test("federation policy: incoming result does not require outbound namespace transport", () => {
+  const policy = buildFederationProxyPolicy({
+    env: {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+    },
+    fallbackBaseUrl: null
+  });
+  const checked = evaluateFederationTrustAndRoute({
+    endpoint: "result",
+    envelope: validateFederationEnvelope({
+      endpoint: "result",
+      body: resultEnvelope({
         originDid: "did:nooterra:coord_bravo",
         targetDid: "did:nooterra:coord_alpha"
       })

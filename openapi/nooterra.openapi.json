@@ -18673,6 +18673,14 @@
               "denied"
             ]
           },
+          "receiptId": {
+            "type": "string",
+            "nullable": true
+          },
+          "acceptedAt": {
+            "type": "string",
+            "nullable": true
+          },
           "result": {
             "type": "object",
             "additionalProperties": true,
@@ -87416,6 +87424,14 @@
                         "timeout",
                         "denied"
                       ]
+                    },
+                    "receiptId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "acceptedAt": {
+                      "type": "string",
+                      "nullable": true
                     },
                     "result": {
                       "type": "object",

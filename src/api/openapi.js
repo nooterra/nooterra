@@ -5287,6 +5287,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       ok: { type: "boolean" },
       invocationId: { type: "string" },
       status: { type: "string", enum: ["success", "error", "timeout", "denied"] },
+      receiptId: { type: "string", nullable: true },
+      acceptedAt: { type: "string", nullable: true },
       result: { type: "object", additionalProperties: true, nullable: true }
     }
   };

@@ -630,6 +630,7 @@ export function createApi({
   const federationStatsTracker = createFederationStatsTracker({ now: nowIso });
   const federationIncomingInvokeRows = new Map();
   const federationIncomingDispatchQueue = [];
+  const federationIncomingResultRows = new Map();
 
   function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
     const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
@@ -653,6 +654,28 @@ export function createApi({
     };
     federationIncomingInvokeRows.set(queueKey, row);
     federationIncomingDispatchQueue.push(queueKey);
+    return row;
+  }
+
+  function ingestIncomingFederationResult({ envelope, body, requestHash }) {
+    const recordKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const existing = federationIncomingResultRows.get(recordKey);
+    if (existing) return existing;
+    const receiptId = `fedrcpt_${requestHash.slice(0, 24)}`;
+    const row = {
+      schemaVersion: "FederationResultReceipt.v1",
+      acceptedAt: nowIso(),
+      receiptId,
+      invocationId: envelope.invocationId,
+      status: envelope.status,
+      result: body?.result ?? null,
+      evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs.slice() : [],
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      requestHash,
+      settlementApplied: false
+    };
+    federationIncomingResultRows.set(recordKey, row);
     return row;
   }
 
@@ -30083,20 +30106,44 @@ export function createApi({
     }
 
     if (endpoint === "result" && routeCheck.direction === "incoming") {
+      const receipt = ingestIncomingFederationResult({
+        envelope: envelopeCheck.envelope,
+        body: parsedBody,
+        requestHash
+      });
+      const responseBody = {
+        ok: true,
+        invocationId: envelopeCheck.envelope.invocationId,
+        status: envelopeCheck.envelope.status,
+        receiptId: receipt.receiptId,
+        acceptedAt: receipt.acceptedAt
+      };
+      const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
+      try {
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("x-federation-dispatch-channel", "local");
+      } catch {
+        // ignore
+      }
+      federationReplayLedger.complete({
+        key: replayKey,
+        requestHash,
+        response: {
+          statusCode: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-federation-dispatch-channel": "local"
+          },
+          bodyBytes: bytes
+        }
+      });
       logFederationReceived({
         envelope: envelopeCheck.envelope,
-        status: "result_not_implemented",
-        statusCode: 403,
-        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
-        level: "warn"
+        status: "result_ingested",
+        statusCode: 200
       });
-      return sendError(
-        res,
-        403,
-        "federation result ingestion is not implemented",
-        { reason: "result_ingestion_not_implemented" },
-        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
-      );
+      res.statusCode = 200;
+      return res.end(bytes);
     }
 
     const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
