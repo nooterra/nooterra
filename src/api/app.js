@@ -410,6 +410,10 @@ export function createApi({
   deliveryBackoffMaxMs = 60_000,
   deliveryRandom = Math.random,
   fetchFn = null,
+  federationForwardMaxAttempts = null,
+  federationForwardTimeoutMs = null,
+  federationForwardRetryBaseMs = null,
+  federationForwardRetryMaxMs = null,
   rateLimitRpm = null,
   rateLimitBurst = null,
   protocol = null,
@@ -625,6 +629,31 @@ export function createApi({
   const federationWorkOrderForwardEnabled =
     typeof process !== "undefined" &&
     ["1", "true", "yes", "on"].includes(String(process.env.PROXY_FEDERATION_WORK_ORDER_FORWARD ?? "").trim().toLowerCase());
+  function parsePositiveFederationInt(raw, { fieldName, fallback }) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return fallback;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new TypeError(`${fieldName} must be a positive safe integer`);
+    return parsed;
+  }
+  const federationForwardMaxAttemptsValue = parsePositiveFederationInt(
+    federationForwardMaxAttempts ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_MAX_ATTEMPTS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_MAX_ATTEMPTS", fallback: 3 }
+  );
+  const federationForwardTimeoutMsValue = parsePositiveFederationInt(
+    federationForwardTimeoutMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_TIMEOUT_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_TIMEOUT_MS", fallback: 5_000 }
+  );
+  const federationForwardRetryBaseMsValue = parsePositiveFederationInt(
+    federationForwardRetryBaseMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_RETRY_BASE_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_RETRY_BASE_MS", fallback: 100 }
+  );
+  const federationForwardRetryMaxMsValue = parsePositiveFederationInt(
+    federationForwardRetryMaxMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_RETRY_MAX_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_RETRY_MAX_MS", fallback: 2_000 }
+  );
+  if (federationForwardRetryMaxMsValue < federationForwardRetryBaseMsValue) {
+    throw new TypeError("PROXY_FEDERATION_FORWARD_RETRY_MAX_MS must be greater than or equal to PROXY_FEDERATION_FORWARD_RETRY_BASE_MS");
+  }
   const federationProxyPolicy = buildFederationProxyPolicy({
     env: typeof process !== "undefined" ? process.env : {},
     fallbackBaseUrl: federationProxyBaseUrl
@@ -637,9 +666,249 @@ export function createApi({
   const federationIncomingResultSettlementRows = new Map();
   const federationOutgoingInvokeRows = new Map();
   const federationOutgoingDispatchQueue = [];
+  const federationInvocationReplayRows = new Map();
+
+  function federationIdentityKey({ invocationId, originDid, targetDid }) {
+    return [invocationId, originDid, targetDid].join("\n");
+  }
+
+  function federationParticipantKey({ invocationId, originDid, targetDid }) {
+    const participants = [originDid, targetDid].sort((a, b) => a.localeCompare(b));
+    return [invocationId, ...participants].join("\n");
+  }
+
+  function ensureFederationInvocationReplayState({ envelope }) {
+    const replayKey = federationParticipantKey(envelope);
+    let row = federationInvocationReplayRows.get(replayKey);
+    if (!row) {
+      row = {
+        schemaVersion: "FederationInvocationReplayState.v1",
+        replayKey,
+        invocationId: envelope.invocationId,
+        participantDids: [envelope.originDid, envelope.targetDid].sort((a, b) => a.localeCompare(b)),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        events: [],
+        terminal: null
+      };
+      federationInvocationReplayRows.set(replayKey, row);
+    }
+    return row;
+  }
+
+  function appendFederationInvocationReplayEvent({ endpoint, envelope, eventType, status, details = null, terminal = null }) {
+    if (!envelope || typeof envelope !== "object") return null;
+    const replayState = ensureFederationInvocationReplayState({ envelope });
+    const sequence = replayState.events.length + 1;
+    const recordedAt = nowIso();
+    const eventDetails =
+      details && typeof details === "object" && !Array.isArray(details)
+        ? normalizeForCanonicalJson(details, { path: "$" })
+        : details === null || details === undefined
+          ? null
+          : normalizeForCanonicalJson({ value: details }, { path: "$" });
+    const hashPayload = normalizeForCanonicalJson(
+      {
+        schemaVersion: "FederationInvocationReplayEventHashPayload.v1",
+        replayKey: replayState.replayKey,
+        sequence,
+        endpoint: typeof endpoint === "string" ? endpoint : "unknown",
+        eventType: typeof eventType === "string" ? eventType : "unknown",
+        status: typeof status === "string" ? status : "unknown",
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        details: eventDetails
+      },
+      { path: "$" }
+    );
+    const eventHash = sha256Hex(canonicalJsonStringify(hashPayload));
+    const event = {
+      schemaVersion: "FederationInvocationReplayEvent.v1",
+      eventId: `frevt_${eventHash.slice(0, 24)}`,
+      eventHash,
+      sequence,
+      recordedAt,
+      endpoint: typeof endpoint === "string" ? endpoint : "unknown",
+      eventType: typeof eventType === "string" ? eventType : "unknown",
+      status: typeof status === "string" ? status : "unknown",
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      details: eventDetails
+    };
+    replayState.events.push(event);
+    replayState.updatedAt = recordedAt;
+    if (terminal && typeof terminal === "object" && !Array.isArray(terminal)) {
+      replayState.terminal = normalizeForCanonicalJson(
+        {
+          schemaVersion: "FederationInvocationTerminal.v1",
+          state: typeof terminal.state === "string" ? terminal.state : "unknown",
+          reasonCode: typeof terminal.reasonCode === "string" ? terminal.reasonCode : null,
+          statusCode: Number.isFinite(Number(terminal.statusCode)) ? Number(terminal.statusCode) : null,
+          attempts: Number.isFinite(Number(terminal.attempts)) ? Number(terminal.attempts) : null,
+          terminalAt: recordedAt
+        },
+        { path: "$" }
+      );
+    }
+    return event;
+  }
+
+  function resolveFederationInvocationReplayState({ invocationId, originDid = null, targetDid = null }) {
+    const normalizedInvocationId = typeof invocationId === "string" ? invocationId.trim() : "";
+    if (!normalizedInvocationId) {
+      return {
+        ok: false,
+        statusCode: 400,
+        code: "SCHEMA_INVALID",
+        message: "invocationId is required"
+      };
+    }
+    const originFilter = typeof originDid === "string" && originDid.trim() !== "" ? originDid.trim() : null;
+    const targetFilter = typeof targetDid === "string" && targetDid.trim() !== "" ? targetDid.trim() : null;
+    const participantsFilter =
+      originFilter && targetFilter ? [originFilter, targetFilter].sort((a, b) => a.localeCompare(b)).join("\n") : null;
+    const matches = [];
+    for (const row of federationInvocationReplayRows.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (row.invocationId !== normalizedInvocationId) continue;
+      if (participantsFilter && Array.isArray(row.participantDids) && row.participantDids.join("\n") !== participantsFilter) continue;
+      matches.push(row);
+    }
+    if (matches.length === 0) {
+      return {
+        ok: false,
+        statusCode: 404,
+        code: "FEDERATION_REPLAY_NOT_FOUND",
+        message: "federation invocation replay not found",
+        details: {
+          invocationId: normalizedInvocationId
+        }
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "FEDERATION_REPLAY_AMBIGUOUS",
+        message: "federation invocation replay is ambiguous; provide originDid and targetDid",
+        details: {
+          invocationId: normalizedInvocationId,
+          matchCount: matches.length
+        }
+      };
+    }
+    return { ok: true, row: matches[0] };
+  }
+
+  function buildFederationInvocationReplayPack({ invocationId, originDid = null, targetDid = null }) {
+    const resolved = resolveFederationInvocationReplayState({ invocationId, originDid, targetDid });
+    if (!resolved.ok) return resolved;
+    const row = resolved.row;
+    const events = [...(Array.isArray(row.events) ? row.events : [])]
+      .sort((left, right) => Number(left.sequence ?? 0) - Number(right.sequence ?? 0))
+      .map((event) => ({
+        schemaVersion: event.schemaVersion ?? "FederationInvocationReplayEvent.v1",
+        eventId: event.eventId ?? null,
+        eventHash: event.eventHash ?? null,
+        sequence: event.sequence ?? null,
+        recordedAt: event.recordedAt ?? null,
+        endpoint: event.endpoint ?? null,
+        eventType: event.eventType ?? null,
+        status: event.status ?? null,
+        originDid: event.originDid ?? null,
+        targetDid: event.targetDid ?? null,
+        details: event.details ?? null
+      }));
+    const timelineHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationInvocationReplayTimelineHashPayload.v1",
+            replayKey: row.replayKey,
+            events: events.map((event) => ({ eventId: event.eventId, eventHash: event.eventHash }))
+          },
+          { path: "$" }
+        )
+      )
+    );
+    return {
+      ok: true,
+      replayPack: normalizeForCanonicalJson(
+        {
+          schemaVersion: "FederationInvocationReplayPack.v1",
+          generatedAt: nowIso(),
+          invocationId: row.invocationId,
+          participantDids: Array.isArray(row.participantDids) ? row.participantDids.slice() : [],
+          createdAt: row.createdAt ?? null,
+          updatedAt: row.updatedAt ?? null,
+          timelineHash,
+          eventCount: events.length,
+          terminal: row.terminal ?? null,
+          events
+        },
+        { path: "$" }
+      )
+    };
+  }
+
+  function computeFederationForwardDelayMs({ attempt }) {
+    const base = Math.max(1, federationForwardRetryBaseMsValue);
+    const max = Math.max(base, federationForwardRetryMaxMsValue);
+    const exponent = Math.max(0, Number(attempt) - 1);
+    return Math.max(0, Math.min(max, base * Math.pow(2, exponent)));
+  }
+
+  function isFederationRetryableStatusCode(statusCode) {
+    const numeric = Number(statusCode);
+    if (!Number.isFinite(numeric)) return false;
+    if (numeric === 408 || numeric === 409 || numeric === 425 || numeric === 429) return true;
+    return numeric >= 500;
+  }
+
+  async function performFederationForwardAttempt({ upstreamFetch, targetUrl, headers, body }) {
+    const timeoutMs = Math.max(1, federationForwardTimeoutMsValue);
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timeoutTriggered = false;
+    let timeoutHandle = null;
+    if (controller) {
+      timeoutHandle = setTimeout(() => {
+        timeoutTriggered = true;
+        try {
+          controller.abort();
+        } catch {
+          // ignore
+        }
+      }, timeoutMs);
+    }
+    try {
+      const response = await upstreamFetch(targetUrl, {
+        method: "POST",
+        headers,
+        body,
+        redirect: "error",
+        ...(controller ? { signal: controller.signal } : {})
+      });
+      return {
+        ok: true,
+        timeout: false,
+        response
+      };
+    } catch (err) {
+      const isAbortError =
+        err?.name === "AbortError" ||
+        (typeof err?.message === "string" && err.message.toLowerCase().includes("aborted"));
+      return {
+        ok: false,
+        timeout: timeoutTriggered || isAbortError,
+        error: err
+      };
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  }
 
   function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
-    const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const queueKey = federationIdentityKey(envelope);
     const existing = federationIncomingInvokeRows.get(queueKey);
     if (existing) return existing;
     const row = {
@@ -660,14 +929,51 @@ export function createApi({
     };
     federationIncomingInvokeRows.set(queueKey, row);
     federationIncomingDispatchQueue.push(queueKey);
+    appendFederationInvocationReplayEvent({
+      endpoint: "invoke",
+      envelope,
+      eventType: "incoming_queued",
+      status: "queued",
+      details: {
+        queueKey,
+        requestHash,
+        queuedAt: row.queuedAt
+      }
+    });
     return row;
   }
 
   function ingestIncomingFederationResult({ envelope, body, requestHash }) {
-    const recordKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const recordKey = federationIdentityKey(envelope);
     const existing = federationIncomingResultRows.get(recordKey);
     if (existing) return existing;
     const receiptId = `fedrcpt_${requestHash.slice(0, 24)}`;
+    const evidenceRefs = normalizeEvidenceRefList([
+      ...(Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : []),
+      `federation:request_sha256:${requestHash}`
+    ]);
+    const evidenceRefsHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultEvidenceRefs.v1",
+            evidenceRefs
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const resultPayloadHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultPayload.v1",
+            result: body?.result ?? null
+          },
+          { path: "$" }
+        )
+      )
+    );
     const row = {
       schemaVersion: "FederationResultReceipt.v1",
       acceptedAt: nowIso(),
@@ -675,18 +981,32 @@ export function createApi({
       invocationId: envelope.invocationId,
       status: envelope.status,
       result: body?.result ?? null,
-      evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs.slice() : [],
+      resultPayloadHash,
+      evidenceRefs,
+      evidenceRefsHash,
       originDid: envelope.originDid,
       targetDid: envelope.targetDid,
       requestHash,
       settlementApplied: false
     };
     federationIncomingResultRows.set(recordKey, row);
+    appendFederationInvocationReplayEvent({
+      endpoint: "result",
+      envelope,
+      eventType: "incoming_result_ingested",
+      status: envelope.status,
+      details: {
+        requestHash,
+        receiptId,
+        evidenceRefsHash,
+        resultPayloadHash
+      }
+    });
     return row;
   }
 
   function applyIncomingFederationResultSettlement({ envelope, receipt }) {
-    const settlementKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const settlementKey = federationIdentityKey(envelope);
     const existing = federationIncomingResultSettlementRows.get(settlementKey);
     if (existing) return existing;
     const settledAt = nowIso();
@@ -706,6 +1026,26 @@ export function createApi({
         )
       )
     );
+    const settlementBindingHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultSettlementBinding.v1",
+            invocationId: envelope.invocationId,
+            originDid: envelope.originDid,
+            targetDid: envelope.targetDid,
+            status: envelope.status,
+            requestHash: receipt?.requestHash ?? null,
+            receiptId: receipt?.receiptId ?? null,
+            evidenceRefsHash: receipt?.evidenceRefsHash ?? null,
+            resultPayloadHash: receipt?.resultPayloadHash ?? null,
+            settlementPayloadHash,
+            settledAt
+          },
+          { path: "$" }
+        )
+      )
+    );
     const row = {
       schemaVersion: "FederationResultSettlementLedgerEntry.v1",
       ledgerEntryId: `fedledg_${settlementPayloadHash.slice(0, 24)}`,
@@ -715,19 +1055,42 @@ export function createApi({
       targetDid: envelope.targetDid,
       status: envelope.status,
       receiptId: receipt?.receiptId ?? null,
-      settlementPayloadHash
+      settlementPayloadHash,
+      settlementBindingHash,
+      evidenceRefsHash: receipt?.evidenceRefsHash ?? null,
+      resultPayloadHash: receipt?.resultPayloadHash ?? null
     };
     federationIncomingResultSettlementRows.set(settlementKey, row);
     if (receipt && typeof receipt === "object") {
       receipt.settlementApplied = true;
       receipt.settlementLedgerEntryId = row.ledgerEntryId;
       receipt.settledAt = settledAt;
+      receipt.settlementPayloadHash = settlementPayloadHash;
+      receipt.settlementBindingHash = settlementBindingHash;
     }
+    appendFederationInvocationReplayEvent({
+      endpoint: "result",
+      envelope,
+      eventType: "incoming_result_settled",
+      status: envelope.status,
+      details: {
+        receiptId: row.receiptId,
+        settlementLedgerEntryId: row.ledgerEntryId,
+        settlementPayloadHash,
+        settlementBindingHash
+      },
+      terminal: {
+        state: "settled",
+        reasonCode: "FEDERATION_RESULT_SETTLED",
+        statusCode: 200,
+        attempts: 1
+      }
+    });
     return row;
   }
 
   function enqueueOutgoingFederationInvoke({ envelope, payload, requestHash, route }) {
-    const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const queueKey = federationIdentityKey(envelope);
     const existing = federationOutgoingInvokeRows.get(queueKey);
     if (existing) return existing;
     const queuedAt = nowIso();
@@ -744,17 +1107,58 @@ export function createApi({
       payload,
       requestHash,
       status: "queued",
+      maxAttempts: federationForwardMaxAttemptsValue,
+      attempts: 0,
+      attemptHistory: [],
+      terminalState: "pending",
+      terminalReasonCode: null,
+      terminalStatusCode: null,
+      terminalAt: null,
       isFederation: true
     };
     federationOutgoingInvokeRows.set(queueKey, row);
     federationOutgoingDispatchQueue.push(queueKey);
+    appendFederationInvocationReplayEvent({
+      endpoint: "invoke",
+      envelope,
+      eventType: "outgoing_queued",
+      status: "queued",
+      details: {
+        queueKey,
+        requestHash,
+        queuedAt,
+        namespaceDid: route?.namespaceDid ?? null
+      }
+    });
     return row;
   }
 
   async function forwardOutgoingFederationInvoke({ payload, route, requestId = null }) {
+    const envelope = {
+      invocationId: typeof payload?.invocationId === "string" ? payload.invocationId : null,
+      originDid: typeof payload?.originDid === "string" ? payload.originDid : null,
+      targetDid: typeof payload?.targetDid === "string" ? payload.targetDid : null
+    };
     const upstreamBaseUrl =
       typeof route?.upstreamBaseUrl === "string" && route.upstreamBaseUrl.trim() !== "" ? route.upstreamBaseUrl.trim() : null;
     if (!upstreamBaseUrl) {
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "not_configured",
+          details: {
+            message: "federation upstream route is not configured"
+          },
+          terminal: {
+            state: "failed_closed",
+            reasonCode: FEDERATION_ERROR_CODE.NOT_CONFIGURED,
+            statusCode: 503,
+            attempts: 0
+          }
+        });
+      }
       return {
         ok: false,
         statusCode: 503,
@@ -765,6 +1169,23 @@ export function createApi({
     }
     const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
     if (typeof upstreamFetch !== "function") {
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "fetch_unavailable",
+          details: {
+            message: "federation proxy fetch is unavailable"
+          },
+          terminal: {
+            state: "failed_closed",
+            reasonCode: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE,
+            statusCode: 500,
+            attempts: 0
+          }
+        });
+      }
       return {
         ok: false,
         statusCode: 500,
@@ -774,60 +1195,260 @@ export function createApi({
       };
     }
     const targetUrl = new URL("/v1/federation/invoke", `${upstreamBaseUrl}/`).toString();
-    let response;
-    try {
-      response = await upstreamFetch(targetUrl, {
-        method: "POST",
+    const queueKey = envelope.invocationId && envelope.originDid && envelope.targetDid ? federationIdentityKey(envelope) : null;
+    const queueRow = queueKey ? federationOutgoingInvokeRows.get(queueKey) ?? null : null;
+    if (queueRow && queueRow.terminalState === "forwarded" && queueRow.statusCode === 202) {
+      return {
+        ok: true,
+        statusCode: 202,
+        body: queueRow.responseBody ?? null,
+        duplicate: true
+      };
+    }
+    const requestBody = canonicalJsonStringify(payload);
+    const maxAttempts = Math.max(1, federationForwardMaxAttemptsValue);
+    let terminalError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const startedAt = nowIso();
+      if (queueRow) {
+        queueRow.attempts = attempt;
+        queueRow.status = "forwarding";
+      }
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_attempt",
+          status: "started",
+          details: {
+            attempt,
+            maxAttempts,
+            startedAt
+          }
+        });
+      }
+      const attemptResult = await performFederationForwardAttempt({
+        upstreamFetch,
+        targetUrl,
         headers: {
           "content-type": "application/json; charset=utf-8",
           ...(requestId ? { "x-request-id": String(requestId) } : {}),
           ...(route?.namespaceDid ? { "x-federation-namespace-did": String(route.namespaceDid) } : {})
         },
-        body: canonicalJsonStringify(payload),
-        redirect: "error"
+        body: requestBody
       });
-    } catch (err) {
+      if (!attemptResult.ok) {
+        const canRetry = attempt < maxAttempts;
+        terminalError = {
+          ok: false,
+          statusCode: 502,
+          message: "federation upstream invoke is unreachable",
+          details: {
+            attempt,
+            maxAttempts,
+            timeout: attemptResult.timeout === true,
+            message: attemptResult?.error?.message ?? String(attemptResult?.error ?? "network error")
+          },
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: attemptResult.timeout === true ? "timeout" : "network_error",
+                retrying: canRetry
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_attempt",
+            status: attemptResult.timeout === true ? "timeout" : "network_error",
+            details: {
+              attempt,
+              maxAttempts,
+              retrying: canRetry
+            },
+            ...(canRetry
+              ? {}
+              : {
+                  terminal: {
+                    state: attemptResult.timeout === true ? "timeout" : "failed_closed",
+                    reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                    statusCode: 502,
+                    attempts: attempt
+                  }
+                })
+          });
+        }
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+
+      const response = attemptResult.response;
+      const bodyText = await response.text();
+      let bodyJson = null;
+      try {
+        bodyJson = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        // ignore non-json response bodies
+      }
+      if (!response.ok) {
+        const canRetry = isFederationRetryableStatusCode(response.status) && attempt < maxAttempts;
+        terminalError = {
+          ok: false,
+          statusCode: response.status,
+          message: "federation upstream invoke failed",
+          details: normalizeForCanonicalJson(
+            {
+              attempt,
+              maxAttempts,
+              retrying: canRetry,
+              body: bodyJson ?? (bodyText ? { raw: bodyText } : null)
+            },
+            { path: "$" }
+          ),
+          code: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: `upstream_${response.status}`,
+                retrying: canRetry
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_attempt",
+            status: `upstream_${response.status}`,
+            details: {
+              attempt,
+              maxAttempts,
+              retrying: canRetry
+            },
+            ...(canRetry
+              ? {}
+              : {
+                  terminal: {
+                    state: "failed_closed",
+                    reasonCode: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                    statusCode: response.status,
+                    attempts: attempt
+                  }
+                })
+          });
+        }
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+      if (response.status !== 202) {
+        terminalError = {
+          ok: false,
+          statusCode: 502,
+          message: "federation upstream invoke returned unexpected status",
+          details: {
+            expectedStatusCode: 202,
+            receivedStatusCode: response.status,
+            body: bodyJson
+          },
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: `unexpected_${response.status}`,
+                retrying: false
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_terminal",
+            status: "unexpected_status",
+            details: {
+              attempt,
+              receivedStatusCode: response.status
+            },
+            terminal: {
+              state: "failed_closed",
+              reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+              statusCode: 502,
+              attempts: attempt
+            }
+          });
+        }
+        break;
+      }
+      if (queueRow) {
+        queueRow.status = "forwarded";
+        queueRow.statusCode = response.status;
+        queueRow.forwardedAt = nowIso();
+        queueRow.responseBody = bodyJson ?? null;
+        queueRow.terminalState = "forwarded";
+        queueRow.terminalReasonCode = null;
+        queueRow.terminalStatusCode = response.status;
+        queueRow.terminalAt = queueRow.forwardedAt;
+      }
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "forwarded",
+          details: {
+            attempt,
+            statusCode: response.status
+          },
+          terminal: {
+            state: "completed",
+            reasonCode: "FEDERATION_FORWARD_SUCCESS",
+            statusCode: response.status,
+            attempts: attempt
+          }
+        });
+      }
       return {
-        ok: false,
-        statusCode: 502,
-        message: "federation upstream invoke is unreachable",
-        details: { message: err?.message ?? String(err) },
-        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
-      };
-    }
-    const bodyText = await response.text();
-    let bodyJson = null;
-    try {
-      bodyJson = bodyText ? JSON.parse(bodyText) : null;
-    } catch {
-      // ignore non-json response bodies
-    }
-    if (!response.ok) {
-      return {
-        ok: false,
+        ok: true,
         statusCode: response.status,
-        message: "federation upstream invoke failed",
-        details: bodyJson ?? (bodyText ? { body: bodyText } : null),
-        code: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        body: bodyJson
       };
     }
-    if (response.status !== 202) {
-      return {
-        ok: false,
-        statusCode: 502,
-        message: "federation upstream invoke returned unexpected status",
-        details: {
-          expectedStatusCode: 202,
-          receivedStatusCode: response.status,
-          body: bodyJson
-        },
-        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
-      };
+    if (queueRow && terminalError) {
+      queueRow.status = "failed";
+      queueRow.terminalState = terminalError.details?.timeout === true ? "timeout" : "failed_closed";
+      queueRow.terminalReasonCode = terminalError.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE;
+      queueRow.terminalStatusCode = terminalError.statusCode ?? 502;
+      queueRow.terminalAt = nowIso();
     }
-    return {
-      ok: true,
-      statusCode: response.status,
-      body: bodyJson
+    return terminalError ?? {
+      ok: false,
+      statusCode: 502,
+      message: "federation upstream invoke failed",
+      details: null,
+      code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
     };
   }
 
@@ -29934,6 +30555,7 @@ export function createApi({
     if (m === "POST" && p === "/v1/federation/invoke") return "/v1/federation/invoke";
     if (m === "POST" && p === "/v1/federation/result") return "/v1/federation/result";
     if (m === "GET" && p === "/internal/federation/stats") return "/internal/federation/stats";
+    if (m === "GET" && p === "/internal/federation/invocations/replay") return "/internal/federation/invocations/replay";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
     if (m === "POST" && p === "/exports/ack") return "/exports/ack";
     if (m === "GET" && p === "/evidence/download") return "/evidence/download";
@@ -30320,6 +30942,16 @@ export function createApi({
     if (routeCheck?.namespaceLineage?.decisionId) {
       upstreamHeaders.set("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
     }
+    appendFederationInvocationReplayEvent({
+      endpoint,
+      envelope: envelopeCheck.envelope,
+      eventType: "envelope_received",
+      status: routeCheck.direction,
+      details: {
+        routingReasonCode: routeCheck.routingReasonCode ?? null,
+        namespaceDid: routeCheck.namespaceDid ?? null
+      }
+    });
 
     const requestHash = sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(parsedBody, { path: "$" })));
     const replayKey = [
@@ -30346,6 +30978,21 @@ export function createApi({
         code: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT,
         level: "warn"
       });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_conflict",
+        status: "replay_conflict",
+        details: {
+          requestSha256Values: [replayClaim.expectedHash, replayClaim.actualHash].sort()
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT,
+          statusCode: 409,
+          attempts: 1
+        }
+      });
       return sendError(
         res,
         409,
@@ -30365,6 +31012,13 @@ export function createApi({
         code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT,
         level: "warn"
       });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_in_flight",
+        status: "replay_in_flight",
+        details: null
+      });
       return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT });
     }
     if (replayClaim.type === "replay") {
@@ -30380,6 +31034,15 @@ export function createApi({
         envelope: envelopeCheck.envelope,
         status: "replay_duplicate",
         statusCode: replayClaim.response.statusCode
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_duplicate",
+        status: "replay_duplicate",
+        details: {
+          statusCode: replayClaim.response.statusCode
+        }
       });
       res.statusCode = replayClaim.response.statusCode;
       for (const [name, value] of Object.entries(replayClaim.response.headers ?? {})) {
@@ -30464,8 +31127,12 @@ export function createApi({
         status: envelopeCheck.envelope.status,
         receiptId: receipt.receiptId,
         acceptedAt: receipt.acceptedAt,
+        evidenceRefsHash: receipt.evidenceRefsHash ?? null,
+        resultPayloadHash: receipt.resultPayloadHash ?? null,
         settlementApplied: receipt.settlementApplied === true,
         settlementLedgerEntryId: settlement.ledgerEntryId,
+        settlementPayloadHash: settlement.settlementPayloadHash ?? null,
+        settlementBindingHash: settlement.settlementBindingHash ?? null,
         settledAt: settlement.settledAt
       };
       const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
@@ -30507,34 +31174,128 @@ export function createApi({
     }
 
     const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
-    let upstreamRes;
-    try {
-      upstreamRes = await upstreamFetch(targetUrl, {
-        method,
-        headers: upstreamHeaders,
-        body,
-        redirect: "error"
+    const maxAttempts = Math.max(1, federationForwardMaxAttemptsValue);
+    let terminalFailure = null;
+    let terminalResponse = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "outgoing_attempt",
+        status: "started",
+        details: {
+          attempt,
+          maxAttempts
+        }
       });
-    } catch (err) {
+      const attemptResult = await performFederationForwardAttempt({
+        upstreamFetch,
+        targetUrl,
+        headers: upstreamHeaders,
+        body
+      });
+      if (!attemptResult.ok) {
+        const canRetry = attempt < maxAttempts;
+        terminalFailure = {
+          statusCode: 502,
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+          message: "federation proxy upstream unreachable",
+          details: {
+            attempt,
+            maxAttempts,
+            timeout: attemptResult.timeout === true,
+            message: attemptResult?.error?.message ?? String(attemptResult?.error ?? "network error")
+          }
+        };
+        appendFederationInvocationReplayEvent({
+          endpoint,
+          envelope: envelopeCheck.envelope,
+          eventType: "outgoing_attempt",
+          status: attemptResult.timeout === true ? "timeout" : "network_error",
+          details: {
+            attempt,
+            maxAttempts,
+            retrying: canRetry
+          },
+          ...(canRetry
+            ? {}
+            : {
+                terminal: {
+                  state: attemptResult.timeout === true ? "timeout" : "failed_closed",
+                  reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                  statusCode: 502,
+                  attempts: attempt
+                }
+              })
+        });
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+
+      const upstreamRes = attemptResult.response;
+      const bytes = Buffer.from(await upstreamRes.arrayBuffer());
+      const bodyText = bytes.toString("utf8");
+      let bodyJson = null;
+      try {
+        bodyJson = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        // ignore non-json responses
+      }
+      const canRetry = isFederationRetryableStatusCode(upstreamRes.status) && attempt < maxAttempts;
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "outgoing_attempt",
+        status: `upstream_${String(upstreamRes.status)}`,
+        details: {
+          attempt,
+          maxAttempts,
+          retrying: canRetry
+        },
+        ...(canRetry
+          ? {}
+          : {
+              terminal: {
+                state: upstreamRes.status >= 400 ? "failed_closed" : "completed",
+                reasonCode: upstreamRes.status >= 400 ? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE : "FEDERATION_FORWARD_SUCCESS",
+                statusCode: upstreamRes.status,
+                attempts: attempt
+              }
+            })
+      });
+      if (canRetry) {
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+      terminalResponse = {
+        upstreamRes,
+        bytes,
+        bodyJson
+      };
+      break;
+    }
+
+    if (!terminalResponse) {
       federationReplayLedger.release({ key: replayKey, requestHash });
       logFederationReceived({
         envelope: envelopeCheck.envelope,
-        status: "upstream_unreachable",
-        statusCode: 502,
-        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+        status: terminalFailure?.details?.timeout === true ? "upstream_timeout" : "upstream_unreachable",
+        statusCode: terminalFailure?.statusCode ?? 502,
+        code: terminalFailure?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
         level: "warn"
       });
       return sendError(
         res,
-        502,
-        "federation proxy upstream unreachable",
-        { message: err?.message ?? String(err) },
-        { code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
+        terminalFailure?.statusCode ?? 502,
+        terminalFailure?.message ?? "federation proxy upstream unreachable",
+        terminalFailure?.details ?? null,
+        { code: terminalFailure?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
       );
     }
 
-    const bytes = Buffer.from(await upstreamRes.arrayBuffer());
     const replayHeaders = {};
+    const { upstreamRes, bytes } = terminalResponse;
     res.statusCode = upstreamRes.status;
     for (const [name, value] of upstreamRes.headers.entries()) {
       const n = String(name ?? "").toLowerCase();
@@ -31045,6 +31806,13 @@ export function createApi({
         if (req.method === "GET" && path === "/internal/federation/stats") {
           const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
           if (!hasScope) return sendError(res, 403, "forbidden");
+          const outgoingTerminalStateCounts = {};
+          for (const row of federationOutgoingInvokeRows.values()) {
+            if (!row || typeof row !== "object") continue;
+            const state =
+              typeof row.terminalState === "string" && row.terminalState.trim() !== "" ? row.terminalState.trim() : "pending";
+            outgoingTerminalStateCounts[state] = (outgoingTerminalStateCounts[state] ?? 0) + 1;
+          }
           return sendJson(res, 200, {
             ok: true,
             stats: federationStatsTracker.snapshot(),
@@ -31055,12 +31823,39 @@ export function createApi({
               incomingResultReceiptCount: federationIncomingResultRows.size,
               incomingResultSettlementCount: federationIncomingResultSettlementRows.size,
               outgoingInvokeCount: federationOutgoingInvokeRows.size,
-              outgoingInvokeQueueDepth: federationOutgoingDispatchQueue.length
+              outgoingInvokeQueueDepth: federationOutgoingDispatchQueue.length,
+              outgoingTerminalStateCounts,
+              replayInvocationCount: federationInvocationReplayRows.size
             }
           });
         }
+        if (req.method === "GET" && path === "/internal/federation/invocations/replay") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const invocationId = url.searchParams.get("invocationId");
+          const originDid = url.searchParams.get("originDid");
+          const targetDid = url.searchParams.get("targetDid");
+          const replayPack = buildFederationInvocationReplayPack({
+            invocationId,
+            originDid,
+            targetDid
+          });
+          if (!replayPack.ok) {
+            return sendError(
+              res,
+              replayPack.statusCode ?? 400,
+              replayPack.message ?? "federation replay lookup failed",
+              replayPack.details ?? null,
+              { code: replayPack.code ?? "SCHEMA_INVALID" }
+            );
+          }
+          return sendJson(res, 200, {
+            ok: true,
+            replayPack: replayPack.replayPack
+          });
+        }
 
-		      if (!authExempt && !path.startsWith("/ops")) {
+			      if (!authExempt && !path.startsWith("/ops")) {
 	        const isRead = req.method === "GET" || req.method === "HEAD";
 	        const isAuditExport = req.method === "GET" && /^\/jobs\/[^/]+\/audit$/.test(path);
 	        const requiredScope =

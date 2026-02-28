@@ -332,14 +332,22 @@ test("api federation proxy: incoming result ingests once with deterministic repl
     assert.equal(first.json?.status, "success");
     assert.equal(typeof first.json?.receiptId, "string");
     assert.equal(typeof first.json?.acceptedAt, "string");
+    assert.equal(typeof first.json?.evidenceRefsHash, "string");
+    assert.equal(typeof first.json?.resultPayloadHash, "string");
     assert.equal(first.json?.settlementApplied, true);
     assert.equal(typeof first.json?.settlementLedgerEntryId, "string");
+    assert.equal(typeof first.json?.settlementPayloadHash, "string");
+    assert.equal(typeof first.json?.settlementBindingHash, "string");
     assert.equal(typeof first.json?.settledAt, "string");
     assert.equal(second.statusCode, 200);
     assert.equal(second.headers?.get?.("x-federation-replay"), "duplicate");
     assert.equal(second.json?.receiptId, first.json?.receiptId);
     assert.equal(second.json?.acceptedAt, first.json?.acceptedAt);
+    assert.equal(second.json?.evidenceRefsHash, first.json?.evidenceRefsHash);
+    assert.equal(second.json?.resultPayloadHash, first.json?.resultPayloadHash);
     assert.equal(second.json?.settlementLedgerEntryId, first.json?.settlementLedgerEntryId);
+    assert.equal(second.json?.settlementPayloadHash, first.json?.settlementPayloadHash);
+    assert.equal(second.json?.settlementBindingHash, first.json?.settlementBindingHash);
     assert.equal(second.json?.settledAt, first.json?.settledAt);
     assert.equal(conflict.statusCode, 409);
     assert.equal(conflict.json?.code, "FEDERATION_ENVELOPE_CONFLICT");
@@ -621,6 +629,110 @@ test("api federation proxy: internal federation stats reports per-pair and statu
         }
       }
     ]);
+  } finally {
+    restore();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});
+
+test("api federation proxy: retries retryable upstream responses and records completed replay terminal", async () => {
+  let callCount = 0;
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    callCount += 1;
+    if (callCount === 1) {
+      res.statusCode = 503;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, transient: true }));
+      return;
+    }
+    res.statusCode = 201;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true, callCount }));
+  });
+  const baseUrl = await listen(upstream);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: baseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi({
+      federationForwardMaxAttempts: 2,
+      federationForwardRetryBaseMs: 1,
+      federationForwardRetryMaxMs: 1
+    });
+    const invocationId = "inv_retryable_forward_1";
+    const invoke = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope({ invocationId }),
+      auth: "none"
+    });
+    assert.equal(invoke.statusCode, 201);
+    assert.equal(callCount, 2);
+
+    const replay = await request(api, {
+      method: "GET",
+      path: `/internal/federation/invocations/replay?invocationId=${encodeURIComponent(invocationId)}&originDid=${encodeURIComponent("did:nooterra:coord_alpha")}&targetDid=${encodeURIComponent("did:nooterra:coord_bravo")}`
+    });
+    assert.equal(replay.statusCode, 200);
+    assert.equal(replay.json?.ok, true);
+    assert.equal(replay.json?.replayPack?.schemaVersion, "FederationInvocationReplayPack.v1");
+    assert.equal(replay.json?.replayPack?.terminal?.state, "completed");
+    assert.equal(replay.json?.replayPack?.terminal?.attempts, 2);
+    const statuses = Array.isArray(replay.json?.replayPack?.events) ? replay.json.replayPack.events.map((event) => event.status) : [];
+    assert.ok(statuses.includes("upstream_503"));
+    assert.ok(statuses.includes("upstream_201"));
+  } finally {
+    restore();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});
+
+test("api federation proxy: timeout retries fail closed and replay terminal is timeout", async () => {
+  let callCount = 0;
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    callCount += 1;
+    setTimeout(() => {
+      res.statusCode = 201;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: true, delayed: true }));
+    }, 120);
+  });
+  const baseUrl = await listen(upstream);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: baseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi({
+      federationForwardMaxAttempts: 2,
+      federationForwardTimeoutMs: 25,
+      federationForwardRetryBaseMs: 1,
+      federationForwardRetryMaxMs: 1
+    });
+    const invocationId = "inv_retry_timeout_1";
+    const invoke = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope({ invocationId }),
+      auth: "none"
+    });
+    assert.equal(invoke.statusCode, 502);
+    assert.equal(invoke.json?.code, "FEDERATION_UPSTREAM_UNREACHABLE");
+    assert.equal(invoke.json?.details?.timeout, true);
+    assert.ok(callCount >= 2);
+
+    const replay = await request(api, {
+      method: "GET",
+      path: `/internal/federation/invocations/replay?invocationId=${encodeURIComponent(invocationId)}&originDid=${encodeURIComponent("did:nooterra:coord_alpha")}&targetDid=${encodeURIComponent("did:nooterra:coord_bravo")}`
+    });
+    assert.equal(replay.statusCode, 200);
+    assert.equal(replay.json?.replayPack?.terminal?.state, "timeout");
+    assert.equal(replay.json?.replayPack?.terminal?.attempts, 2);
   } finally {
     restore();
     await new Promise((resolve) => upstream.close(resolve));
