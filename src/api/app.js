@@ -400,7 +400,7 @@ import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFe
 import { FEDERATION_ERROR_CODE } from "../federation/error-codes.js";
 import { createFederationReplayLedger } from "./federation/replay-ledger.js";
 import { createFederationStatsTracker } from "./federation/stats.js";
-import { createApprovalRequest, enforceHighRiskApproval } from "../services/human-approval/gate.js";
+import { createApprovalRequest, enforceHighRiskApproval, hashActionForApproval } from "../services/human-approval/gate.js";
 import { runDeterministicSimulation } from "../services/simulation/harness.js";
 
 export function createApi({
@@ -12114,6 +12114,9 @@ export function createApi({
   const X402_EXECUTION_INTENT_SCHEMA_VERSION = "ExecutionIntent.v1";
   const X402_QUOTE_SCHEMA_VERSION = "X402Quote.v1";
   const X402_WALLET_POLICY_SCHEMA_VERSION = "X402WalletPolicy.v1";
+  const X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION = "X402DelegatedBudgetEnvelope.v1";
+  const X402_AUTHORIZATION_GOVERNANCE_SCHEMA_VERSION = "X402AuthorizationGovernance.v1";
+  const X402_AUTHORIZATION_APPROVAL_AUDIT_SCHEMA_VERSION = "X402AuthorizationApprovalAudit.v1";
   const X402_ZK_VERIFICATION_KEY_SCHEMA_VERSION = "X402ZkVerificationKey.v1";
   const X402_AGENT_LIFECYCLE_SCHEMA_VERSION = "X402AgentLifecycle.v1";
   const X402_AGENT_LIFECYCLE_STATUS = Object.freeze({
@@ -15069,6 +15072,170 @@ export function createApi({
       });
     }
     return executionIntent;
+  }
+
+  function normalizeX402DelegatedBudgetEnvelopeInput(rawValue, { fieldPath = "delegatedBudgetEnvelope", allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const schemaVersionRaw =
+      typeof rawValue.schemaVersion === "string" && rawValue.schemaVersion.trim() !== ""
+        ? rawValue.schemaVersion.trim()
+        : X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION;
+    if (schemaVersionRaw !== X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION) {
+      throw new TypeError(`${fieldPath}.schemaVersion must be ${X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION}`);
+    }
+    const envelopeId = normalizeOptionalX402RefInput(rawValue.envelopeId, `${fieldPath}.envelopeId`, { allowNull: false, max: 200 });
+    const teamId = normalizeOptionalX402RefInput(rawValue.teamId ?? null, `${fieldPath}.teamId`, { allowNull: true, max: 200 });
+    const policyRef = normalizeOptionalX402RefInput(rawValue.policyRef ?? null, `${fieldPath}.policyRef`, { allowNull: true, max: 200 });
+    const currencyRaw =
+      typeof rawValue.currency === "string" && rawValue.currency.trim() !== "" ? rawValue.currency.trim().toUpperCase() : "USD";
+    if (!/^[A-Z][A-Z0-9_]{2,11}$/.test(currencyRaw)) {
+      throw new TypeError(`${fieldPath}.currency must match ^[A-Z][A-Z0-9_]{2,11}$`);
+    }
+    const maxTotalCents = normalizeOptionalX402PositiveSafeInt(rawValue.maxTotalCents, `${fieldPath}.maxTotalCents`, { allowNull: false });
+    const approvalThresholdCents = normalizeOptionalNonNegativeSafeInt(rawValue.approvalThresholdCents ?? null, {
+      fieldName: `${fieldPath}.approvalThresholdCents`,
+      allowNull: true
+    });
+    if (rawValue.emergencyStop !== undefined && typeof rawValue.emergencyStop !== "boolean") {
+      throw new TypeError(`${fieldPath}.emergencyStop must be boolean when provided`);
+    }
+    if (rawValue.requireEvidenceRefs !== undefined && typeof rawValue.requireEvidenceRefs !== "boolean") {
+      throw new TypeError(`${fieldPath}.requireEvidenceRefs must be boolean when provided`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION,
+        envelopeId,
+        ...(teamId ? { teamId } : {}),
+        ...(policyRef ? { policyRef } : {}),
+        currency: currencyRaw,
+        maxTotalCents,
+        ...(approvalThresholdCents !== null ? { approvalThresholdCents } : {}),
+        emergencyStop: rawValue.emergencyStop === true,
+        requireEvidenceRefs: rawValue.requireEvidenceRefs === true
+      },
+      { path: "$" }
+    );
+  }
+
+  function extractX402DelegatedBudgetEnvelopeFromReceiptBinding(binding) {
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)) return null;
+    const governance = binding.governance;
+    if (!governance || typeof governance !== "object" || Array.isArray(governance)) return null;
+    const budgetEnvelope = governance.budgetEnvelope;
+    if (!budgetEnvelope || typeof budgetEnvelope !== "object" || Array.isArray(budgetEnvelope)) return null;
+    const envelopeId =
+      typeof budgetEnvelope.envelopeId === "string" && budgetEnvelope.envelopeId.trim() !== "" ? budgetEnvelope.envelopeId.trim() : null;
+    if (!envelopeId) return null;
+    return {
+      envelopeId,
+      budgetEnvelope
+    };
+  }
+
+  async function computeX402DelegatedBudgetEnvelopeUsageCents({ tenantId, payerAgentId, envelopeId } = {}) {
+    if (typeof store.listX402Receipts !== "function") {
+      const err = new Error("delegated budget envelope cumulative spend check requires x402 receipt listing support");
+      err.code = "X402_DELEGATED_BUDGET_RESOLVER_UNAVAILABLE";
+      throw err;
+    }
+    const receipts = await store.listX402Receipts({
+      tenantId,
+      agentId: payerAgentId,
+      limit: 50_000,
+      offset: 0
+    });
+    let usedCents = 0;
+    for (const row of Array.isArray(receipts) ? receipts : []) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const bindingSources = [row?.bindings, row?.decisionRecord?.bindings, row?.settlementReceipt?.bindings];
+      let matched = false;
+      for (const bindingSource of bindingSources) {
+        const extracted = extractX402DelegatedBudgetEnvelopeFromReceiptBinding(bindingSource);
+        if (!extracted) continue;
+        if (String(extracted.envelopeId) !== String(envelopeId)) continue;
+        matched = true;
+        break;
+      }
+      if (!matched) continue;
+      const releasedAmountCents = Number(
+        row?.settlementReceipt?.releasedAmountCents ??
+          row?.releasedAmountCents ??
+          (String(row?.settlementState ?? "").toLowerCase() === "released" ? row?.amountCents : 0)
+      );
+      if (!Number.isSafeInteger(releasedAmountCents) || releasedAmountCents <= 0) continue;
+      usedCents += releasedAmountCents;
+    }
+    return usedCents;
+  }
+
+  function createX402AuthorizationApprovalAuditEntry({
+    profile,
+    action = null,
+    approvalCheck = null,
+    approvalDecision = null,
+    checkedAt = null
+  } = {}) {
+    if (!approvalCheck || typeof approvalCheck !== "object" || Array.isArray(approvalCheck)) return null;
+    const profileId = typeof profile === "string" && profile.trim() !== "" ? profile.trim() : "default";
+    const checkedAtIso = typeof checkedAt === "string" && checkedAt.trim() !== "" ? checkedAt.trim() : nowIso();
+    const decision =
+      approvalDecision && typeof approvalDecision === "object" && !Array.isArray(approvalDecision) ? approvalDecision : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_AUTHORIZATION_APPROVAL_AUDIT_SCHEMA_VERSION,
+        profile: profileId,
+        checkedAt: checkedAtIso,
+        actionId:
+          typeof approvalCheck.actionId === "string" && approvalCheck.actionId.trim() !== ""
+            ? approvalCheck.actionId.trim()
+            : typeof action?.actionId === "string" && action.actionId.trim() !== ""
+              ? action.actionId.trim()
+              : null,
+        actionSha256:
+          typeof approvalCheck.actionSha256 === "string" && approvalCheck.actionSha256.trim() !== ""
+            ? approvalCheck.actionSha256.trim().toLowerCase()
+            : action
+              ? hashActionForApproval(action)
+              : null,
+        requiresExplicitApproval: approvalCheck.requiresExplicitApproval === true,
+        approved: approvalCheck.approved === true,
+        decisionDigest:
+          typeof approvalCheck.decisionDigest === "string" && approvalCheck.decisionDigest.trim() !== ""
+            ? approvalCheck.decisionDigest.trim().toLowerCase()
+            : null,
+        reasonCodes: Array.isArray(approvalCheck.blockingIssues)
+          ? Array.from(
+              new Set(
+                approvalCheck.blockingIssues
+                  .map((issue) => (typeof issue?.code === "string" ? issue.code.trim() : ""))
+                  .filter(Boolean)
+              )
+            ).sort((left, right) => left.localeCompare(right))
+          : [],
+        decision:
+          decision !== null
+            ? {
+                decisionId: typeof decision.decisionId === "string" && decision.decisionId.trim() !== "" ? decision.decisionId.trim() : null,
+                decidedBy: typeof decision.decidedBy === "string" && decision.decidedBy.trim() !== "" ? decision.decidedBy.trim() : null,
+                decidedAt: typeof decision.decidedAt === "string" && decision.decidedAt.trim() !== "" ? decision.decidedAt.trim() : null,
+                approved: decision.approved === true,
+                evidenceRefs: Array.isArray(decision.evidenceRefs)
+                  ? Array.from(new Set(decision.evidenceRefs.map((row) => String(row ?? "").trim()).filter(Boolean))).sort((a, b) =>
+                      a.localeCompare(b)
+                    )
+                  : []
+              }
+            : null
+      },
+      { path: "$" }
+    );
   }
 
   function x402AgentPassportHasProtocolEnvelope(passport) {
@@ -49648,6 +49815,163 @@ export function createApi({
             }
           }
           const nowAt = nowIso();
+          const authorizationApprovalDecisions = [];
+          let authorizationBudgetEnvelope = null;
+          const delegatedBudgetEnvelopeInput = body?.delegatedBudgetEnvelope ?? body?.budgetEnvelope ?? null;
+          let delegatedBudgetEnvelope = null;
+          try {
+            delegatedBudgetEnvelope = normalizeX402DelegatedBudgetEnvelopeInput(delegatedBudgetEnvelopeInput, {
+              fieldPath: "delegatedBudgetEnvelope",
+              allowNull: true
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid delegatedBudgetEnvelope", { message: err?.message ?? null }, { code: "SCHEMA_INVALID" });
+          }
+          if (delegatedBudgetEnvelope) {
+            if (delegatedBudgetEnvelope.emergencyStop === true) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope emergency stop is active",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null
+                },
+                { code: "X402_DELEGATED_EXECUTION_STOPPED" }
+              );
+            }
+            if (String(delegatedBudgetEnvelope.currency ?? "").toUpperCase() !== String(currency ?? "").toUpperCase()) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope currency does not match gate currency",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  envelopeCurrency: delegatedBudgetEnvelope.currency,
+                  gateCurrency: currency
+                },
+                { code: "X402_DELEGATED_BUDGET_CURRENCY_MISMATCH" }
+              );
+            }
+            let usedCents = 0;
+            try {
+              usedCents = await computeX402DelegatedBudgetEnvelopeUsageCents({
+                tenantId,
+                payerAgentId,
+                envelopeId: delegatedBudgetEnvelope.envelopeId
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope cumulative spend check unavailable",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  message: err?.message ?? null
+                },
+                { code: err?.code ?? "X402_DELEGATED_BUDGET_RESOLVER_UNAVAILABLE" }
+              );
+            }
+            const projectedCents = usedCents + amountCents;
+            if (projectedCents > delegatedBudgetEnvelope.maxTotalCents) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope exceeded",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null,
+                  currentUsedCents: usedCents,
+                  amountCents,
+                  projectedCents,
+                  maxTotalCents: delegatedBudgetEnvelope.maxTotalCents
+                },
+                { code: "X402_DELEGATED_BUDGET_ENVELOPE_EXCEEDED" }
+              );
+            }
+            authorizationBudgetEnvelope = normalizeForCanonicalJson(
+              {
+                ...delegatedBudgetEnvelope,
+                currentUsedCents: usedCents,
+                requestedAmountCents: amountCents,
+                projectedCents,
+                remainingCents: Math.max(0, delegatedBudgetEnvelope.maxTotalCents - projectedCents),
+                evaluatedAt: nowAt
+              },
+              { path: "$" }
+            );
+            const approvalThresholdCents = Number(delegatedBudgetEnvelope.approvalThresholdCents ?? Number.NaN);
+            if (
+              !s8ApprovalEnforceX402AuthorizePaymentValue &&
+              Number.isSafeInteger(approvalThresholdCents) &&
+              approvalThresholdCents >= 0
+            ) {
+              const delegatedApprovalAction = {
+                actionId: `x402_budget_envelope_authorize:${gateId}:${delegatedBudgetEnvelope.envelopeId}`,
+                actionType: "delegated_budget_authorize",
+                actorId: payerAgentId,
+                riskTier: "medium",
+                amountCents,
+                metadata: {
+                  tenantId,
+                  gateId,
+                  runId,
+                  currency,
+                  payeeProviderId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null
+                }
+              };
+              const delegatedApprovalDecision =
+                body?.delegatedApprovalDecision ??
+                body?.s8ApprovalDecision ??
+                body?.humanApprovalDecision ??
+                body?.approvalDecision ??
+                null;
+              const delegatedApprovalCheck = enforceHighRiskApproval({
+                action: delegatedApprovalAction,
+                approvalPolicy: {
+                  requireApprovalAboveCents: approvalThresholdCents,
+                  strictEvidenceRefs: delegatedBudgetEnvelope.requireEvidenceRefs === true
+                },
+                approvalDecision: delegatedApprovalDecision,
+                nowIso: () => nowAt
+              });
+              authorizationApprovalDecisions.push(
+                createX402AuthorizationApprovalAuditEntry({
+                  profile: "delegated_budget_threshold",
+                  action: delegatedApprovalAction,
+                  approvalCheck: delegatedApprovalCheck,
+                  approvalDecision: delegatedApprovalDecision,
+                  checkedAt: nowAt
+                })
+              );
+              if (!delegatedApprovalCheck.approved) {
+                return sendError(
+                  res,
+                  409,
+                  "delegated budget envelope approval threshold requires explicit approval",
+                  {
+                    gateId,
+                    envelopeId: delegatedBudgetEnvelope.envelopeId,
+                    approvalCheck: delegatedApprovalCheck,
+                    approvalRequest: delegatedApprovalCheck.requiresExplicitApproval
+                      ? createApprovalRequest({
+                          action: delegatedApprovalAction,
+                          requestedBy: principalId ?? payerAgentId,
+                          requestedAt: nowAt
+                        })
+                      : null
+                  },
+                  { code: delegatedApprovalCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_REQUIRED" }
+                );
+              }
+            }
+          }
           if (s8ApprovalEnforceX402AuthorizePaymentValue) {
             const requestApprovalPolicyRaw =
               body?.s8ApprovalPolicy && typeof body.s8ApprovalPolicy === "object" && !Array.isArray(body.s8ApprovalPolicy)
@@ -49670,16 +49994,26 @@ export function createApi({
                 payeeProviderId
               }
             };
+            const s8ApprovalDecision =
+              body?.s8ApprovalDecision ??
+              body?.humanApprovalDecision ??
+              body?.approvalDecision ??
+              null;
             const approvalCheck = enforceHighRiskApproval({
               action: approvalAction,
               approvalPolicy: requestApprovalPolicyRaw ?? s8ApprovalPolicyValue,
-              approvalDecision:
-                body?.s8ApprovalDecision ??
-                body?.humanApprovalDecision ??
-                body?.approvalDecision ??
-                null,
+              approvalDecision: s8ApprovalDecision,
               nowIso: () => nowAt
             });
+            authorizationApprovalDecisions.push(
+              createX402AuthorizationApprovalAuditEntry({
+                profile: "s8_high_risk",
+                action: approvalAction,
+                approvalCheck,
+                approvalDecision: s8ApprovalDecision,
+                checkedAt: nowAt
+              })
+            );
             if (!approvalCheck.approved) {
               return sendError(
                 res,
@@ -50453,6 +50787,23 @@ export function createApi({
               }
             }
           }
+          const authorizationGovernance =
+            authorizationBudgetEnvelope ||
+            authorizationApprovalDecisions.some((row) => row && typeof row === "object" && !Array.isArray(row))
+              ? normalizeForCanonicalJson(
+                  {
+                    schemaVersion: X402_AUTHORIZATION_GOVERNANCE_SCHEMA_VERSION,
+                    ...(authorizationBudgetEnvelope ? { budgetEnvelope: authorizationBudgetEnvelope } : {}),
+                    approvals: authorizationApprovalDecisions
+                      .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+                      .map((row) => normalizeForCanonicalJson(row, { path: "$" })),
+                    evaluatedAt: nowAt
+                  },
+                  { path: "$" }
+                )
+              : existingAuthorization?.governance && typeof existingAuthorization.governance === "object" && !Array.isArray(existingAuthorization.governance)
+                ? existingAuthorization.governance
+                : null;
           if (hasLiveToken && requestBindingMatchesLiveToken && quoteMatchesLiveToken) {
             const responseBody = {
               gateId,
@@ -50479,7 +50830,8 @@ export function createApi({
                 circleTransferId: existingReserve.reserveId,
                 reserveId: existingReserve.reserveId,
                 status: "reserved"
-              }
+              },
+              ...(authorizationGovernance ? { governance: authorizationGovernance } : {})
             };
             if (idemStoreKey) {
               await store.commitTx({
@@ -50767,6 +51119,7 @@ export function createApi({
                         : null,
                 ...(authorizationDelegationLineage ? { delegationLineage: authorizationDelegationLineage } : {}),
                 ...(effectiveExecutionIntent ? { executionIntent: effectiveExecutionIntent } : {}),
+                ...(authorizationGovernance ? { governance: authorizationGovernance } : {}),
                 walletEscrow: {
                   status: walletEscrowLocked ? "locked" : "unlocked",
                   amountCents,
@@ -50826,7 +51179,8 @@ export function createApi({
               circleTransferId: reserve.circleTransferId ?? reserve.reserveId,
               reserveId: reserve.reserveId,
               status: "reserved"
-            }
+            },
+            ...(authorizationGovernance ? { governance: authorizationGovernance } : {})
           };
 
           const ops = [];
@@ -51874,6 +52228,10 @@ export function createApi({
                 : Number.isSafeInteger(Number(gateAgentPassport?.policyVersion)) && Number(gateAgentPassport.policyVersion) > 0
                   ? Number(gateAgentPassport.policyVersion)
                   : null;
+          const authorizationGovernanceForBindings =
+            gateAuthorization?.governance && typeof gateAuthorization.governance === "object" && !Array.isArray(gateAuthorization.governance)
+              ? gateAuthorization.governance
+              : null;
           const settlementBindingsMetadata = (() => {
             const x402 = {};
             if (settlementAssignmentSponsorWalletRef && settlementAssignmentPolicyRef && settlementAssignmentPolicyVersion) {
@@ -51972,6 +52330,7 @@ export function createApi({
                         : null
                   }
                 : null,
+            ...(authorizationGovernanceForBindings ? { governance: authorizationGovernanceForBindings } : {}),
             executionIntent: gateExecutionIntent
               ? {
                   schemaVersion:
