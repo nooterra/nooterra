@@ -13,7 +13,9 @@ const FED_KEYS = [
   "COORDINATOR_DID",
   "PROXY_COORDINATOR_DID",
   "PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS",
-  "PROXY_FEDERATION_NAMESPACE_ROUTES"
+  "PROXY_FEDERATION_NAMESPACE_ROUTES",
+  "PROXY_FEDERATION_TRUST_REGISTRY",
+  "PROXY_FEDERATION_TRUST_REGISTRY_STRICT"
 ];
 
 function withEnvMap(overrides = {}) {
@@ -247,6 +249,322 @@ test("api federation proxy: verifies detached signature when present", async () 
     assert.equal(denied.statusCode, 403);
     assert.equal(denied.json?.code, "FEDERATION_REQUEST_DENIED");
     assert.equal(denied.json?.details?.reason, "signature_verification_failed");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: strict trust registry fails closed for unknown trust anchor key", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({})
+  });
+  try {
+    const api = createApi();
+    const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+    const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+    api.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const payload = signFederationEnvelope(
+      invokeEnvelope({
+        invocationId: "inv_trust_unknown_anchor_1",
+        originDid: "did:nooterra:coord_bravo",
+        targetDid: "did:nooterra:coord_alpha"
+      }),
+      { keyId, privateKeyPem }
+    );
+    const denied = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: payload,
+      auth: "none"
+    });
+
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.json?.code, "FEDERATION_REQUEST_DENIED");
+    assert.equal(denied.json?.details?.reason, "trust_anchor_unknown");
+    assert.equal(denied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_UNKNOWN");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: trust anchor revocation supports historical signedAt and blocks post-revocation signedAt", async () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({
+      [keyId]: {
+        coordinatorDid: "did:nooterra:coord_bravo",
+        status: "active",
+        revokedAt: "2026-01-01T00:00:10.000Z"
+      }
+    })
+  });
+  try {
+    const api = createApi();
+    api.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const historicalPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_revocation_historical_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        signedAt: "2026-01-01T00:00:05.000Z"
+      },
+      { keyId, privateKeyPem }
+    );
+    const historicalAccepted = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: historicalPayload,
+      auth: "none"
+    });
+    assert.equal(historicalAccepted.statusCode, 202);
+
+    const revokedPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_revocation_blocked_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        signedAt: "2026-01-01T00:00:20.000Z"
+      },
+      { keyId, privateKeyPem }
+    );
+    const revokedDenied = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: revokedPayload,
+      auth: "none"
+    });
+    assert.equal(revokedDenied.statusCode, 403);
+    assert.equal(revokedDenied.json?.details?.reason, "trust_anchor_revoked");
+    assert.equal(revokedDenied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_REVOKED");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: trust anchor rotation supports historical signedAt and blocks post-rotation signedAt", async () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({
+      [keyId]: {
+        coordinatorDid: "did:nooterra:coord_bravo",
+        status: "active",
+        rotatedAt: "2026-01-01T00:00:10.000Z"
+      }
+    })
+  });
+  try {
+    const api = createApi();
+    api.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const historicalPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_rotation_historical_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        signedAt: "2026-01-01T00:00:05.000Z"
+      },
+      { keyId, privateKeyPem }
+    );
+    const historicalAccepted = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: historicalPayload,
+      auth: "none"
+    });
+    assert.equal(historicalAccepted.statusCode, 202);
+
+    const rotatedPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_rotation_blocked_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        signedAt: "2026-01-01T00:00:20.000Z"
+      },
+      { keyId, privateKeyPem }
+    );
+    const rotatedDenied = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: rotatedPayload,
+      auth: "none"
+    });
+    assert.equal(rotatedDenied.statusCode, 403);
+    assert.equal(rotatedDenied.json?.details?.reason, "trust_anchor_rotated");
+    assert.equal(rotatedDenied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_ROTATED");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: trust propagation stale and trust version mismatch fail closed with reason codes", async () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({
+      [keyId]: {
+        coordinatorDid: "did:nooterra:coord_bravo",
+        status: "active",
+        version: 3,
+        propagatedAt: "2026-01-01T00:00:10.000Z"
+      }
+    })
+  });
+  try {
+    const staleApi = createApi({
+      now: () => "2026-01-01T00:00:05.000Z"
+    });
+    staleApi.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const stalePayload = signFederationEnvelope(
+      invokeEnvelope({
+        invocationId: "inv_trust_stale_1",
+        originDid: "did:nooterra:coord_bravo",
+        targetDid: "did:nooterra:coord_alpha"
+      }),
+      { keyId, privateKeyPem }
+    );
+    const staleDenied = await request(staleApi, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: stalePayload,
+      auth: "none"
+    });
+    assert.equal(staleDenied.statusCode, 403);
+    assert.equal(staleDenied.json?.details?.reason, "trust_anchor_stale");
+    assert.equal(staleDenied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_STALE");
+
+    const versionApi = createApi({
+      now: () => "2026-01-01T00:00:20.000Z"
+    });
+    versionApi.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+    const versionMismatchPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_version_mismatch_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        trust: {
+          anchorVersion: 2
+        }
+      },
+      { keyId, privateKeyPem }
+    );
+    const versionDenied = await request(versionApi, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: versionMismatchPayload,
+      auth: "none"
+    });
+    assert.equal(versionDenied.statusCode, 403);
+    assert.equal(versionDenied.json?.details?.reason, "trust_anchor_version_mismatch");
+    assert.equal(versionDenied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_VERSION_MISMATCH");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: trust metadata version fields remain compatible across consumer versions", async () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({
+      [keyId]: {
+        coordinatorDid: "did:nooterra:coord_bravo",
+        status: "active",
+        version: 4
+      }
+    })
+  });
+  try {
+    const api = createApi();
+    api.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const legacyFieldPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_version_legacy_ok_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        trustAnchorVersion: 4
+      },
+      { keyId, privateKeyPem }
+    );
+    const legacyAccepted = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: legacyFieldPayload,
+      auth: "none"
+    });
+    assert.equal(legacyAccepted.statusCode, 202);
+
+    const modernFieldPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_version_modern_ok_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        trust: { anchorVersion: 4 }
+      },
+      { keyId, privateKeyPem }
+    );
+    const modernAccepted = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: modernFieldPayload,
+      auth: "none"
+    });
+    assert.equal(modernAccepted.statusCode, 202);
+
+    const invalidVersionPayload = signFederationEnvelope(
+      {
+        ...invokeEnvelope({
+          invocationId: "inv_trust_version_invalid_1",
+          originDid: "did:nooterra:coord_bravo",
+          targetDid: "did:nooterra:coord_alpha"
+        }),
+        trustAnchorVersion: "not-an-integer"
+      },
+      { keyId, privateKeyPem }
+    );
+    const invalidDenied = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invalidVersionPayload,
+      auth: "none"
+    });
+    assert.equal(invalidDenied.statusCode, 403);
+    assert.equal(invalidDenied.json?.details?.reason, "trust_anchor_version_invalid");
+    assert.equal(invalidDenied.json?.details?.reasonCode, "FEDERATION_TRUST_ANCHOR_VERSION_INVALID");
   } finally {
     restore();
   }
@@ -615,6 +933,13 @@ test("api federation proxy: internal federation stats reports per-pair and statu
       replay_duplicate: 1,
       upstream_201: 1
     });
+    assert.deepEqual(stats.json?.ingress?.trust, {
+      schemaVersion: "FederationTrustRegistrySnapshot.v1",
+      strictMode: false,
+      anchorCount: 0,
+      staleAnchorCount: 0,
+      statusCounts: {}
+    });
     assert.deepEqual(stats.json?.stats?.pairs, [
       {
         originDid: "did:nooterra:coord_alpha",
@@ -632,6 +957,53 @@ test("api federation proxy: internal federation stats reports per-pair and statu
   } finally {
     restore();
     await new Promise((resolve) => upstream.close(resolve));
+  }
+});
+
+test("api federation proxy: internal federation stats exposes auditable trust propagation status", async () => {
+  const { publicKeyPem } = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUST_REGISTRY_STRICT: "true",
+    PROXY_FEDERATION_TRUST_REGISTRY: JSON.stringify({
+      [keyId]: {
+        coordinatorDid: "did:nooterra:coord_bravo",
+        status: "active"
+      },
+      key_stale_1: {
+        coordinatorDid: "did:nooterra:coord_charlie",
+        status: "rotated",
+        propagatedAt: "2026-01-01T00:01:00.000Z"
+      },
+      key_revoked_1: {
+        coordinatorDid: "did:nooterra:coord_delta",
+        status: "revoked"
+      }
+    })
+  });
+  try {
+    const api = createApi({
+      now: () => "2026-01-01T00:00:00.000Z"
+    });
+    const stats = await request(api, {
+      method: "GET",
+      path: "/internal/federation/stats"
+    });
+    assert.equal(stats.statusCode, 200);
+    assert.deepEqual(stats.json?.ingress?.trust, {
+      schemaVersion: "FederationTrustRegistrySnapshot.v1",
+      strictMode: true,
+      anchorCount: 3,
+      staleAnchorCount: 1,
+      statusCounts: {
+        active: 1,
+        revoked: 1,
+        rotated: 1
+      }
+    });
+  } finally {
+    restore();
   }
 });
 

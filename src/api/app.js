@@ -667,6 +667,116 @@ export function createApi({
   const federationOutgoingInvokeRows = new Map();
   const federationOutgoingDispatchQueue = [];
   const federationInvocationReplayRows = new Map();
+  const federationTrustRegistryRaw =
+    typeof process !== "undefined" ? process.env.PROXY_FEDERATION_TRUST_REGISTRY ?? process.env.FEDERATION_TRUST_REGISTRY ?? null : null;
+  const federationTrustRegistryStrict = parseBooleanLike(
+    typeof process !== "undefined" ? process.env.PROXY_FEDERATION_TRUST_REGISTRY_STRICT ?? null : null,
+    false
+  );
+  const FEDERATION_TRUST_REASON_CODE = Object.freeze({
+    UNKNOWN: "FEDERATION_TRUST_ANCHOR_UNKNOWN",
+    STALE: "FEDERATION_TRUST_ANCHOR_STALE",
+    REVOKED: "FEDERATION_TRUST_ANCHOR_REVOKED",
+    ROTATED: "FEDERATION_TRUST_ANCHOR_ROTATED",
+    MISMATCH: "FEDERATION_TRUST_ANCHOR_MISMATCH",
+    VERSION_MISMATCH: "FEDERATION_TRUST_ANCHOR_VERSION_MISMATCH",
+    VERSION_INVALID: "FEDERATION_TRUST_ANCHOR_VERSION_INVALID",
+    SIGNED_AT_INVALID: "FEDERATION_TRUST_SIGNED_AT_INVALID"
+  });
+
+  function normalizeFederationTrustDid(value) {
+    if (typeof value !== "string") return null;
+    const did = value.trim();
+    if (!did) return null;
+    if (!/^did:[a-z0-9]+:[A-Za-z0-9._:-]{1,256}$/.test(did)) return null;
+    return did;
+  }
+
+  function normalizeFederationTrustIso(value, { fieldName }) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const iso = String(value).trim();
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) throw new TypeError(`${fieldName} must be an ISO date-time`);
+    return { iso, ms };
+  }
+
+  function parseFederationTrustRegistry(raw) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return new Map();
+    let parsed = raw;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (err) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY must be valid JSON: ${err?.message ?? String(err ?? "")}`);
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError("PROXY_FEDERATION_TRUST_REGISTRY must be an object keyed by keyId");
+    }
+    const rows = [];
+    for (const [keyIdRaw, anchorRaw] of Object.entries(parsed)) {
+      const keyId = typeof keyIdRaw === "string" ? keyIdRaw.trim() : "";
+      if (!keyId) continue;
+      if (!anchorRaw || typeof anchorRaw !== "object" || Array.isArray(anchorRaw)) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId} must be an object`);
+      }
+      const statusInput = typeof anchorRaw.status === "string" ? anchorRaw.status.trim().toLowerCase() : "active";
+      if (statusInput !== "active" && statusInput !== "rotated" && statusInput !== "revoked") {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.status must be active|rotated|revoked`);
+      }
+      const coordinatorDid = normalizeFederationTrustDid(anchorRaw.coordinatorDid ?? null);
+      if (anchorRaw.coordinatorDid !== undefined && anchorRaw.coordinatorDid !== null && !coordinatorDid) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.coordinatorDid must be a DID`);
+      }
+      const version =
+        anchorRaw.version === null || anchorRaw.version === undefined || String(anchorRaw.version).trim() === ""
+          ? null
+          : Number(anchorRaw.version);
+      if (version !== null && (!Number.isSafeInteger(version) || version <= 0)) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.version must be a positive integer`);
+      }
+      rows.push([
+        keyId,
+        {
+          keyId,
+          coordinatorDid,
+          status: statusInput,
+          version,
+          propagatedAt: normalizeFederationTrustIso(anchorRaw.propagatedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.propagatedAt`
+          }),
+          rotatedAt: normalizeFederationTrustIso(anchorRaw.rotatedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.rotatedAt`
+          }),
+          revokedAt: normalizeFederationTrustIso(anchorRaw.revokedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.revokedAt`
+          }),
+          publicKeyPem:
+            typeof anchorRaw.publicKeyPem === "string" && anchorRaw.publicKeyPem.trim() !== "" ? anchorRaw.publicKeyPem.trim() : null
+        }
+      ]);
+    }
+    rows.sort((left, right) => left[0].localeCompare(right[0]));
+    return new Map(rows);
+  }
+
+  const federationTrustRegistry = parseFederationTrustRegistry(federationTrustRegistryRaw);
+  if (!(store.federationTrustAnchors instanceof Map)) {
+    store.federationTrustAnchors = new Map(federationTrustRegistry);
+  } else {
+    for (const [keyId, anchor] of federationTrustRegistry.entries()) {
+      if (!store.federationTrustAnchors.has(keyId)) store.federationTrustAnchors.set(keyId, anchor);
+    }
+  }
+  for (const [keyId, anchor] of (store.federationTrustAnchors instanceof Map ? store.federationTrustAnchors : federationTrustRegistry).entries()) {
+    if (!anchor || typeof anchor !== "object") continue;
+    if (!anchor.publicKeyPem || !(store.publicKeyByKeyId instanceof Map)) continue;
+    if (!store.publicKeyByKeyId.has(keyId)) store.publicKeyByKeyId.set(keyId, anchor.publicKeyPem);
+  }
+
+  function currentFederationTrustRegistry() {
+    return store.federationTrustAnchors instanceof Map ? store.federationTrustAnchors : federationTrustRegistry;
+  }
 
   function federationIdentityKey({ invocationId, originDid, targetDid }) {
     return [invocationId, originDid, targetDid].join("\n");
@@ -905,6 +1015,170 @@ export function createApi({
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }
+  }
+
+  function evaluateFederationTrustAnchor({ envelope, body, signatureInspection }) {
+    const keyId = typeof signatureInspection?.keyId === "string" ? signatureInspection.keyId.trim() : "";
+    if (!keyId) {
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: null
+      };
+    }
+    const registry = currentFederationTrustRegistry();
+    if (!(registry instanceof Map) || registry.size === 0) {
+      if (federationTrustRegistryStrict !== true) return { ok: true, anchor: null, signedAt: null };
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: { keyId }
+      };
+    }
+    const anchor = registry.get(keyId) ?? null;
+    if (!anchor || typeof anchor !== "object") {
+      if (federationTrustRegistryStrict !== true) return { ok: true, anchor: null, signedAt: null };
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: { keyId }
+      };
+    }
+    const signedAtRaw =
+      typeof body?.signedAt === "string" && body.signedAt.trim() !== ""
+        ? body.signedAt.trim()
+        : typeof body?.signature?.signedAt === "string" && body.signature.signedAt.trim() !== ""
+          ? body.signature.signedAt.trim()
+          : null;
+    const signedAtMs = signedAtRaw ? Date.parse(signedAtRaw) : Number.NaN;
+    if (signedAtRaw && !Number.isFinite(signedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_signed_at_invalid",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.SIGNED_AT_INVALID,
+        details: { keyId, signedAt: signedAtRaw }
+      };
+    }
+    const evaluatedAtIso = signedAtRaw && Number.isFinite(signedAtMs) ? signedAtRaw : nowIso();
+    const evaluatedAtMs = Date.parse(evaluatedAtIso);
+    if (!Number.isFinite(evaluatedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_signed_at_invalid",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.SIGNED_AT_INVALID,
+        details: { keyId, signedAt: evaluatedAtIso }
+      };
+    }
+    if (typeof anchor.coordinatorDid === "string" && anchor.coordinatorDid.trim() !== "" && anchor.coordinatorDid !== envelope?.originDid) {
+      return {
+        ok: false,
+        reason: "trust_anchor_mismatch",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.MISMATCH,
+        details: {
+          keyId,
+          expectedOriginDid: anchor.coordinatorDid,
+          receivedOriginDid: envelope?.originDid ?? null
+        }
+      };
+    }
+    const propagatedAtMs = Number(anchor?.propagatedAt?.ms ?? Number.NaN);
+    if (Number.isFinite(propagatedAtMs) && evaluatedAtMs < propagatedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_stale",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.STALE,
+        details: {
+          keyId,
+          propagatedAt: anchor.propagatedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    const trustVersionRaw = body?.trust && typeof body.trust === "object" && !Array.isArray(body.trust) ? body.trust.anchorVersion : body?.trustAnchorVersion;
+    if (trustVersionRaw !== null && trustVersionRaw !== undefined && String(trustVersionRaw).trim() !== "") {
+      const trustVersion = Number(trustVersionRaw);
+      if (!Number.isSafeInteger(trustVersion) || trustVersion <= 0) {
+        return {
+          ok: false,
+          reason: "trust_anchor_version_invalid",
+          reasonCode: FEDERATION_TRUST_REASON_CODE.VERSION_INVALID,
+          details: {
+            keyId,
+            anchorVersion: trustVersionRaw
+          }
+        };
+      }
+      if (Number.isSafeInteger(anchor.version) && trustVersion !== anchor.version) {
+        return {
+          ok: false,
+          reason: "trust_anchor_version_mismatch",
+          reasonCode: FEDERATION_TRUST_REASON_CODE.VERSION_MISMATCH,
+          details: {
+            keyId,
+            expectedAnchorVersion: anchor.version,
+            receivedAnchorVersion: trustVersion
+          }
+        };
+      }
+    }
+    const revokedAtMs = Number(anchor?.revokedAt?.ms ?? Number.NaN);
+    const rotatedAtMs = Number(anchor?.rotatedAt?.ms ?? Number.NaN);
+    if (anchor.status === "revoked" && !Number.isFinite(revokedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_anchor_revoked",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.REVOKED,
+        details: { keyId, revokedAt: null }
+      };
+    }
+    if (anchor.status === "rotated" && !Number.isFinite(rotatedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_anchor_rotated",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.ROTATED,
+        details: { keyId, rotatedAt: null }
+      };
+    }
+    if (Number.isFinite(revokedAtMs) && evaluatedAtMs >= revokedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_revoked",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.REVOKED,
+        details: {
+          keyId,
+          revokedAt: anchor.revokedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    if (Number.isFinite(rotatedAtMs) && evaluatedAtMs >= rotatedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_rotated",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.ROTATED,
+        details: {
+          keyId,
+          rotatedAt: anchor.rotatedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    return {
+      ok: true,
+      anchor: {
+        keyId,
+        coordinatorDid: anchor.coordinatorDid ?? null,
+        version: Number.isSafeInteger(anchor.version) ? anchor.version : null,
+        status: anchor.status ?? null,
+        propagatedAt: anchor.propagatedAt?.iso ?? null,
+        rotatedAt: anchor.rotatedAt?.iso ?? null,
+        revokedAt: anchor.revokedAt?.iso ?? null
+      },
+      signedAt: signedAtRaw ?? null
+    };
   }
 
   function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
@@ -30758,9 +31032,22 @@ export function createApi({
       }
       return { present: true, valid: true, algorithm, keyId, signature };
     }
-    function verifyFederationSignatureBlock({ body, signatureInspection }) {
+    function verifyFederationSignatureBlock({ envelope, body, signatureInspection }) {
       if (!signatureInspection?.present) return { ok: true, verified: false };
       const keyId = String(signatureInspection.keyId ?? "").trim();
+      const trustCheck = evaluateFederationTrustAnchor({
+        envelope,
+        body,
+        signatureInspection
+      });
+      if (!trustCheck.ok) {
+        return {
+          ok: false,
+          reason: trustCheck.reason ?? "trust_anchor_unknown",
+          reasonCode: trustCheck.reasonCode ?? FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+          reasonDetails: trustCheck.details ?? null
+        };
+      }
       const publicKeyPem = store?.publicKeyByKeyId instanceof Map ? store.publicKeyByKeyId.get(keyId) ?? null : null;
       if (!publicKeyPem) {
         return { ok: false, reason: "signature_key_unknown" };
@@ -30780,7 +31067,7 @@ export function createApi({
         publicKeyPem
       });
       if (!isValid) return { ok: false, reason: "signature_verification_failed" };
-      return { ok: true, verified: true, keyId, payloadHash };
+      return { ok: true, verified: true, keyId, payloadHash, trustAnchor: trustCheck.anchor ?? null, signedAt: trustCheck.signedAt ?? null };
     }
     function logFederationReceived({ envelope, status, statusCode = null, code = null, level = "info" }) {
       if (!envelope || typeof envelope !== "object") return;
@@ -30875,6 +31162,21 @@ export function createApi({
         code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
         level: "warn"
       });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "signature_invalid",
+        status: "signature_invalid",
+        details: {
+          reason: signatureInspection.reason
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+          statusCode: 403,
+          attempts: 1
+        }
+      });
       return sendError(
         res,
         403,
@@ -30884,6 +31186,7 @@ export function createApi({
       );
     }
     const signatureVerification = verifyFederationSignatureBlock({
+      envelope: envelopeCheck.envelope,
       body: parsedBody,
       signatureInspection
     });
@@ -30895,6 +31198,7 @@ export function createApi({
         capabilityId: envelopeCheck.envelope.capabilityId ?? null,
         invocationId: envelopeCheck.envelope.invocationId,
         reason: signatureVerification.reason,
+        reasonCode: signatureVerification.reasonCode ?? null,
         latencyMs: latencyMs()
       });
       logFederationReceived({
@@ -30904,14 +31208,47 @@ export function createApi({
         code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
         level: "warn"
       });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "signature_invalid",
+        status: "signature_invalid",
+        details: {
+          reason: signatureVerification.reason,
+          reasonCode: signatureVerification.reasonCode ?? null
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: signatureVerification.reasonCode ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+          statusCode: 403,
+          attempts: 1
+        }
+      });
       return sendError(
         res,
         403,
         "federation signature invalid",
-        { reason: signatureVerification.reason },
+        {
+          reason: signatureVerification.reason,
+          reasonCode: signatureVerification.reasonCode ?? null,
+          ...(signatureVerification.reasonDetails && typeof signatureVerification.reasonDetails === "object"
+            ? { trust: signatureVerification.reasonDetails }
+            : {})
+        },
         { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
       );
     }
+    appendFederationInvocationReplayEvent({
+      endpoint,
+      envelope: envelopeCheck.envelope,
+      eventType: "trust_verified",
+      status: signatureVerification.verified === true ? "verified" : "unsigned",
+      details: {
+        keyId: signatureVerification.keyId ?? null,
+        signedAt: signatureVerification.signedAt ?? null,
+        trustAnchor: signatureVerification.trustAnchor ?? null
+      }
+    });
     const routeCheck = evaluateFederationTrustAndRoute({
       endpoint,
       envelope: envelopeCheck.envelope,
@@ -31813,6 +32150,18 @@ export function createApi({
               typeof row.terminalState === "string" && row.terminalState.trim() !== "" ? row.terminalState.trim() : "pending";
             outgoingTerminalStateCounts[state] = (outgoingTerminalStateCounts[state] ?? 0) + 1;
           }
+          const trustStatusCounts = {};
+          let trustAnchorCount = 0;
+          let trustStaleCount = 0;
+          const nowMs = Date.parse(nowIso());
+          for (const anchor of currentFederationTrustRegistry().values()) {
+            if (!anchor || typeof anchor !== "object") continue;
+            trustAnchorCount += 1;
+            const status = typeof anchor.status === "string" && anchor.status.trim() !== "" ? anchor.status.trim() : "active";
+            trustStatusCounts[status] = (trustStatusCounts[status] ?? 0) + 1;
+            const propagatedAtMs = Number(anchor?.propagatedAt?.ms ?? Number.NaN);
+            if (Number.isFinite(propagatedAtMs) && Number.isFinite(nowMs) && nowMs < propagatedAtMs) trustStaleCount += 1;
+          }
           return sendJson(res, 200, {
             ok: true,
             stats: federationStatsTracker.snapshot(),
@@ -31825,7 +32174,14 @@ export function createApi({
               outgoingInvokeCount: federationOutgoingInvokeRows.size,
               outgoingInvokeQueueDepth: federationOutgoingDispatchQueue.length,
               outgoingTerminalStateCounts,
-              replayInvocationCount: federationInvocationReplayRows.size
+              replayInvocationCount: federationInvocationReplayRows.size,
+              trust: {
+                schemaVersion: "FederationTrustRegistrySnapshot.v1",
+                strictMode: federationTrustRegistryStrict === true,
+                anchorCount: trustAnchorCount,
+                staleAnchorCount: trustStaleCount,
+                statusCounts: Object.fromEntries(Object.entries(trustStatusCounts).sort((a, b) => a[0].localeCompare(b[0])))
+              }
             }
           });
         }
