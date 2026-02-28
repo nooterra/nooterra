@@ -622,6 +622,9 @@ export function createApi({
     federationProxyBaseUrlRaw && String(federationProxyBaseUrlRaw).trim() !== ""
       ? normalizeOptionalAbsoluteUrl(String(federationProxyBaseUrlRaw).trim(), { fieldName: "FEDERATION_PROXY_BASE_URL" })?.replace(/\/+$/, "")
       : null;
+  const federationWorkOrderForwardEnabled =
+    typeof process !== "undefined" &&
+    ["1", "true", "yes", "on"].includes(String(process.env.PROXY_FEDERATION_WORK_ORDER_FORWARD ?? "").trim().toLowerCase());
   const federationProxyPolicy = buildFederationProxyPolicy({
     env: typeof process !== "undefined" ? process.env : {},
     fallbackBaseUrl: federationProxyBaseUrl
@@ -631,6 +634,9 @@ export function createApi({
   const federationIncomingInvokeRows = new Map();
   const federationIncomingDispatchQueue = [];
   const federationIncomingResultRows = new Map();
+  const federationIncomingResultSettlementRows = new Map();
+  const federationOutgoingInvokeRows = new Map();
+  const federationOutgoingDispatchQueue = [];
 
   function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
     const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
@@ -677,6 +683,152 @@ export function createApi({
     };
     federationIncomingResultRows.set(recordKey, row);
     return row;
+  }
+
+  function applyIncomingFederationResultSettlement({ envelope, receipt }) {
+    const settlementKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const existing = federationIncomingResultSettlementRows.get(settlementKey);
+    if (existing) return existing;
+    const settledAt = nowIso();
+    const settlementPayloadHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultSettlementPayload.v1",
+            invocationId: envelope.invocationId,
+            originDid: envelope.originDid,
+            targetDid: envelope.targetDid,
+            status: envelope.status,
+            receiptId: receipt?.receiptId ?? null,
+            settledAt
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const row = {
+      schemaVersion: "FederationResultSettlementLedgerEntry.v1",
+      ledgerEntryId: `fedledg_${settlementPayloadHash.slice(0, 24)}`,
+      settledAt,
+      invocationId: envelope.invocationId,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      status: envelope.status,
+      receiptId: receipt?.receiptId ?? null,
+      settlementPayloadHash
+    };
+    federationIncomingResultSettlementRows.set(settlementKey, row);
+    if (receipt && typeof receipt === "object") {
+      receipt.settlementApplied = true;
+      receipt.settlementLedgerEntryId = row.ledgerEntryId;
+      receipt.settledAt = settledAt;
+    }
+    return row;
+  }
+
+  function enqueueOutgoingFederationInvoke({ envelope, payload, requestHash, route }) {
+    const queueKey = [envelope.invocationId, envelope.originDid, envelope.targetDid].join("\n");
+    const existing = federationOutgoingInvokeRows.get(queueKey);
+    if (existing) return existing;
+    const queuedAt = nowIso();
+    const row = {
+      schemaVersion: "FederationOutgoingInvokeQueueEntry.v1",
+      queuedAt,
+      invocationId: envelope.invocationId,
+      capabilityId: envelope.capabilityId ?? null,
+      traceId: typeof payload?.trace?.traceId === "string" && payload.trace.traceId.trim() !== "" ? payload.trace.traceId.trim() : null,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      namespaceDid: route?.namespaceDid ?? null,
+      upstreamBaseUrl: route?.upstreamBaseUrl ?? null,
+      payload,
+      requestHash,
+      status: "queued",
+      isFederation: true
+    };
+    federationOutgoingInvokeRows.set(queueKey, row);
+    federationOutgoingDispatchQueue.push(queueKey);
+    return row;
+  }
+
+  async function forwardOutgoingFederationInvoke({ payload, route, requestId = null }) {
+    const upstreamBaseUrl =
+      typeof route?.upstreamBaseUrl === "string" && route.upstreamBaseUrl.trim() !== "" ? route.upstreamBaseUrl.trim() : null;
+    if (!upstreamBaseUrl) {
+      return {
+        ok: false,
+        statusCode: 503,
+        message: "federation upstream route is not configured",
+        details: null,
+        code: FEDERATION_ERROR_CODE.NOT_CONFIGURED
+      };
+    }
+    const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
+    if (typeof upstreamFetch !== "function") {
+      return {
+        ok: false,
+        statusCode: 500,
+        message: "federation proxy fetch is unavailable",
+        details: null,
+        code: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE
+      };
+    }
+    const targetUrl = new URL("/v1/federation/invoke", `${upstreamBaseUrl}/`).toString();
+    let response;
+    try {
+      response = await upstreamFetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...(requestId ? { "x-request-id": String(requestId) } : {}),
+          ...(route?.namespaceDid ? { "x-federation-namespace-did": String(route.namespaceDid) } : {})
+        },
+        body: canonicalJsonStringify(payload),
+        redirect: "error"
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        statusCode: 502,
+        message: "federation upstream invoke is unreachable",
+        details: { message: err?.message ?? String(err) },
+        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+      };
+    }
+    const bodyText = await response.text();
+    let bodyJson = null;
+    try {
+      bodyJson = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      // ignore non-json response bodies
+    }
+    if (!response.ok) {
+      return {
+        ok: false,
+        statusCode: response.status,
+        message: "federation upstream invoke failed",
+        details: bodyJson ?? (bodyText ? { body: bodyText } : null),
+        code: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+      };
+    }
+    if (response.status !== 202) {
+      return {
+        ok: false,
+        statusCode: 502,
+        message: "federation upstream invoke returned unexpected status",
+        details: {
+          expectedStatusCode: 202,
+          receivedStatusCode: response.status,
+          body: bodyJson
+        },
+        code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+      };
+    }
+    return {
+      ok: true,
+      statusCode: response.status,
+      body: bodyJson
+    };
   }
 
   function setProtocolResponseHeaders(res) {
@@ -7698,15 +7850,16 @@ export function createApi({
     };
   }
 
-  function mergeWorkOrderMetadataWithMetering({ metadata = null, meteringPolicy = null, settlementSplitPolicy = null } = {}) {
+  function mergeWorkOrderMetadataWithMetering({ metadata = null, meteringPolicy = null, settlementSplitPolicy = null, dispatchPlan = null } = {}) {
     const baseMetadata =
       metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null;
-    if (!meteringPolicy && !settlementSplitPolicy) return baseMetadata;
+    if (!meteringPolicy && !settlementSplitPolicy && !dispatchPlan) return baseMetadata;
     return normalizeForCanonicalJson(
       {
         ...(baseMetadata ?? {}),
         ...(meteringPolicy ? { metering: meteringPolicy } : {}),
-        ...(settlementSplitPolicy ? { settlementSplitPolicy } : {})
+        ...(settlementSplitPolicy ? { settlementSplitPolicy } : {}),
+        ...(dispatchPlan ? { dispatch: dispatchPlan } : {})
       },
       { path: "$.metadata" }
     );
@@ -8480,6 +8633,104 @@ export function createApi({
     if (value.length > 256) throw new TypeError(`${fieldName} must be <= 256 characters`);
     if (!value.includes(":")) throw new TypeError(`${fieldName} must be a DID-like identifier`);
     return value;
+  }
+
+  function resolveSubAgentDispatchRoute({
+    workOrderId,
+    requiredCapability,
+    executionCoordinatorDid = null
+  } = {}) {
+    const localCoordinatorDid = parseExecutionCoordinatorDid(federationProxyPolicy?.localCoordinatorDid ?? null, {
+      allowNull: true,
+      fieldName: "COORDINATOR_DID"
+    });
+    const targetCoordinatorDid = parseExecutionCoordinatorDid(executionCoordinatorDid, {
+      allowNull: true,
+      fieldName: "executionCoordinatorDid"
+    });
+    if (!targetCoordinatorDid) {
+      return {
+        ok: true,
+        channel: "local",
+        localCoordinatorDid: localCoordinatorDid ?? null,
+        targetCoordinatorDid: targetCoordinatorDid ?? null,
+        route: null
+      };
+    }
+    if (!localCoordinatorDid) {
+      return {
+        ok: false,
+        statusCode: 503,
+        message: "local federation coordinator identity is not configured",
+        details: null,
+        code: FEDERATION_ERROR_CODE.IDENTITY_NOT_CONFIGURED,
+        localCoordinatorDid: null,
+        targetCoordinatorDid
+      };
+    }
+    if (targetCoordinatorDid === localCoordinatorDid) {
+      return {
+        ok: true,
+        channel: "local",
+        localCoordinatorDid,
+        targetCoordinatorDid,
+        route: null
+      };
+    }
+    const route = evaluateFederationTrustAndRoute({
+      endpoint: "invoke",
+      envelope: {
+        version: "1.0",
+        type: "coordinatorInvoke",
+        invocationId: String(workOrderId ?? ""),
+        originDid: localCoordinatorDid,
+        targetDid: targetCoordinatorDid,
+        capabilityId: String(requiredCapability ?? "")
+      },
+      policy: federationProxyPolicy
+    });
+    if (!route?.ok) {
+      return {
+        ok: false,
+        statusCode: route?.statusCode ?? 503,
+        message: route?.message ?? "federation route denied",
+        details: route?.details ?? null,
+        code: route?.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        localCoordinatorDid,
+        targetCoordinatorDid
+      };
+    }
+    return {
+      ok: true,
+      channel: "federation",
+      localCoordinatorDid,
+      targetCoordinatorDid,
+      route
+    };
+  }
+
+  function buildWorkOrderDispatchPlan({
+    routedAt,
+    workOrderId,
+    requiredCapability,
+    executionCoordinatorDid = null,
+    dispatchRoute
+  } = {}) {
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "SubAgentDispatchPlan.v1",
+        workOrderId: String(workOrderId ?? ""),
+        capabilityId: String(requiredCapability ?? ""),
+        routedAt: String(routedAt ?? ""),
+        channel: String(dispatchRoute?.channel ?? "local"),
+        localCoordinatorDid: dispatchRoute?.localCoordinatorDid ?? null,
+        executionCoordinatorDid: executionCoordinatorDid ?? null,
+        targetCoordinatorDid: dispatchRoute?.targetCoordinatorDid ?? null,
+        namespaceDid: dispatchRoute?.route?.namespaceDid ?? null,
+        upstreamBaseUrl: dispatchRoute?.route?.upstreamBaseUrl ?? null
+      },
+      { path: "$.dispatch" }
+    );
   }
 
   function normalizeAgentCardToolDescriptorsForDiscovery(agentCard) {
@@ -29861,7 +30112,31 @@ export function createApi({
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) {
         return { present: true, valid: false, reason: "signature_base64_invalid" };
       }
-      return { present: true, valid: true, algorithm, keyId };
+      return { present: true, valid: true, algorithm, keyId, signature };
+    }
+    function verifyFederationSignatureBlock({ body, signatureInspection }) {
+      if (!signatureInspection?.present) return { ok: true, verified: false };
+      const keyId = String(signatureInspection.keyId ?? "").trim();
+      const publicKeyPem = store?.publicKeyByKeyId instanceof Map ? store.publicKeyByKeyId.get(keyId) ?? null : null;
+      if (!publicKeyPem) {
+        return { ok: false, reason: "signature_key_unknown" };
+      }
+      const normalizedBody =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? normalizeForCanonicalJson(
+              Object.fromEntries(Object.entries(body).filter(([key]) => key !== "signature")),
+              { path: "$" }
+            )
+          : null;
+      if (!normalizedBody) return { ok: false, reason: "signature_payload_invalid" };
+      const payloadHash = sha256Hex(canonicalJsonStringify(normalizedBody));
+      const isValid = verifyHashHexEd25519({
+        hashHex: payloadHash,
+        signatureBase64: signatureInspection.signature,
+        publicKeyPem
+      });
+      if (!isValid) return { ok: false, reason: "signature_verification_failed" };
+      return { ok: true, verified: true, keyId, payloadHash };
     }
     function logFederationReceived({ envelope, status, statusCode = null, code = null, level = "info" }) {
       if (!envelope || typeof envelope !== "object") return;
@@ -29961,6 +30236,35 @@ export function createApi({
         403,
         "federation signature invalid",
         { reason: signatureInspection.reason },
+        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
+      );
+    }
+    const signatureVerification = verifyFederationSignatureBlock({
+      body: parsedBody,
+      signatureInspection
+    });
+    if (!signatureVerification.ok) {
+      logger.warn("federation_signature_invalid", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        reason: signatureVerification.reason,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "signature_invalid",
+        statusCode: 403,
+        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
+      return sendError(
+        res,
+        403,
+        "federation signature invalid",
+        { reason: signatureVerification.reason },
         { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
       );
     }
@@ -30111,12 +30415,19 @@ export function createApi({
         body: parsedBody,
         requestHash
       });
+      const settlement = applyIncomingFederationResultSettlement({
+        envelope: envelopeCheck.envelope,
+        receipt
+      });
       const responseBody = {
         ok: true,
         invocationId: envelopeCheck.envelope.invocationId,
         status: envelopeCheck.envelope.status,
         receiptId: receipt.receiptId,
-        acceptedAt: receipt.acceptedAt
+        acceptedAt: receipt.acceptedAt,
+        settlementApplied: receipt.settlementApplied === true,
+        settlementLedgerEntryId: settlement.ledgerEntryId,
+        settledAt: settlement.settledAt
       };
       const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
       try {
@@ -30687,7 +30998,16 @@ export function createApi({
           if (!hasScope) return sendError(res, 403, "forbidden");
           return sendJson(res, 200, {
             ok: true,
-            stats: federationStatsTracker.snapshot()
+            stats: federationStatsTracker.snapshot(),
+            ingress: {
+              schemaVersion: "FederationIngressState.v1",
+              incomingInvokeCount: federationIncomingInvokeRows.size,
+              incomingInvokeQueueDepth: federationIncomingDispatchQueue.length,
+              incomingResultReceiptCount: federationIncomingResultRows.size,
+              incomingResultSettlementCount: federationIncomingResultSettlementRows.size,
+              outgoingInvokeCount: federationOutgoingInvokeRows.size,
+              outgoingInvokeQueueDepth: federationOutgoingDispatchQueue.length
+            }
           });
         }
 
@@ -55581,6 +55901,49 @@ export function createApi({
         if (!principalIdentity) return sendError(res, 404, "principal agent identity not found", null, { code: "NOT_FOUND" });
         const subIdentity = await getAgentIdentityRecord({ tenantId, agentId: subAgentId });
         if (!subIdentity) return sendError(res, 404, "sub-agent identity not found", null, { code: "NOT_FOUND" });
+        let subAgentExecutionCoordinatorDid = null;
+        try {
+          const subAgentCard = await getAgentCardRecord({ tenantId, agentId: subAgentId });
+          subAgentExecutionCoordinatorDid = parseExecutionCoordinatorDid(subAgentCard?.executionCoordinatorDid ?? null, {
+            allowNull: true,
+            fieldName: "agentCard.executionCoordinatorDid"
+          });
+        } catch (err) {
+          if (!String(err?.message ?? "").includes("agent cards not supported")) {
+            return sendError(res, 409, "work order routing blocked", { message: err?.message }, { code: "WORK_ORDER_ROUTING_BLOCKED" });
+          }
+        }
+        const dispatchRoute = resolveSubAgentDispatchRoute({
+          workOrderId,
+          requiredCapability,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid
+        });
+        if (!dispatchRoute.ok) {
+          return sendError(
+            res,
+            dispatchRoute.statusCode ?? 503,
+            dispatchRoute.message ?? "work order federation route denied",
+            dispatchRoute.details ?? null,
+            { code: dispatchRoute.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED }
+          );
+        }
+        const dispatchPlan = buildWorkOrderDispatchPlan({
+          routedAt: nowAt,
+          workOrderId,
+          requiredCapability,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid,
+          dispatchRoute
+        });
+        logger.info("sub_agent_dispatch_routed", {
+          workOrderId,
+          principalAgentId,
+          subAgentId,
+          channel: dispatchRoute.channel,
+          localCoordinatorDid: dispatchRoute.localCoordinatorDid ?? null,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid,
+          targetCoordinatorDid: dispatchRoute.targetCoordinatorDid ?? null
+        });
+        metricInc("sub_agent_dispatch_routing_total", { channel: dispatchRoute.channel }, 1);
         const createLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
           tenantId,
           principalAgentId,
@@ -55640,7 +56003,8 @@ export function createApi({
         const workOrderMetadata = mergeWorkOrderMetadataWithMetering({
           metadata: body?.metadata ?? null,
           meteringPolicy: workOrderMeteringPolicy,
-          settlementSplitPolicy: workOrderSettlementSplitPolicy
+          settlementSplitPolicy: workOrderSettlementSplitPolicy,
+          dispatchPlan
         });
 
         const delegationGrantRef =
@@ -55912,7 +56276,77 @@ export function createApi({
           return sendError(res, 400, "invalid work order", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
+        if (dispatchRoute.channel === "federation") {
+          const federationInvokePayload = normalizeForCanonicalJson(
+            {
+              version: "1.0",
+              type: "coordinatorInvoke",
+              invocationId: workOrderId,
+              originDid: dispatchRoute.localCoordinatorDid,
+              targetDid: dispatchRoute.targetCoordinatorDid,
+              capabilityId: requiredCapability,
+              payload: {
+                schemaVersion: "FederationWorkOrderInvokePayload.v1",
+                workOrderId,
+                tenantId,
+                principalAgentId,
+                subAgentId,
+                requiredCapability,
+                traceId: workOrder?.traceId ?? null,
+                specification:
+                  body?.specification && typeof body.specification === "object" && !Array.isArray(body.specification) ? body.specification : {},
+                pricing: {
+                  amountCents,
+                  currency,
+                  quoteId: typeof body?.pricing?.quoteId === "string" && body.pricing.quoteId.trim() !== "" ? body.pricing.quoteId.trim() : null
+                },
+                constraints: body?.constraints ?? null
+              },
+              trace:
+                typeof workOrder?.traceId === "string" && workOrder.traceId.trim() !== ""
+                  ? {
+                      traceId: workOrder.traceId.trim()
+                    }
+                  : null
+            },
+            { path: "$" }
+          );
+          const requestHash = sha256Hex(canonicalJsonStringify(federationInvokePayload));
+          enqueueOutgoingFederationInvoke({
+            envelope: {
+              invocationId: federationInvokePayload.invocationId,
+              originDid: federationInvokePayload.originDid,
+              targetDid: federationInvokePayload.targetDid,
+              capabilityId: federationInvokePayload.capabilityId
+            },
+            payload: federationInvokePayload,
+            requestHash,
+            route: dispatchRoute.route
+          });
+          if (federationWorkOrderForwardEnabled) {
+            const forwarded = await forwardOutgoingFederationInvoke({
+              payload: federationInvokePayload,
+              route: dispatchRoute.route,
+              requestId
+            });
+            if (!forwarded.ok) {
+              return sendError(
+                res,
+                forwarded.statusCode ?? 502,
+                forwarded.message ?? "federation invoke forward failed",
+                forwarded.details ?? null,
+                { code: forwarded.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
+              );
+            }
+          }
+        }
+
         const responseBody = { ok: true, workOrder };
+        try {
+          res.setHeader("x-sub-agent-dispatch-channel", dispatchRoute.channel);
+        } catch {
+          // ignore
+        }
         const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder }];
         if (idemStoreKey) {
           ops.push({

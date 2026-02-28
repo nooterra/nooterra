@@ -3,6 +3,8 @@ import http from "node:http";
 import test from "node:test";
 
 import { createApi } from "../src/api/app.js";
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "../src/core/canonical-json.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem, sha256Hex, signHashHexEd25519 } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 const FED_KEYS = [
@@ -67,6 +69,23 @@ function resultEnvelope({ invocationId = "inv_1", originDid = "did:nooterra:coor
     targetDid,
     status: "success",
     result: { ok: true }
+  };
+}
+
+function signFederationEnvelope(payload, { keyId, privateKeyPem }) {
+  const normalized = normalizeForCanonicalJson(
+    Object.fromEntries(Object.entries(payload ?? {}).filter(([key]) => key !== "signature")),
+    { path: "$" }
+  );
+  const payloadHash = sha256Hex(canonicalJsonStringify(normalized));
+  const signature = signHashHexEd25519(payloadHash, privateKeyPem);
+  return {
+    ...payload,
+    signature: {
+      algorithm: "ed25519",
+      keyId,
+      signature
+    }
   };
 }
 
@@ -186,6 +205,53 @@ test("api federation proxy: fails closed when signature block is malformed", asy
   }
 });
 
+test("api federation proxy: verifies detached signature when present", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+    const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+    api.store.publicKeyByKeyId.set(keyId, publicKeyPem);
+
+    const validPayload = signFederationEnvelope(
+      invokeEnvelope({
+        invocationId: "inv_sig_verify_ok_1",
+        originDid: "did:nooterra:coord_bravo",
+        targetDid: "did:nooterra:coord_alpha"
+      }),
+      { keyId, privateKeyPem }
+    );
+    const accepted = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: validPayload,
+      auth: "none"
+    });
+    assert.equal(accepted.statusCode, 202);
+    assert.equal(accepted.json?.status, "queued");
+
+    const tamperedPayload = {
+      ...validPayload,
+      invocationId: "inv_sig_verify_fail_1",
+      payload: { op: "tampered" }
+    };
+    const denied = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: tamperedPayload,
+      auth: "none"
+    });
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.json?.code, "FEDERATION_REQUEST_DENIED");
+    assert.equal(denied.json?.details?.reason, "signature_verification_failed");
+  } finally {
+    restore();
+  }
+});
+
 test("api federation proxy: incoming invoke enqueues locally with deterministic replay", async () => {
   const restore = withEnvMap({
     COORDINATOR_DID: "did:nooterra:coord_alpha",
@@ -266,10 +332,15 @@ test("api federation proxy: incoming result ingests once with deterministic repl
     assert.equal(first.json?.status, "success");
     assert.equal(typeof first.json?.receiptId, "string");
     assert.equal(typeof first.json?.acceptedAt, "string");
+    assert.equal(first.json?.settlementApplied, true);
+    assert.equal(typeof first.json?.settlementLedgerEntryId, "string");
+    assert.equal(typeof first.json?.settledAt, "string");
     assert.equal(second.statusCode, 200);
     assert.equal(second.headers?.get?.("x-federation-replay"), "duplicate");
     assert.equal(second.json?.receiptId, first.json?.receiptId);
     assert.equal(second.json?.acceptedAt, first.json?.acceptedAt);
+    assert.equal(second.json?.settlementLedgerEntryId, first.json?.settlementLedgerEntryId);
+    assert.equal(second.json?.settledAt, first.json?.settledAt);
     assert.equal(conflict.statusCode, 409);
     assert.equal(conflict.json?.code, "FEDERATION_ENVELOPE_CONFLICT");
   } finally {
