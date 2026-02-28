@@ -32040,6 +32040,21 @@ export function createApi({
           return "other";
         }
 
+        function requiredAuditLinkedRefForAction(action) {
+          const normalized = typeof action === "string" ? action.trim().toUpperCase() : "";
+          if (!normalized) return null;
+          if (normalized.startsWith("EMERGENCY_CONTROL_")) {
+            return { key: "emergencyControlRef", code: "AUDIT_EXPORT_EMERGENCY_REF_REQUIRED" };
+          }
+          if (normalized.startsWith("DELEGATION_GRANT_")) {
+            return { key: "delegationGrantId", code: "AUDIT_EXPORT_DELEGATION_REF_REQUIRED" };
+          }
+          if (normalized.startsWith("AUTHORITY_GRANT_")) {
+            return { key: "authorityGrantId", code: "AUDIT_EXPORT_AUTHORITY_REF_REQUIRED" };
+          }
+          return null;
+        }
+
         function extractAuditLinkedRefs(row, details) {
           const targetType = typeof row?.targetType === "string" ? row.targetType.trim() : "";
           const targetId = typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null;
@@ -41128,37 +41143,73 @@ export function createApi({
                 { code: "AUDIT_EXPORT_REASON_CODE_REQUIRED" }
               );
             }
+            const linkedRefs = extractAuditLinkedRefs(row, details);
+            const requiredRef = requiredAuditLinkedRefForAction(action);
+            if (requiredRef && !linkedRefs?.[requiredRef.key]) {
+              return sendError(
+                res,
+                409,
+                "ops audit export blocked",
+                {
+                  message: `required linked reference is missing: ${requiredRef.key}`,
+                  auditId: row?.id ?? null,
+                  action,
+                  requiredRef: requiredRef.key
+                },
+                { code: "AUDIT_EXPORT_BINDING_REQUIRED" }
+              );
+            }
+            const baseRow = normalizeForCanonicalJson(
+              {
+                schemaVersion: "OpsAuditExportRow.v1",
+                auditId: Number.isSafeInteger(Number(row?.id)) ? Number(row.id) : null,
+                at,
+                action,
+                targetType: typeof row?.targetType === "string" && row.targetType.trim() !== "" ? row.targetType.trim() : null,
+                targetId: typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null,
+                detailsHash: typeof row?.detailsHash === "string" && row.detailsHash.trim() !== "" ? row.detailsHash.trim() : null,
+                actor: {
+                  keyId: typeof row?.actorKeyId === "string" && row.actorKeyId.trim() !== "" ? row.actorKeyId.trim() : null,
+                  principalId:
+                    typeof row?.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== "" ? row.actorPrincipalId.trim() : null,
+                  operatorId:
+                    typeof details?.operatorAction?.action?.actor?.operatorId === "string" &&
+                    details.operatorAction.action.actor.operatorId.trim() !== ""
+                      ? details.operatorAction.action.actor.operatorId.trim()
+                      : null,
+                  role:
+                    typeof details?.operatorAction?.action?.actor?.role === "string" &&
+                    details.operatorAction.action.actor.role.trim() !== ""
+                      ? details.operatorAction.action.actor.role.trim()
+                      : null
+                },
+                decision: {
+                  outcome,
+                  reasonCode,
+                  reason: typeof details.reason === "string" && details.reason.trim() !== "" ? details.reason.trim() : null
+                },
+                linkedRefs
+              },
+              { path: "$" }
+            );
+            const prevRowHash = rows.length > 0 ? rows[rows.length - 1]?.rowHash ?? null : null;
+            const rowHash = sha256Hex(
+              canonicalJsonStringify(
+                normalizeForCanonicalJson(
+                  {
+                    ...baseRow,
+                    prevRowHash
+                  },
+                  { path: "$" }
+                )
+              )
+            );
             rows.push(
               normalizeForCanonicalJson(
                 {
-                  schemaVersion: "OpsAuditExportRow.v1",
-                  auditId: Number.isSafeInteger(Number(row?.id)) ? Number(row.id) : null,
-                  at,
-                  action,
-                  targetType: typeof row?.targetType === "string" && row.targetType.trim() !== "" ? row.targetType.trim() : null,
-                  targetId: typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null,
-                  detailsHash: typeof row?.detailsHash === "string" && row.detailsHash.trim() !== "" ? row.detailsHash.trim() : null,
-                  actor: {
-                    keyId: typeof row?.actorKeyId === "string" && row.actorKeyId.trim() !== "" ? row.actorKeyId.trim() : null,
-                    principalId:
-                      typeof row?.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== "" ? row.actorPrincipalId.trim() : null,
-                    operatorId:
-                      typeof details?.operatorAction?.action?.actor?.operatorId === "string" &&
-                      details.operatorAction.action.actor.operatorId.trim() !== ""
-                        ? details.operatorAction.action.actor.operatorId.trim()
-                        : null,
-                    role:
-                      typeof details?.operatorAction?.action?.actor?.role === "string" &&
-                      details.operatorAction.action.actor.role.trim() !== ""
-                        ? details.operatorAction.action.actor.role.trim()
-                        : null
-                  },
-                  decision: {
-                    outcome,
-                    reasonCode,
-                    reason: typeof details.reason === "string" && details.reason.trim() !== "" ? details.reason.trim() : null
-                  },
-                  linkedRefs: extractAuditLinkedRefs(row, details)
+                  ...baseRow,
+                  prevRowHash,
+                  rowHash
                 },
                 { path: "$" }
               )
@@ -41174,6 +41225,7 @@ export function createApi({
               requireReasonCodes,
               generatedAt,
               count: rows.length,
+              rowChainHeadHash: rows.length > 0 ? rows[rows.length - 1]?.rowHash ?? null : null,
               rows
             },
             { path: "$" }
