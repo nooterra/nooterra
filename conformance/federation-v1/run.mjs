@@ -8,6 +8,8 @@ import { sha256Hex } from "../../src/core/crypto.js";
 import { createFederationReplayLedger } from "../../src/api/federation/replay-ledger.js";
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../../src/federation/proxy-policy.js";
 
+const DEFAULT_CONFORMANCE_AS_OF = "2026-01-01T00:00:00.000Z";
+
 function parseArgs(argv) {
   const out = {
     caseId: null,
@@ -81,14 +83,14 @@ function buildConformancePolicy(policyInput = {}) {
   const namespaceAsOf =
     typeof policyInput?.namespaceAsOf === "string" && policyInput.namespaceAsOf.trim() !== ""
       ? policyInput.namespaceAsOf.trim()
-      : null;
+      : DEFAULT_CONFORMANCE_AS_OF;
   return buildFederationProxyPolicy({
     env: {
       COORDINATOR_DID: coordinatorDid,
       PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: trustedCoordinatorDids,
       PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify(namespaceRoutes),
       ...(namespaceRegistry ? { PROXY_FEDERATION_NAMESPACE_REGISTRY: JSON.stringify(namespaceRegistry) } : {}),
-      ...(namespaceAsOf ? { PROXY_FEDERATION_NAMESPACE_AS_OF: namespaceAsOf } : {})
+      PROXY_FEDERATION_NAMESPACE_AS_OF: namespaceAsOf
     },
     fallbackBaseUrl
   });
@@ -190,7 +192,7 @@ function runCase(testCase) {
   const expected = testCase?.expected ?? {};
   const policy = buildConformancePolicy(testCase?.policy ?? {});
   const replayLedger = createFederationReplayLedger();
-  const asOf = typeof testCase?.asOf === "string" && testCase.asOf.trim() !== "" ? testCase.asOf.trim() : null;
+  const asOf = typeof testCase?.asOf === "string" && testCase.asOf.trim() !== "" ? testCase.asOf.trim() : DEFAULT_CONFORMANCE_AS_OF;
 
   let actual = null;
   if (String(expected?.duplicateReplayHeader ?? "").toLowerCase() === "x-federation-replay=duplicate") {
