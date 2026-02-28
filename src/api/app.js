@@ -15102,6 +15102,13 @@ export function createApi({
       fieldName: `${fieldPath}.approvalThresholdCents`,
       allowNull: true
     });
+    const approvalTimeoutAt =
+      rawValue.approvalTimeoutAt === null || rawValue.approvalTimeoutAt === undefined || String(rawValue.approvalTimeoutAt).trim() === ""
+        ? null
+        : String(rawValue.approvalTimeoutAt).trim();
+    if (approvalTimeoutAt !== null && !Number.isFinite(Date.parse(approvalTimeoutAt))) {
+      throw new TypeError(`${fieldPath}.approvalTimeoutAt must be an ISO timestamp when provided`);
+    }
     if (rawValue.emergencyStop !== undefined && typeof rawValue.emergencyStop !== "boolean") {
       throw new TypeError(`${fieldPath}.emergencyStop must be boolean when provided`);
     }
@@ -15117,6 +15124,7 @@ export function createApi({
         currency: currencyRaw,
         maxTotalCents,
         ...(approvalThresholdCents !== null ? { approvalThresholdCents } : {}),
+        ...(approvalTimeoutAt !== null ? { approvalTimeoutAt } : {}),
         emergencyStop: rawValue.emergencyStop === true,
         requireEvidenceRefs: rawValue.requireEvidenceRefs === true
       },
@@ -15187,6 +15195,36 @@ export function createApi({
     const checkedAtIso = typeof checkedAt === "string" && checkedAt.trim() !== "" ? checkedAt.trim() : nowIso();
     const decision =
       approvalDecision && typeof approvalDecision === "object" && !Array.isArray(approvalDecision) ? approvalDecision : null;
+    const decisionBinding =
+      decision?.binding && typeof decision.binding === "object" && !Array.isArray(decision.binding)
+        ? normalizeForCanonicalJson(
+            {
+              gateId: typeof decision.binding.gateId === "string" && decision.binding.gateId.trim() !== "" ? decision.binding.gateId.trim() : null,
+              runId: typeof decision.binding.runId === "string" && decision.binding.runId.trim() !== "" ? decision.binding.runId.trim() : null,
+              settlementId:
+                typeof decision.binding.settlementId === "string" && decision.binding.settlementId.trim() !== ""
+                  ? decision.binding.settlementId.trim()
+                  : null,
+              delegationGrantRef:
+                typeof decision.binding.delegationGrantRef === "string" && decision.binding.delegationGrantRef.trim() !== ""
+                  ? decision.binding.delegationGrantRef.trim()
+                  : null,
+              authorityGrantRef:
+                typeof decision.binding.authorityGrantRef === "string" && decision.binding.authorityGrantRef.trim() !== ""
+                  ? decision.binding.authorityGrantRef.trim()
+                  : null,
+              policyHashSha256:
+                typeof decision.binding.policyHashSha256 === "string" && /^[0-9a-f]{64}$/i.test(decision.binding.policyHashSha256.trim())
+                  ? decision.binding.policyHashSha256.trim().toLowerCase()
+                  : null,
+              policyVersion:
+                Number.isSafeInteger(Number(decision.binding.policyVersion)) && Number(decision.binding.policyVersion) > 0
+                  ? Number(decision.binding.policyVersion)
+                  : null
+            },
+            { path: "$.decision.binding" }
+          )
+        : null;
     return normalizeForCanonicalJson(
       {
         schemaVersion: X402_AUTHORIZATION_APPROVAL_AUDIT_SCHEMA_VERSION,
@@ -15226,6 +15264,7 @@ export function createApi({
                 decidedBy: typeof decision.decidedBy === "string" && decision.decidedBy.trim() !== "" ? decision.decidedBy.trim() : null,
                 decidedAt: typeof decision.decidedAt === "string" && decision.decidedAt.trim() !== "" ? decision.decidedAt.trim() : null,
                 approved: decision.approved === true,
+                ...(decisionBinding ? { binding: decisionBinding } : {}),
                 evidenceRefs: Array.isArray(decision.evidenceRefs)
                   ? Array.from(new Set(decision.evidenceRefs.map((row) => String(row ?? "").trim()).filter(Boolean))).sort((a, b) =>
                       a.localeCompare(b)
@@ -31154,22 +31193,6 @@ export function createApi({
         res.setHeader(n, value);
       } catch {
         // ignore invalid header copy
-      }
-    }
-    if (routeCheck?.routingReasonCode) {
-      replayHeaders["x-federation-routing-reason-code"] = String(routeCheck.routingReasonCode);
-      try {
-        res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
-      } catch {
-        // ignore
-      }
-    }
-    if (routeCheck?.namespaceLineage?.decisionId) {
-      replayHeaders["x-federation-namespace-decision-id"] = String(routeCheck.namespaceLineage.decisionId);
-      try {
-        res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
-      } catch {
-        // ignore
       }
     }
     try {
@@ -49869,6 +49892,14 @@ export function createApi({
           const nowAt = nowIso();
           const authorizationApprovalDecisions = [];
           let authorizationBudgetEnvelope = null;
+          let delegatedApprovalAction = null;
+          let delegatedApprovalPolicy = null;
+          let delegatedApprovalDecision = null;
+          let delegatedApprovalAuditIndex = null;
+          let s8ApprovalAction = null;
+          let s8ApprovalPolicy = null;
+          let s8ApprovalDecision = null;
+          let s8ApprovalAuditIndex = null;
           const delegatedBudgetEnvelopeInput = body?.delegatedBudgetEnvelope ?? body?.budgetEnvelope ?? null;
           let delegatedBudgetEnvelope = null;
           try {
@@ -49962,7 +49993,7 @@ export function createApi({
               Number.isSafeInteger(approvalThresholdCents) &&
               approvalThresholdCents >= 0
             ) {
-              const delegatedApprovalAction = {
+              delegatedApprovalAction = {
                 actionId: `x402_budget_envelope_authorize:${gateId}:${delegatedBudgetEnvelope.envelopeId}`,
                 actionType: "delegated_budget_authorize",
                 actorId: payerAgentId,
@@ -49978,30 +50009,33 @@ export function createApi({
                   teamId: delegatedBudgetEnvelope.teamId ?? null
                 }
               };
-              const delegatedApprovalDecision =
+              delegatedApprovalDecision =
                 body?.delegatedApprovalDecision ??
                 body?.s8ApprovalDecision ??
                 body?.humanApprovalDecision ??
                 body?.approvalDecision ??
                 null;
+              delegatedApprovalPolicy = {
+                requireApprovalAboveCents: approvalThresholdCents,
+                strictEvidenceRefs: delegatedBudgetEnvelope.requireEvidenceRefs === true,
+                ...(delegatedBudgetEnvelope.approvalTimeoutAt ? { decisionTimeoutAt: delegatedBudgetEnvelope.approvalTimeoutAt } : {})
+              };
               const delegatedApprovalCheck = enforceHighRiskApproval({
                 action: delegatedApprovalAction,
-                approvalPolicy: {
-                  requireApprovalAboveCents: approvalThresholdCents,
-                  strictEvidenceRefs: delegatedBudgetEnvelope.requireEvidenceRefs === true
-                },
+                approvalPolicy: delegatedApprovalPolicy,
                 approvalDecision: delegatedApprovalDecision,
                 nowIso: () => nowAt
               });
-              authorizationApprovalDecisions.push(
-                createX402AuthorizationApprovalAuditEntry({
-                  profile: "delegated_budget_threshold",
-                  action: delegatedApprovalAction,
-                  approvalCheck: delegatedApprovalCheck,
-                  approvalDecision: delegatedApprovalDecision,
-                  checkedAt: nowAt
-                })
-              );
+              delegatedApprovalAuditIndex =
+                authorizationApprovalDecisions.push(
+                  createX402AuthorizationApprovalAuditEntry({
+                    profile: "delegated_budget_threshold",
+                    action: delegatedApprovalAction,
+                    approvalCheck: delegatedApprovalCheck,
+                    approvalDecision: delegatedApprovalDecision,
+                    checkedAt: nowAt
+                  })
+                ) - 1;
               if (!delegatedApprovalCheck.approved) {
                 return sendError(
                   res,
@@ -50032,7 +50066,7 @@ export function createApi({
             if (body?.s8ApprovalPolicy !== undefined && requestApprovalPolicyRaw === null) {
               return sendError(res, 400, "invalid s8ApprovalPolicy", { message: "s8ApprovalPolicy must be a plain object" }, { code: "SCHEMA_INVALID" });
             }
-            const approvalAction = {
+            s8ApprovalAction = {
               actionId: `x402_authorize_payment:${gateId}`,
               actionType: "funds_transfer",
               actorId: payerAgentId,
@@ -50046,26 +50080,28 @@ export function createApi({
                 payeeProviderId
               }
             };
-            const s8ApprovalDecision =
+            s8ApprovalDecision =
               body?.s8ApprovalDecision ??
               body?.humanApprovalDecision ??
               body?.approvalDecision ??
               null;
+            s8ApprovalPolicy = requestApprovalPolicyRaw ?? s8ApprovalPolicyValue;
             const approvalCheck = enforceHighRiskApproval({
-              action: approvalAction,
-              approvalPolicy: requestApprovalPolicyRaw ?? s8ApprovalPolicyValue,
+              action: s8ApprovalAction,
+              approvalPolicy: s8ApprovalPolicy,
               approvalDecision: s8ApprovalDecision,
               nowIso: () => nowAt
             });
-            authorizationApprovalDecisions.push(
-              createX402AuthorizationApprovalAuditEntry({
-                profile: "s8_high_risk",
-                action: approvalAction,
-                approvalCheck,
-                approvalDecision: s8ApprovalDecision,
-                checkedAt: nowAt
-              })
-            );
+            s8ApprovalAuditIndex =
+              authorizationApprovalDecisions.push(
+                createX402AuthorizationApprovalAuditEntry({
+                  profile: "s8_high_risk",
+                  action: s8ApprovalAction,
+                  approvalCheck,
+                  approvalDecision: s8ApprovalDecision,
+                  checkedAt: nowAt
+                })
+              ) - 1;
             if (!approvalCheck.approved) {
               return sendError(
                 res,
@@ -50075,7 +50111,7 @@ export function createApi({
                   approvalCheck,
                   approvalRequest: approvalCheck.requiresExplicitApproval
                     ? createApprovalRequest({
-                        action: approvalAction,
+                        action: s8ApprovalAction,
                         requestedBy: principalId ?? payerAgentId,
                         requestedAt: nowAt
                       })
@@ -50523,6 +50559,98 @@ export function createApi({
             typeof resolvedWalletPolicy?.policyFingerprint === "string" && resolvedWalletPolicy.policyFingerprint.trim() !== ""
               ? resolvedWalletPolicy.policyFingerprint.trim().toLowerCase()
               : null;
+          const approvalContextBinding = normalizeForCanonicalJson(
+            {
+              gateId,
+              runId,
+              settlementId: null,
+              delegationGrantRef: effectiveDelegationGrantRef,
+              authorityGrantRef: effectiveAuthorityGrantRefInput,
+              policyHashSha256: expectedPolicyHash,
+              policyVersion: expectedPolicyVersion
+            },
+            { path: "$.approvalContextBinding" }
+          );
+          if (delegatedApprovalAction && delegatedApprovalPolicy) {
+            const delegatedContextualCheck = enforceHighRiskApproval({
+              action: delegatedApprovalAction,
+              approvalPolicy: {
+                ...delegatedApprovalPolicy,
+                requireContextBinding: true
+              },
+              approvalDecision: delegatedApprovalDecision,
+              contextBinding: approvalContextBinding,
+              nowIso: () => nowAt
+            });
+            if (Number.isSafeInteger(delegatedApprovalAuditIndex) && delegatedApprovalAuditIndex >= 0) {
+              authorizationApprovalDecisions[delegatedApprovalAuditIndex] = createX402AuthorizationApprovalAuditEntry({
+                profile: "delegated_budget_threshold",
+                action: delegatedApprovalAction,
+                approvalCheck: delegatedContextualCheck,
+                approvalDecision: delegatedApprovalDecision,
+                checkedAt: nowAt
+              });
+            }
+            if (!delegatedContextualCheck.approved) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope approval context binding failed",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope?.envelopeId ?? null,
+                  approvalCheck: delegatedContextualCheck,
+                  approvalRequest: delegatedContextualCheck.requiresExplicitApproval
+                    ? createApprovalRequest({
+                        action: delegatedApprovalAction,
+                        requestedBy: principalId ?? payerAgentId,
+                        requestedAt: nowAt
+                      })
+                    : null
+                },
+                { code: delegatedContextualCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH" }
+              );
+            }
+          }
+          if (s8ApprovalAction && s8ApprovalPolicy) {
+            const s8ContextualCheck = enforceHighRiskApproval({
+              action: s8ApprovalAction,
+              approvalPolicy: {
+                ...(s8ApprovalPolicy && typeof s8ApprovalPolicy === "object" && !Array.isArray(s8ApprovalPolicy) ? s8ApprovalPolicy : {}),
+                requireContextBinding: true
+              },
+              approvalDecision: s8ApprovalDecision,
+              contextBinding: approvalContextBinding,
+              nowIso: () => nowAt
+            });
+            if (Number.isSafeInteger(s8ApprovalAuditIndex) && s8ApprovalAuditIndex >= 0) {
+              authorizationApprovalDecisions[s8ApprovalAuditIndex] = createX402AuthorizationApprovalAuditEntry({
+                profile: "s8_high_risk",
+                action: s8ApprovalAction,
+                approvalCheck: s8ContextualCheck,
+                approvalDecision: s8ApprovalDecision,
+                checkedAt: nowAt
+              });
+            }
+            if (!s8ContextualCheck.approved) {
+              return sendError(
+                res,
+                409,
+                "human approval context binding failed for high-risk x402 authorization",
+                {
+                  approvalCheck: s8ContextualCheck,
+                  approvalRequest: s8ContextualCheck.requiresExplicitApproval
+                    ? createApprovalRequest({
+                        action: s8ApprovalAction,
+                        requestedBy: principalId ?? payerAgentId,
+                        requestedAt: nowAt
+                      })
+                    : null
+                },
+                { code: s8ContextualCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH" }
+              );
+            }
+          }
           const effectiveExecutionIntentInput = parsedExecutionIntent ?? existingAuthorizationExecutionIntent ?? null;
           if (x402RequireExecutionIntentValue && !effectiveExecutionIntentInput) {
             return sendError(

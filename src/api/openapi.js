@@ -101,6 +101,67 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const X402HumanApprovalDecisionV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "decisionId", "actionId", "actionSha256", "decidedBy", "decidedAt", "approved"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["NooterraHumanApprovalDecision.v1"] },
+      decisionId: { type: "string" },
+      actionId: { type: "string" },
+      actionSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      decidedBy: { type: "string" },
+      decidedAt: { type: "string", format: "date-time" },
+      approved: { type: "boolean" },
+      expiresAt: { type: "string", format: "date-time", nullable: true },
+      evidenceRefs: { type: "array", items: { type: "string" } },
+      binding: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        properties: {
+          gateId: { type: "string", nullable: true },
+          runId: { type: "string", nullable: true },
+          settlementId: { type: "string", nullable: true },
+          delegationGrantRef: { type: "string", nullable: true },
+          authorityGrantRef: { type: "string", nullable: true },
+          policyHashSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+          policyVersion: { type: "integer", minimum: 1, nullable: true }
+        }
+      }
+    }
+  };
+
+  const X402HumanApprovalPolicyV1 = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      highRiskActionTypes: { type: "array", items: { type: "string" } },
+      requireApprovalAboveCents: { type: "integer", minimum: 0 },
+      strictEvidenceRefs: { type: "boolean" },
+      requireContextBinding: { type: "boolean" },
+      decisionTimeoutAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const X402DelegatedBudgetEnvelopeV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "envelopeId", "currency", "maxTotalCents"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["X402DelegatedBudgetEnvelope.v1"] },
+      envelopeId: { type: "string" },
+      teamId: { type: "string", nullable: true },
+      policyRef: { type: "string", nullable: true },
+      currency: { type: "string" },
+      maxTotalCents: { type: "integer", minimum: 1 },
+      approvalThresholdCents: { type: "integer", minimum: 0, nullable: true },
+      approvalTimeoutAt: { type: "string", format: "date-time", nullable: true },
+      emergencyStop: { type: "boolean" },
+      requireEvidenceRefs: { type: "boolean" }
+    }
+  };
+
   const X402GateAuthorizePaymentRequest = {
     type: "object",
     additionalProperties: true,
@@ -108,6 +169,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     properties: {
       gateId: { type: "string" },
       quoteId: { type: "string", nullable: true },
+      delegationGrantRef: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string", nullable: true },
+      delegatedBudgetEnvelope: { ...X402DelegatedBudgetEnvelopeV1, nullable: true },
+      budgetEnvelope: { ...X402DelegatedBudgetEnvelopeV1, nullable: true },
+      s8ApprovalPolicy: { ...X402HumanApprovalPolicyV1, nullable: true },
+      approvalDecision: { ...X402HumanApprovalDecisionV1, nullable: true },
+      humanApprovalDecision: { ...X402HumanApprovalDecisionV1, nullable: true },
+      s8ApprovalDecision: { ...X402HumanApprovalDecisionV1, nullable: true },
+      delegatedApprovalDecision: { ...X402HumanApprovalDecisionV1, nullable: true },
       requestBindingMode: { type: "string", enum: ["strict"], nullable: true },
       requestBindingSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
       walletAuthorizationDecisionToken: { type: "string", nullable: true },
@@ -171,6 +241,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
 
   const X402AuthorizePaymentConflictKnownErrorCodes = Object.freeze([
     ...X402AuthorizePaymentTaErrorCodes,
+    "HUMAN_APPROVAL_REQUIRED",
+    "HUMAN_APPROVAL_DECISION_INVALID",
+    "HUMAN_APPROVAL_BINDING_MISMATCH",
+    "HUMAN_APPROVAL_DENIED",
+    "HUMAN_APPROVAL_EXPIRED",
+    "HUMAN_APPROVAL_EVIDENCE_REQUIRED",
+    "HUMAN_APPROVAL_TIMEOUT",
+    "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH",
     "X402_EXECUTION_INTENT_INVALID",
     "X402_EXECUTION_INTENT_TIME_INVALID",
     "X402_EXECUTION_INTENT_TENANT_MISMATCH",
@@ -2479,6 +2557,30 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       lastEventId: { type: ["string", "null"] },
       firstPrevChainHash: { type: ["string", "null"] },
       headChainHash: { type: ["string", "null"] },
+      workspace: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        required: ["ownerAgentId", "domainId", "host", "revokedAt", "revocationReasonCode"],
+        properties: {
+          workspaceId: { type: ["string", "null"] },
+          ownerAgentId: { type: "string" },
+          domainId: { type: "string" },
+          host: { type: "string" },
+          revokedAt: { type: ["string", "null"], format: "date-time" },
+          revocationReasonCode: { type: ["string", "null"] }
+        }
+      },
+      migration: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        required: ["migrationId", "sourceHost", "targetHost", "migratedAt"],
+        properties: {
+          migrationId: { type: "string" },
+          sourceHost: { type: "string" },
+          targetHost: { type: "string" },
+          migratedAt: { type: "string", format: "date-time" }
+        }
+      },
       continuity: {
         type: "object",
         additionalProperties: false,

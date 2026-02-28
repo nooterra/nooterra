@@ -16,6 +16,19 @@
 
 - `expiresAt`: ISO-8601 timestamp
 - `evidenceRefs[]`: evidence links (ticket IDs, policy references, runbook IDs)
+- `binding`: runtime context binding object
+  - `gateId`
+  - `runId`
+  - `settlementId`
+  - `delegationGrantRef`
+  - `authorityGrantRef`
+  - `policyHashSha256`
+  - `policyVersion`
+
+## Timeout semantics
+
+- If approval policy defines `decisionTimeoutAt`, missing/late approvals must fail with `HUMAN_APPROVAL_TIMEOUT`.
+- Timeout decisions are deterministic: identical `now`, action payload, and policy yield identical timeout verdicts.
 
 ## Fail-closed requirements
 
@@ -27,10 +40,11 @@ Implementations MUST reject or block execution when:
 4. Decision is denied (`approved: false`).
 5. Decision is expired (`expiresAt` before evaluation time).
 6. Strict-evidence mode is enabled and `evidenceRefs` is empty.
+7. Decision timeout window elapsed (`decisionTimeoutAt`) without a valid in-window decision.
+8. Context binding is required and decision `binding` is missing/mismatched.
 
 ## Determinism requirements
 
 - Action hash uses `sha256(canonical-json(action))`.
 - Decision payload must be canonicalizable without lossy conversion.
 - Re-evaluating the same action and decision pair must yield the same result.
-

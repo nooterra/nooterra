@@ -800,6 +800,31 @@ test("API e2e: x402 authorize-payment fails closed without S8 approval and succe
     }
   };
 
+  const blockedBinding = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_s8_approval_binding_mismatch_1" },
+    body: {
+      gateId,
+      s8ApprovalDecision: {
+        schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+        decisionId: "dec_x402_s8_approval_binding_mismatch_1",
+        actionId: approvalAction.actionId,
+        actionSha256: hashActionForApproval(approvalAction),
+        decidedBy: "human.finance",
+        decidedAt: "2026-02-01T00:10:00.000Z",
+        approved: true,
+        evidenceRefs: ["ticket:NOO-266"],
+        binding: {
+          gateId: "gate_mismatch",
+          runId: `x402_${gateId}`
+        }
+      }
+    }
+  });
+  assert.equal(blockedBinding.statusCode, 409, blockedBinding.body);
+  assert.equal(blockedBinding.json?.code, "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH");
+
   const approved = await request(api, {
     method: "POST",
     path: "/x402/gate/authorize-payment",
@@ -814,7 +839,11 @@ test("API e2e: x402 authorize-payment fails closed without S8 approval and succe
         decidedBy: "human.finance",
         decidedAt: "2026-02-01T00:10:00.000Z",
         approved: true,
-        evidenceRefs: ["ticket:NOO-244"]
+        evidenceRefs: ["ticket:NOO-244"],
+        binding: {
+          gateId,
+          runId: `x402_${gateId}`
+        }
       }
     }
   });
@@ -894,7 +923,11 @@ test("API e2e: delegated budget envelope enforces approval threshold, audit bind
     decidedBy: "human.finance.budget",
     decidedAt: "2026-02-01T00:20:00.000Z",
     approved: true,
-    evidenceRefs: ["ticket:NOO-259", "policy:budget-envelope"]
+    evidenceRefs: ["ticket:NOO-259", "policy:budget-envelope"],
+    binding: {
+      gateId,
+      runId: `x402_${gateId}`
+    }
   };
   const authorized = await request(api, {
     method: "POST",

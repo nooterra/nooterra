@@ -49745,6 +49745,78 @@
                             "null"
                           ]
                         },
+                        "workspace": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": false,
+                          "required": [
+                            "ownerAgentId",
+                            "domainId",
+                            "host",
+                            "revokedAt",
+                            "revocationReasonCode"
+                          ],
+                          "properties": {
+                            "workspaceId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "ownerAgentId": {
+                              "type": "string"
+                            },
+                            "domainId": {
+                              "type": "string"
+                            },
+                            "host": {
+                              "type": "string"
+                            },
+                            "revokedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "revocationReasonCode": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        "migration": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": false,
+                          "required": [
+                            "migrationId",
+                            "sourceHost",
+                            "targetHost",
+                            "migratedAt"
+                          ],
+                          "properties": {
+                            "migrationId": {
+                              "type": "string"
+                            },
+                            "sourceHost": {
+                              "type": "string"
+                            },
+                            "targetHost": {
+                              "type": "string"
+                            },
+                            "migratedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
                         "continuity": {
                           "type": "object",
                           "additionalProperties": false,
@@ -50457,6 +50529,78 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "workspace": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                          "ownerAgentId",
+                          "domainId",
+                          "host",
+                          "revokedAt",
+                          "revocationReasonCode"
+                        ],
+                        "properties": {
+                          "workspaceId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ownerAgentId": {
+                            "type": "string"
+                          },
+                          "domainId": {
+                            "type": "string"
+                          },
+                          "host": {
+                            "type": "string"
+                          },
+                          "revokedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "revocationReasonCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      },
+                      "migration": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                          "migrationId",
+                          "sourceHost",
+                          "targetHost",
+                          "migratedAt"
+                        ],
+                        "properties": {
+                          "migrationId": {
+                            "type": "string"
+                          },
+                          "sourceHost": {
+                            "type": "string"
+                          },
+                          "targetHost": {
+                            "type": "string"
+                          },
+                          "migratedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
                       },
                       "continuity": {
                         "type": "object",
@@ -90782,6 +90926,508 @@
                     "type": "string",
                     "nullable": true
                   },
+                  "delegationGrantRef": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "authorityGrantRef": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "delegatedBudgetEnvelope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "envelopeId",
+                      "currency",
+                      "maxTotalCents"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "X402DelegatedBudgetEnvelope.v1"
+                        ]
+                      },
+                      "envelopeId": {
+                        "type": "string"
+                      },
+                      "teamId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "policyRef": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "maxTotalCents": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "approvalThresholdCents": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "nullable": true
+                      },
+                      "approvalTimeoutAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "emergencyStop": {
+                        "type": "boolean"
+                      },
+                      "requireEvidenceRefs": {
+                        "type": "boolean"
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "budgetEnvelope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "envelopeId",
+                      "currency",
+                      "maxTotalCents"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "X402DelegatedBudgetEnvelope.v1"
+                        ]
+                      },
+                      "envelopeId": {
+                        "type": "string"
+                      },
+                      "teamId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "policyRef": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "maxTotalCents": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "approvalThresholdCents": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "nullable": true
+                      },
+                      "approvalTimeoutAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "emergencyStop": {
+                        "type": "boolean"
+                      },
+                      "requireEvidenceRefs": {
+                        "type": "boolean"
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "s8ApprovalPolicy": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "highRiskActionTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "requireApprovalAboveCents": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "strictEvidenceRefs": {
+                        "type": "boolean"
+                      },
+                      "requireContextBinding": {
+                        "type": "boolean"
+                      },
+                      "decisionTimeoutAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "approvalDecision": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "decisionId",
+                      "actionId",
+                      "actionSha256",
+                      "decidedBy",
+                      "decidedAt",
+                      "approved"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "NooterraHumanApprovalDecision.v1"
+                        ]
+                      },
+                      "decisionId": {
+                        "type": "string"
+                      },
+                      "actionId": {
+                        "type": "string"
+                      },
+                      "actionSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "decidedBy": {
+                        "type": "string"
+                      },
+                      "decidedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "approved": {
+                        "type": "boolean"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "evidenceRefs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "binding": {
+                        "type": "object",
+                        "nullable": true,
+                        "additionalProperties": false,
+                        "properties": {
+                          "gateId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "runId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "settlementId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "delegationGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorityGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "policyHashSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "nullable": true
+                          },
+                          "policyVersion": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "humanApprovalDecision": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "decisionId",
+                      "actionId",
+                      "actionSha256",
+                      "decidedBy",
+                      "decidedAt",
+                      "approved"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "NooterraHumanApprovalDecision.v1"
+                        ]
+                      },
+                      "decisionId": {
+                        "type": "string"
+                      },
+                      "actionId": {
+                        "type": "string"
+                      },
+                      "actionSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "decidedBy": {
+                        "type": "string"
+                      },
+                      "decidedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "approved": {
+                        "type": "boolean"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "evidenceRefs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "binding": {
+                        "type": "object",
+                        "nullable": true,
+                        "additionalProperties": false,
+                        "properties": {
+                          "gateId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "runId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "settlementId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "delegationGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorityGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "policyHashSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "nullable": true
+                          },
+                          "policyVersion": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "s8ApprovalDecision": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "decisionId",
+                      "actionId",
+                      "actionSha256",
+                      "decidedBy",
+                      "decidedAt",
+                      "approved"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "NooterraHumanApprovalDecision.v1"
+                        ]
+                      },
+                      "decisionId": {
+                        "type": "string"
+                      },
+                      "actionId": {
+                        "type": "string"
+                      },
+                      "actionSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "decidedBy": {
+                        "type": "string"
+                      },
+                      "decidedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "approved": {
+                        "type": "boolean"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "evidenceRefs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "binding": {
+                        "type": "object",
+                        "nullable": true,
+                        "additionalProperties": false,
+                        "properties": {
+                          "gateId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "runId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "settlementId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "delegationGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorityGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "policyHashSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "nullable": true
+                          },
+                          "policyVersion": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nullable": true
+                  },
+                  "delegatedApprovalDecision": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "decisionId",
+                      "actionId",
+                      "actionSha256",
+                      "decidedBy",
+                      "decidedAt",
+                      "approved"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "NooterraHumanApprovalDecision.v1"
+                        ]
+                      },
+                      "decisionId": {
+                        "type": "string"
+                      },
+                      "actionId": {
+                        "type": "string"
+                      },
+                      "actionSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "decidedBy": {
+                        "type": "string"
+                      },
+                      "decidedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "approved": {
+                        "type": "boolean"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "evidenceRefs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "binding": {
+                        "type": "object",
+                        "nullable": true,
+                        "additionalProperties": false,
+                        "properties": {
+                          "gateId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "runId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "settlementId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "delegationGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorityGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "policyHashSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "nullable": true
+                          },
+                          "policyVersion": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nullable": true
+                  },
                   "requestBindingMode": {
                     "type": "string",
                     "enum": [
@@ -90900,6 +91546,14 @@
               "X402_EXECUTION_INTENT_REQUIRED",
               "X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH",
               "X402_EXECUTION_INTENT_CONFLICT",
+              "HUMAN_APPROVAL_REQUIRED",
+              "HUMAN_APPROVAL_DECISION_INVALID",
+              "HUMAN_APPROVAL_BINDING_MISMATCH",
+              "HUMAN_APPROVAL_DENIED",
+              "HUMAN_APPROVAL_EXPIRED",
+              "HUMAN_APPROVAL_EVIDENCE_REQUIRED",
+              "HUMAN_APPROVAL_TIMEOUT",
+              "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH",
               "X402_EXECUTION_INTENT_INVALID",
               "X402_EXECUTION_INTENT_TIME_INVALID",
               "X402_EXECUTION_INTENT_TENANT_MISMATCH",
@@ -90946,6 +91600,14 @@
                                 "X402_EXECUTION_INTENT_REQUIRED",
                                 "X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH",
                                 "X402_EXECUTION_INTENT_CONFLICT",
+                                "HUMAN_APPROVAL_REQUIRED",
+                                "HUMAN_APPROVAL_DECISION_INVALID",
+                                "HUMAN_APPROVAL_BINDING_MISMATCH",
+                                "HUMAN_APPROVAL_DENIED",
+                                "HUMAN_APPROVAL_EXPIRED",
+                                "HUMAN_APPROVAL_EVIDENCE_REQUIRED",
+                                "HUMAN_APPROVAL_TIMEOUT",
+                                "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH",
                                 "X402_EXECUTION_INTENT_INVALID",
                                 "X402_EXECUTION_INTENT_TIME_INVALID",
                                 "X402_EXECUTION_INTENT_TENANT_MISMATCH",
