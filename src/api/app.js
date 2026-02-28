@@ -8638,7 +8638,8 @@ export function createApi({
   function resolveSubAgentDispatchRoute({
     workOrderId,
     requiredCapability,
-    executionCoordinatorDid = null
+    executionCoordinatorDid = null,
+    asOf = null
   } = {}) {
     const localCoordinatorDid = parseExecutionCoordinatorDid(federationProxyPolicy?.localCoordinatorDid ?? null, {
       allowNull: true,
@@ -8687,7 +8688,8 @@ export function createApi({
         targetDid: targetCoordinatorDid,
         capabilityId: String(requiredCapability ?? "")
       },
-      policy: federationProxyPolicy
+      policy: federationProxyPolicy,
+      asOf
     });
     if (!route?.ok) {
       return {
@@ -8727,7 +8729,11 @@ export function createApi({
         executionCoordinatorDid: executionCoordinatorDid ?? null,
         targetCoordinatorDid: dispatchRoute?.targetCoordinatorDid ?? null,
         namespaceDid: dispatchRoute?.route?.namespaceDid ?? null,
-        upstreamBaseUrl: dispatchRoute?.route?.upstreamBaseUrl ?? null
+        upstreamBaseUrl: dispatchRoute?.route?.upstreamBaseUrl ?? null,
+        routingReasonCode: dispatchRoute?.route?.routingReasonCode ?? null,
+        resolvedCoordinatorDid: dispatchRoute?.route?.resolvedCoordinatorDid ?? null,
+        namespaceDecisionId: dispatchRoute?.route?.namespaceLineage?.decisionId ?? null,
+        namespaceLineage: dispatchRoute?.route?.namespaceLineage ?? null
       },
       { path: "$.dispatch" }
     );
@@ -30073,6 +30079,22 @@ export function createApi({
         // ignore invalid header copy
       }
     }
+    if (routeCheck?.routingReasonCode) {
+      replayHeaders["x-federation-routing-reason-code"] = String(routeCheck.routingReasonCode);
+      try {
+        res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+      } catch {
+        // ignore
+      }
+    }
+    if (routeCheck?.namespaceLineage?.decisionId) {
+      replayHeaders["x-federation-namespace-decision-id"] = String(routeCheck.namespaceLineage.decisionId);
+      try {
+        res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+      } catch {
+        // ignore
+      }
+    }
     try {
       const setCookies = typeof upstreamRes.headers.getSetCookie === "function" ? upstreamRes.headers.getSetCookie() : [];
       if (Array.isArray(setCookies) && setCookies.length > 0) {
@@ -30271,7 +30293,8 @@ export function createApi({
     const routeCheck = evaluateFederationTrustAndRoute({
       endpoint,
       envelope: envelopeCheck.envelope,
-      policy: federationProxyPolicy
+      policy: federationProxyPolicy,
+      asOf: nowIso()
     });
     if (!routeCheck.ok) {
       logFederationReceived({
@@ -30291,6 +30314,12 @@ export function createApi({
     }
 
     upstreamHeaders.set("x-federation-namespace-did", routeCheck.namespaceDid);
+    if (routeCheck?.routingReasonCode) {
+      upstreamHeaders.set("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+    }
+    if (routeCheck?.namespaceLineage?.decisionId) {
+      upstreamHeaders.set("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+    }
 
     const requestHash = sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(parsedBody, { path: "$" })));
     const replayKey = [
@@ -30385,6 +30414,10 @@ export function createApi({
       try {
         res.setHeader("content-type", "application/json; charset=utf-8");
         res.setHeader("x-federation-dispatch-channel", "local");
+        if (routeCheck?.routingReasonCode) res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+        if (routeCheck?.namespaceLineage?.decisionId) {
+          res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+        }
       } catch {
         // ignore
       }
@@ -30395,7 +30428,13 @@ export function createApi({
           statusCode: 202,
           headers: {
             "content-type": "application/json; charset=utf-8",
-            "x-federation-dispatch-channel": "local"
+            "x-federation-dispatch-channel": "local",
+            ...(routeCheck?.routingReasonCode
+              ? { "x-federation-routing-reason-code": String(routeCheck.routingReasonCode) }
+              : {}),
+            ...(routeCheck?.namespaceLineage?.decisionId
+              ? { "x-federation-namespace-decision-id": String(routeCheck.namespaceLineage.decisionId) }
+              : {})
           },
           bodyBytes: bytes
         }
@@ -30433,6 +30472,10 @@ export function createApi({
       try {
         res.setHeader("content-type", "application/json; charset=utf-8");
         res.setHeader("x-federation-dispatch-channel", "local");
+        if (routeCheck?.routingReasonCode) res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+        if (routeCheck?.namespaceLineage?.decisionId) {
+          res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+        }
       } catch {
         // ignore
       }
@@ -30443,7 +30486,13 @@ export function createApi({
           statusCode: 200,
           headers: {
             "content-type": "application/json; charset=utf-8",
-            "x-federation-dispatch-channel": "local"
+            "x-federation-dispatch-channel": "local",
+            ...(routeCheck?.routingReasonCode
+              ? { "x-federation-routing-reason-code": String(routeCheck.routingReasonCode) }
+              : {}),
+            ...(routeCheck?.namespaceLineage?.decisionId
+              ? { "x-federation-namespace-decision-id": String(routeCheck.namespaceLineage.decisionId) }
+              : {})
           },
           bodyBytes: bytes
         }
@@ -55941,7 +55990,10 @@ export function createApi({
           channel: dispatchRoute.channel,
           localCoordinatorDid: dispatchRoute.localCoordinatorDid ?? null,
           executionCoordinatorDid: subAgentExecutionCoordinatorDid,
-          targetCoordinatorDid: dispatchRoute.targetCoordinatorDid ?? null
+          targetCoordinatorDid: dispatchRoute.targetCoordinatorDid ?? null,
+          resolvedCoordinatorDid: dispatchRoute?.route?.resolvedCoordinatorDid ?? null,
+          routingReasonCode: dispatchRoute?.route?.routingReasonCode ?? null,
+          namespaceDecisionId: dispatchRoute?.route?.namespaceLineage?.decisionId ?? null
         });
         metricInc("sub_agent_dispatch_routing_total", { channel: dispatchRoute.channel }, 1);
         const createLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({

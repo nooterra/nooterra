@@ -11,7 +11,9 @@ const FED_KEYS = [
   "COORDINATOR_DID",
   "PROXY_COORDINATOR_DID",
   "PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS",
-  "PROXY_FEDERATION_NAMESPACE_ROUTES"
+  "PROXY_FEDERATION_NAMESPACE_ROUTES",
+  "PROXY_FEDERATION_NAMESPACE_REGISTRY",
+  "PROXY_FEDERATION_NAMESPACE_AS_OF"
 ];
 
 function withEnvMap(overrides = {}) {
@@ -159,6 +161,10 @@ test("API e2e: work-order routing uses federation channel when executionCoordina
     assert.equal(created.headers?.get?.("x-sub-agent-dispatch-channel"), "federation");
     assert.equal(created.json?.workOrder?.metadata?.dispatch?.channel, "federation");
     assert.equal(created.json?.workOrder?.metadata?.dispatch?.targetCoordinatorDid, "did:nooterra:coord_bravo");
+    assert.equal(created.json?.workOrder?.metadata?.dispatch?.routingReasonCode, "FEDERATION_NAMESPACE_ROUTE_RESOLVED");
+    assert.equal(created.json?.workOrder?.metadata?.dispatch?.resolvedCoordinatorDid, "did:nooterra:coord_bravo");
+    assert.equal(typeof created.json?.workOrder?.metadata?.dispatch?.namespaceDecisionId, "string");
+    assert.equal(created.json?.workOrder?.metadata?.dispatch?.namespaceDecisionId.length > 0, true);
 
     const stats = await request(api, {
       method: "GET",
@@ -234,6 +240,100 @@ test("API e2e: work-order routing fails closed when namespace route is missing",
     });
     assert.equal(denied.statusCode, 503, denied.body);
     assert.equal(denied.json?.code, "FEDERATION_NAMESPACE_ROUTE_MISSING");
+  } finally {
+    restore();
+  }
+});
+
+test("API e2e: work-order routing fails closed when namespace registry records are stale", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo",
+    PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify({}),
+    PROXY_FEDERATION_NAMESPACE_AS_OF: "2026-02-27T01:00:00.000Z",
+    PROXY_FEDERATION_NAMESPACE_REGISTRY: JSON.stringify([
+      {
+        recordId: "stale_route_1",
+        namespaceDid: "did:nooterra:coord_bravo",
+        ownerDid: "did:nooterra:coord_bravo",
+        routeBaseUrl: "https://coord-bravo.nooterra.test",
+        observedAt: "2026-02-25T00:00:00.000Z",
+        ttlSeconds: 60
+      }
+    ])
+  });
+
+  try {
+    const api = createApi();
+    const principalAgentId = "agt_route_stale_registry_principal_1";
+    const subAgentId = "agt_route_stale_registry_sub_1";
+
+    await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+    await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+    await upsertAgentCard(api, {
+      agentId: subAgentId,
+      executionCoordinatorDid: "did:nooterra:coord_bravo"
+    });
+
+    const denied = await createWorkOrder(api, {
+      workOrderId: "workord_route_stale_registry_1",
+      principalAgentId,
+      subAgentId
+    });
+    assert.equal(denied.statusCode, 409, denied.body);
+    assert.equal(denied.json?.code, "FEDERATION_NAMESPACE_RECORD_STALE");
+  } finally {
+    restore();
+  }
+});
+
+test("API e2e: work-order routing fails closed when namespace registry is ambiguous", async () => {
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo,did:nooterra:coord_charlie",
+    PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify({}),
+    PROXY_FEDERATION_NAMESPACE_AS_OF: "2026-02-27T01:00:00.000Z",
+    PROXY_FEDERATION_NAMESPACE_REGISTRY: JSON.stringify([
+      {
+        recordId: "amb_route_1",
+        namespaceDid: "did:nooterra:coord_bravo",
+        ownerDid: "did:nooterra:coord_bravo",
+        routeBaseUrl: "https://coord-bravo-a.nooterra.test",
+        observedAt: "2026-02-27T00:00:00.000Z",
+        ttlSeconds: 86400,
+        priority: 100
+      },
+      {
+        recordId: "amb_route_2",
+        namespaceDid: "did:nooterra:coord_bravo",
+        ownerDid: "did:nooterra:coord_charlie",
+        routeBaseUrl: "https://coord-charlie.nooterra.test",
+        observedAt: "2026-02-27T00:00:00.000Z",
+        ttlSeconds: 86400,
+        priority: 100
+      }
+    ])
+  });
+
+  try {
+    const api = createApi();
+    const principalAgentId = "agt_route_amb_registry_principal_1";
+    const subAgentId = "agt_route_amb_registry_sub_1";
+
+    await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+    await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+    await upsertAgentCard(api, {
+      agentId: subAgentId,
+      executionCoordinatorDid: "did:nooterra:coord_bravo"
+    });
+
+    const denied = await createWorkOrder(api, {
+      workOrderId: "workord_route_amb_registry_1",
+      principalAgentId,
+      subAgentId
+    });
+    assert.equal(denied.statusCode, 409, denied.body);
+    assert.equal(denied.json?.code, "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS");
   } finally {
     restore();
   }

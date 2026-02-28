@@ -87077,7 +87077,10 @@
             "description": "Conflict",
             "x-nooterra-known-error-codes": [
               "FEDERATION_ENVELOPE_CONFLICT",
-              "FEDERATION_ENVELOPE_IN_FLIGHT"
+              "FEDERATION_ENVELOPE_IN_FLIGHT",
+              "FEDERATION_NAMESPACE_ROUTE_CONFLICT",
+              "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS",
+              "FEDERATION_NAMESPACE_RECORD_STALE"
             ],
             "content": {
               "application/json": {
@@ -87106,7 +87109,10 @@
                               "type": "string",
                               "enum": [
                                 "FEDERATION_ENVELOPE_CONFLICT",
-                                "FEDERATION_ENVELOPE_IN_FLIGHT"
+                                "FEDERATION_ENVELOPE_IN_FLIGHT",
+                                "FEDERATION_NAMESPACE_ROUTE_CONFLICT",
+                                "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS",
+                                "FEDERATION_NAMESPACE_RECORD_STALE"
                               ]
                             },
                             {
@@ -87579,7 +87585,10 @@
             "description": "Conflict",
             "x-nooterra-known-error-codes": [
               "FEDERATION_ENVELOPE_CONFLICT",
-              "FEDERATION_ENVELOPE_IN_FLIGHT"
+              "FEDERATION_ENVELOPE_IN_FLIGHT",
+              "FEDERATION_NAMESPACE_ROUTE_CONFLICT",
+              "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS",
+              "FEDERATION_NAMESPACE_RECORD_STALE"
             ],
             "content": {
               "application/json": {
@@ -87608,7 +87617,10 @@
                               "type": "string",
                               "enum": [
                                 "FEDERATION_ENVELOPE_CONFLICT",
-                                "FEDERATION_ENVELOPE_IN_FLIGHT"
+                                "FEDERATION_ENVELOPE_IN_FLIGHT",
+                                "FEDERATION_NAMESPACE_ROUTE_CONFLICT",
+                                "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS",
+                                "FEDERATION_NAMESPACE_RECORD_STALE"
                               ]
                             },
                             {

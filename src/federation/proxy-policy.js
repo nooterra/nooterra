@@ -1,4 +1,5 @@
 import { FEDERATION_ERROR_CODE } from "./error-codes.js";
+import { buildFederationNamespacePolicy, resolveFederationNamespaceRoute } from "./namespace-resolver.js";
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -71,6 +72,11 @@ export function buildFederationProxyPolicy({ env = process.env, fallbackBaseUrl 
   const localCoordinatorDid = normalizeDid(env?.COORDINATOR_DID) ?? normalizeDid(env?.PROXY_COORDINATOR_DID);
   const trustedCoordinatorDids = parseDelimitedDidList(env?.PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS);
   const namespaceRoutes = parseNamespaceRoutes(env?.PROXY_FEDERATION_NAMESPACE_ROUTES);
+  const namespacePolicy = buildFederationNamespacePolicy({
+    namespaceRoutes,
+    registryRaw: env?.PROXY_FEDERATION_NAMESPACE_REGISTRY,
+    asOf: env?.PROXY_FEDERATION_NAMESPACE_AS_OF
+  });
   const normalizedFallbackBaseUrl = normalizeAbsoluteUrl(fallbackBaseUrl, { fieldName: "FEDERATION_PROXY_BASE_URL" });
 
   return {
@@ -78,6 +84,7 @@ export function buildFederationProxyPolicy({ env = process.env, fallbackBaseUrl 
     trustedCoordinatorDids,
     trustedCoordinatorDidSet: new Set(trustedCoordinatorDids),
     namespaceRoutes,
+    namespacePolicy,
     fallbackBaseUrl: normalizedFallbackBaseUrl
   };
 }
@@ -149,7 +156,7 @@ export function validateFederationEnvelope({ endpoint, body }) {
   };
 }
 
-export function evaluateFederationTrustAndRoute({ endpoint, envelope, policy }) {
+export function evaluateFederationTrustAndRoute({ endpoint, envelope, policy, asOf = null }) {
   const localDid = policy?.localCoordinatorDid ?? null;
   if (!localDid) {
     return envelopeError(503, FEDERATION_ERROR_CODE.IDENTITY_NOT_CONFIGURED, "local federation coordinator identity is not configured");
@@ -187,29 +194,62 @@ export function evaluateFederationTrustAndRoute({ endpoint, envelope, policy }) 
       peerDid,
       direction,
       namespaceDid: targetDid,
+      routingReasonCode: "FEDERATION_NAMESPACE_ROUTE_INCOMING_DIRECT",
+      namespaceLineage: null,
+      resolvedCoordinatorDid: peerDid,
       upstreamBaseUrl: null
     };
   }
 
   const hasNamespaceRoutes = policy?.namespaceRoutes && policy.namespaceRoutes.size > 0;
-  if (!hasNamespaceRoutes && !policy?.fallbackBaseUrl) {
+  const hasNamespaceResolver =
+    Array.isArray(policy?.namespacePolicy?.records) &&
+    policy.namespacePolicy.records.length > 0 &&
+    (policy?.namespacePolicy?.hasExplicitRegistry === true || hasNamespaceRoutes);
+  if (!hasNamespaceResolver && !policy?.fallbackBaseUrl) {
     return envelopeError(503, FEDERATION_ERROR_CODE.NOT_CONFIGURED, "federation proxy is not configured on this API host", {
       env: "FEDERATION_PROXY_BASE_URL"
     });
   }
 
   const namespaceDid = targetDid;
-  const route = policy.namespaceRoutes?.get(namespaceDid) ?? null;
-  if (hasNamespaceRoutes && !route) {
-    return envelopeError(503, FEDERATION_ERROR_CODE.NAMESPACE_ROUTE_MISSING, "no namespace route configured for federation target DID", {
-      namespaceDid
+  let routeReasonCode = "FEDERATION_NAMESPACE_ROUTE_FALLBACK";
+  let namespaceLineage = null;
+  let resolvedCoordinatorDid = targetDid;
+  let upstreamBaseUrl = null;
+  if (hasNamespaceResolver) {
+    const resolvedRoute = resolveFederationNamespaceRoute({
+      namespaceDid,
+      policy: policy?.namespacePolicy,
+      asOf
     });
+    if (!resolvedRoute.ok) {
+      return envelopeError(
+        resolvedRoute.statusCode ?? 503,
+        resolvedRoute.code ?? FEDERATION_ERROR_CODE.NAMESPACE_ROUTE_MISSING,
+        resolvedRoute.message ?? "namespace route resolution failed",
+        {
+          ...(resolvedRoute.details ?? {}),
+          namespaceLineage: resolvedRoute.lineage ?? null
+        }
+      );
+    }
+    routeReasonCode = "FEDERATION_NAMESPACE_ROUTE_RESOLVED";
+    namespaceLineage = resolvedRoute.lineage ?? null;
+    resolvedCoordinatorDid = resolvedRoute.resolvedCoordinatorDid ?? targetDid;
+    upstreamBaseUrl = resolvedRoute.upstreamBaseUrl ?? null;
+  } else {
+    upstreamBaseUrl = policy.fallbackBaseUrl ?? null;
   }
-
-  const upstreamBaseUrl = route ?? policy.fallbackBaseUrl ?? null;
   if (!upstreamBaseUrl) {
     return envelopeError(503, FEDERATION_ERROR_CODE.NOT_CONFIGURED, "federation proxy is not configured on this API host", {
       env: "FEDERATION_PROXY_BASE_URL"
+    });
+  }
+  if (!isTrustedFederationCoordinatorDid({ policy, did: resolvedCoordinatorDid })) {
+    return envelopeError(403, FEDERATION_ERROR_CODE.UNTRUSTED_COORDINATOR, "federation namespace resolved to untrusted coordinator", {
+      namespaceDid,
+      resolvedCoordinatorDid
     });
   }
 
@@ -221,6 +261,9 @@ export function evaluateFederationTrustAndRoute({ endpoint, envelope, policy }) 
     peerDid,
     direction,
     namespaceDid,
+    routingReasonCode: routeReasonCode,
+    namespaceLineage,
+    resolvedCoordinatorDid,
     upstreamBaseUrl
   };
 }
