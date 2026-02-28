@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
+import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
@@ -622,4 +623,275 @@ test("API e2e: traceId mismatches fail closed across negotiation and work-order 
   });
   assert.equal(blockedWorkOrder.statusCode, 409, blockedWorkOrder.body);
   assert.equal(blockedWorkOrder.json?.code, "WORK_ORDER_TRACE_ID_MISMATCH");
+});
+
+test("API e2e: task acceptance fails closed when offer quote binding mismatches requested quote", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const buyerAgentId = "agt_task_quote_offer_mismatch_buyer_1";
+  const sellerAgentId = "agt_task_quote_offer_mismatch_seller_1";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: ["analysis.generic"] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: ["analysis.generic"] });
+
+  const quoteA = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_offer_mismatch_a_1" },
+    body: {
+      quoteId: "tquote_offer_mismatch_a_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability: "analysis.generic",
+      pricing: { amountCents: 325, currency: "USD" }
+    }
+  });
+  assert.equal(quoteA.statusCode, 201, quoteA.body);
+
+  const quoteB = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_offer_mismatch_b_1" },
+    body: {
+      quoteId: "tquote_offer_mismatch_b_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability: "analysis.generic",
+      pricing: { amountCents: 325, currency: "USD" }
+    }
+  });
+  assert.equal(quoteB.statusCode, 201, quoteB.body);
+
+  const offer = await request(api, {
+    method: "POST",
+    path: "/task-offers",
+    headers: { "x-idempotency-key": "task_offer_issue_offer_mismatch_1" },
+    body: {
+      offerId: "toffer_offer_mismatch_1",
+      buyerAgentId,
+      sellerAgentId,
+      quoteRef: {
+        quoteId: "tquote_offer_mismatch_a_1",
+        quoteHash: quoteA.json?.taskQuote?.quoteHash
+      },
+      pricing: { amountCents: 325, currency: "USD" }
+    }
+  });
+  assert.equal(offer.statusCode, 201, offer.body);
+
+  const blockedAcceptance = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_offer_mismatch_block_1" },
+    body: {
+      acceptanceId: "taccept_offer_mismatch_1",
+      quoteId: "tquote_offer_mismatch_b_1",
+      offerId: "toffer_offer_mismatch_1",
+      acceptedByAgentId: buyerAgentId
+    }
+  });
+  assert.equal(blockedAcceptance.statusCode, 409, blockedAcceptance.body);
+  assert.equal(blockedAcceptance.json?.code, "TASK_QUOTE_OFFER_MISMATCH");
+  assert.equal(blockedAcceptance.json?.details?.offerQuoteId, "tquote_offer_mismatch_a_1");
+  assert.equal(blockedAcceptance.json?.details?.quoteId, "tquote_offer_mismatch_b_1");
+});
+
+test("API e2e: task acceptance create is idempotent and conflict-safe", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const buyerAgentId = "agt_task_acceptance_idem_buyer_1";
+  const sellerAgentId = "agt_task_acceptance_idem_seller_1";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: ["analysis.generic"] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: ["analysis.generic"] });
+
+  const quote = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_acceptance_idem_1" },
+    body: {
+      quoteId: "tquote_acceptance_idem_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability: "analysis.generic",
+      pricing: { amountCents: 410, currency: "USD" }
+    }
+  });
+  assert.equal(quote.statusCode, 201, quote.body);
+
+  const offer = await request(api, {
+    method: "POST",
+    path: "/task-offers",
+    headers: { "x-idempotency-key": "task_offer_issue_acceptance_idem_1" },
+    body: {
+      offerId: "toffer_acceptance_idem_1",
+      buyerAgentId,
+      sellerAgentId,
+      quoteRef: {
+        quoteId: "tquote_acceptance_idem_1",
+        quoteHash: quote.json?.taskQuote?.quoteHash
+      },
+      pricing: { amountCents: 410, currency: "USD" }
+    }
+  });
+  assert.equal(offer.statusCode, 201, offer.body);
+
+  const createBody = {
+    acceptanceId: "taccept_acceptance_idem_1",
+    quoteId: "tquote_acceptance_idem_1",
+    offerId: "toffer_acceptance_idem_1",
+    acceptedByAgentId: buyerAgentId
+  };
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_idem_replay_1" },
+    body: createBody
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const replay = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_idem_replay_1" },
+    body: createBody
+  });
+  assert.equal(replay.statusCode, 201, replay.body);
+  assert.equal(replay.json?.taskAcceptance?.acceptanceId, "taccept_acceptance_idem_1");
+  assert.equal(replay.json?.taskAcceptance?.acceptanceHash, created.json?.taskAcceptance?.acceptanceHash);
+
+  const conflicted = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_idem_replay_1" },
+    body: {
+      ...createBody,
+      acceptanceId: "taccept_acceptance_idem_conflict_1"
+    }
+  });
+  assert.equal(conflicted.statusCode, 409, conflicted.body);
+  assert.match(
+    String(conflicted.json?.message ?? conflicted.json?.error ?? conflicted.body ?? ""),
+    /idempotency key conflict/i
+  );
+});
+
+test("API e2e: work-order settlement fails closed when bound acceptance record is missing", async () => {
+  const store = createStore();
+  const api = createApi({ store, opsToken: "tok_ops" });
+  const buyerAgentId = "agt_task_acceptance_missing_buyer_1";
+  const sellerAgentId = "agt_task_acceptance_missing_seller_1";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: ["analysis.generic"] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: ["analysis.generic"] });
+
+  const quote = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_acceptance_missing_1" },
+    body: {
+      quoteId: "tquote_acceptance_missing_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability: "analysis.generic",
+      pricing: { amountCents: 290, currency: "USD" }
+    }
+  });
+  assert.equal(quote.statusCode, 201, quote.body);
+
+  const offer = await request(api, {
+    method: "POST",
+    path: "/task-offers",
+    headers: { "x-idempotency-key": "task_offer_issue_acceptance_missing_1" },
+    body: {
+      offerId: "toffer_acceptance_missing_1",
+      buyerAgentId,
+      sellerAgentId,
+      quoteRef: {
+        quoteId: "tquote_acceptance_missing_1",
+        quoteHash: quote.json?.taskQuote?.quoteHash
+      },
+      pricing: { amountCents: 290, currency: "USD" }
+    }
+  });
+  assert.equal(offer.statusCode, 201, offer.body);
+
+  const acceptance = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_acceptance_missing_1" },
+    body: {
+      acceptanceId: "taccept_acceptance_missing_1",
+      quoteId: "tquote_acceptance_missing_1",
+      offerId: "toffer_acceptance_missing_1",
+      acceptedByAgentId: buyerAgentId
+    }
+  });
+  assert.equal(acceptance.statusCode, 201, acceptance.body);
+
+  const workOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_acceptance_missing_1" },
+    body: {
+      workOrderId: "workord_acceptance_missing_1",
+      principalAgentId: buyerAgentId,
+      subAgentId: sellerAgentId,
+      requiredCapability: "analysis.generic",
+      specification: { taskType: "analysis" },
+      pricing: { amountCents: 290, currency: "USD", quoteId: "tquote_acceptance_missing_1" },
+      acceptanceRef: {
+        acceptanceId: "taccept_acceptance_missing_1",
+        acceptanceHash: acceptance.json?.taskAcceptance?.acceptanceHash
+      }
+    }
+  });
+  assert.equal(workOrder.statusCode, 201, workOrder.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_acceptance_missing_1/accept",
+    headers: { "x-idempotency-key": "work_order_accept_acceptance_missing_1" },
+    body: {
+      acceptedByAgentId: sellerAgentId
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_acceptance_missing_1/complete",
+    headers: { "x-idempotency-key": "work_order_complete_acceptance_missing_1" },
+    body: {
+      receiptId: "worec_acceptance_missing_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://analysis/acceptance-missing/1" },
+      evidenceRefs: ["artifact://analysis/acceptance-missing/1"],
+      amountCents: 290,
+      currency: "USD",
+      deliveredAt: "2026-02-28T01:20:00.000Z",
+      completedAt: "2026-02-28T01:21:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+
+  for (const [key, row] of store.taskAcceptances.entries()) {
+    if (String(row?.acceptanceId ?? "") === "taccept_acceptance_missing_1") {
+      store.taskAcceptances.delete(key);
+    }
+  }
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_acceptance_missing_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_acceptance_missing_1" },
+    body: {
+      completionReceiptId: "worec_acceptance_missing_1",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      x402GateId: "x402gate_acceptance_missing_1",
+      x402RunId: "run_acceptance_missing_1"
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.match(
+    String(blocked.json?.details?.message ?? blocked.json?.message ?? blocked.body ?? ""),
+    /bound task acceptance not found/i
+  );
 });
