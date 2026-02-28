@@ -554,6 +554,20 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const AgentCardPublishSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "signerKeyId", "signedAt", "payloadHash", "signature"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AgentCardPublish.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      signerKeyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { type: "string" }
+    }
+  };
+
   const ToolDescriptorV1 = {
     type: "object",
     additionalProperties: false,
@@ -610,6 +624,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       attestations: { type: "array", items: AgentCardAttestationV1 },
       tools: { type: "array", items: ToolDescriptorV1 },
       policyCompatibility: { ...AgentCardPolicyCompatibilityV1, nullable: true },
+      publish: { ...AgentCardPublishSignatureV1, nullable: true },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", nullable: true, additionalProperties: true },
       identityRef: {
@@ -642,6 +657,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       attestations: { type: "array", items: AgentCardAttestationV1 },
       tools: { type: "array", items: ToolDescriptorV1 },
       policyCompatibility: { ...AgentCardPolicyCompatibilityV1, nullable: true },
+      publish: { ...AgentCardPublishSignatureV1, nullable: true },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", additionalProperties: true }
     }

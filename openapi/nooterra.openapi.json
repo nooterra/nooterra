@@ -40552,6 +40552,47 @@
                             },
                             "nullable": true
                           },
+                          "publish": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "algorithm",
+                              "signerKeyId",
+                              "signedAt",
+                              "payloadHash",
+                              "signature"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "AgentCardPublish.v1"
+                                ]
+                              },
+                              "algorithm": {
+                                "type": "string",
+                                "enum": [
+                                  "ed25519"
+                                ]
+                              },
+                              "signerKeyId": {
+                                "type": "string"
+                              },
+                              "signedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "payloadHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "signature": {
+                                "type": "string"
+                              }
+                            },
+                            "nullable": true
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
@@ -40902,6 +40943,47 @@
                     },
                     "nullable": true
                   },
+                  "publish": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "algorithm",
+                      "signerKeyId",
+                      "signedAt",
+                      "payloadHash",
+                      "signature"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "AgentCardPublish.v1"
+                        ]
+                      },
+                      "algorithm": {
+                        "type": "string",
+                        "enum": [
+                          "ed25519"
+                        ]
+                      },
+                      "signerKeyId": {
+                        "type": "string"
+                      },
+                      "signedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "payloadHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "signature": {
+                        "type": "string"
+                      }
+                    },
+                    "nullable": true
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -41174,6 +41256,47 @@
                               "items": {
                                 "type": "string"
                               }
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "publish": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "algorithm",
+                            "signerKeyId",
+                            "signedAt",
+                            "payloadHash",
+                            "signature"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPublish.v1"
+                              ]
+                            },
+                            "algorithm": {
+                              "type": "string",
+                              "enum": [
+                                "ed25519"
+                              ]
+                            },
+                            "signerKeyId": {
+                              "type": "string"
+                            },
+                            "signedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "payloadHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signature": {
+                              "type": "string"
                             }
                           },
                           "nullable": true
@@ -41479,6 +41602,47 @@
                               "items": {
                                 "type": "string"
                               }
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "publish": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "algorithm",
+                            "signerKeyId",
+                            "signedAt",
+                            "payloadHash",
+                            "signature"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPublish.v1"
+                              ]
+                            },
+                            "algorithm": {
+                              "type": "string",
+                              "enum": [
+                                "ed25519"
+                              ]
+                            },
+                            "signerKeyId": {
+                              "type": "string"
+                            },
+                            "signedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "payloadHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signature": {
+                              "type": "string"
                             }
                           },
                           "nullable": true
@@ -42191,6 +42355,47 @@
                                     "items": {
                                       "type": "string"
                                     }
+                                  }
+                                },
+                                "nullable": true
+                              },
+                              "publish": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "algorithm",
+                                  "signerKeyId",
+                                  "signedAt",
+                                  "payloadHash",
+                                  "signature"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentCardPublish.v1"
+                                    ]
+                                  },
+                                  "algorithm": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ed25519"
+                                    ]
+                                  },
+                                  "signerKeyId": {
+                                    "type": "string"
+                                  },
+                                  "signedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "payloadHash": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  },
+                                  "signature": {
+                                    "type": "string"
                                   }
                                 },
                                 "nullable": true
@@ -43885,6 +44090,47 @@
                                 },
                                 "nullable": true
                               },
+                              "publish": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "algorithm",
+                                  "signerKeyId",
+                                  "signedAt",
+                                  "payloadHash",
+                                  "signature"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentCardPublish.v1"
+                                    ]
+                                  },
+                                  "algorithm": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ed25519"
+                                    ]
+                                  },
+                                  "signerKeyId": {
+                                    "type": "string"
+                                  },
+                                  "signedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "payloadHash": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  },
+                                  "signature": {
+                                    "type": "string"
+                                  }
+                                },
+                                "nullable": true
+                              },
                               "tags": {
                                 "type": "array",
                                 "items": {
@@ -45236,6 +45482,47 @@
                               "items": {
                                 "type": "string"
                               }
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "publish": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "algorithm",
+                            "signerKeyId",
+                            "signedAt",
+                            "payloadHash",
+                            "signature"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "AgentCardPublish.v1"
+                              ]
+                            },
+                            "algorithm": {
+                              "type": "string",
+                              "enum": [
+                                "ed25519"
+                              ]
+                            },
+                            "signerKeyId": {
+                              "type": "string"
+                            },
+                            "signedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "payloadHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signature": {
+                              "type": "string"
                             }
                           },
                           "nullable": true

@@ -1233,6 +1233,19 @@ function buildTools() {
               supportsEvidencePacks: { type: ["array", "null"], items: { type: "string" }, default: null }
             }
           },
+          publish: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              schemaVersion: { type: ["string", "null"], default: "AgentCardPublish.v1" },
+              algorithm: { type: ["string", "null"], default: "ed25519" },
+              signerKeyId: { type: ["string", "null"], default: null },
+              signedAt: { type: ["string", "null"], default: null },
+              payloadHash: { type: ["string", "null"], default: null },
+              signature: { type: ["string", "null"], default: null }
+            }
+          },
           tags: { type: ["array", "null"], items: { type: "string" }, default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -2751,6 +2764,23 @@ async function main() {
                   .filter(Boolean);
               }
               body.policyCompatibility = policyCompatibility;
+            }
+            if (args?.publish !== null && args?.publish !== undefined) {
+              assertPlainObject(args.publish, "publish");
+              const publish = {};
+              const schemaVersion = parseOptionalStringArg(args.publish.schemaVersion, "publish.schemaVersion", { max: 64 });
+              if (schemaVersion) publish.schemaVersion = schemaVersion;
+              const algorithm = parseOptionalStringArg(args.publish.algorithm, "publish.algorithm", { max: 32 });
+              if (algorithm) publish.algorithm = algorithm;
+              const signerKeyId = parseOptionalStringArg(args.publish.signerKeyId, "publish.signerKeyId", { max: 200 });
+              if (signerKeyId) publish.signerKeyId = signerKeyId;
+              const signedAt = parseOptionalStringArg(args.publish.signedAt, "publish.signedAt", { max: 128 });
+              if (signedAt) publish.signedAt = signedAt;
+              const payloadHash = parseOptionalStringArg(args.publish.payloadHash, "publish.payloadHash", { max: 64 });
+              if (payloadHash) publish.payloadHash = payloadHash;
+              const signature = parseOptionalStringArg(args.publish.signature, "publish.signature", { max: 8192 });
+              if (signature) publish.signature = signature;
+              body.publish = publish;
             }
 
             const out = await client.requestJson("/agent-cards", {

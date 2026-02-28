@@ -199,6 +199,10 @@ import {
   buildNooterraAgentCard,
   validateAgentCardV1
 } from "../core/agent-card.js";
+import {
+  AGENT_CARD_PUBLISH_REASON_CODE,
+  verifyAgentCardPublishSignatureV1
+} from "../core/agent-card-publish.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
 import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
 import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
@@ -481,6 +485,7 @@ export function createApi({
   agentCardPublicDiscoveryMaxPerKey = null,
   agentCardPublicDiscoveryPaidBypassEnabled = null,
   agentCardPublicDiscoveryPaidToolId = null,
+  agentCardPublicRequirePublishSignature = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null,
@@ -1329,6 +1334,12 @@ export function createApi({
       "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID must be configured when PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_BYPASS_ENABLED=1"
     );
   }
+  const agentCardPublicRequirePublishSignatureValue = (() => {
+    const raw =
+      agentCardPublicRequirePublishSignature ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_REQUIRE_PUBLISH_SIGNATURE ?? null : null);
+    return parseBooleanLike(raw, false);
+  })();
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
     const raw =
       agentCardPublicRequireCapabilityAttestation ??
@@ -16991,6 +17002,125 @@ export function createApi({
     if (typeof store.getAgentCard === "function") return store.getAgentCard({ tenantId, agentId });
     if (store.agentCards instanceof Map) return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
     throw new TypeError("agent cards not supported for this store");
+  }
+
+  function buildAgentCardPublishSignatureDetails({
+    reasonCode,
+    reason,
+    signerKeyId = null,
+    signedAt = null,
+    expectedSignerKeyId = null,
+    signerStatus = null,
+    validFrom = null,
+    validTo = null,
+    revokedAt = null,
+    expectedPayloadHash = null,
+    actualPayloadHash = null
+  } = {}) {
+    return normalizeForCanonicalJson(
+      {
+        reasonCode:
+          typeof reasonCode === "string" && reasonCode.trim() !== ""
+            ? reasonCode.trim()
+            : "AGENT_CARD_PUBLISH_SIGNATURE_INVALID",
+        reason:
+          typeof reason === "string" && reason.trim() !== ""
+            ? reason.trim()
+            : "agent card publish signature verification failed",
+        signerKeyId: typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null,
+        signedAt: typeof signedAt === "string" && signedAt.trim() !== "" ? signedAt.trim() : null,
+        expectedSignerKeyId:
+          typeof expectedSignerKeyId === "string" && expectedSignerKeyId.trim() !== "" ? expectedSignerKeyId.trim() : null,
+        signerStatus: typeof signerStatus === "string" && signerStatus.trim() !== "" ? signerStatus.trim() : null,
+        validFrom: typeof validFrom === "string" && validFrom.trim() !== "" ? validFrom.trim() : null,
+        validTo: typeof validTo === "string" && validTo.trim() !== "" ? validTo.trim() : null,
+        revokedAt: typeof revokedAt === "string" && revokedAt.trim() !== "" ? revokedAt.trim() : null,
+        expectedPayloadHash:
+          typeof expectedPayloadHash === "string" && expectedPayloadHash.trim() !== "" ? expectedPayloadHash.trim() : null,
+        actualPayloadHash:
+          typeof actualPayloadHash === "string" && actualPayloadHash.trim() !== "" ? actualPayloadHash.trim() : null
+      },
+      { path: "$.agentCardPublishSignature" }
+    );
+  }
+
+  async function verifyAgentCardPublishSignature({
+    tenantId,
+    agentIdentity,
+    requestBody,
+    publishSignatureInput
+  } = {}) {
+    const expectedSignerKeyId = String(agentIdentity?.keys?.keyId ?? "").trim();
+    const expectedPublicKeyPem = String(agentIdentity?.keys?.publicKeyPem ?? "").trim();
+    if (!expectedSignerKeyId || !expectedPublicKeyPem) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_UNAVAILABLE",
+          reason: "agent identity publish signer key is unavailable",
+          expectedSignerKeyId
+        })
+      };
+    }
+
+    const verification = verifyAgentCardPublishSignatureV1({
+      tenantId,
+      requestBody,
+      publishSignature: publishSignatureInput,
+      publicKeyPem: expectedPublicKeyPem
+    });
+    if (!verification.ok) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: verification.reasonCode ?? AGENT_CARD_PUBLISH_REASON_CODE.SIGNATURE_INVALID,
+          reason: verification.message ?? "agent card publish signature verification failed",
+          expectedSignerKeyId,
+          expectedPayloadHash: verification.expectedPayloadHash ?? null,
+          actualPayloadHash: verification.actualPayloadHash ?? null
+        })
+      };
+    }
+
+    const normalizedPublishSignature = verification.publishSignature;
+    const signerKeyId = String(normalizedPublishSignature?.signerKeyId ?? "").trim();
+    if (signerKeyId !== expectedSignerKeyId) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_MISMATCH",
+          reason: "publish.signerKeyId does not match agent identity key",
+          signerKeyId,
+          signedAt: normalizedPublishSignature?.signedAt ?? null,
+          expectedSignerKeyId
+        })
+      };
+    }
+
+    const signerLifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at: normalizedPublishSignature?.signedAt ?? null,
+      requireRegistered: false
+    });
+    if (!signerLifecycle.ok) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_INVALID",
+          reason: signerLifecycle.message ?? "agent card publish signer key lifecycle verification failed",
+          signerKeyId,
+          signedAt: normalizedPublishSignature?.signedAt ?? null,
+          expectedSignerKeyId,
+          signerStatus: signerLifecycle.signerStatus ?? null,
+          validFrom: signerLifecycle.validFrom ?? null,
+          validTo: signerLifecycle.validTo ?? null,
+          revokedAt: signerLifecycle.revokedAt ?? null
+        })
+      };
+    }
+
+    return { ok: true, publishSignature: normalizedPublishSignature, payloadHash: verification.payloadHash ?? null };
   }
 
   async function getAgentCardAbuseReportRecord({ tenantId, reportId }) {
@@ -52645,6 +52775,9 @@ export function createApi({
         const shouldRateLimitPublicPublish =
           requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
           String(existingCard?.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC;
+        const requirePublishSignature =
+          requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
+          agentCardPublicRequirePublishSignatureValue === true;
 
         if (shouldRateLimitPublicPublish) {
           const publishRateCheck = takePublicAgentCardPublishToken({ tenantId, agentId });
@@ -52671,6 +52804,45 @@ export function createApi({
           }
         }
 
+        const publishSignatureInput =
+          body?.publish && typeof body.publish === "object" && !Array.isArray(body.publish)
+            ? body.publish
+            : body?.publish === null || body?.publish === undefined
+              ? null
+              : "__invalid__";
+        if (publishSignatureInput === null && requirePublishSignature) {
+          return sendError(
+            res,
+            409,
+            "agent card publish signature is required for public visibility",
+            buildAgentCardPublishSignatureDetails({
+              reasonCode: "AGENT_CARD_PUBLISH_SIGNATURE_REQUIRED",
+              reason: "agent card publish signature is required for public visibility"
+            }),
+            { code: "AGENT_CARD_PUBLISH_SIGNATURE_REQUIRED" }
+          );
+        }
+        let publishSignature = null;
+        if (publishSignatureInput !== null) {
+          const verification = await verifyAgentCardPublishSignature({
+            tenantId,
+            agentIdentity,
+            requestBody: body,
+            publishSignatureInput:
+              publishSignatureInput === "__invalid__" ? body?.publish ?? null : publishSignatureInput
+          });
+          if (!verification.ok) {
+            return sendError(
+              res,
+              409,
+              "agent card publish signature verification failed",
+              verification.details ?? null,
+              { code: "AGENT_CARD_PUBLISH_SIGNATURE_INVALID" }
+            );
+          }
+          publishSignature = verification.publishSignature ?? null;
+        }
+
         const upsertedAt = nowIso();
         let agentCard = null;
         try {
@@ -52692,7 +52864,8 @@ export function createApi({
               tools: body?.tools ?? undefined,
               tags: body?.tags ?? undefined,
               metadata: body?.metadata ?? undefined,
-              policyCompatibility: body?.policyCompatibility ?? undefined
+              policyCompatibility: body?.policyCompatibility ?? undefined,
+              publish: publishSignature ?? null
             }
           });
           validateAgentCardV1(agentCard);
@@ -52883,7 +53056,8 @@ export function createApi({
                 tools: body?.tools ?? undefined,
                 tags: body?.tags ?? undefined,
                 metadata: cardMetadataInput,
-                policyCompatibility: body?.policyCompatibility ?? undefined
+                policyCompatibility: body?.policyCompatibility ?? undefined,
+                publish: publishSignature ?? null
               }
             });
             validateAgentCardV1(agentCard);

@@ -1,4 +1,5 @@
 import { normalizeForCanonicalJson } from "./canonical-json.js";
+import { normalizeAgentCardPublishSignatureV1 } from "./agent-card-publish.js";
 
 export const AGENT_CARD_SCHEMA_VERSION = "AgentCard.v1";
 export const AGENT_CARD_STATUS = Object.freeze({
@@ -437,6 +438,10 @@ export function buildAgentCardV1({
     cardInput?.policyCompatibility !== undefined
       ? normalizePolicyCompatibility(cardInput.policyCompatibility, "cardInput.policyCompatibility")
       : normalizePolicyCompatibility(previousCard?.policyCompatibility, "previousCard.policyCompatibility");
+  const publish =
+    cardInput?.publish !== undefined
+      ? normalizeAgentCardPublishSignatureV1(cardInput.publish, { allowNull: true, fieldPath: "cardInput.publish" })
+      : normalizeAgentCardPublishSignatureV1(previousCard?.publish, { allowNull: true, fieldPath: "previousCard.publish" });
 
   const createdAt =
     normalizeOptionalString(previousCard?.createdAt, "previousCard.createdAt", { max: 128 }) ?? resolvedNowAt;
@@ -456,6 +461,7 @@ export function buildAgentCardV1({
       capabilities: requestedCapabilities,
       ...(executionCoordinatorDid ? { executionCoordinatorDid } : {}),
       ...(policyCompatibility ? { policyCompatibility } : {}),
+      ...(publish ? { publish } : {}),
       host,
       priceHint,
       attestations,
@@ -521,6 +527,9 @@ export function validateAgentCardV1(agentCard) {
   }
   if (agentCard.policyCompatibility !== null && agentCard.policyCompatibility !== undefined) {
     normalizePolicyCompatibility(agentCard.policyCompatibility, "agentCard.policyCompatibility");
+  }
+  if (agentCard.publish !== null && agentCard.publish !== undefined) {
+    normalizeAgentCardPublishSignatureV1(agentCard.publish, { allowNull: false, fieldPath: "agentCard.publish" });
   }
   return true;
 }
