@@ -1,0 +1,602 @@
+{
+  "migratedAt": "2026-03-01T04:08:24.661Z",
+  "repo": "nooterra/nooterra",
+  "summary": {
+    "linearOpenCount": 68,
+    "alreadyOnGithubByNoo": 19,
+    "attemptedCreateCount": 49,
+    "createdCount": 49,
+    "failedCount": 0
+  },
+  "created": [
+    {
+      "identifier": "NOO-99",
+      "githubTitle": "[NOO-99] [STLD-T5022] Build launch command center runbook",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/118",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-99/stld-t5022-build-launch-command-center-runbook",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-77",
+      "githubTitle": "[NOO-77] [STLD-E5008] Operationalize Launch and Support Motion",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/119",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-77/stld-e5008-operationalize-launch-and-support-motion",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-98",
+      "githubTitle": "[NOO-98] [STLD-T5021] Add privilege boundary audit tests",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/120",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-98/stld-t5021-add-privilege-boundary-audit-tests",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-97",
+      "githubTitle": "[NOO-97] [STLD-T5020] Enforce secret leak prevention checks",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/121",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-97/stld-t5020-enforce-secret-leak-prevention-checks",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-96",
+      "githubTitle": "[NOO-96] [STLD-T5019] Expand adversarial setup and payment tests",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/122",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-96/stld-t5019-expand-adversarial-setup-and-payment-tests",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-76",
+      "githubTitle": "[NOO-76] [STLD-E5007] Build Security and Abuse Defenses",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/123",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-76/stld-e5007-build-security-and-abuse-defenses",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-95",
+      "githubTitle": "[NOO-95] [STLD-T5018] Automate launch gate report generation",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/124",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-95/stld-t5018-automate-launch-gate-report-generation",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-94",
+      "githubTitle": "[NOO-94] [STLD-T5017] Run rollback rehearsal",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/125",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-94/stld-t5017-run-rollback-rehearsal",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-93",
+      "githubTitle": "[NOO-93] [STLD-T5016] Define launch SLO dashboard",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/126",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-93/stld-t5016-define-launch-slo-dashboard",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-75",
+      "githubTitle": "[NOO-75] [STLD-E5006] Establish SRE and Incident Readiness Baseline",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/127",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-75/stld-e5006-establish-sre-and-incident-readiness-baseline",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-92",
+      "githubTitle": "[NOO-92] [STLD-T5015] Publish evidence lineage explorer endpoint",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/128",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-92/stld-t5015-publish-evidence-lineage-explorer-endpoint",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-91",
+      "githubTitle": "[NOO-91] [STLD-T5014] Add one-command offline verification summary",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/129",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-91/stld-t5014-add-one-command-offline-verification-summary",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-90",
+      "githubTitle": "[NOO-90] [STLD-T5013] Finalize proof packet contract",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/130",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-90/stld-t5013-finalize-proof-packet-contract",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-74",
+      "githubTitle": "[NOO-74] [STLD-E5005] Enforce Deterministic Evidence and Verification",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/131",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-74/stld-e5005-enforce-deterministic-evidence-and-verification",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-89",
+      "githubTitle": "[NOO-89] [STLD-T5012] Add batch settlement rerun guard",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/132",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-89/stld-t5012-add-batch-settlement-rerun-guard",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-88",
+      "githubTitle": "[NOO-88] [STLD-T5011] Implement dispute replay packet",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/133",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-88/stld-t5011-implement-dispute-replay-packet",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-87",
+      "githubTitle": "[NOO-87] [STLD-T5010] Enforce settlement idempotency invariants",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/134",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-87/stld-t5010-enforce-settlement-idempotency-invariants",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-73",
+      "githubTitle": "[NOO-73] [STLD-E5004] Guarantee Settlement and Reversal Idempotency",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/135",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-73/stld-e5004-guarantee-settlement-and-reversal-idempotency",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-86",
+      "githubTitle": "[NOO-86] [STLD-T5009] Instrument funding and paid-call funnel",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/136",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-86/stld-t5009-instrument-funding-and-paid-call-funnel",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-72",
+      "githubTitle": "[NOO-72] [STLD-E5003] Stabilize Managed Wallet Funding and First Paid Run",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/137",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-72/stld-e5003-stabilize-managed-wallet-funding-and-first-paid-run",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-85",
+      "githubTitle": "[NOO-85] [STLD-T5008] Add first paid run post-setup verifier",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/138",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-85/stld-t5008-add-first-paid-run-post-setup-verifier",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-84",
+      "githubTitle": "[NOO-84] [STLD-T5007] Implement wallet funding state machine",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/139",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-84/stld-t5007-implement-wallet-funding-state-machine",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-83",
+      "githubTitle": "[NOO-83] [STLD-T5006] Add tenant/email conflict policy",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/140",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-83/stld-t5006-add-tenantemail-conflict-policy",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-80",
+      "githubTitle": "[NOO-80] [STLD-T5003] Remove interactive dead-end loops",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/141",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-80/stld-t5003-remove-interactive-dead-end-loops",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-79",
+      "githubTitle": "[NOO-79] [STLD-T5002] Implement onboarding failure taxonomy",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/142",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-79/stld-t5002-implement-onboarding-failure-taxonomy",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-78",
+      "githubTitle": "[NOO-78] [STLD-T5001] Define onboarding state machine",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/143",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-78/stld-t5001-define-onboarding-state-machine",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-71",
+      "githubTitle": "[NOO-71] [STLD-E5002] Harden Auth and Tenant Bootstrap",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/144",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-71/stld-e5002-harden-auth-and-tenant-bootstrap",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-70",
+      "githubTitle": "[NOO-70] [STLD-E5001] Deliver State-of-the-Art First-Run Onboarding",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/145",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-70/stld-e5001-deliver-state-of-the-art-first-run-onboarding",
+      "labels": [
+        "source:linear",
+        "prio:p1",
+        "program:launch",
+        "type:epic"
+      ]
+    },
+    {
+      "identifier": "NOO-35",
+      "githubTitle": "[NOO-35] NOO-34.4 – Surface network-aware reputation in console (agents + federation)",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/146",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-35/noo-344-surface-network-aware-reputation-in-console-agents-federation",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-34",
+      "githubTitle": "[NOO-34] NOO-34.3 – Adaptive downweighting and quarantine for degraded agents/peers",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/147",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-34/noo-343-adaptive-downweighting-and-quarantine-for-degraded-agentspeers",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-33",
+      "githubTitle": "[NOO-33] NOO-34.2 – Update routing scoring to use network-aware quality signals",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/148",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-33/noo-342-update-routing-scoring-to-use-network-aware-quality-signals",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-32",
+      "githubTitle": "[NOO-32] NOO-34.1 – Aggregate per-agent and per-coordinator quality metrics",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/149",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-32/noo-341-aggregate-per-agent-and-per-coordinator-quality-metrics",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-31",
+      "githubTitle": "[NOO-31] NOO-34 – Network-Aware Reputation & Adaptive Routing",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/150",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-31/noo-34-network-aware-reputation-and-adaptive-routing",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-22",
+      "githubTitle": "[NOO-22] Policy IDs bound into Mandate, AgentCard, and Receipt",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/151",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-22/policy-ids-bound-into-mandate-agentcard-and-receipt",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-21",
+      "githubTitle": "[NOO-21] MessageEnvelope for agent/coordinator communication",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/152",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-21/messageenvelope-for-agentcoordinator-communication",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-20",
+      "githubTitle": "[NOO-20] PaymentRail abstraction for Stripe, x402, other rails",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/153",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-20/paymentrail-abstraction-for-stripe-x402-other-rails",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-19",
+      "githubTitle": "[NOO-19] CapabilityDescriptor & Invocation abstraction compatible with MCP/A2A",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/154",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-19/capabilitydescriptor-and-invocation-abstraction-compatible-with-mcpa2a",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-18",
+      "githubTitle": "[NOO-18] Align Agent identity with DID-style AgentCard",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/155",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-18/align-agent-identity-with-did-style-agentcard",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-16",
+      "githubTitle": "[NOO-16] Protocol Core & Alignment",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/156",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-16/protocol-core-and-alignment",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-15",
+      "githubTitle": "[NOO-15] Internal truth doc for coordinator",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/157",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-15/internal-truth-doc-for-coordinator",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-5",
+      "githubTitle": "[NOO-5] Nooterra Cleanup Mandate",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/158",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-5/nooterra-cleanup-mandate",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-14",
+      "githubTitle": "[NOO-14] Dev UX & docs (local run + agent happy path)",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/159",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-14/dev-ux-and-docs-local-run-agent-happy-path",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-13",
+      "githubTitle": "[NOO-13] Logging & metrics baseline",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/160",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-13/logging-and-metrics-baseline",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-12",
+      "githubTitle": "[NOO-12] CI baseline (tests, lint, migrations)",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/161",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-12/ci-baseline-tests-lint-migrations",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-11",
+      "githubTitle": "[NOO-11] Disputes flow clarity & tests",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/162",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-11/disputes-flow-clarity-and-tests",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-10",
+      "githubTitle": "[NOO-10] Payments hardening (Stripe + ledger coupling)",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/163",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-10/payments-hardening-stripe-ledger-coupling",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-9",
+      "githubTitle": "[NOO-9] Queue & workflow reliability",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/164",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-9/queue-and-workflow-reliability",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-7",
+      "githubTitle": "[NOO-7] Route slimming & service layer",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/165",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-7/route-slimming-and-service-layer",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    },
+    {
+      "identifier": "NOO-6",
+      "githubTitle": "[NOO-6] Repo structure & coordinator split",
+      "githubUrl": "https://github.com/nooterra/nooterra/issues/166",
+      "linearUrl": "https://linear.app/nooterra/issue/NOO-6/repo-structure-and-coordinator-split",
+      "labels": [
+        "source:linear",
+        "prio:p2",
+        "program:legacy",
+        "type:feature"
+      ]
+    }
+  ],
+  "failed": []
+}
