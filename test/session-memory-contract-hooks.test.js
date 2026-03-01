@@ -182,6 +182,63 @@ test("memory hooks: import fails closed on rotated signer lifecycle for signed r
   assert.equal(imported.details?.signerStatus, "rotated");
 });
 
+test("memory hooks: import preserves historical signer validity and reports current invalidity", () => {
+  const { replayPack, transcript } = buildFixtureSessionArtifacts();
+  const signer = createEd25519Keypair();
+  const keyId = keyIdFromPublicKeyPem(signer.publicKeyPem);
+
+  const signedReplayPack = signSessionReplayPackV1({
+    replayPack,
+    signedAt: "2026-02-20T00:00:03.000Z",
+    publicKeyPem: signer.publicKeyPem,
+    privateKeyPem: signer.privateKeyPem,
+    keyId
+  });
+  const signedTranscript = signSessionTranscriptV1({
+    transcript,
+    signedAt: "2026-02-20T00:00:03.000Z",
+    publicKeyPem: signer.publicKeyPem,
+    privateKeyPem: signer.privateKeyPem,
+    keyId
+  });
+
+  const built = buildSessionMemoryContractHooksV1({
+    replayPack: signedReplayPack,
+    transcript: signedTranscript,
+    exportId: "exp_memory_historical_signer_1"
+  });
+
+  const signerRegistry = new Map([
+    [
+      keyId,
+      {
+        keyId,
+        status: "revoked",
+        revokedAt: "2026-02-20T00:05:00.000Z"
+      }
+    ]
+  ]);
+
+  const imported = verifySessionMemoryContractImportV1({
+    memoryExport: built.memoryExport,
+    replayPack: signedReplayPack,
+    transcript: signedTranscript,
+    expectedMemoryExportRef: built.memoryExportRef,
+    replayPackPublicKeyPem: signer.publicKeyPem,
+    transcriptPublicKeyPem: signer.publicKeyPem,
+    requireReplayPackSignature: true,
+    requireTranscriptSignature: true,
+    signerRegistry,
+    signerLifecycleNow: "2026-02-20T00:10:00.000Z"
+  });
+
+  assert.equal(imported.ok, true, imported.error ?? imported.code ?? "historical replay signature should remain verifiable");
+  assert.equal(imported.signatureLifecycle?.replayPack?.signerKeyId, keyId);
+  assert.equal(imported.signatureLifecycle?.replayPack?.validAt?.ok, true);
+  assert.equal(imported.signatureLifecycle?.replayPack?.validNow?.ok, false);
+  assert.equal(imported.signatureLifecycle?.replayPack?.validNow?.code, "IDENTITY_SIGNER_KEY_REVOKED");
+});
+
 test("memory hooks: workspace ownership + migration contract verifies deterministically", () => {
   const { replayPack, transcript } = buildFixtureSessionArtifacts();
   const built = buildSessionMemoryContractHooksV1({

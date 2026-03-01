@@ -20175,6 +20175,30 @@ export function createApi({
     return evaluateSessionSignerLifecycleAt({ signerKey, at });
   }
 
+  async function buildReplayVerificationSignerRegistry({
+    tenantId,
+    replayPack = null,
+    transcript = null
+  } = {}) {
+    const keyIds = new Set();
+    const collect = (artifact) => {
+      if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) return;
+      const keyId = typeof artifact?.signature?.keyId === "string" ? artifact.signature.keyId.trim() : "";
+      if (keyId) keyIds.add(keyId);
+    };
+    collect(replayPack);
+    collect(transcript);
+    if (keyIds.size === 0) return null;
+
+    const registry = new Map();
+    const sorted = [...keyIds].sort((a, b) => a.localeCompare(b));
+    for (const keyId of sorted) {
+      const signerKey = await getSignerKeyRecord({ tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID), keyId });
+      registry.set(keyId, signerKey ?? null);
+    }
+    return registry;
+  }
+
   async function resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel = "session artifact" } = {}) {
     const session = await getSessionRecord({ tenantId, sessionId });
     if (!session) {
@@ -57487,11 +57511,18 @@ export function createApi({
           if (!body || typeof body !== "object" || Array.isArray(body)) {
             return sendError(res, 400, "invalid replay verification request", null, { code: "SCHEMA_INVALID" });
           }
+          const signerRegistry = await buildReplayVerificationSignerRegistry({
+            tenantId,
+            replayPack: body?.replayPack ?? null,
+            transcript: body?.transcript ?? null
+          });
           const verification = verifySessionReplayRequestV1({
             memoryExport: body?.memoryExport,
             replayPack: body?.replayPack,
             transcript: body?.transcript ?? null,
             memoryExportRef: body?.memoryExportRef ?? null,
+            signerRegistry,
+            signerLifecycleNow: nowIso(),
             expectedTenantId: body?.expectedTenantId ?? null,
             expectedSessionId: body?.expectedSessionId ?? null,
             expectedPreviousHeadChainHash: body?.expectedPreviousHeadChainHash ?? null,
