@@ -187,6 +187,8 @@ test("R1 API contract freeze: x402 reversal publishes known reversal binding con
   assert.ok(Array.isArray(knownConflictCodes), "x402 reversal 409 must expose known error codes");
   assert.ok(knownConflictCodes.includes("X402_REVERSAL_BINDING_EVIDENCE_REQUIRED"));
   assert.ok(knownConflictCodes.includes("X402_REVERSAL_BINDING_EVIDENCE_MISMATCH"));
+  assert.ok(knownConflictCodes.includes("X402_REVERSAL_REPLAY_VERIFICATION_REQUIRED"));
+  assert.ok(knownConflictCodes.includes("X402_REVERSAL_REPLAY_VERDICT_INVALID"));
 });
 
 test("R1 API contract freeze: dispute/arbitration routes publish binding integrity conflict error codes", () => {
