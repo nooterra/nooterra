@@ -106,15 +106,9 @@ jobs:
       - name: Install base chart (smoke)
         run: |
           set -euo pipefail
-          BASE_CHART_PATH=""
-          for CANDIDATE in /tmp/nooterra_base/deploy/helm/nooterra /tmp/nooterra_base/deploy/helm/settld; do
-            if [[ -d "${CANDIDATE}" ]]; then
-              BASE_CHART_PATH="${CANDIDATE}"
-              break
-            fi
-          done
-          if [[ -z "${BASE_CHART_PATH}" ]]; then
-            echo "::error::Could not find base Helm chart in /tmp/nooterra_base/deploy/helm/{nooterra,settld}"
+          BASE_CHART_PATH="/tmp/nooterra_base/deploy/helm/nooterra"
+          if [[ ! -d "${BASE_CHART_PATH}" ]]; then
+            echo "::error::Could not find base Helm chart in ${BASE_CHART_PATH}"
             ls -la /tmp/nooterra_base/deploy/helm || true
             exit 1
           fi
@@ -147,18 +141,9 @@ jobs:
             kubectl -n smoke get deploy
             exit 1
           fi
-          BASE_CHART_NAME="$(basename "${BASE_CHART_PATH}")"
-          echo "waiting for base deployments: ${BASE_API_DEPLOY}, ${BASE_MAINTENANCE_DEPLOY} (chart=${BASE_CHART_NAME})"
+          echo "waiting for base deployments: ${BASE_API_DEPLOY}, ${BASE_MAINTENANCE_DEPLOY}"
           kubectl -n smoke rollout status "deploy/${BASE_API_DEPLOY}" --timeout=10m
-          if [[ "${BASE_CHART_NAME}" == "settld" ]]; then
-            if ! kubectl -n smoke rollout status "deploy/${BASE_MAINTENANCE_DEPLOY}" --timeout=120s; then
-              echo "::warning::Legacy base maintenance deployment did not become ready; proceeding with upgrade test."
-              kubectl -n smoke get pods -l app.kubernetes.io/instance=nooterra,app.kubernetes.io/component=maintenance || true
-              kubectl -n smoke logs "deploy/${BASE_MAINTENANCE_DEPLOY}" --tail=100 || true
-            fi
-          else
-            kubectl -n smoke rollout status "deploy/${BASE_MAINTENANCE_DEPLOY}" --timeout=10m
-          fi
+          kubectl -n smoke rollout status "deploy/${BASE_MAINTENANCE_DEPLOY}" --timeout=10m
 
       - name: Smoke lifecycle (base)
         run: |

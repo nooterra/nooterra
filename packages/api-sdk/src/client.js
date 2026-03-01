@@ -1138,10 +1138,33 @@ export class NooterraClient {
     const qs = new URLSearchParams();
     if (params.eventType) qs.set("eventType", String(params.eventType));
     if (params.sinceEventId) qs.set("sinceEventId", String(params.sinceEventId));
+    if (params.checkpointConsumerId) qs.set("checkpointConsumerId", String(params.checkpointConsumerId));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/events${suffix}`, opts);
+  }
+
+  getSessionEventCheckpoint(sessionId, checkpointConsumerId, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    assertNonEmptyString(checkpointConsumerId, "checkpointConsumerId");
+    const qs = new URLSearchParams();
+    qs.set("checkpointConsumerId", String(checkpointConsumerId));
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/events/checkpoint?${qs.toString()}`, opts);
+  }
+
+  ackSessionEventCheckpoint(sessionId, body, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.checkpointConsumerId, "body.checkpointConsumerId");
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events/checkpoint`, { ...opts, body });
+  }
+
+  requeueSessionEventCheckpoint(sessionId, body, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.checkpointConsumerId, "body.checkpointConsumerId");
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events/checkpoint/requeue`, { ...opts, body });
   }
 
   appendSessionEvent(sessionId, body, opts = {}) {

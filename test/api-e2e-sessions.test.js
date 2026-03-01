@@ -333,6 +333,62 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   assert.equal(transcriptInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: signed session artifacts fail closed when signerKeyId is unavailable", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_signing_blocked_1";
+  const sessionId = "sess_signing_blocked_1";
+  const unavailableSignerKeyId = "key_unavailable_signer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_signing_blocked_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "session_signing_blocked_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_signing_blocked_1" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const replayPackBlocked = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack?sign=true&signerKeyId=${encodeURIComponent(unavailableSignerKeyId)}`
+  });
+  assert.equal(replayPackBlocked.statusCode, 409, replayPackBlocked.body);
+  assert.equal(replayPackBlocked.json?.code, "SESSION_REPLAY_PACK_SIGNING_BLOCKED");
+
+  const transcriptBlocked = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript?sign=true&signerKeyId=${encodeURIComponent(unavailableSignerKeyId)}`
+  });
+  assert.equal(transcriptBlocked.statusCode, 409, transcriptBlocked.body);
+  assert.equal(transcriptBlocked.json?.code, "SESSION_TRANSCRIPT_SIGNING_BLOCKED");
+
+  const replayExportBlocked = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-export?sign=true&signerKeyId=${encodeURIComponent(unavailableSignerKeyId)}`
+  });
+  assert.equal(replayExportBlocked.statusCode, 409, replayExportBlocked.body);
+  assert.equal(replayExportBlocked.json?.code, "SESSION_REPLAY_EXPORT_SIGNING_BLOCKED");
+});
+
 test("API e2e: session participant ACL fails closed for session reads and appends", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const allowedPrincipalId = "agt_session_acl_allowed_1";
@@ -420,6 +476,16 @@ test("API e2e: session participant ACL fails closed for session reads and append
   assert.equal(deniedReplayPack.json?.details?.sessionId, sessionId);
   assert.equal(deniedReplayPack.json?.details?.principalId, deniedPrincipalId);
 
+  const deniedReplayExport = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-export`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedReplayExport.statusCode, 403, deniedReplayExport.body);
+  assert.equal(deniedReplayExport.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedReplayExport.json?.details?.sessionId, sessionId);
+  assert.equal(deniedReplayExport.json?.details?.principalId, deniedPrincipalId);
+
   const deniedTranscript = await request(api, {
     method: "GET",
     path: `/sessions/${sessionId}/transcript`,
@@ -429,6 +495,50 @@ test("API e2e: session participant ACL fails closed for session reads and append
   assert.equal(deniedTranscript.json?.code, "SESSION_ACCESS_DENIED");
   assert.equal(deniedTranscript.json?.details?.sessionId, sessionId);
   assert.equal(deniedTranscript.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedCheckpointRead = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent("acl_denied_consumer_1")}`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedCheckpointRead.statusCode, 403, deniedCheckpointRead.body);
+  assert.equal(deniedCheckpointRead.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointRead.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointRead.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedCheckpointWrite = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    headers: {
+      "x-idempotency-key": "session_acl_checkpoint_denied_1",
+      "x-proxy-principal-id": deniedPrincipalId
+    },
+    body: {
+      checkpointConsumerId: "acl_denied_consumer_1",
+      sinceEventId: seeded.json?.event?.id
+    }
+  });
+  assert.equal(deniedCheckpointWrite.statusCode, 403, deniedCheckpointWrite.body);
+  assert.equal(deniedCheckpointWrite.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointWrite.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointWrite.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedCheckpointRequeue = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    headers: {
+      "x-idempotency-key": "session_acl_checkpoint_requeue_denied_1",
+      "x-proxy-principal-id": deniedPrincipalId
+    },
+    body: {
+      checkpointConsumerId: "acl_denied_consumer_1",
+      sinceEventId: seeded.json?.event?.id
+    }
+  });
+  assert.equal(deniedCheckpointRequeue.statusCode, 403, deniedCheckpointRequeue.body);
+  assert.equal(deniedCheckpointRequeue.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointRequeue.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointRequeue.json?.details?.principalId, deniedPrincipalId);
 
   const allowedGet = await request(api, {
     method: "GET",
@@ -776,6 +886,24 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   });
   assert.equal(second.statusCode, 201, second.body);
 
+  const missingCheckpointRead = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent("relay_consumer_missing_1")}`
+  });
+  assert.equal(missingCheckpointRead.statusCode, 409, missingCheckpointRead.body);
+  assert.equal(missingCheckpointRead.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCheckpointRead.json?.details?.phase, "checkpoint_read");
+  assert.equal(missingCheckpointRead.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_NOT_FOUND");
+
+  const missingCheckpointResume = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent("relay_consumer_missing_1")}`
+  });
+  assert.equal(missingCheckpointResume.statusCode, 409, missingCheckpointResume.body);
+  assert.equal(missingCheckpointResume.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCheckpointResume.json?.details?.phase, "list");
+  assert.equal(missingCheckpointResume.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_NOT_FOUND");
+
   const ackFirst = await request(api, {
     method: "POST",
     path: `/sessions/${sessionId}/events/checkpoint`,
@@ -809,6 +937,43 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   assert.equal(resumedFromCheckpoint.json?.events?.length, 1);
   assert.equal(resumedFromCheckpoint.json?.events?.[0]?.id, second.json?.event?.id);
 
+  const ackSecond = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: second.json?.event?.id
+    }
+  });
+  assert.equal(ackSecond.statusCode, 200, ackSecond.body);
+  assert.equal(ackSecond.json?.checkpoint?.sinceEventId, second.json?.event?.id);
+
+  const conflictWithCheckpointCursor = await request(api, {
+    method: "GET",
+    path:
+      `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}` +
+      `&sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
+  });
+  assert.equal(conflictWithCheckpointCursor.statusCode, 409, conflictWithCheckpointCursor.body);
+  assert.equal(conflictWithCheckpointCursor.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(conflictWithCheckpointCursor.json?.details?.sinceEventId, first.json?.event?.id);
+  assert.equal(conflictWithCheckpointCursor.json?.details?.checkpointSinceEventId, second.json?.event?.id);
+
+  const ackRegressed = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: first.json?.event?.id
+    }
+  });
+  assert.equal(ackRegressed.statusCode, 409, ackRegressed.body);
+  assert.equal(ackRegressed.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(ackRegressed.json?.details?.phase, "checkpoint_write");
+  assert.equal(ackRegressed.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_REGRESSION");
+  assert.equal(ackRegressed.json?.details?.existingSinceEventId, second.json?.event?.id);
+  assert.equal(ackRegressed.json?.details?.requestedSinceEventId, first.json?.event?.id);
+
   const ackMissing = await request(api, {
     method: "POST",
     path: `/sessions/${sessionId}/events/checkpoint`,
@@ -821,6 +986,58 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   assert.equal(ackMissing.json?.code, "SESSION_EVENT_CURSOR_INVALID");
   assert.equal(ackMissing.json?.details?.phase, "checkpoint_write");
   assert.equal(ackMissing.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+
+  const requeueFirst = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: first.json?.event?.id
+    }
+  });
+  assert.equal(requeueFirst.statusCode, 200, requeueFirst.body);
+  assert.equal(requeueFirst.json?.checkpoint?.schemaVersion, "SessionEventInboxRelayCheckpoint.v1");
+  assert.equal(requeueFirst.json?.checkpoint?.sinceEventId, first.json?.event?.id);
+  assert.equal(requeueFirst.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
+  assert.equal(requeueFirst.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+
+  const resumedAfterRequeue = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(resumedAfterRequeue.statusCode, 200, resumedAfterRequeue.body);
+  assert.equal(resumedAfterRequeue.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
+  assert.equal(resumedAfterRequeue.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+  assert.equal(resumedAfterRequeue.json?.events?.length, 1);
+  assert.equal(resumedAfterRequeue.json?.events?.[0]?.id, second.json?.event?.id);
+
+  const requeueForwardBlocked = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: second.json?.event?.id
+    }
+  });
+  assert.equal(requeueForwardBlocked.statusCode, 409, requeueForwardBlocked.body);
+  assert.equal(requeueForwardBlocked.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(requeueForwardBlocked.json?.details?.phase, "checkpoint_requeue");
+  assert.equal(requeueForwardBlocked.json?.details?.reasonCode, "SESSION_EVENT_REQUEUE_CURSOR_ADVANCE");
+  assert.equal(requeueForwardBlocked.json?.details?.existingSinceEventId, first.json?.event?.id);
+  assert.equal(requeueForwardBlocked.json?.details?.requestedSinceEventId, second.json?.event?.id);
+
+  const requeueMissing = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: "evt_missing_cursor_for_requeue"
+    }
+  });
+  assert.equal(requeueMissing.statusCode, 409, requeueMissing.body);
+  assert.equal(requeueMissing.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(requeueMissing.json?.details?.phase, "checkpoint_requeue");
+  assert.equal(requeueMissing.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
 
   if (!(api.store.sessionRelayStates instanceof Map)) api.store.sessionRelayStates = new Map();
   const checkpointId = `session_inbox_relay:${sessionId}:${checkpointConsumerId}`;
@@ -849,6 +1066,55 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   assert.equal(resumeMissingCursor.json?.code, "SESSION_EVENT_CURSOR_INVALID");
   assert.equal(resumeMissingCursor.json?.details?.phase, "list");
   assert.equal(resumeMissingCursor.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+
+  api.store.sessionRelayStates.set(existingRelayEntry[0], {
+    ...(existingRelayEntry[1] ?? {}),
+    sinceEventId: "evt invalid cursor",
+    updatedAt: new Date().toISOString()
+  });
+
+  const readInvalidCheckpointCursor = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(readInvalidCheckpointCursor.statusCode, 409, readInvalidCheckpointCursor.body);
+  assert.equal(readInvalidCheckpointCursor.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(readInvalidCheckpointCursor.json?.details?.phase, "checkpoint_read");
+  assert.equal(readInvalidCheckpointCursor.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID");
+
+  const resumeInvalidCheckpointCursor = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(resumeInvalidCheckpointCursor.statusCode, 409, resumeInvalidCheckpointCursor.body);
+  assert.equal(resumeInvalidCheckpointCursor.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(resumeInvalidCheckpointCursor.json?.details?.phase, "list");
+  assert.equal(resumeInvalidCheckpointCursor.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID");
+
+  api.store.sessionRelayStates.set(existingRelayEntry[0], {
+    ...(existingRelayEntry[1] ?? {}),
+    sessionId: `${sessionId}_mismatch`,
+    sinceEventId: second.json?.event?.id,
+    updatedAt: new Date().toISOString()
+  });
+
+  const readCheckpointSessionMismatch = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(readCheckpointSessionMismatch.statusCode, 409, readCheckpointSessionMismatch.body);
+  assert.equal(readCheckpointSessionMismatch.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(readCheckpointSessionMismatch.json?.details?.phase, "checkpoint_read");
+  assert.equal(readCheckpointSessionMismatch.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH");
+
+  const resumeCheckpointSessionMismatch = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(resumeCheckpointSessionMismatch.statusCode, 409, resumeCheckpointSessionMismatch.body);
+  assert.equal(resumeCheckpointSessionMismatch.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(resumeCheckpointSessionMismatch.json?.details?.phase, "list");
+  assert.equal(resumeCheckpointSessionMismatch.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH");
 });
 
 test("API e2e: Session signer lifecycle gates append and replay materialization", async () => {

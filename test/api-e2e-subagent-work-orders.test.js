@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -20,6 +20,61 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+async function registerAgentWithKey(api, { agentId, capabilities = [] }) {
+  const { publicKeyPem } = createEd25519Keypair();
+  const response = await request(api, {
+    method: "POST",
+    path: "/agents/register",
+    headers: { "x-idempotency-key": `agent_register_${agentId}` },
+    body: {
+      agentId,
+      displayName: `Agent ${agentId}`,
+      owner: { ownerType: "service", ownerId: "svc_test" },
+      publicKeyPem,
+      capabilities
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return {
+    agentId,
+    keyId: keyIdFromPublicKeyPem(publicKeyPem),
+    publicKeyPem
+  };
+}
+
+async function upsertSignerKey(
+  api,
+  { keyId, publicKeyPem, purpose = "robot", status = "active", description = "work order signer key", validFrom = null, validTo = null }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId,
+      publicKeyPem,
+      purpose,
+      status,
+      description,
+      validFrom,
+      validTo
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json?.signerKey?.keyId, keyId);
+  return response.json?.signerKey ?? null;
+}
+
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
+  return response.json?.signerKey ?? null;
 }
 
 async function issueCapabilityAttestation(api, { attestationId, subjectAgentId, capability, level = "attested", issuerAgentId }) {
@@ -492,6 +547,265 @@ test("API e2e: work-order routes fail closed when principal or sub-agent lifecyc
   assert.equal(settleBlockedPrincipal.json?.code, "X402_AGENT_THROTTLED");
   assert.equal(settleBlockedPrincipal.json?.details?.role, "principal");
   assert.equal(settleBlockedPrincipal.json?.details?.operation, "work_order.settle");
+});
+
+test("API e2e: work-order routes fail closed when participant signer key lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principal = await registerAgentWithKey(api, {
+    agentId: "agt_workord_signer_principal_1",
+    capabilities: ["orchestration"]
+  });
+  const sub = await registerAgentWithKey(api, {
+    agentId: "agt_workord_signer_worker_1",
+    capabilities: ["code.generation"]
+  });
+
+  await upsertSignerKey(api, {
+    keyId: principal.keyId,
+    publicKeyPem: principal.publicKeyPem,
+    description: "work order principal signer key"
+  });
+  await upsertSignerKey(api, {
+    keyId: sub.keyId,
+    publicKeyPem: sub.publicKeyPem,
+    description: "work order sub-agent signer key"
+  });
+  await rotateSignerKey(api, { keyId: principal.keyId });
+
+  const createBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_signer_create_blocked_1" },
+    body: {
+      workOrderId: "workord_signer_lifecycle_1",
+      principalAgentId: principal.agentId,
+      subAgentId: sub.agentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 410, currency: "USD" }
+    }
+  });
+  assert.equal(createBlocked.statusCode, 409, createBlocked.body);
+  assert.equal(createBlocked.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(createBlocked.json?.details?.operation, "work_order.create");
+  assert.equal(createBlocked.json?.details?.role, "principal");
+  assert.equal(createBlocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(createBlocked.json?.details?.signerStatus, "rotated");
+
+  await upsertSignerKey(api, {
+    keyId: principal.keyId,
+    publicKeyPem: principal.publicKeyPem,
+    status: "active",
+    description: "work order principal signer key reactivated"
+  });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_signer_create_ok_1" },
+    body: {
+      workOrderId: "workord_signer_lifecycle_2",
+      principalAgentId: principal.agentId,
+      subAgentId: sub.agentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 420, currency: "USD" }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  await rotateSignerKey(api, { keyId: sub.keyId });
+  const acceptBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_signer_lifecycle_2/accept",
+    headers: { "x-idempotency-key": "workord_signer_accept_blocked_1" },
+    body: {
+      acceptedByAgentId: sub.agentId,
+      acceptedAt: "2026-02-24T05:00:00.000Z"
+    }
+  });
+  assert.equal(acceptBlocked.statusCode, 409, acceptBlocked.body);
+  assert.equal(acceptBlocked.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(acceptBlocked.json?.details?.operation, "work_order.accept");
+  assert.equal(acceptBlocked.json?.details?.role, "sub_agent");
+  assert.equal(acceptBlocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(acceptBlocked.json?.details?.signerStatus, "rotated");
+});
+
+test("API e2e: work-order create fails closed when delegation grant is revoked", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_workord_revoked_principal_1";
+  const subAgentId = "agt_workord_revoked_worker_1";
+  const delegationGrantId = "dgrant_workord_revoked_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const issuedGrant = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "dgrant_workord_revoked_issue_1" },
+    body: {
+      grantId: delegationGrantId,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: subAgentId,
+      scope: {
+        sideEffectingAllowed: true,
+        allowedRiskClasses: ["financial"]
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 1_000,
+        maxTotalCents: 10_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issuedGrant.statusCode, 201, issuedGrant.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/delegation-grants/${encodeURIComponent(delegationGrantId)}/revoke`,
+    headers: { "x-idempotency-key": "dgrant_workord_revoked_revoke_1" },
+    body: {
+      revocationReasonCode: "MANUAL_REVOKE"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+
+  const blockedCreate = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_revoked_create_blocked_1" },
+    body: {
+      workOrderId: "workord_revoked_create_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 250, currency: "USD" },
+      delegationGrantRef: delegationGrantId
+    }
+  });
+  assert.equal(blockedCreate.statusCode, 409, blockedCreate.body);
+  assert.equal(blockedCreate.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
+test("API e2e: work-order settle fails closed when delegation grant is revoked after completion", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_workord_settle_revoked_principal_1";
+  const subAgentId = "agt_workord_settle_revoked_worker_1";
+  const delegationGrantId = "dgrant_workord_settle_revoked_1";
+  const workOrderId = "workord_settle_revoked_1";
+  const receiptId = "worec_settle_revoked_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const issuedGrant = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "dgrant_workord_settle_revoked_issue_1" },
+    body: {
+      grantId: delegationGrantId,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: subAgentId,
+      scope: {
+        sideEffectingAllowed: true,
+        allowedRiskClasses: ["financial"]
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 1_000,
+        maxTotalCents: 10_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issuedGrant.statusCode, 201, issuedGrant.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_settle_revoked_create_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 250, currency: "USD" },
+      delegationGrantRef: delegationGrantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/accept`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/complete`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_complete_1" },
+    body: {
+      receiptId,
+      status: "success",
+      outputs: { artifactRef: "artifact://code/workord-settle-revoked" },
+      evidenceRefs: ["artifact://code/workord-settle-revoked", "report://verification/workord-settle-revoked"],
+      amountCents: 250,
+      currency: "USD",
+      deliveredAt: "2026-02-23T00:20:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  const completionReceiptHash = completed.json?.completionReceipt?.receiptHash;
+  assert.equal(typeof completionReceiptHash, "string");
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/delegation-grants/${encodeURIComponent(delegationGrantId)}/revoke`,
+    headers: { "x-idempotency-key": "dgrant_workord_settle_revoked_revoke_1" },
+    body: {
+      revocationReasonCode: "MANUAL_REVOKE"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+
+  const blockedSettle = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/settle`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_settle_blocked_1" },
+    body: {
+      completionReceiptId: receiptId,
+      completionReceiptHash,
+      status: "released",
+      x402GateId: "x402gate_workord_settle_revoked_1",
+      x402RunId: "run_workord_settle_revoked_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_workord_settle_revoked_1"
+    }
+  });
+  assert.equal(blockedSettle.statusCode, 409, blockedSettle.body);
+  assert.equal(blockedSettle.json?.code, "X402_DELEGATION_GRANT_REVOKED");
 });
 
 test("API e2e: work-order metering snapshot returns Meter.v1 events with deterministic coverage", async () => {

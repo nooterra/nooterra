@@ -62,6 +62,9 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - stream emits deterministic `session.watermark` frames when head advances so filtered/offline consumers can progress resume cursors without relying on matched `session.event` payloads.
 - repeated reconnect/retry loops must keep resume cursor progression monotonic (`sinceEventId`/`nextSinceEventId`) and avoid duplicate terminal deliveries for identical timeline history.
 - cursor failures expose deterministic gap metadata in `details`: `reasonCode=SESSION_EVENT_CURSOR_NOT_FOUND`, `eventCount`, `firstEventId`, `lastEventId`, and `phase`.
+- checkpoint reads/writes are fail-closed on missing/broken bindings (`SESSION_EVENT_CHECKPOINT_NOT_FOUND`, `SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH`, `SESSION_EVENT_CHECKPOINT_CURSOR_INVALID`).
+- checkpoint ack writes are monotonic; regressing acks fail closed with `reasonCode=SESSION_EVENT_CURSOR_REGRESSION`.
+- checkpoint requeue supports deterministic rewind for offline redelivery and fails closed when attempting to advance (`reasonCode=SESSION_EVENT_REQUEUE_CURSOR_ADVANCE`).
 
 ## Inbox watermark headers
 
@@ -80,6 +83,9 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - `GET /sessions/:sessionId/events`
 - `POST /sessions/:sessionId/events`
 - `GET /sessions/:sessionId/events/stream`
+- `GET /sessions/:sessionId/events/checkpoint`
+- `POST /sessions/:sessionId/events/checkpoint`
+- `POST /sessions/:sessionId/events/checkpoint/requeue`
 
 ## MCP surface
 

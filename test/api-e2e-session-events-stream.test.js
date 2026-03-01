@@ -355,6 +355,245 @@ test("API e2e: /sessions/:id/events/stream supports checkpoint consumer resume a
   await closeSseStream(stream, controller);
 });
 
+test("API e2e: /sessions/:id/events/stream fails closed when checkpoint consumer is missing", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_missing_principal_1";
+  const sessionId = "sess_stream_checkpoint_missing_1";
+  const checkpointConsumerId = "relay_stream_missing_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_missing_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const res = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  const body = await res.json();
+  assert.equal(res.status, 409);
+  assert.equal(body.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(body.details?.phase, "stream_init");
+  assert.equal(body.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_NOT_FOUND");
+  assert.equal(body.details?.checkpointConsumerId, checkpointConsumerId);
+  assert.equal(body.details?.sessionId, sessionId);
+});
+
+test("API e2e: /sessions/:id/events/stream fails closed on checkpoint binding corruption", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_binding_principal_1";
+  const sessionId = "sess_stream_checkpoint_binding_1";
+  const checkpointConsumerId = "relay_stream_binding_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_binding_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_binding_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_checkpoint_binding_task_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const checkpointAck = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: firstAppend.json?.event?.id
+    }
+  });
+  assert.equal(checkpointAck.statusCode, 200, checkpointAck.body);
+
+  if (!(api.store.sessionRelayStates instanceof Map)) api.store.sessionRelayStates = new Map();
+  const checkpointId = `session_inbox_relay:${sessionId}:${checkpointConsumerId}`;
+  const existingRelayEntry =
+    Array.from(api.store.sessionRelayStates.entries()).find(([, row]) => String(row?.checkpointId ?? "") === checkpointId) ?? null;
+  assert.ok(existingRelayEntry, "session relay checkpoint should exist in store");
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  api.store.sessionRelayStates.set(existingRelayEntry[0], {
+    ...(existingRelayEntry[1] ?? {}),
+    sessionId: `${sessionId}_mismatch`,
+    updatedAt: new Date().toISOString()
+  });
+
+  const mismatch = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  const mismatchBody = await mismatch.json();
+  assert.equal(mismatch.status, 409);
+  assert.equal(mismatchBody.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(mismatchBody.details?.phase, "stream_init");
+  assert.equal(mismatchBody.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH");
+  assert.equal(mismatchBody.details?.checkpointConsumerId, checkpointConsumerId);
+
+  api.store.sessionRelayStates.set(existingRelayEntry[0], {
+    ...(existingRelayEntry[1] ?? {}),
+    sessionId,
+    sinceEventId: "evt invalid cursor",
+    updatedAt: new Date().toISOString()
+  });
+
+  const invalidCursor = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  const invalidCursorBody = await invalidCursor.json();
+  assert.equal(invalidCursor.status, 409);
+  assert.equal(invalidCursorBody.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(invalidCursorBody.details?.phase, "stream_init");
+  assert.equal(invalidCursorBody.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_CURSOR_INVALID");
+  assert.equal(invalidCursorBody.details?.checkpointConsumerId, checkpointConsumerId);
+});
+
+test("API e2e: /sessions/:id/events/stream fails closed when checkpoint cursor is missing from timeline", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_missing_cursor_principal_1";
+  const sessionId = "sess_stream_checkpoint_missing_cursor_1";
+  const checkpointConsumerId = "relay_stream_missing_cursor_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_missing_cursor_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_missing_cursor_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_checkpoint_missing_cursor_task_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const checkpointAck = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: firstAppend.json?.event?.id
+    }
+  });
+  assert.equal(checkpointAck.statusCode, 200, checkpointAck.body);
+
+  if (!(api.store.sessionRelayStates instanceof Map)) api.store.sessionRelayStates = new Map();
+  const checkpointId = `session_inbox_relay:${sessionId}:${checkpointConsumerId}`;
+  const existingRelayEntry =
+    Array.from(api.store.sessionRelayStates.entries()).find(([, row]) => String(row?.checkpointId ?? "") === checkpointId) ?? null;
+  assert.ok(existingRelayEntry, "session relay checkpoint should exist in store");
+
+  api.store.sessionRelayStates.set(existingRelayEntry[0], {
+    ...(existingRelayEntry[1] ?? {}),
+    sinceEventId: "evt_missing_checkpoint_cursor_stream_1",
+    updatedAt: new Date().toISOString()
+  });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const res = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`,
+    {
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  const body = await res.json();
+  assert.equal(res.status, 409);
+  assert.equal(body.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(body.details?.phase, "stream_init");
+  assert.equal(body.details?.cursorSource, "checkpoint");
+  assert.equal(body.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+  assert.equal(body.details?.sinceEventId, "evt_missing_checkpoint_cursor_stream_1");
+  assert.equal(body.details?.eventCount, 1);
+  assert.equal(body.details?.firstEventId, firstAppend.json?.event?.id);
+  assert.equal(body.details?.lastEventId, firstAppend.json?.event?.id);
+});
+
 test("API e2e: /sessions/:id/events/stream enforces participant ACL fail closed", async (t) => {
   const api = createApi({ opsToken: "tok_ops" });
   const allowedPrincipalId = "agt_stream_acl_allowed_1";
@@ -434,6 +673,84 @@ test("API e2e: /sessions/:id/events/stream enforces participant ACL fail closed"
   const ready = await readSseFrame(allowedStream, { timeoutMs: 8_000 });
   assert.equal(ready.event, "session.ready");
   await closeSseStream(allowedStream, controller);
+});
+
+test("API e2e: /sessions/:id/events/stream emits fail-closed session.error when poll read fails", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_poll_read_fail_principal_1";
+  const sessionId = "sess_stream_poll_read_fail_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_poll_read_fail_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const seeded = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_poll_read_fail_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_poll_read_fail_task_1" }
+    }
+  });
+  assert.equal(seeded.statusCode, 201, seeded.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const streamResponse = await fetch(
+    `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?sinceEventId=${encodeURIComponent(String(seeded.json?.event?.id ?? ""))}`,
+    {
+      signal: controller.signal,
+      headers: {
+        authorization: auth.authorization,
+        "x-proxy-tenant-id": "tenant_default",
+        "x-proxy-principal-id": principalAgentId
+      }
+    }
+  );
+  assert.equal(streamResponse.status, 200);
+  assert.ok(streamResponse.body);
+  const stream = createSseFrameReader(streamResponse.body);
+
+  const readyFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+  assert.equal(readyFrame.event, "session.ready");
+  const readyPayload = JSON.parse(readyFrame.dataLines.join("\n"));
+  assert.equal(readyPayload.sessionId, sessionId);
+  assert.equal(readyPayload.sinceEventId, seeded.json?.event?.id);
+
+  api.store.getSessionEvents = async () => {
+    throw new Error("injected stream poll read failure");
+  };
+
+  const errorFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+  assert.equal(errorFrame.event, "session.error");
+  const errorPayload = JSON.parse(errorFrame.dataLines.join("\n"));
+  assert.equal(errorPayload.ok, false);
+  assert.equal(errorPayload.code, "SESSION_EVENT_STREAM_READ_FAILED");
+  assert.equal(errorPayload.message, "injected stream poll read failure");
+
+  await closeSseStream(stream, controller);
 });
 
 test("API e2e: /sessions/:id/events/stream watermark progression survives filtered reconnect churn", async (t) => {

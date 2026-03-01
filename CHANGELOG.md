@@ -7,6 +7,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- Session inbox relay now supports explicit fail-closed checkpoint rewind (`POST /sessions/:sessionId/events/checkpoint/requeue`) for offline redelivery workflows, with deterministic denial reason code `SESSION_EVENT_REQUEUE_CURSOR_ADVANCE` when a requeue would advance instead of rewind.
 - Public state handoff contract docs now include `Project.v1` (`docs/spec/public/Project.v1.md`) and explicit linkage from `StateCheckpoint.v1.projectId` for deterministic project-scope portability guidance.
 - ACS collaboration substrate primitives for host-agnostic inter-agent coordination: `Session.v1` + `SessionEvent.v1` (hash-chained timelines with deterministic provenance/taint propagation), `SessionReplayPack.v1` + `SessionTranscript.v1` exports (fail-closed on tamper/mismatch), `AuthorityGrant.v1` enforcement roots for paid/high-risk actions, task negotiation objects (`TaskQuote|TaskOffer|TaskAcceptance`), and signed interaction graph exports (`VerifiedInteractionGraphPack.v1`).
 - `nooterra doctor` command (`scripts/doctor/mcp-host.mjs`) for one-command MCP host compatibility validation with clear `PASS|FAIL` output and report path.

@@ -9921,6 +9921,66 @@ export function createApi({
     );
   }
 
+  function buildSessionEventCursorRegressionDetails({
+    sessionId,
+    checkpointId = null,
+    checkpointConsumerId = null,
+    existingSinceEventId = null,
+    requestedSinceEventId = null,
+    existingCursorIndex = null,
+    requestedCursorIndex = null,
+    events = [],
+    phase = "checkpoint_write"
+  } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        sessionId: normalizedSessionId,
+        checkpointId: normalizeSessionInboxEventId(checkpointId),
+        checkpointConsumerId: normalizeSessionInboxEventId(checkpointConsumerId),
+        existingSinceEventId: normalizeSessionInboxEventId(existingSinceEventId),
+        requestedSinceEventId: normalizeSessionInboxEventId(requestedSinceEventId),
+        existingCursorIndex: Number.isSafeInteger(existingCursorIndex) ? existingCursorIndex : null,
+        requestedCursorIndex: Number.isSafeInteger(requestedCursorIndex) ? requestedCursorIndex : null,
+        phase,
+        reasonCode: "SESSION_EVENT_CURSOR_REGRESSION",
+        reason: "checkpoint cursor must advance monotonically",
+        ...summarizeSessionEventCursorRange(events)
+      },
+      { path: "$.details" }
+    );
+  }
+
+  function buildSessionEventCursorAdvanceBlockedDetails({
+    sessionId,
+    checkpointId = null,
+    checkpointConsumerId = null,
+    existingSinceEventId = null,
+    requestedSinceEventId = null,
+    existingCursorIndex = null,
+    requestedCursorIndex = null,
+    events = [],
+    phase = "checkpoint_requeue"
+  } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        sessionId: normalizedSessionId,
+        checkpointId: normalizeSessionInboxEventId(checkpointId),
+        checkpointConsumerId: normalizeSessionInboxEventId(checkpointConsumerId),
+        existingSinceEventId: normalizeSessionInboxEventId(existingSinceEventId),
+        requestedSinceEventId: normalizeSessionInboxEventId(requestedSinceEventId),
+        existingCursorIndex: Number.isSafeInteger(existingCursorIndex) ? existingCursorIndex : null,
+        requestedCursorIndex: Number.isSafeInteger(requestedCursorIndex) ? requestedCursorIndex : null,
+        phase,
+        reasonCode: "SESSION_EVENT_REQUEUE_CURSOR_ADVANCE",
+        reason: "checkpoint requeue cannot advance cursor beyond the existing checkpoint",
+        ...summarizeSessionEventCursorRange(events)
+      },
+      { path: "$.details" }
+    );
+  }
+
   function normalizeSessionInboxEventId(value) {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
@@ -17355,6 +17415,150 @@ export function createApi({
     return allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.ACTION) || allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.FINANCIAL);
   }
 
+  async function resolveDelegationGrantForWorkOrderBinding({
+    tenantId,
+    delegationGrantRef,
+    principalAgentId = null,
+    subAgentId = null,
+    nowAt,
+    operation = "work_order"
+  } = {}) {
+    const explicitRef =
+      typeof delegationGrantRef === "string" && delegationGrantRef.trim() !== ""
+        ? delegationGrantRef.trim()
+        : null;
+    if (!explicitRef) return { delegationGrant: null, delegationGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(explicitRef, "delegationGrantRef", { allowNull: false, max: 200 });
+    if (typeof store.getDelegationGrant !== "function") {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_RESOLVER_UNAVAILABLE",
+        "delegation grant resolver is unavailable for this store",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getDelegationGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_FOUND", "delegation grant was not found", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateDelegationGrantV1(grant);
+    } catch (err) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SCHEMA_INVALID", "delegation grant failed schema validation", {
+        delegationGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TIME_INVALID", "work order delegation timestamp must be an ISO timestamp");
+    }
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation.revokedAt : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_REVOKED", "delegation grant is revoked", {
+          delegationGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_VALIDITY_INVALID", "delegation grant validity window is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_ACTIVE", "delegation grant is not active yet", {
+        delegationGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_EXPIRED", "delegation grant is expired", {
+        delegationGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [
+        { role: "delegator", agentId: grant?.delegatorAgentId ?? null },
+        { role: "delegatee", agentId: grant?.delegateeAgentId ?? null }
+      ],
+      at: atIso,
+      operation,
+      errorCode: "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402DelegationGrantError(
+        signerLifecycleGuard.code ?? "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID",
+        "delegation grant signer lifecycle blocked work order binding",
+        normalizeForCanonicalJson(
+          {
+            delegationGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
+    }
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_DEPTH_INVALID", "delegation grant chain depth exceeds max depth", {
+        delegationGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+    const scope = grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope : {};
+    if (scope.sideEffectingAllowed !== true) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SIDE_EFFECTING_DENIED", "delegation grant does not allow side-effecting execution", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (!grantAllowsSubstrateWriteRisk(scope)) {
+      const allowedRiskClasses = Array.isArray(scope.allowedRiskClasses) ? scope.allowedRiskClasses.map((row) => String(row).toLowerCase()) : [];
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_RISK_CLASS_DENIED", "delegation grant does not allow substrate write risk class", {
+        delegationGrantRef: normalizedGrantId,
+        allowedRiskClasses
+      });
+    }
+    const normalizedPrincipalAgentId = typeof principalAgentId === "string" && principalAgentId.trim() !== "" ? principalAgentId.trim() : null;
+    const normalizedSubAgentId = typeof subAgentId === "string" && subAgentId.trim() !== "" ? subAgentId.trim() : null;
+    const delegateeAgentId = typeof grant?.delegateeAgentId === "string" && grant.delegateeAgentId.trim() !== "" ? grant.delegateeAgentId.trim() : null;
+    if (
+      delegateeAgentId &&
+      ((normalizedPrincipalAgentId && delegateeAgentId !== normalizedPrincipalAgentId) ||
+        (normalizedSubAgentId && delegateeAgentId !== normalizedSubAgentId)) &&
+      !(normalizedPrincipalAgentId && normalizedSubAgentId && (delegateeAgentId === normalizedPrincipalAgentId || delegateeAgentId === normalizedSubAgentId))
+    ) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_ACTOR_MISMATCH", "delegation grant delegatee does not match work order participants", {
+        delegationGrantRef: normalizedGrantId,
+        delegateeAgentId,
+        principalAgentId: normalizedPrincipalAgentId,
+        subAgentId: normalizedSubAgentId
+      });
+    }
+    const allowedProviders = Array.isArray(scope.allowedProviderIds) ? scope.allowedProviderIds.filter(Boolean).map((row) => String(row).trim()) : [];
+    if (allowedProviders.length > 0 && normalizedSubAgentId && !allowedProviders.includes(normalizedSubAgentId)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_PROVIDER_DENIED", "sub-agent is not allowlisted by delegation grant", {
+        delegationGrantRef: normalizedGrantId,
+        subAgentId: normalizedSubAgentId,
+        allowedProviderIds: allowedProviders
+      });
+    }
+    return { delegationGrant: grant, delegationGrantRef: normalizedGrantId };
+  }
+
   async function resolveDelegationGrantForStateCheckpointWrite({
     tenantId,
     delegationGrantRef,
@@ -21018,8 +21222,18 @@ export function createApi({
     tenantId,
     principalAgentId = null,
     subAgentId = null,
-    operation = "work_order"
+    operation = "work_order",
+    at = null,
+    enforceSignerLifecycle = true,
+    signerErrorCode = "X402_AGENT_SIGNER_KEY_INVALID"
   } = {}) {
+    const shouldEnforceSignerLifecycle = enforceSignerLifecycle === true;
+    const atIso =
+      shouldEnforceSignerLifecycle && typeof at === "string" && at.trim() !== ""
+        ? at.trim()
+        : shouldEnforceSignerLifecycle
+          ? nowIso()
+          : null;
     const participants = [
       { role: "principal", agentId: principalAgentId },
       { role: "sub_agent", agentId: subAgentId }
@@ -21047,6 +21261,29 @@ export function createApi({
             { path: "$.details" }
           )
         };
+      }
+      if (shouldEnforceSignerLifecycle) {
+        const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+          tenantId,
+          agentId,
+          at: atIso
+        });
+        if (!signerLifecycle.ok) {
+          return {
+            blocked: true,
+            httpStatus: 409,
+            code: signerErrorCode,
+            message: `${participant.role} signer key lifecycle blocked for ${operation}`,
+            details: buildGrantParticipantSignerLifecycleDetails({
+              operation,
+              role: participant.role,
+              agentId,
+              signerKeyId: signerLifecycle.signerKeyId ?? null,
+              at: atIso,
+              lifecycle: signerLifecycle.lifecycle ?? null
+            })
+          };
+        }
       }
     }
     return { blocked: false };
@@ -57060,9 +57297,11 @@ export function createApi({
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
+          const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+          let requestedCursorIndex = -1;
           if (sinceEventId) {
-            const cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
-            if (cursorIndex < 0) {
+            requestedCursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (requestedCursorIndex < 0) {
               return sendError(
                 res,
                 409,
@@ -57073,15 +57312,210 @@ export function createApi({
                   events,
                   phase: "checkpoint_write",
                   cursorSource: "checkpoint_write",
-                  checkpointId: buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId }),
+                  checkpointId,
                   checkpointConsumerId
                 }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
             }
           }
+          const existingRelayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+          const existingSinceEventId = normalizeSessionInboxEventId(existingRelayState?.sinceEventId ?? null);
+          let existingCursorIndex = -1;
+          if (existingSinceEventId) {
+            existingCursorIndex = events.findIndex((row) => String(row?.id ?? "") === existingSinceEventId);
+            if (existingCursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId: existingSinceEventId,
+                  events,
+                  phase: "checkpoint_write",
+                  cursorSource: "checkpoint",
+                  checkpointId,
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          if (existingCursorIndex > requestedCursorIndex) {
+            return sendError(
+              res,
+              409,
+              "session event checkpoint regression blocked",
+              buildSessionEventCursorRegressionDetails({
+                sessionId,
+                checkpointId,
+                checkpointConsumerId,
+                existingSinceEventId,
+                requestedSinceEventId: sinceEventId,
+                existingCursorIndex,
+                requestedCursorIndex,
+                events,
+                phase: "checkpoint_write"
+              }),
+              { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+            );
+          }
+          const relayState = buildSessionRelayCheckpointRecord({
+            tenantId,
+            sessionId,
+            consumerId: checkpointConsumerId,
+            sinceEventId,
+            createdAt: existingRelayState?.createdAt ?? null,
+            updatedAt: nowIso()
+          });
+          await commitTx([{ kind: "SESSION_RELAY_STATE_UPSERT", tenantId, checkpointId, relayState }]);
+          const nextSinceEventId = normalizeSessionInboxEventId(events[events.length - 1]?.id ?? sinceEventId);
+          const inbox = buildSessionEventInboxWatermark({
+            events,
+            sinceEventId,
+            nextSinceEventId
+          });
+          writeSessionEventInboxHeaders(res, inbox);
+          return sendJson(res, 200, {
+            ok: true,
+            checkpoint: relayState,
+            inbox
+          });
+        }
+
+        if (
+          parts[0] === "sessions" &&
+          parts[1] &&
+          parts[2] === "events" &&
+          parts[3] === "checkpoint" &&
+          parts[4] === "requeue" &&
+          parts.length === 5 &&
+          req.method === "POST"
+        ) {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const sessionId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let checkpointConsumerId = null;
+          let sinceEventId = null;
+          try {
+            checkpointConsumerId = parseSessionRelayConsumerId(body?.checkpointConsumerId ?? null, { allowNull: false });
+            sinceEventId = parseSessionEventCursor(body?.sinceEventId ?? null, { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid session event checkpoint requeue", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+
           const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
           const existingRelayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+          if (!existingRelayState) {
+            return sendError(
+              res,
+              409,
+              "invalid session event cursor",
+              normalizeForCanonicalJson(
+                {
+                  sessionId,
+                  checkpointConsumerId,
+                  checkpointId,
+                  phase: "checkpoint_requeue",
+                  reasonCode: "SESSION_EVENT_CHECKPOINT_NOT_FOUND",
+                  reason: "checkpoint was not found for this session consumer"
+                },
+                { path: "$.details" }
+              ),
+              { code: "SESSION_EVENT_CURSOR_INVALID" }
+            );
+          }
+          if (String(existingRelayState.sessionId ?? "") !== sessionId) {
+            return sendError(
+              res,
+              409,
+              "invalid session event cursor",
+              normalizeForCanonicalJson(
+                {
+                  sessionId,
+                  checkpointConsumerId,
+                  checkpointId,
+                  phase: "checkpoint_requeue",
+                  reasonCode: "SESSION_EVENT_CHECKPOINT_SESSION_MISMATCH",
+                  reason: "checkpoint is not bound to this session"
+                },
+                { path: "$.details" }
+              ),
+              { code: "SESSION_EVENT_CURSOR_INVALID" }
+            );
+          }
+
+          let events = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(events)) events = [];
+          const existingSinceEventId = normalizeSessionInboxEventId(existingRelayState?.sinceEventId ?? null);
+          let existingCursorIndex = -1;
+          if (existingSinceEventId) {
+            existingCursorIndex = events.findIndex((row) => String(row?.id ?? "") === existingSinceEventId);
+            if (existingCursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId: existingSinceEventId,
+                  events,
+                  phase: "checkpoint_requeue",
+                  cursorSource: "checkpoint",
+                  checkpointId,
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+
+          let requestedCursorIndex = -1;
+          if (sinceEventId) {
+            requestedCursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (requestedCursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events,
+                  phase: "checkpoint_requeue",
+                  cursorSource: "checkpoint_requeue",
+                  checkpointId,
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+
+          if (requestedCursorIndex > existingCursorIndex) {
+            return sendError(
+              res,
+              409,
+              "session event checkpoint requeue blocked",
+              buildSessionEventCursorAdvanceBlockedDetails({
+                sessionId,
+                checkpointId,
+                checkpointConsumerId,
+                existingSinceEventId,
+                requestedSinceEventId: sinceEventId,
+                existingCursorIndex,
+                requestedCursorIndex,
+                events,
+                phase: "checkpoint_requeue"
+              }),
+              { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+            );
+          }
+
           const relayState = buildSessionRelayCheckpointRecord({
             tenantId,
             sessionId,
@@ -60579,30 +61013,41 @@ export function createApi({
           dispatchPlan
         });
 
-        const delegationGrantRef =
-          typeof body?.delegationGrantRef === "string" && body.delegationGrantRef.trim() !== "" ? body.delegationGrantRef.trim() : null;
+        let delegationGrantRef = null;
+        try {
+          delegationGrantRef = normalizeOptionalX402RefInput(body?.delegationGrantRef ?? null, "delegationGrantRef", {
+            allowNull: true,
+            max: 200
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
         let resolvedDelegationGrantForWorkOrder = null;
         if (delegationGrantRef) {
-          if (typeof store.getDelegationGrant !== "function") {
-            return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
-          }
-          const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
-          if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
           try {
-            validateDelegationGrantV1(delegationGrant);
+            const delegationResolution = await resolveDelegationGrantForWorkOrderBinding({
+              tenantId,
+              delegationGrantRef,
+              principalAgentId,
+              subAgentId,
+              nowAt,
+              operation: "work_order.create"
+            });
+            resolvedDelegationGrantForWorkOrder = delegationResolution?.delegationGrant ?? null;
+            delegationGrantRef = delegationResolution?.delegationGrantRef ?? delegationGrantRef;
           } catch (err) {
             return sendError(
               res,
               409,
               "work order delegation grant blocked",
               {
-                reasonCode: "X402_DELEGATION_GRANT_INVALID",
-                message: err?.message ?? null
+                reasonCode: err?.code ?? "X402_DELEGATION_GRANT_INVALID",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
               },
-              { code: "X402_DELEGATION_GRANT_INVALID" }
+              { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
             );
           }
-          resolvedDelegationGrantForWorkOrder = delegationGrant;
         }
         const authorityGrantRef =
           typeof body?.authorityGrantRef === "string" && body.authorityGrantRef.trim() !== "" ? body.authorityGrantRef.trim() : null;
@@ -62445,7 +62890,7 @@ export function createApi({
 		              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
 		            );
 		          }
-		          const effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
+		          let effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
 		          const workOrderAuthorityGrantRef =
 		            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
 		              ? existingWorkOrder.authorityGrantRef.trim()
@@ -62523,38 +62968,30 @@ export function createApi({
           const grantValidationAt = nowIso();
           let resolvedDelegationGrant = null;
           if (effectiveDelegationGrantRef) {
-            if (typeof store.getDelegationGrant !== "function") {
-              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
-            }
-            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: effectiveDelegationGrantRef });
-            if (!delegationGrant) {
-              return sendError(
-                res,
-                409,
-                "work order settlement blocked",
-                {
-                  reasonCode: "X402_DELEGATION_GRANT_NOT_FOUND",
-                  message: "delegation grant was not found",
-                  delegationGrantRef: effectiveDelegationGrantRef
-                },
-                { code: "X402_DELEGATION_GRANT_NOT_FOUND" }
-              );
-            }
             try {
-              validateDelegationGrantV1(delegationGrant);
+              const delegationResolution = await resolveDelegationGrantForWorkOrderBinding({
+                tenantId,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+                subAgentId: existingWorkOrder?.subAgentId ?? null,
+                nowAt: grantValidationAt,
+                operation: "work_order.settle"
+              });
+              resolvedDelegationGrant = delegationResolution?.delegationGrant ?? null;
+              effectiveDelegationGrantRef = delegationResolution?.delegationGrantRef ?? effectiveDelegationGrantRef;
             } catch (err) {
               return sendError(
                 res,
                 409,
                 "work order settlement blocked",
                 {
-                  reasonCode: "X402_DELEGATION_GRANT_INVALID",
-                  message: err?.message ?? null
+                  reasonCode: err?.code ?? "X402_DELEGATION_GRANT_INVALID",
+                  message: err?.message ?? null,
+                  ...(err?.details && typeof err.details === "object" ? err.details : {})
                 },
-                { code: "X402_DELEGATION_GRANT_INVALID" }
+                { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
               );
             }
-            resolvedDelegationGrant = delegationGrant;
           }
           let resolvedAuthorityGrant = null;
           if (effectiveAuthorityGrantRef) {
