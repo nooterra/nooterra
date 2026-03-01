@@ -53,6 +53,36 @@ test("api-sdk: session methods call expected endpoints", async () => {
         offset: 0
       });
     }
+    if (String(url).includes("/sessions/sess_sdk_1/events/checkpoint?") && String(init?.method) === "GET") {
+      return makeJsonResponse({
+        checkpoint: {
+          schemaVersion: "SessionEventInboxRelayCheckpoint.v1",
+          sessionId: "sess_sdk_1",
+          consumerId: "relay_sdk_1",
+          sinceEventId: "evt_sdk_1"
+        }
+      });
+    }
+    if (String(url).endsWith("/sessions/sess_sdk_1/events/checkpoint") && String(init?.method) === "POST") {
+      return makeJsonResponse({
+        checkpoint: {
+          schemaVersion: "SessionEventInboxRelayCheckpoint.v1",
+          sessionId: "sess_sdk_1",
+          consumerId: "relay_sdk_1",
+          sinceEventId: "evt_sdk_1"
+        }
+      });
+    }
+    if (String(url).endsWith("/sessions/sess_sdk_1/events/checkpoint/requeue") && String(init?.method) === "POST") {
+      return makeJsonResponse({
+        checkpoint: {
+          schemaVersion: "SessionEventInboxRelayCheckpoint.v1",
+          sessionId: "sess_sdk_1",
+          consumerId: "relay_sdk_1",
+          sinceEventId: null
+        }
+      });
+    }
     if (String(url).endsWith("/sessions/sess_sdk_1/events") && String(init?.method) === "POST") {
       return makeJsonResponse({ sessionId: "sess_sdk_1", event: { id: "evt_sdk_2" }, currentPrevChainHash: "a".repeat(64) }, { status: 201 });
     }
@@ -111,6 +141,24 @@ test("api-sdk: session methods call expected endpoints", async () => {
   );
   assert.equal(calls[3].init?.method, "GET");
 
+  await client.getSessionEventCheckpoint("sess_sdk_1", "relay_sdk_1");
+  assert.equal(calls[4].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/checkpoint?checkpointConsumerId=relay_sdk_1");
+  assert.equal(calls[4].init?.method, "GET");
+
+  await client.ackSessionEventCheckpoint("sess_sdk_1", {
+    checkpointConsumerId: "relay_sdk_1",
+    sinceEventId: "evt_sdk_1"
+  });
+  assert.equal(calls[5].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/checkpoint");
+  assert.equal(calls[5].init?.method, "POST");
+
+  await client.requeueSessionEventCheckpoint("sess_sdk_1", {
+    checkpointConsumerId: "relay_sdk_1",
+    sinceEventId: null
+  });
+  assert.equal(calls[6].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/checkpoint/requeue");
+  assert.equal(calls[6].init?.method, "POST");
+
   await client.appendSessionEvent(
     "sess_sdk_1",
     {
@@ -121,22 +169,22 @@ test("api-sdk: session methods call expected endpoints", async () => {
       expectedPrevChainHash: "a".repeat(64)
     }
   );
-  assert.equal(calls[4].url, "https://api.nooterra.local/sessions/sess_sdk_1/events");
-  assert.equal(calls[4].init?.method, "POST");
+  assert.equal(calls[7].url, "https://api.nooterra.local/sessions/sess_sdk_1/events");
+  assert.equal(calls[7].init?.method, "POST");
 
   await client.getSessionReplayPack("sess_sdk_1", {
     sign: true,
     signerKeyId: "key_session_signer_1"
   });
   assert.equal(
-    calls[5].url,
+    calls[8].url,
     "https://api.nooterra.local/sessions/sess_sdk_1/replay-pack?sign=true&signerKeyId=key_session_signer_1"
   );
-  assert.equal(calls[5].init?.method, "GET");
+  assert.equal(calls[8].init?.method, "GET");
 
   await client.getSessionTranscript("sess_sdk_1", { sign: true });
-  assert.equal(calls[6].url, "https://api.nooterra.local/sessions/sess_sdk_1/transcript?sign=true");
-  assert.equal(calls[6].init?.method, "GET");
+  assert.equal(calls[9].url, "https://api.nooterra.local/sessions/sess_sdk_1/transcript?sign=true");
+  assert.equal(calls[9].init?.method, "GET");
 
   const streamEvents = [];
   for await (const event of client.streamSessionEvents(
@@ -151,10 +199,10 @@ test("api-sdk: session methods call expected endpoints", async () => {
   )) {
     streamEvents.push(event);
   }
-  assert.equal(calls[7].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
-  assert.equal(calls[7].init?.method, "GET");
-  assert.equal(calls[7].init?.headers?.["last-event-id"], "evt_resume_1");
-  assert.equal(calls[7].init?.headers?.accept, "text/event-stream");
+  assert.equal(calls[10].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
+  assert.equal(calls[10].init?.method, "GET");
+  assert.equal(calls[10].init?.headers?.["last-event-id"], "evt_resume_1");
+  assert.equal(calls[10].init?.headers?.accept, "text/event-stream");
   assert.equal(streamEvents.length, 2);
   assert.equal(streamEvents[0].event, "session.ready");
   assert.equal(streamEvents[0].id, "evt_ready");
