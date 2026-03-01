@@ -6,6 +6,7 @@ For curated public docs, start here:
 
 - [Nooterra Docs home](./gitbook/README.md)
 - [Quickstart](./gitbook/quickstart.md)
+- [Quickstart: Agent Bootstrap](./QUICKSTART_AGENT_BOOTSTRAP.md)
 - [Quickstart: Profiles CLI](./QUICKSTART_PROFILES.md)
 - [Core Primitives](./gitbook/core-primitives.md)
 - [API Reference](./gitbook/api-reference.md)

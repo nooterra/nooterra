@@ -32,6 +32,9 @@ function usage() {
     "  nooterra wallet balance [--watch] [--min-usdc <amount>] [--interval-seconds <n>] [--timeout-seconds <n>] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]"
   );
   console.error("  nooterra agent resolve <agentRef> [--json] [--base-url <url>] [--protocol <version>]");
+  console.error("  nooterra agent init <agentId> [--out <path>] [--force] [--json]");
+  console.error("  nooterra agent dev [--project <path>] [--json]");
+  console.error("  nooterra agent publish [--project <path>] [--registry <path>] [--json]");
   console.error("  nooterra profile list [--format json|text] [--json-out <path>]");
   console.error("  nooterra profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
   console.error(
