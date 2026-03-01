@@ -355,6 +355,152 @@ test("API e2e: /sessions/:id/events/stream supports checkpoint consumer resume a
   await closeSseStream(stream, controller);
 });
 
+test("API e2e: session checkpoint write fails closed on cursor regression", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_regression_principal_1";
+  const sessionId = "sess_stream_checkpoint_regression_1";
+  const checkpointConsumerId = "relay_stream_regression_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_regression_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_regression_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_checkpoint_regression_task_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const secondAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_regression_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 10 }
+    }
+  });
+  assert.equal(secondAppend.statusCode, 201, secondAppend.body);
+
+  const ackLatest = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: secondAppend.json?.event?.id
+    }
+  });
+  assert.equal(ackLatest.statusCode, 200, ackLatest.body);
+  assert.equal(ackLatest.json?.checkpoint?.sinceEventId, secondAppend.json?.event?.id);
+
+  const regressionAck = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: firstAppend.json?.event?.id
+    }
+  });
+  assert.equal(regressionAck.statusCode, 409, regressionAck.body);
+  assert.equal(regressionAck.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(regressionAck.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_REGRESSION");
+  assert.equal(regressionAck.json?.details?.phase, "checkpoint_write");
+});
+
+test("API e2e: session checkpoint requeue fails closed when requested cursor advances", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_checkpoint_requeue_principal_1";
+  const sessionId = "sess_stream_checkpoint_requeue_1";
+  const checkpointConsumerId = "relay_stream_requeue_consumer_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_checkpoint_requeue_session_create_1" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_requeue_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_checkpoint_requeue_task_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const secondAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_checkpoint_requeue_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 35 }
+    }
+  });
+  assert.equal(secondAppend.statusCode, 201, secondAppend.body);
+
+  const ackFirst = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: firstAppend.json?.event?.id
+    }
+  });
+  assert.equal(ackFirst.statusCode, 200, ackFirst.body);
+  assert.equal(ackFirst.json?.checkpoint?.sinceEventId, firstAppend.json?.event?.id);
+
+  const invalidRequeue = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: secondAppend.json?.event?.id
+    }
+  });
+  assert.equal(invalidRequeue.statusCode, 409, invalidRequeue.body);
+  assert.equal(invalidRequeue.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(invalidRequeue.json?.details?.reasonCode, "SESSION_EVENT_REQUEUE_CURSOR_ADVANCE");
+  assert.equal(invalidRequeue.json?.details?.phase, "checkpoint_requeue");
+});
+
 test("API e2e: /sessions/:id/events/stream fails closed when checkpoint consumer is missing", async (t) => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_stream_checkpoint_missing_principal_1";
