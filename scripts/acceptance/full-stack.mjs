@@ -29,6 +29,23 @@ const MINIO_FORCE_PATH_STYLE = process.env.ACCEPTANCE_MINIO_FORCE_PATH_STYLE ===
 
 const ART_DIR = process.env.ACCEPTANCE_ARTIFACT_DIR ?? null;
 
+const JOB_STATUS_RANK = Object.freeze({
+  BOOKED: 0,
+  MATCHED: 1,
+  RESERVED: 2,
+  EN_ROUTE: 3,
+  ACCESS_GRANTED: 4,
+  EXECUTING: 5,
+  ASSISTED: 6,
+  COMPLETED: 7,
+  ABORTED: 8
+});
+
+const EVENT_TARGET_STATUS = Object.freeze({
+  MATCHED: "MATCHED",
+  RESERVED: "RESERVED"
+});
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -517,6 +534,23 @@ async function main() {
         if (typeof tailHash === "string" && tailHash.trim()) {
           lastChainHash = tailHash;
           continue;
+        }
+      }
+      if (r.status === 400 && String(r.json?.code ?? "") === "TRANSITION_ILLEGAL" && EVENT_TARGET_STATUS[type]) {
+        const latest = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: `/jobs/${jobId}/events`, headers: headersBase });
+        if (latest.status === 200) {
+          const events = Array.isArray(latest.json?.events) ? latest.json.events : [];
+          const tail = events.length ? events[events.length - 1] : null;
+          const tailHash = typeof tail?.chainHash === "string" && tail.chainHash.trim() !== "" ? tail.chainHash.trim() : null;
+          const tailStatus = String(tail?.jobStatusAfter ?? "").trim().toUpperCase();
+          const targetStatus = EVENT_TARGET_STATUS[type];
+          const tailRank = JOB_STATUS_RANK[tailStatus] ?? Number.NaN;
+          const targetRank = JOB_STATUS_RANK[targetStatus] ?? Number.NaN;
+          if (tailHash) lastChainHash = tailHash;
+          if (Number.isFinite(tailRank) && Number.isFinite(targetRank) && tailRank >= targetRank) {
+            // Transition already applied (or surpassed) by server-side dispatch.
+            return tail;
+          }
         }
       }
       assert.equal(r.status, 201, r.text);

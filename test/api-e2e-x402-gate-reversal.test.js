@@ -435,6 +435,17 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   });
   assert.equal(requested.statusCode, 202, requested.body);
   assert.equal(requested.json?.reversal?.status, "refund_pending");
+  assert.equal(requested.json?.reversal?.reserve?.status, "held");
+  assert.equal(requested.json?.reversal?.reserve?.amountCents, amountCents);
+  assert.equal(requested.json?.reversal?.reserve?.currency, "USD");
+  assert.equal(requested.json?.reversal?.reserve?.holderAgentId, payee.agentId);
+  const payeeWalletAfterRequest = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(payee.agentId)}/wallet`
+  });
+  assert.equal(payeeWalletAfterRequest.statusCode, 200, payeeWalletAfterRequest.body);
+  assert.equal(payeeWalletAfterRequest.json?.wallet?.availableCents, 0);
+  assert.equal(payeeWalletAfterRequest.json?.wallet?.escrowLockedCents, amountCents);
   const requestedIdempotentReplay = await request(api, {
     method: "POST",
     path: "/x402/gate/reversal",
@@ -577,6 +588,8 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(resolved.json?.settlement?.releasedAmountCents, 0);
   assert.equal(resolved.json?.settlement?.refundedAmountCents, amountCents);
   assert.equal(resolved.json?.settlementReceipt?.status, "refunded");
+  assert.equal(resolved.json?.reversal?.reserve?.status, "consumed");
+  assert.equal(resolved.json?.reversal?.reserve?.amountCents, amountCents);
   assert.equal(resolved.json?.reversalEvent?.providerDecisionVerification?.verified, true);
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_requested"));
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_resolved"));
@@ -610,6 +623,7 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   });
   assert.equal(payeeWallet.statusCode, 200, payeeWallet.body);
   assert.equal(payeeWallet.json?.wallet?.availableCents, 0);
+  assert.equal(payeeWallet.json?.wallet?.escrowLockedCents, 0);
 
   const events = await request(api, {
     method: "GET",
@@ -623,6 +637,261 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(latest.eventType, "refund_resolved");
   assert.equal(prior.eventType, "refund_requested");
   assert.equal(latest.prevEventHash, prior.eventHash);
+});
+
+test("API e2e: x402 reversal resolve_refund denied releases held provider reserve", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_refund_denied_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_refund_denied_payee_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_refund_denied_1" });
+
+  const gateId = "x402gate_refund_denied_1";
+  const amountCents = 650;
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_refund_denied_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_refund_denied_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_refund_denied_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"1".repeat(64)}`, `http:response_sha256:${"2".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  assert.equal(verify.json?.settlement?.status, "released");
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  const refundRequestCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_denied_request_1",
+    idempotencyKey: "idem_refund_denied_request_1",
+    nonce: "nonce_refund_denied_request_1"
+  });
+  const requested = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_denied_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "provider_review",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:denied_case"],
+      command: refundRequestCommand
+    }
+  });
+  assert.equal(requested.statusCode, 202, requested.body);
+  assert.equal(requested.json?.reversal?.reserve?.status, "held");
+
+  const resolveCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "resolve_refund",
+    commandId: "cmd_refund_denied_resolve_1",
+    idempotencyKey: "idem_refund_denied_resolve_1",
+    nonce: "nonce_refund_denied_resolve_1"
+  });
+  const providerDecisionArtifact = signProviderRefundDecision({
+    payee,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    decision: "denied",
+    reason: "service_was_delivered"
+  });
+  const resolved = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_resolve_refund_denied_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "denied",
+      reason: "service_was_delivered",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:denied"],
+      command: resolveCommand,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.reversal?.status, "refund_denied");
+  assert.equal(resolved.json?.reversal?.reserve?.status, "released");
+  assert.equal(resolved.json?.settlement?.status, "released");
+  assert.equal(resolved.json?.settlement?.releasedAmountCents, amountCents);
+  assert.equal(resolved.json?.settlement?.refundedAmountCents, 0);
+
+  const payerWallet = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(payer.agentId)}/wallet`
+  });
+  assert.equal(payerWallet.statusCode, 200, payerWallet.body);
+  assert.equal(payerWallet.json?.wallet?.availableCents, 5000 - amountCents);
+  assert.equal(payerWallet.json?.wallet?.escrowLockedCents, 0);
+
+  const payeeWallet = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(payee.agentId)}/wallet`
+  });
+  assert.equal(payeeWallet.statusCode, 200, payeeWallet.body);
+  assert.equal(payeeWallet.json?.wallet?.availableCents, amountCents);
+  assert.equal(payeeWallet.json?.wallet?.escrowLockedCents, 0);
+});
+
+test("API e2e: x402 reversal request_refund fails closed when provider reserve cannot be locked", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_refund_lock_fail_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_refund_lock_fail_payee_1" });
+  const sink = await registerAgent(api, { agentId: "agt_x402_refund_lock_fail_sink_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 9000, idempotencyKey: "wallet_credit_x402_refund_lock_fail_1" });
+
+  const gateId = "x402gate_refund_lock_fail_1";
+  const amountCents = 700;
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_refund_lock_fail_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_refund_lock_fail_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_refund_lock_fail_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"3".repeat(64)}`, `http:response_sha256:${"4".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  assert.equal(verify.json?.settlement?.status, "released");
+
+  const spendGateId = "x402gate_refund_lock_fail_spend_1";
+  const spendCreated = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_refund_lock_fail_spend_1" },
+    body: {
+      gateId: spendGateId,
+      payerAgentId: payee.agentId,
+      payeeAgentId: sink.agentId,
+      amountCents,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(spendCreated.statusCode, 201, spendCreated.body);
+  const spendAuthorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_refund_lock_fail_spend_1" },
+    body: { gateId: spendGateId }
+  });
+  assert.equal(spendAuthorized.statusCode, 200, spendAuthorized.body);
+  const spendVerify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_refund_lock_fail_spend_1" },
+    body: {
+      gateId: spendGateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"5".repeat(64)}`, `http:response_sha256:${"6".repeat(64)}`]
+    }
+  });
+  assert.equal(spendVerify.statusCode, 200, spendVerify.body);
+  assert.equal(spendVerify.json?.settlement?.status, "released");
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  const refundRequestCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_lock_fail_request_1",
+    idempotencyKey: "idem_refund_lock_fail_request_1",
+    nonce: "nonce_refund_lock_fail_request_1"
+  });
+  const requested = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_lock_fail_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:reserve_shortfall"],
+      command: refundRequestCommand
+    }
+  });
+  assert.equal(requested.statusCode, 409, requested.body);
+  assert.equal(requested.json?.code, "X402_REFUND_RESERVE_LOCK_FAILED");
+
+  const gateRead = await request(api, {
+    method: "GET",
+    path: `/x402/gate/${encodeURIComponent(gateId)}`
+  });
+  assert.equal(gateRead.statusCode, 200, gateRead.body);
+  assert.equal(gateRead.json?.settlement?.status, "released");
+  assert.equal(gateRead.json?.gate?.reversal ?? null, null);
 });
 
 test("API e2e: x402 reversal fails closed when request-hash evidence is missing or mismatched", async () => {

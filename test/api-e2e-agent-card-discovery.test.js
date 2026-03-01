@@ -1273,6 +1273,112 @@ test("API e2e: sybil abuse reports emit penalty signals and quarantine discovery
   assert.ok(Array.isArray(excluded?.reasonCodes) && excluded.reasonCodes.includes("REPUTATION_QUARANTINE_SYBIL_THRESHOLD"));
 });
 
+test("API e2e: reciprocal wash-loop collusion triggers quarantine exclusion in discovery", async () => {
+  const api = createApi();
+  const subjectAgentId = "agt_card_loop_penalty_subject_1";
+  const counterpartyAgentId = "agt_card_loop_penalty_counterparty_1";
+
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: counterpartyAgentId, capabilities: ["travel.booking"] });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_loop_penalty_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Loop Penalty Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/loop-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const upsertCounterparty = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_loop_penalty_counterparty_upsert_1" },
+    body: {
+      agentId: counterpartyAgentId,
+      displayName: "Loop Penalty Counterparty Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/loop-counterparty", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertCounterparty.statusCode, 201, upsertCounterparty.body);
+
+  const creditSubject = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(subjectAgentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_loop_penalty_subject_1" },
+    body: { amountCents: 10_000, currency: "USD" }
+  });
+  assert.equal(creditSubject.statusCode, 201, creditSubject.body);
+
+  const creditCounterparty = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(counterpartyAgentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_loop_penalty_counterparty_1" },
+    body: { amountCents: 10_000, currency: "USD" }
+  });
+  assert.equal(creditCounterparty.statusCode, 201, creditCounterparty.body);
+
+  for (let i = 0; i < 4; i += 1) {
+    await createSettledRun({
+      api,
+      agentId: subjectAgentId,
+      runId: `run_loop_penalty_subject_${i + 1}`,
+      payerAgentId: counterpartyAgentId,
+      amountCents: 50,
+      idempotencyPrefix: `run_loop_penalty_subject_${i + 1}`
+    });
+  }
+  for (let i = 0; i < 4; i += 1) {
+    await createSettledRun({
+      api,
+      agentId: counterpartyAgentId,
+      runId: `run_loop_penalty_counterparty_${i + 1}`,
+      payerAgentId: subjectAgentId,
+      amountCents: 50,
+      idempotencyPrefix: `run_loop_penalty_counterparty_${i + 1}`
+    });
+  }
+
+  const reputation = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(subjectAgentId)}/reputation?reputationVersion=v2&reputationWindow=30d`
+  });
+  assert.equal(reputation.statusCode, 200, reputation.body);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.washLoopRelationshipCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.collusionRelationshipCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.quarantineRecommended, true);
+  assert.ok(
+    Array.isArray(reputation.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputation.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_WASH_LOOP_THRESHOLD")
+  );
+  assert.ok(
+    Array.isArray(reputation.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputation.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_COLLUSION_THRESHOLD")
+  );
+
+  const discovery = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discovery.statusCode, 200, discovery.body);
+  const resultAgentIds = new Set((discovery.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(resultAgentIds.has(subjectAgentId), false);
+  const excluded = Array.isArray(discovery.json?.excludedQuarantineCandidates)
+    ? discovery.json.excludedQuarantineCandidates.find((row) => String(row?.agentId ?? "") === subjectAgentId)
+    : null;
+  assert.ok(excluded);
+  assert.ok(Array.isArray(excluded?.reasonCodes) && excluded.reasonCodes.includes("REPUTATION_QUARANTINE_WASH_LOOP_THRESHOLD"));
+  assert.ok(Array.isArray(excluded?.reasonCodes) && excluded.reasonCodes.includes("REPUTATION_QUARANTINE_COLLUSION_THRESHOLD"));
+});
+
 test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 

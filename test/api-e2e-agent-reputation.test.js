@@ -451,6 +451,23 @@ test("API e2e: relationships apply anti-gaming dampening on reciprocal micro-loo
   assert.ok(edge?.antiGamingReasonCodes?.includes("LOW_ECONOMIC_WEIGHT"));
   assert.ok(edge?.antiGamingReasonCodes?.includes("LOW_VALUE_RECIPROCAL_LOOP"));
   assert.ok(edge?.antiGamingReasonCodes?.includes("RECIPROCAL_COLLUSION_PATTERN"));
+
+  const reputation = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(agentA)}/reputation?reputationVersion=v2&reputationWindow=30d`
+  });
+  assert.equal(reputation.statusCode, 200, reputation.body);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.washLoopRelationshipCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.collusionRelationshipCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.quarantineRecommended, true);
+  assert.ok(
+    Array.isArray(reputation.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputation.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_WASH_LOOP_THRESHOLD")
+  );
+  assert.ok(
+    Array.isArray(reputation.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputation.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_COLLUSION_THRESHOLD")
+  );
 });
 
 test("API e2e: interaction graph pack export is deterministic and hash-bound", async () => {

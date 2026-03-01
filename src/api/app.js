@@ -10256,6 +10256,8 @@ export function createApi({
     CHARGEBACK_THRESHOLD: "REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD",
     INVALID_SIGNATURE_THRESHOLD: "REPUTATION_QUARANTINE_INVALID_SIGNATURE_THRESHOLD",
     SYBIL_THRESHOLD: "REPUTATION_QUARANTINE_SYBIL_THRESHOLD",
+    WASH_LOOP_THRESHOLD: "REPUTATION_QUARANTINE_WASH_LOOP_THRESHOLD",
+    COLLUSION_THRESHOLD: "REPUTATION_QUARANTINE_COLLUSION_THRESHOLD",
     TOTAL_PENALTY_THRESHOLD: "REPUTATION_QUARANTINE_TOTAL_PENALTY_THRESHOLD",
     SIGNAL_UNAVAILABLE: "REPUTATION_QUARANTINE_SIGNAL_UNAVAILABLE"
   });
@@ -10264,8 +10266,22 @@ export function createApi({
     chargebackCount: 1,
     invalidSignatureCount: 1,
     sybilCount: 1,
+    washLoopRelationshipCount: Math.max(1, parseNonNegativeIntEnv("PROXY_RELATIONSHIP_WASH_LOOP_QUARANTINE_COUNT", 1)),
+    collusionRelationshipCount: Math.max(1, parseNonNegativeIntEnv("PROXY_RELATIONSHIP_COLLUSION_QUARANTINE_COUNT", 1)),
     totalPenaltyCount: 2
   });
+
+  function buildPenaltySignalCounts() {
+    return {
+      disputeLostCount: 0,
+      chargebackCount: 0,
+      invalidSignatureCount: 0,
+      sybilCount: 0,
+      washLoopRelationshipCount: 0,
+      collusionRelationshipCount: 0,
+      totalPenaltyCount: 0
+    };
+  }
 
   function isLikelySignerIssueMessage(message) {
     return /signature|signer.?key|invalid signer|openedbyagentid/i.test(String(message ?? ""));
@@ -10285,6 +10301,12 @@ export function createApi({
     if ((counts?.sybilCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.sybilCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.SYBIL_THRESHOLD);
     }
+    if ((counts?.washLoopRelationshipCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.washLoopRelationshipCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.WASH_LOOP_THRESHOLD);
+    }
+    if ((counts?.collusionRelationshipCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.collusionRelationshipCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.COLLUSION_THRESHOLD);
+    }
     if ((counts?.totalPenaltyCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.totalPenaltyCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.TOTAL_PENALTY_THRESHOLD);
     }
@@ -10300,13 +10322,7 @@ export function createApi({
         asOf: asOfValue,
         evaluationStatus: "unavailable",
         thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
-        counts: {
-          disputeLostCount: 0,
-          chargebackCount: 0,
-          invalidSignatureCount: 0,
-          sybilCount: 0,
-          totalPenaltyCount: 0
-        },
+        counts: buildPenaltySignalCounts(),
         quarantineRecommended: true,
         reasonCodes: [String(reasonCode ?? REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE)]
       },
@@ -10318,20 +10334,15 @@ export function createApi({
     events = [],
     agentId,
     asOf,
-    windowStartAt = null
+    windowStartAt = null,
+    antiGamingCounts = null
   } = {}) {
     const normalizedAgentId = String(agentId ?? "").trim();
     if (!normalizedAgentId) throw new TypeError("agentId is required");
     const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
     const asOfMs = Date.parse(asOfValue);
     const windowStartMs = windowStartAt ? Date.parse(String(windowStartAt)) : Number.NaN;
-    const counts = {
-      disputeLostCount: 0,
-      chargebackCount: 0,
-      invalidSignatureCount: 0,
-      sybilCount: 0,
-      totalPenaltyCount: 0
-    };
+    const counts = buildPenaltySignalCounts();
 
     for (const event of Array.isArray(events) ? events : []) {
       if (!event || typeof event !== "object" || Array.isArray(event)) continue;
@@ -10347,7 +10358,17 @@ export function createApi({
       else if (kind === REPUTATION_EVENT_KIND.PENALTY_SYBIL) counts.sybilCount += 1;
     }
 
-    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount + counts.sybilCount;
+    const antiGaming =
+      antiGamingCounts && typeof antiGamingCounts === "object" && !Array.isArray(antiGamingCounts) ? antiGamingCounts : {};
+    counts.washLoopRelationshipCount = toSafeNonNegativeInt(antiGaming.washLoopRelationshipCount) ?? 0;
+    counts.collusionRelationshipCount = toSafeNonNegativeInt(antiGaming.collusionRelationshipCount) ?? 0;
+    counts.totalPenaltyCount =
+      counts.disputeLostCount +
+      counts.chargebackCount +
+      counts.invalidSignatureCount +
+      counts.sybilCount +
+      counts.washLoopRelationshipCount +
+      counts.collusionRelationshipCount;
     const reasonCodes = derivePenaltyQuarantineReasonCodes(counts);
     return normalizeForCanonicalJson(
       {
@@ -10618,6 +10639,70 @@ export function createApi({
       },
       { path: "$" }
     );
+  }
+
+  async function computeRelationshipAntiGamingPenaltyCounts({
+    tenantId,
+    agentId,
+    events = [],
+    occurredAtGte = null,
+    occurredAtLte = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const subjectAgentId = String(agentId ?? "").trim();
+    if (!subjectAgentId) throw new TypeError("agentId is required");
+
+    const groupedByCounterparty = new Map();
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      if (!subject || String(subject.agentId ?? "").trim() !== subjectAgentId) continue;
+      const counterparty = typeof subject.counterpartyAgentId === "string" ? subject.counterpartyAgentId.trim() : "";
+      if (!counterparty) continue;
+      const bucket = groupedByCounterparty.get(counterparty) ?? [];
+      bucket.push(event);
+      groupedByCounterparty.set(counterparty, bucket);
+    }
+
+    const counts = {
+      washLoopRelationshipCount: 0,
+      collusionRelationshipCount: 0
+    };
+    const counterparties = Array.from(groupedByCounterparty.keys()).sort((left, right) => left.localeCompare(right));
+    for (const counterparty of counterparties) {
+      const counterpartyEvents = groupedByCounterparty.get(counterparty) ?? [];
+      const forwardStats = computeRoutingReputationEventStats({
+        events: counterpartyEvents,
+        counterpartyAgentId: counterparty
+      });
+      if (forwardStats.lowValueLoopCandidate === true) counts.washLoopRelationshipCount += 1;
+
+      const shouldCheckReciprocalCollusion =
+        forwardStats.lowValueLoopCandidate === true &&
+        Number(forwardStats.decisionsTotal ?? 0) >= RELATIONSHIP_COLLUSION_MIN_RECIPROCAL_DECISIONS &&
+        Number(forwardStats.microLoopRate ?? 0) >= 0.75 &&
+        Number(forwardStats.economicWeightCents ?? 0) <= RELATIONSHIP_COLLUSION_MAX_ECONOMIC_WEIGHT_CENTS;
+      if (!shouldCheckReciprocalCollusion) continue;
+
+      const reciprocalEvents = await listRoutingReputationEvents({
+        tenantId: t,
+        agentId: counterparty,
+        occurredAtGte,
+        occurredAtLte,
+        pageSize: 5000
+      });
+      const reciprocalStats = computeRoutingReputationEventStats({
+        events: reciprocalEvents,
+        counterpartyAgentId: subjectAgentId
+      });
+      const antiGamingSignals = computeRelationshipAntiGamingSignals({
+        forwardStats,
+        reciprocalStats
+      });
+      if (antiGamingSignals.collusionSuspected === true) counts.collusionRelationshipCount += 1;
+    }
+
+    return counts;
   }
 
   function computeTrustWeightedRoutingScore({
@@ -11494,11 +11579,19 @@ export function createApi({
           occurredAtLte: asOf,
           pageSize: 5000
         });
+        const antiGamingCounts = await computeRelationshipAntiGamingPenaltyCounts({
+          tenantId: t,
+          agentId: a,
+          events,
+          occurredAtGte: windowStartAt,
+          occurredAtLte: asOf
+        });
         penaltySignal = computeReputationPenaltySignal({
           events,
           agentId: a,
           asOf,
-          windowStartAt
+          windowStartAt,
+          antiGamingCounts
         });
       } catch (err) {
         if (failClosed) {
@@ -21866,6 +21959,63 @@ export function createApi({
     return value;
   }
 
+  function buildX402RefundReserveRecord({
+    previousReserve = null,
+    status,
+    amountCents,
+    currency,
+    holderAgentId,
+    heldAt = null,
+    releasedAt = null,
+    consumedAt = null
+  } = {}) {
+    const normalizedStatus = typeof status === "string" ? status.trim().toLowerCase() : "";
+    if (normalizedStatus !== "held" && normalizedStatus !== "released" && normalizedStatus !== "consumed") {
+      throw new TypeError("refund reserve status must be held|released|consumed");
+    }
+    const normalizedAmountCents = Number(amountCents);
+    if (!Number.isSafeInteger(normalizedAmountCents) || normalizedAmountCents <= 0) {
+      throw new TypeError("refund reserve amountCents must be a positive safe integer");
+    }
+    const normalizedCurrency = typeof currency === "string" && currency.trim() !== "" ? currency.trim().toUpperCase() : "USD";
+    const normalizedHolderAgentId = typeof holderAgentId === "string" && holderAgentId.trim() !== "" ? holderAgentId.trim() : "";
+    if (!normalizedHolderAgentId) throw new TypeError("refund reserve holderAgentId is required");
+    const priorReserve =
+      previousReserve && typeof previousReserve === "object" && !Array.isArray(previousReserve) ? previousReserve : null;
+    const resolvedHeldAt =
+      typeof heldAt === "string" && heldAt.trim() !== ""
+        ? heldAt.trim()
+        : typeof priorReserve?.heldAt === "string" && priorReserve.heldAt.trim() !== ""
+          ? priorReserve.heldAt.trim()
+          : null;
+    if (!resolvedHeldAt) throw new TypeError("refund reserve heldAt is required");
+    const resolvedReleasedAt =
+      normalizedStatus === "released"
+        ? typeof releasedAt === "string" && releasedAt.trim() !== ""
+          ? releasedAt.trim()
+          : null
+        : null;
+    const resolvedConsumedAt =
+      normalizedStatus === "consumed"
+        ? typeof consumedAt === "string" && consumedAt.trim() !== ""
+          ? consumedAt.trim()
+          : null
+        : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402RefundReserve.v1",
+        status: normalizedStatus,
+        amountCents: normalizedAmountCents,
+        currency: normalizedCurrency,
+        holderAgentId: normalizedHolderAgentId,
+        heldAt: resolvedHeldAt,
+        releasedAt: resolvedReleasedAt,
+        consumedAt: resolvedConsumedAt
+      },
+      { path: "$" }
+    );
+  }
+
   function x402SettlementReceiptIdFromSettlement(settlement) {
     const receiptId =
       settlement?.decisionTrace?.settlementReceipt &&
@@ -22240,6 +22390,7 @@ export function createApi({
     commandVerification = null,
     providerDecisionArtifact = null,
     providerDecisionVerification = null,
+    reserve = null,
     settlementStatusBefore = null,
     settlementStatusAfter = null,
     previousEventHash = null,
@@ -22268,6 +22419,7 @@ export function createApi({
         ...(providerDecisionVerification && typeof providerDecisionVerification === "object" && !Array.isArray(providerDecisionVerification)
           ? { providerDecisionVerification }
           : {}),
+        ...(reserve && typeof reserve === "object" && !Array.isArray(reserve) ? { reserve } : {}),
         ...(settlementStatusBefore ? { settlementStatusBefore: String(settlementStatusBefore).toLowerCase() } : {}),
         ...(settlementStatusAfter ? { settlementStatusAfter: String(settlementStatusAfter).toLowerCase() } : {}),
         ...(typeof previousEventHash === "string" && previousEventHash.trim() !== "" ? { prevEventHash: previousEventHash.trim() } : {})
@@ -55676,8 +55828,47 @@ export function createApi({
                 code: "X402_REVERSAL_INVALID_STATE"
               });
             }
-            if (String(existingReversal?.status ?? "").toLowerCase() === "refunded") {
+            const existingReversalStatus = String(existingReversal?.status ?? "").toLowerCase();
+            if (existingReversalStatus === "refund_pending") {
+              return sendError(res, 409, "refund request is already pending for gate", null, {
+                code: "X402_REVERSAL_INVALID_STATE"
+              });
+            }
+            if (existingReversalStatus === "refunded") {
               return sendError(res, 409, "gate is already refunded", null, { code: "X402_REVERSAL_INVALID_STATE" });
+            }
+            const refundAmountCents = Number(settlement.releasedAmountCents ?? 0);
+            if (!Number.isSafeInteger(refundAmountCents) || refundAmountCents <= 0) {
+              return sendError(res, 409, "no releasable amount remains to reserve for refund", null, {
+                code: "X402_REVERSAL_INVALID_STATE"
+              });
+            }
+            const payeeWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payeeAgentId }) : null;
+            if (!payeeWalletExisting) {
+              return sendError(res, 409, "provider wallet missing for refund reserve", null, { code: "WALLET_MISSING" });
+            }
+            let refundReserve = null;
+            try {
+              payeeWallet = lockAgentWalletEscrow({ wallet: payeeWalletExisting, amountCents: refundAmountCents, at: nowAt });
+              refundReserve = buildX402RefundReserveRecord({
+                previousReserve: existingReversal?.reserve ?? null,
+                status: "held",
+                amountCents: refundAmountCents,
+                currency,
+                holderAgentId: payeeAgentId,
+                heldAt: nowAt
+              });
+            } catch (err) {
+              if (err?.code === "INSUFFICIENT_WALLET_BALANCE") {
+                return sendError(
+                  res,
+                  409,
+                  "provider wallet balance insufficient for refund reserve",
+                  { message: err?.message, amountCents: refundAmountCents },
+                  { code: "X402_REFUND_RESERVE_LOCK_FAILED" }
+                );
+              }
+              throw err;
             }
             reversalEventRecord = buildX402ReversalEventRecord({
               tenantId,
@@ -55691,6 +55882,7 @@ export function createApi({
               evidenceRefs: reversalEvidenceRefs,
               command: commandArtifact,
               commandVerification: commandVerificationRecord,
+              reserve: refundReserve,
               settlementStatusBefore,
               settlementStatusAfter: AGENT_RUN_SETTLEMENT_STATUS.RELEASED,
               previousEventHash,
@@ -55717,7 +55909,8 @@ export function createApi({
                 resolvedAt: null,
                 providerDecision: null,
                 reason: reason ?? existingReversal?.reason ?? null,
-                evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? []
+                evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? [],
+                reserve: refundReserve
               },
               { path: "$" }
             );
@@ -55730,6 +55923,7 @@ export function createApi({
               { path: "$" }
             );
             responseStatusCode = 202;
+            ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet });
             ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: nextGate });
           } else if (action === "resolve_refund") {
             if (String(existingReversal?.status ?? "").toLowerCase() !== "refund_pending") {
@@ -55753,7 +55947,101 @@ export function createApi({
                   { path: "$" }
                 )
               : null;
+            const refundAmountCents = Number(settlement.releasedAmountCents ?? 0);
+            if (!Number.isSafeInteger(refundAmountCents) || refundAmountCents <= 0) {
+              return sendError(res, 409, "no releasable amount remains to refund", null, { code: "X402_REVERSAL_INVALID_STATE" });
+            }
+            const existingRefundReserve =
+              existingReversal?.reserve && typeof existingReversal.reserve === "object" && !Array.isArray(existingReversal.reserve)
+                ? existingReversal.reserve
+                : null;
+            if (!existingRefundReserve) {
+              return sendError(res, 409, "refund reserve is required before resolution", null, { code: "X402_REFUND_RESERVE_MISSING" });
+            }
+            const existingRefundReserveStatus = String(existingRefundReserve.status ?? "").trim().toLowerCase();
+            if (existingRefundReserveStatus !== "held") {
+              return sendError(
+                res,
+                409,
+                "refund reserve is not in held state",
+                { reserveStatus: existingRefundReserveStatus || null },
+                { code: "X402_REFUND_RESERVE_INVALID_STATE" }
+              );
+            }
+            const existingRefundReserveAmountCents = Number(existingRefundReserve.amountCents ?? 0);
+            if (!Number.isSafeInteger(existingRefundReserveAmountCents) || existingRefundReserveAmountCents <= 0) {
+              return sendError(res, 409, "refund reserve amount is invalid", null, { code: "X402_REFUND_RESERVE_MISSING" });
+            }
+            if (existingRefundReserveAmountCents !== refundAmountCents) {
+              return sendError(
+                res,
+                409,
+                "refund reserve amount does not match settlement release amount",
+                { reserveAmountCents: existingRefundReserveAmountCents, releasedAmountCents: refundAmountCents },
+                { code: "X402_REFUND_RESERVE_AMOUNT_MISMATCH" }
+              );
+            }
+            const existingRefundReserveHolderAgentId =
+              typeof existingRefundReserve.holderAgentId === "string" ? existingRefundReserve.holderAgentId.trim() : "";
+            if (existingRefundReserveHolderAgentId && existingRefundReserveHolderAgentId !== payeeAgentId) {
+              return sendError(
+                res,
+                409,
+                "refund reserve holder does not match provider",
+                {
+                  reserveHolderAgentId: existingRefundReserveHolderAgentId,
+                  expectedHolderAgentId: payeeAgentId
+                },
+                { code: "X402_REFUND_RESERVE_HOLDER_MISMATCH" }
+              );
+            }
+            const existingRefundReserveCurrency =
+              typeof existingRefundReserve.currency === "string" ? existingRefundReserve.currency.trim().toUpperCase() : "";
+            if (existingRefundReserveCurrency && existingRefundReserveCurrency !== currency) {
+              return sendError(
+                res,
+                409,
+                "refund reserve currency does not match settlement currency",
+                {
+                  reserveCurrency: existingRefundReserveCurrency,
+                  settlementCurrency: currency
+                },
+                { code: "X402_REFUND_RESERVE_CURRENCY_MISMATCH" }
+              );
+            }
             if (providerDecision === "denied") {
+              const payeeWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payeeAgentId }) : null;
+              if (!payeeWalletExisting) {
+                return sendError(res, 409, "provider wallet missing for refund reserve release", null, { code: "WALLET_MISSING" });
+              }
+              let refundReserve = null;
+              try {
+                payeeWallet = refundAgentWalletEscrow({
+                  wallet: payeeWalletExisting,
+                  amountCents: existingRefundReserveAmountCents,
+                  at: nowAt
+                });
+                refundReserve = buildX402RefundReserveRecord({
+                  previousReserve: existingRefundReserve,
+                  status: "released",
+                  amountCents: existingRefundReserveAmountCents,
+                  currency,
+                  holderAgentId: payeeAgentId,
+                  heldAt: existingRefundReserve.heldAt ?? existingReversal?.requestedAt ?? nowAt,
+                  releasedAt: nowAt
+                });
+              } catch (err) {
+                if (err?.code === "INSUFFICIENT_ESCROW_BALANCE") {
+                  return sendError(
+                    res,
+                    409,
+                    "provider refund reserve is unavailable",
+                    { message: err?.message ?? null, amountCents: existingRefundReserveAmountCents },
+                    { code: "X402_REFUND_RESERVE_INVALID_STATE" }
+                  );
+                }
+                throw err;
+              }
               reversalEventRecord = buildX402ReversalEventRecord({
                 tenantId,
                 gateId,
@@ -55768,6 +56056,7 @@ export function createApi({
                 commandVerification: commandVerificationRecord,
                 providerDecisionArtifact,
                 providerDecisionVerification: providerDecisionVerificationRecord,
+                reserve: refundReserve,
                 settlementStatusBefore,
                 settlementStatusAfter: AGENT_RUN_SETTLEMENT_STATUS.RELEASED,
                 previousEventHash,
@@ -55794,7 +56083,8 @@ export function createApi({
                   resolvedAt: nowAt,
                   providerDecision: "denied",
                   reason: reason ?? existingReversal?.reason ?? null,
-                  evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? []
+                  evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? [],
+                  reserve: refundReserve
                 },
                 { path: "$" }
               );
@@ -55806,6 +56096,7 @@ export function createApi({
                 },
                 { path: "$" }
               );
+              ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet });
               ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: nextGate });
             } else {
               if (settlementStatusBefore !== AGENT_RUN_SETTLEMENT_STATUS.RELEASED) {
@@ -55813,25 +56104,37 @@ export function createApi({
                   code: "X402_REVERSAL_INVALID_STATE"
                 });
               }
-              const refundAmountCents = Number(settlement.releasedAmountCents ?? 0);
-              if (!Number.isSafeInteger(refundAmountCents) || refundAmountCents <= 0) {
-                return sendError(res, 409, "no releasable amount remains to refund", null, { code: "X402_REVERSAL_INVALID_STATE" });
-              }
               const payerWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payerAgentId }) : null;
               const payeeWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payeeAgentId }) : null;
               if (!payerWalletExisting || !payeeWalletExisting) return sendError(res, 409, "missing wallets for refund resolution", null, { code: "WALLET_MISSING" });
+              let refundReserve = null;
               try {
-                const transferred = transferAgentWalletAvailable({
-                  fromWallet: payeeWalletExisting,
-                  toWallet: payerWalletExisting,
-                  amountCents: refundAmountCents,
+                const transferred = releaseAgentWalletEscrowToPayee({
+                  payerWallet: payeeWalletExisting,
+                  payeeWallet: payerWalletExisting,
+                  amountCents: existingRefundReserveAmountCents,
                   at: nowAt
                 });
-                payeeWallet = transferred.fromWallet;
-                payerWallet = transferred.toWallet;
+                payeeWallet = transferred.payerWallet;
+                payerWallet = transferred.payeeWallet;
+                refundReserve = buildX402RefundReserveRecord({
+                  previousReserve: existingRefundReserve,
+                  status: "consumed",
+                  amountCents: existingRefundReserveAmountCents,
+                  currency,
+                  holderAgentId: payeeAgentId,
+                  heldAt: existingRefundReserve.heldAt ?? existingReversal?.requestedAt ?? nowAt,
+                  consumedAt: nowAt
+                });
               } catch (err) {
-                if (err?.code === "INSUFFICIENT_WALLET_BALANCE") {
-                  return sendError(res, 409, "provider wallet balance insufficient for refund", { message: err?.message }, { code: "INSUFFICIENT_FUNDS" });
+                if (err?.code === "INSUFFICIENT_ESCROW_BALANCE") {
+                  return sendError(
+                    res,
+                    409,
+                    "provider refund reserve is unavailable",
+                    { message: err?.message ?? null, amountCents: existingRefundReserveAmountCents },
+                    { code: "X402_REFUND_RESERVE_INVALID_STATE" }
+                  );
                 }
                 throw err;
               }
@@ -55849,6 +56152,7 @@ export function createApi({
                 commandVerification: commandVerificationRecord,
                 providerDecisionArtifact,
                 providerDecisionVerification: providerDecisionVerificationRecord,
+                reserve: refundReserve,
                 settlementStatusBefore,
                 settlementStatusAfter: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
                 previousEventHash,
@@ -55875,7 +56179,8 @@ export function createApi({
                   resolvedAt: nowAt,
                   providerDecision: "accepted",
                   reason: reason ?? existingReversal?.reason ?? null,
-                  evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? []
+                  evidenceRefs: reversalEvidenceRefs.length > 0 ? reversalEvidenceRefs : existingReversal?.evidenceRefs ?? [],
+                  reserve: refundReserve
                 },
                 { path: "$" }
               );
@@ -55895,7 +56200,7 @@ export function createApi({
                 resolutionEventId: reversalEventId,
                 status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
                 releasedAmountCents: 0,
-                refundedAmountCents: amountCents,
+                refundedAmountCents: refundAmountCents,
                 releaseRatePct: 0,
                 finalityState: SETTLEMENT_FINALITY_STATE.FINAL,
                 settledAt: nowAt,
@@ -55938,7 +56243,7 @@ export function createApi({
                     ...(gate?.decision && typeof gate.decision === "object" && !Array.isArray(gate.decision) ? gate.decision : {}),
                     releaseRatePct: 0,
                     releasedAmountCents: 0,
-                    refundedAmountCents: amountCents,
+                    refundedAmountCents: refundAmountCents,
                     reasonCodes: Array.from(
                       new Set([
                         ...(Array.isArray(gate?.decision?.reasonCodes) ? gate.decision.reasonCodes : []),

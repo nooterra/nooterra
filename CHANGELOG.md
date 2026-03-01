@@ -46,6 +46,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Escrow/netting hardening: tenant-scoped escrow operation idempotency keys, tenant-safe escrow journal entry IDs, and expanded atomic failure + high-frequency invariants coverage in `test/escrow-ledger.test.js` and `test/escrow-netting-invariants.test.js`.
 
 ### Changed
+- x402 gate reversal refunds now use dispute-safe provider reserve holds: `request_refund` locks provider wallet escrow, `resolve_refund` accepted consumes held reserve, and `resolve_refund` denied releases held reserve; reserve integrity is fail-closed with deterministic reason codes (`X402_REFUND_RESERVE_*`) and expanded reversal e2e coverage.
 - Run dispute close now enforces the appeal window when a signed arbiter verdict is submitted (`POST /runs/{runId}/dispute/close`): late verdicts are rejected with `409 appeal window has closed`, while administrative closes without verdict remain allowed for already-open disputes.
 - Money rail provider handling now supports explicit production-mode configuration (`moneyRailMode`, `moneyRailProviderConfigs`, `moneyRailDefaultProviderId`) with fail-fast guards against implicit stub usage in production.
 - Money rail operations/provider events are now persisted through store-backed adapters (memory + Postgres), so operation state survives API/adapter restarts.
