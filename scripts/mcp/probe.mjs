@@ -90,6 +90,52 @@ function assertNonEmptyString(value, name) {
   return normalized;
 }
 
+function normalizeToolFailureMessage(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function detectToolCallFailure(callResponse, fallbackName = "unknown", parsedResult = null) {
+  if (callResponse?.result?.isError === true) {
+    const message = normalizeToolFailureMessage(callResponse?.result?.content?.[0]?.text) ?? "tool call failed";
+    return { message };
+  }
+  const parsed =
+    parsedResult ??
+    (() => {
+      const text = callResponse?.result?.content?.[0]?.text ?? "";
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { tool: fallbackName, rawText: text };
+      }
+    })();
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const candidate =
+    parsed?.result && typeof parsed.result === "object" && !Array.isArray(parsed.result) ? parsed.result : parsed;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(candidate, key);
+  const rawError = hasOwn("error") ? candidate.error : null;
+  const hasError =
+    rawError !== null &&
+    rawError !== undefined &&
+    !(typeof rawError === "string" && rawError.trim() === "");
+  const statusCode =
+    Number.isInteger(candidate.statusCode) ? candidate.statusCode : Number.isInteger(candidate.status) ? candidate.status : null;
+  const failed = candidate.ok === false || hasError || (Number.isInteger(statusCode) && statusCode >= 400);
+  if (!failed) return null;
+
+  const rawErrorMessage =
+    normalizeToolFailureMessage(rawError) ||
+    (rawError && typeof rawError === "object"
+      ? normalizeToolFailureMessage(rawError.message) || normalizeToolFailureMessage(rawError.error)
+      : null);
+  const message =
+    rawErrorMessage ||
+    normalizeToolFailureMessage(candidate.message) ||
+    "tool call reported upstream failure";
+  return { message, parsed };
+}
+
 async function readJsonResponse(response) {
   const text = await response.text();
   try {
@@ -241,11 +287,12 @@ async function main() {
   async function callToolStrict(name, callArgs) {
     const called = await rpc("tools/call", { name, arguments: callArgs ?? {} });
     process.stdout.write(JSON.stringify(called, null, 2) + "\n");
-    if (called?.result?.isError === true) {
-      const message = called?.result?.content?.[0]?.text ?? "tool call failed";
-      throw new Error(`${name} failed: ${message}`);
+    const parsed = parseToolCallResult(called, name);
+    const failure = detectToolCallFailure(called, name, parsed);
+    if (failure) {
+      throw new Error(`${name} failed: ${failure.message}`);
     }
-    return parseToolCallResult(called, name);
+    return parsed;
   }
 
   if (args.call) {
@@ -263,7 +310,8 @@ async function main() {
     }
     const called = await rpc("tools/call", { name: args.call.name, arguments: callArgs });
     process.stdout.write(JSON.stringify(called, null, 2) + "\n");
-    const toolIsError = called?.result?.isError === true;
+    const parsed = parseToolCallResult(called, args.call.name);
+    const toolIsError = Boolean(detectToolCallFailure(called, args.call.name, parsed));
     if (args.expectToolResult === "error" && !toolIsError) {
       throw new Error("expected tool call to return isError=true");
     }
@@ -455,4 +503,4 @@ if (isDirectExecution) {
   });
 }
 
-export { parseArgs };
+export { detectToolCallFailure, parseArgs };

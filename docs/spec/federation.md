@@ -12,14 +12,20 @@ Runtime config:
 - `COORDINATOR_DID` (or `PROXY_COORDINATOR_DID`): local coordinator DID-like identifier.
 - `PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS`: comma-separated trusted peer coordinator DIDs.
 - `PROXY_FEDERATION_NAMESPACE_ROUTES`: JSON object mapping target coordinator DID -> absolute federation upstream base URL.
-- `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `PROXY_COORDINATOR_SIGNING_KEY_ID`: optional envelope signing key material.
+- `PROXY_FEDERATION_NAMESPACE_REGISTRY`: optional JSON array of namespace records (`namespaceDid`, `ownerDid`, optional `delegateDid`, optional `transferToDid` + `transferEffectiveAt`, `routeBaseUrl`, optional `validFrom`/`validUntil`, optional `observedAt` + `ttlSeconds`, optional `priority`).
+- `PROXY_FEDERATION_NAMESPACE_AS_OF`: optional resolver timestamp override (ISO-8601) for deterministic conformance/replay runs.
+- `COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `COORDINATOR_SIGNING_KEY_ID` (or `COORDINATOR_SIGNING_KEY`): optional envelope signing key material.
+- `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `PROXY_COORDINATOR_SIGNING_KEY_ID` remain supported aliases.
 
 Fail-closed rules:
 - Federation is considered enabled when any federation identity/trust/signing input is configured.
 - When federation is enabled, local coordinator identity MUST be configured (`COORDINATOR_DID` or `PROXY_COORDINATOR_DID`). Missing local identity is a hard startup error.
-- When `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` is configured, `PROXY_COORDINATOR_SIGNING_KEY_ID` MUST also be configured. Missing key id is a hard startup error.
+- When signing private key material is configured, signing key id MUST also be configured. Missing key id is a hard startup error.
 - Unknown or untrusted peer coordinator DIDs MUST be rejected at trust evaluation boundaries.
 - Namespace route selection MUST use exact target DID lookup; missing target DID route MUST fail closed when namespace routing config is enabled.
+- Namespace registry resolution MUST be deterministic under identical state (same `asOf`, same records).
+- Ambiguous namespace winners (same top priority, different resolved target/route) MUST fail closed with explicit conflict codes.
+- Stale namespace records (TTL exceeded) MUST fail closed for registry-backed routing.
 - Implementations MUST emit deterministic error codes for identity/trust/signing failures and MUST NOT continue with best-effort federation delivery.
 
 Trust boundary:
@@ -62,6 +68,7 @@ Routing semantics:
 - If the selected remote DID is not trusted/known, dispatch MUST fail closed.
 - If federation transport for the selected namespace is unavailable/unsupported, dispatch MUST fail closed.
 - If namespace routing table is configured, missing exact target DID mapping MUST return `FEDERATION_NAMESPACE_ROUTE_MISSING`.
+- Dispatch metadata SHOULD include resolver audit fields: `routingReasonCode`, `resolvedCoordinatorDid`, `namespaceDecisionId`, and `namespaceLineage`.
 
 ## Signature and verification model
 
@@ -78,6 +85,9 @@ Required structured logs:
 - `federation_signature_invalid`
 - `federation_replay_duplicate`
 - `federation_replay_conflict`
+
+Internal observability endpoint:
+- `GET /internal/federation/stats` (ops-authenticated) returns deterministic per-origin/target request/status counters.
 
 Recommended fields:
 - `originDid`, `targetDid`, `capabilityId`, `invocationId`, `status`, `latencyMs`
@@ -134,6 +144,9 @@ Runner report schema versions:
 409:
 - `FEDERATION_ENVELOPE_CONFLICT`
 - `FEDERATION_ENVELOPE_IN_FLIGHT`
+- `FEDERATION_NAMESPACE_ROUTE_CONFLICT`
+- `FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS`
+- `FEDERATION_NAMESPACE_RECORD_STALE`
 
 500:
 - `FEDERATION_FETCH_UNAVAILABLE`

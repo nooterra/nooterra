@@ -224,7 +224,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
     { runCheckFn, bootstrapFn }
   );
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 35);
+  assert.equal(report.summary.totalChecks, 36);
   assert.equal(seenIds.includes("e2e_agent_card_stream_lifecycle"), true);
   assert.equal(seenIds.includes("e2e_trace_id_propagation"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation_lifecycle_enforcement"), true);
@@ -236,6 +236,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
   assert.equal(seenIds.includes("e2e_settlement_dispute_arbitration_lifecycle_enforcement"), true);
   assert.equal(seenIds.includes("e2e_tool_call_arbitration_lifecycle_enforcement"), true);
   assert.equal(seenIds.includes("e2e_grant_issue_lifecycle_enforcement"), true);
+  assert.equal(seenIds.includes("e2e_capability_attestation_discovery_filters"), true);
   assert.equal(seenIds.includes("e2e_python_sdk_acs_substrate_smoke"), true);
   assert.equal(seenIds.includes("e2e_python_sdk_contract_freeze"), true);
   assert.equal(seenIds.includes("e2e_js_sdk_acs_substrate_smoke"), true);

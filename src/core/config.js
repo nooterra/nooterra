@@ -196,8 +196,12 @@ export function loadConfig({ mode = "api" } = {}) {
 
   const coordinatorDid = parseOptionalDidEnv("COORDINATOR_DID") ?? parseOptionalDidEnv("PROXY_COORDINATOR_DID");
   const trustedCoordinatorDids = parseDelimitedStringListEnv("PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS");
-  const coordinatorSigningPrivateKeyPem = parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM");
-  const coordinatorSigningKeyId = parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_KEY_ID");
+  const coordinatorSigningPrivateKeyPem =
+    parseOptionalStringEnv("COORDINATOR_SIGNING_PRIVATE_KEY_PEM") ?? parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM");
+  const coordinatorSigningKeyId =
+    parseOptionalStringEnv("COORDINATOR_SIGNING_KEY_ID") ??
+    parseOptionalStringEnv("COORDINATOR_SIGNING_KEY") ??
+    parseOptionalStringEnv("PROXY_COORDINATOR_SIGNING_KEY_ID");
   const federationEnabled =
     coordinatorDid !== null ||
     trustedCoordinatorDids.length > 0 ||
@@ -209,7 +213,9 @@ export function loadConfig({ mode = "api" } = {}) {
     );
   }
   if (coordinatorSigningPrivateKeyPem && !coordinatorSigningKeyId) {
-    throw new Error("PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM requires PROXY_COORDINATOR_SIGNING_KEY_ID");
+    throw new Error(
+      "COORDINATOR_SIGNING_PRIVATE_KEY_PEM (or PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM) requires COORDINATOR_SIGNING_KEY_ID (or COORDINATOR_SIGNING_KEY / PROXY_COORDINATOR_SIGNING_KEY_ID)"
+    );
   }
 
   const autotickEnabled = typeof process !== "undefined" && process.env.PROXY_AUTOTICK === "1";

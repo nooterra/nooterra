@@ -19,7 +19,9 @@ const DECISION_CODE = Object.freeze({
   HASH_MISMATCH: "HUMAN_APPROVAL_BINDING_MISMATCH",
   DENIED: "HUMAN_APPROVAL_DENIED",
   EXPIRED: "HUMAN_APPROVAL_EXPIRED",
-  EVIDENCE_REQUIRED: "HUMAN_APPROVAL_EVIDENCE_REQUIRED"
+  EVIDENCE_REQUIRED: "HUMAN_APPROVAL_EVIDENCE_REQUIRED",
+  TIMEOUT: "HUMAN_APPROVAL_TIMEOUT",
+  CONTEXT_BINDING_MISMATCH: "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH"
 });
 
 function assertPlainObject(value, name) {
@@ -30,8 +32,10 @@ function assertPlainObject(value, name) {
   if (proto !== Object.prototype && proto !== null) throw new TypeError(`${name} must be a plain object`);
 }
 
-function assertNonEmptyString(value, name) {
+function assertNonEmptyString(value, name, { max = 200 } = {}) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
+  if (value.trim().length > max) throw new TypeError(`${name} must be <= ${max} characters`);
+  return value.trim();
 }
 
 function assertSafeInt(value, name) {
@@ -39,10 +43,95 @@ function assertSafeInt(value, name) {
 }
 
 function parseIsoTimestamp(value, name) {
-  assertNonEmptyString(value, name);
-  const ms = Date.parse(value);
+  const normalized = assertNonEmptyString(value, name, { max: 128 });
+  const ms = Date.parse(normalized);
   if (!Number.isFinite(ms)) throw new TypeError(`${name} must be an ISO-8601 timestamp`);
   return ms;
+}
+
+function normalizeOptionalApprovalBindingRef(value, name, { max = 200 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return assertNonEmptyString(value, name, { max });
+}
+
+function normalizeOptionalApprovalBindingSha256(value, name) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const normalized = assertNonEmptyString(value, name, { max: 64 }).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new TypeError(`${name} must be a 64-char lowercase sha256 hex string`);
+  return normalized;
+}
+
+function normalizeOptionalApprovalBindingVersion(value, name) {
+  if (value === null || value === undefined || value === "") return null;
+  const out = Number(value);
+  if (!Number.isSafeInteger(out) || out <= 0) throw new TypeError(`${name} must be a positive safe integer`);
+  return out;
+}
+
+function normalizeDecisionBinding(binding) {
+  assertPlainObject(binding, "approvalDecision.binding");
+  const normalized = normalizeForCanonicalJson(
+    {
+      gateId: normalizeOptionalApprovalBindingRef(binding.gateId, "approvalDecision.binding.gateId", { max: 200 }),
+      runId: normalizeOptionalApprovalBindingRef(binding.runId, "approvalDecision.binding.runId", { max: 200 }),
+      settlementId: normalizeOptionalApprovalBindingRef(binding.settlementId, "approvalDecision.binding.settlementId", { max: 200 }),
+      delegationGrantRef: normalizeOptionalApprovalBindingRef(binding.delegationGrantRef, "approvalDecision.binding.delegationGrantRef", {
+        max: 200
+      }),
+      authorityGrantRef: normalizeOptionalApprovalBindingRef(binding.authorityGrantRef, "approvalDecision.binding.authorityGrantRef", {
+        max: 200
+      }),
+      policyHashSha256: normalizeOptionalApprovalBindingSha256(binding.policyHashSha256, "approvalDecision.binding.policyHashSha256"),
+      policyVersion: normalizeOptionalApprovalBindingVersion(binding.policyVersion, "approvalDecision.binding.policyVersion")
+    },
+    { path: "$.approvalDecision.binding" }
+  );
+  const hasAtLeastOneBindingField = Object.values(normalized).some((value) => value !== null);
+  if (!hasAtLeastOneBindingField) {
+    throw new TypeError("approvalDecision.binding must include at least one non-null binding field");
+  }
+  return normalized;
+}
+
+function normalizeContextBinding(contextBinding) {
+  if (contextBinding === null || contextBinding === undefined) return null;
+  assertPlainObject(contextBinding, "contextBinding");
+  const normalized = normalizeForCanonicalJson(
+    {
+      gateId: normalizeOptionalApprovalBindingRef(contextBinding.gateId, "contextBinding.gateId", { max: 200 }),
+      runId: normalizeOptionalApprovalBindingRef(contextBinding.runId, "contextBinding.runId", { max: 200 }),
+      settlementId: normalizeOptionalApprovalBindingRef(contextBinding.settlementId, "contextBinding.settlementId", { max: 200 }),
+      delegationGrantRef: normalizeOptionalApprovalBindingRef(contextBinding.delegationGrantRef, "contextBinding.delegationGrantRef", { max: 200 }),
+      authorityGrantRef: normalizeOptionalApprovalBindingRef(contextBinding.authorityGrantRef, "contextBinding.authorityGrantRef", { max: 200 }),
+      policyHashSha256: normalizeOptionalApprovalBindingSha256(contextBinding.policyHashSha256, "contextBinding.policyHashSha256"),
+      policyVersion: normalizeOptionalApprovalBindingVersion(contextBinding.policyVersion, "contextBinding.policyVersion")
+    },
+    { path: "$.contextBinding" }
+  );
+  return Object.values(normalized).some((value) => value !== null) ? normalized : null;
+}
+
+function verifyDecisionContextBinding({ decision, contextBinding }) {
+  if (!contextBinding) return { ok: true, detail: null };
+  const decisionBinding = decision?.binding && typeof decision.binding === "object" && !Array.isArray(decision.binding) ? decision.binding : null;
+  if (!decisionBinding) {
+    return {
+      ok: false,
+      detail: "approval decision binding is required for this action context"
+    };
+  }
+  const keys = Object.keys(contextBinding);
+  for (const key of keys) {
+    const expected = contextBinding[key];
+    if (expected === null) continue;
+    if (decisionBinding[key] !== expected) {
+      return {
+        ok: false,
+        detail: `approval decision binding mismatch for ${key}`
+      };
+    }
+  }
+  return { ok: true, detail: null };
 }
 
 function normalizeAction(input) {
@@ -76,12 +165,19 @@ function normalizeApprovalPolicy(policy = {}) {
   const requireApprovalAboveCents = policy.requireApprovalAboveCents ?? 50_000;
   assertSafeInt(requireApprovalAboveCents, "approvalPolicy.requireApprovalAboveCents");
   if (requireApprovalAboveCents < 0) throw new TypeError("approvalPolicy.requireApprovalAboveCents must be >= 0");
+  const decisionTimeoutAt =
+    policy.decisionTimeoutAt === null || policy.decisionTimeoutAt === undefined || String(policy.decisionTimeoutAt).trim() === ""
+      ? null
+      : assertNonEmptyString(policy.decisionTimeoutAt, "approvalPolicy.decisionTimeoutAt", { max: 128 });
+  if (decisionTimeoutAt !== null) parseIsoTimestamp(decisionTimeoutAt, "approvalPolicy.decisionTimeoutAt");
 
   return Object.freeze({
     schemaVersion: HUMAN_APPROVAL_POLICY_SCHEMA_VERSION,
     highRiskActionTypes: Object.freeze(highRiskActionTypes),
     requireApprovalAboveCents,
-    strictEvidenceRefs: policy.strictEvidenceRefs !== false
+    strictEvidenceRefs: policy.strictEvidenceRefs !== false,
+    requireContextBinding: policy.requireContextBinding === true,
+    decisionTimeoutAt
   });
 }
 
@@ -124,8 +220,13 @@ function validateApprovalDecisionShape(decision) {
   if (decision.evidenceRefs !== undefined && !Array.isArray(decision.evidenceRefs)) {
     throw new TypeError("approvalDecision.evidenceRefs must be an array when provided");
   }
+  const binding =
+    decision.binding === null || decision.binding === undefined
+      ? null
+      : normalizeDecisionBinding(decision.binding);
   return {
     ...decision,
+    ...(binding ? { binding } : {}),
     evidenceRefs: Array.isArray(decision.evidenceRefs)
       ? [...new Set(decision.evidenceRefs.map((ref) => String(ref).trim()).filter(Boolean))]
       : []
@@ -140,12 +241,20 @@ function checkRow(checkId, passed, detail) {
   return { checkId, passed, detail };
 }
 
-export function enforceHighRiskApproval({ action, approvalPolicy = {}, approvalDecision = null, nowIso = () => new Date().toISOString() }) {
+export function enforceHighRiskApproval({
+  action,
+  approvalPolicy = {},
+  approvalDecision = null,
+  contextBinding = null,
+  nowIso = () => new Date().toISOString()
+}) {
   const normalizedAction = normalizeAction(action);
   const policy = normalizeApprovalPolicy(approvalPolicy);
+  const normalizedContextBinding = normalizeContextBinding(contextBinding);
   const actionHash = hashActionForApproval(normalizedAction);
   const now = nowIso();
-  parseIsoTimestamp(now, "nowIso()");
+  const nowMs = parseIsoTimestamp(now, "nowIso()");
+  const decisionTimeoutAtMs = policy.decisionTimeoutAt ? parseIsoTimestamp(policy.decisionTimeoutAt, "approvalPolicy.decisionTimeoutAt") : null;
 
   const requiresExplicitApproval =
     normalizedAction.riskTier === "high" ||
@@ -165,6 +274,17 @@ export function enforceHighRiskApproval({ action, approvalPolicy = {}, approvalD
   }
 
   if (!approvalDecision) {
+    if (decisionTimeoutAtMs !== null && nowMs >= decisionTimeoutAtMs) {
+      return {
+        schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
+        actionId: normalizedAction.actionId,
+        actionSha256: actionHash,
+        requiresExplicitApproval,
+        approved: false,
+        checks: [checkRow("approval_decision_not_timed_out", false, "approval decision timed out before explicit authorization was recorded")],
+        blockingIssues: [blockingIssue(DECISION_CODE.TIMEOUT, "approval decision timed out")]
+      };
+    }
     return {
       schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
       actionId: normalizedAction.actionId,
@@ -215,6 +335,19 @@ export function enforceHighRiskApproval({ action, approvalPolicy = {}, approvalD
     };
   }
 
+  const decisionAtMs = parseIsoTimestamp(decision.decidedAt, "approvalDecision.decidedAt");
+  if (decisionTimeoutAtMs !== null && decisionAtMs > decisionTimeoutAtMs) {
+    return {
+      schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
+      actionId: normalizedAction.actionId,
+      actionSha256: actionHash,
+      requiresExplicitApproval,
+      approved: false,
+      checks: [checkRow("approval_decision_not_timed_out", false, "approval decision was recorded after the timeout window")],
+      blockingIssues: [blockingIssue(DECISION_CODE.TIMEOUT, "approval decision timed out")]
+    };
+  }
+
   if (decision.expiresAt && Date.parse(decision.expiresAt) < Date.parse(now)) {
     return {
       schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
@@ -239,18 +372,43 @@ export function enforceHighRiskApproval({ action, approvalPolicy = {}, approvalD
     };
   }
 
+  if (policy.requireContextBinding || normalizedContextBinding) {
+    const bindingCheck = verifyDecisionContextBinding({
+      decision,
+      contextBinding: normalizedContextBinding
+    });
+    if (!bindingCheck.ok) {
+      return {
+        schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
+        actionId: normalizedAction.actionId,
+        actionSha256: actionHash,
+        requiresExplicitApproval,
+        approved: false,
+        checks: [checkRow("approval_context_binding", false, bindingCheck.detail ?? "approval decision context binding mismatch")],
+        blockingIssues: [blockingIssue(DECISION_CODE.CONTEXT_BINDING_MISMATCH, bindingCheck.detail ?? "approval decision context binding mismatch")]
+      };
+    }
+  }
+
+  const checks = [
+    checkRow("approval_required_for_high_risk", true, "high-risk action has explicit human approval"),
+    checkRow("approval_action_binding", true, "approval decision binds to action hash")
+  ];
+  if (decisionTimeoutAtMs !== null) {
+    checks.push(checkRow("approval_decision_not_timed_out", true, "approval decision is within timeout window"));
+  }
+  if (policy.requireContextBinding || normalizedContextBinding) {
+    checks.push(checkRow("approval_context_binding", true, "approval decision binds to the resolved runtime context"));
+  }
+
   return {
     schemaVersion: HIGH_RISK_APPROVAL_CHECK_SCHEMA_VERSION,
     actionId: normalizedAction.actionId,
     actionSha256: actionHash,
     requiresExplicitApproval,
     approved: true,
-    checks: [
-      checkRow("approval_required_for_high_risk", true, "high-risk action has explicit human approval"),
-      checkRow("approval_action_binding", true, "approval decision binds to action hash")
-    ],
+    checks,
     blockingIssues: [],
     decisionDigest: sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(decision)))
   };
 }
-

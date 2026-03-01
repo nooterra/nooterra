@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseArgs } from "../scripts/mcp/probe.mjs";
+import { detectToolCallFailure, parseArgs } from "../scripts/mcp/probe.mjs";
 
 test("mcp probe parser: defaults include empty required tool list", () => {
   const args = parseArgs([]);
@@ -41,4 +41,45 @@ test("mcp probe parser: supports interaction graph smoke flags", () => {
 test("mcp probe parser: fails closed on missing require-tool value", () => {
   assert.throws(() => parseArgs(["--require-tool", ""]), /--require-tool requires a non-empty tool name/i);
   assert.throws(() => parseArgs(["--require-tool="]), /--require-tool requires a non-empty tool name/i);
+});
+
+test("mcp probe error detection: treats nested tool result errors as failures", () => {
+  const callResponse = {
+    result: {
+      isError: false,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            tool: "nooterra.submit_evidence",
+            durationMs: 11,
+            result: { ok: false, error: "event rejected", code: "EVENT_REJECTED" }
+          })
+        }
+      ]
+    }
+  };
+  const detected = detectToolCallFailure(callResponse, "nooterra.submit_evidence");
+  assert.equal(Boolean(detected), true);
+  assert.match(String(detected?.message ?? ""), /event rejected/i);
+});
+
+test("mcp probe error detection: passes through successful result payloads", () => {
+  const callResponse = {
+    result: {
+      isError: false,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            tool: "nooterra.submit_evidence",
+            durationMs: 8,
+            result: { ok: true, event: { id: "evt_1" } }
+          })
+        }
+      ]
+    }
+  };
+  const detected = detectToolCallFailure(callResponse, "nooterra.submit_evidence");
+  assert.equal(detected, null);
 });

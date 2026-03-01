@@ -60,6 +60,22 @@ function sha256HexUtf8(text) {
   return createHash("sha256").update(String(text), "utf8").digest("hex");
 }
 
+export function canonicalJsonStringifyDeterministic(value) {
+  return canonicalJsonStringify(value);
+}
+
+export function computeCanonicalSha256(value) {
+  return sha256HexUtf8(canonicalJsonStringify(value));
+}
+
+export function buildCanonicalEnvelope(value) {
+  const canonicalJson = canonicalJsonStringify(value);
+  return {
+    canonicalJson,
+    sha256: sha256HexUtf8(canonicalJson)
+  };
+}
+
 function normalizeIsoDate(value, { fallbackNow = false, name = "timestamp" } = {}) {
   const raw =
     typeof value === "string" && value.trim() !== ""
@@ -613,6 +629,8 @@ export class NooterraClient {
     if (params.capability) qs.set("capability", String(params.capability));
     if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.supportsPolicyTemplate) qs.set("supportsPolicyTemplate", String(params.supportsPolicyTemplate));
+    if (params.supportsEvidencePack) qs.set("supportsEvidencePack", String(params.supportsEvidencePack));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     appendAgentCardToolDescriptorQueryParams(qs, params);
@@ -627,6 +645,8 @@ export class NooterraClient {
     if (params.capability) qs.set("capability", String(params.capability));
     if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.supportsPolicyTemplate) qs.set("supportsPolicyTemplate", String(params.supportsPolicyTemplate));
+    if (params.supportsEvidencePack) qs.set("supportsEvidencePack", String(params.supportsEvidencePack));
     if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
       qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
     }

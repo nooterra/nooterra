@@ -468,3 +468,61 @@ test("API e2e: command-center surfaces settlement kernel verification errors by 
   assert.ok(emittedArtifacts.length >= 1);
   assert.ok(emittedArtifacts.some((artifact) => artifact?.alert?.dimensions?.code === "settlement_receipt_hash_mismatch"));
 });
+
+test("API e2e: /ops/network/command-center/workspace returns reliability+safety workspace JSON", async () => {
+  const nowAt = "2026-02-07T12:00:00.000Z";
+  const api = createApi({
+    now: () => nowAt,
+    opsTokens: ["tok_opsr:ops_read", "tok_opsw:ops_write"].join(";")
+  });
+
+  await registerAgent(api, "agt_cc_ws_operator");
+
+  const workspace = await request(api, {
+    method: "GET",
+    path:
+      "/ops/network/command-center/workspace?windowHours=24&disputeSlaHours=24&transactionFeeBps=100&deliveryDlqThreshold=0",
+    headers: { "x-proxy-ops-token": "tok_opsr" }
+  });
+  assert.equal(workspace.statusCode, 200, workspace.body);
+  assert.equal(workspace.json?.ok, true);
+  assert.equal(workspace.json?.tenantId, "tenant_default");
+  assert.equal(workspace.json?.workspace?.schemaVersion, "OpsNetworkCommandCenterWorkspace.v1");
+  assert.equal(workspace.json?.workspace?.generatedAt, nowAt);
+  assert.equal(workspace.json?.workspace?.parameters?.windowHours, 24);
+  assert.equal(workspace.json?.workspace?.parameters?.disputeSlaHours, 24);
+  assert.equal(workspace.json?.workspace?.parameters?.transactionFeeBps, 100);
+  assert.ok(workspace.json?.workspace?.reliability?.backlog);
+  assert.ok(workspace.json?.workspace?.safety?.determinism);
+  assert.ok(Array.isArray(workspace.json?.workspace?.safety?.alerts?.breaches));
+  assert.equal(workspace.json?.workspace?.safety?.alerts?.thresholds?.deliveryDlqThreshold, 0);
+  assert.equal(workspace.json?.workspace?.links?.summary, "/ops/network/command-center");
+  assert.equal(workspace.json?.workspace?.links?.status, "/ops/status");
+});
+
+test("API e2e: command-center workspace fails closed when a dependency is unavailable", async () => {
+  const api = createApi({
+    opsTokens: "tok_opsr:ops_read"
+  });
+
+  api.store.listArbitrationCases = async () => {
+    throw new TypeError("arbitration cases not supported for this store");
+  };
+
+  const workspace = await request(api, {
+    method: "GET",
+    path: "/ops/network/command-center/workspace",
+    headers: { "x-proxy-ops-token": "tok_opsr" }
+  });
+  assert.equal(workspace.statusCode, 501, workspace.body);
+  assert.equal(workspace.json?.code, "COMMAND_CENTER_DEPENDENCY_UNAVAILABLE");
+  assert.match(String(workspace.json?.error ?? ""), /dependencies unavailable/i);
+
+  const summary = await request(api, {
+    method: "GET",
+    path: "/ops/network/command-center",
+    headers: { "x-proxy-ops-token": "tok_opsr" }
+  });
+  assert.equal(summary.statusCode, 200, summary.body);
+  assert.equal(summary.json?.ok, true);
+});

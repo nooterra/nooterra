@@ -11,9 +11,54 @@
       "envelope.targetDid"
     ],
     "payloadHashAlgorithm": "sha256(canonicalJson(envelope))",
-    "namespaceRouting": "exact_did_match"
+    "namespaceRouting": "registry_priority_then_exact_did"
   },
   "cases": [
+    {
+      "id": "invoke_namespace_ambiguous_fail_closed",
+      "endpoint": "invoke",
+      "asOf": "2026-02-27T01:00:00.000Z",
+      "policy": {
+        "trustedCoordinatorDids": "did:nooterra:coord_bravo,did:nooterra:coord_charlie",
+        "namespaceRoutes": {},
+        "namespaceAsOf": "2026-02-27T01:00:00.000Z",
+        "namespaceRegistry": [
+          {
+            "recordId": "amb_1",
+            "namespaceDid": "did:nooterra:coord_bravo",
+            "ownerDid": "did:nooterra:coord_bravo",
+            "routeBaseUrl": "https://bravo-a.nooterra.test",
+            "priority": 50,
+            "observedAt": "2026-02-27T00:00:00.000Z",
+            "ttlSeconds": 86400
+          },
+          {
+            "recordId": "amb_2",
+            "namespaceDid": "did:nooterra:coord_bravo",
+            "ownerDid": "did:nooterra:coord_charlie",
+            "routeBaseUrl": "https://charlie.nooterra.test",
+            "priority": 50,
+            "observedAt": "2026-02-27T00:00:00.000Z",
+            "ttlSeconds": 86400
+          }
+        ]
+      },
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_namespace_ambiguous_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": false,
+        "code": "FEDERATION_NAMESPACE_ROUTE_AMBIGUOUS"
+      }
+    },
     {
       "id": "invoke_namespace_missing_fail_closed",
       "endpoint": "invoke",
@@ -34,6 +79,82 @@
       }
     },
     {
+      "id": "invoke_namespace_stale_fail_closed",
+      "endpoint": "invoke",
+      "asOf": "2026-02-27T01:00:00.000Z",
+      "policy": {
+        "trustedCoordinatorDids": "did:nooterra:coord_bravo",
+        "namespaceRoutes": {},
+        "namespaceAsOf": "2026-02-27T01:00:00.000Z",
+        "namespaceRegistry": [
+          {
+            "recordId": "stale_1",
+            "namespaceDid": "did:nooterra:coord_bravo",
+            "ownerDid": "did:nooterra:coord_bravo",
+            "routeBaseUrl": "https://bravo.nooterra.test",
+            "observedAt": "2026-02-25T00:00:00.000Z",
+            "ttlSeconds": 60
+          }
+        ]
+      },
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_namespace_stale_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": false,
+        "code": "FEDERATION_NAMESPACE_RECORD_STALE"
+      }
+    },
+    {
+      "id": "invoke_namespace_transfer_resolved",
+      "endpoint": "invoke",
+      "asOf": "2026-02-27T01:00:00.000Z",
+      "policy": {
+        "trustedCoordinatorDids": "did:nooterra:coord_bravo,did:nooterra:coord_charlie",
+        "namespaceRoutes": {},
+        "namespaceAsOf": "2026-02-27T01:00:00.000Z",
+        "namespaceRegistry": [
+          {
+            "recordId": "transfer_1",
+            "namespaceDid": "did:nooterra:coord_bravo",
+            "ownerDid": "did:nooterra:coord_bravo",
+            "transferToDid": "did:nooterra:coord_charlie",
+            "transferEffectiveAt": "2026-02-27T00:30:00.000Z",
+            "routeBaseUrl": "https://charlie.nooterra.test/fed",
+            "priority": 100,
+            "observedAt": "2026-02-27T00:00:00.000Z",
+            "ttlSeconds": 86400
+          }
+        ]
+      },
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_namespace_transfer_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": true,
+        "namespaceDid": "did:nooterra:coord_bravo",
+        "resolvedCoordinatorDid": "did:nooterra:coord_charlie",
+        "routingReasonCode": "FEDERATION_NAMESPACE_ROUTE_RESOLVED",
+        "namespaceDecisionId": "$nonEmptyString"
+      }
+    },
+    {
       "id": "invoke_replay_duplicate_deterministic",
       "endpoint": "invoke",
       "envelope": {
@@ -49,7 +170,8 @@
       },
       "expected": {
         "accept": true,
-        "duplicateReplayHeader": "x-federation-replay=duplicate"
+        "duplicateReplayHeader": "x-federation-replay=duplicate",
+        "namespaceDecisionId": "$nonEmptyString"
       }
     },
     {
@@ -113,7 +235,10 @@
       },
       "expected": {
         "accept": true,
-        "namespaceDid": "did:nooterra:coord_bravo"
+        "namespaceDid": "did:nooterra:coord_bravo",
+        "resolvedCoordinatorDid": "did:nooterra:coord_bravo",
+        "routingReasonCode": "FEDERATION_NAMESPACE_ROUTE_RESOLVED",
+        "namespaceDecisionId": "$nonEmptyString"
       }
     }
   ]

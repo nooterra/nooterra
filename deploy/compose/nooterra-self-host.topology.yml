@@ -1,0 +1,189 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: proxy
+      POSTGRES_PASSWORD: proxy
+      POSTGRES_DB: proxy
+    ports:
+      - "${NOOTERRA_SELFHOST_PG_PORT:-5432}:5432"
+    volumes:
+      - nooterra_selfhost_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxy -d proxy"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: "${NOOTERRA_EVIDENCE_S3_ACCESS_KEY_ID:?set NOOTERRA_EVIDENCE_S3_ACCESS_KEY_ID}"
+      MINIO_ROOT_PASSWORD: "${NOOTERRA_EVIDENCE_S3_SECRET_ACCESS_KEY:?set NOOTERRA_EVIDENCE_S3_SECRET_ACCESS_KEY}"
+    command: server /data --console-address ":9001"
+    ports:
+      - "${NOOTERRA_SELFHOST_MINIO_PORT:-9000}:9000"
+      - "${NOOTERRA_SELFHOST_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - nooterra_selfhost_minio_data:/data
+
+  minio-init:
+    profiles: ["selfhost-init"]
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 "$NOOTERRA_EVIDENCE_S3_ACCESS_KEY_ID" "$NOOTERRA_EVIDENCE_S3_SECRET_ACCESS_KEY" >/dev/null 2>&1; do sleep 1; done
+        mc mb -p "local/${NOOTERRA_EVIDENCE_S3_BUCKET}" || true
+
+  api:
+    build: ../..
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      STORE: pg
+      DATABASE_URL: "postgres://proxy:proxy@postgres:5432/proxy"
+      PROXY_PG_SCHEMA: "${PROXY_PG_SCHEMA:-public}"
+      PROXY_MIGRATE_ON_STARTUP: "1"
+      PROXY_OPS_TOKENS: "${NOOTERRA_OPS_TOKEN:?set NOOTERRA_OPS_TOKEN}:ops_read,ops_write,finance_read,finance_write,audit_read"
+      PROXY_ALLOW_INLINE_SECRETS: "0"
+      PROXY_FINANCE_RECONCILE_ENABLED: "1"
+      PROXY_MONEY_RAIL_RECONCILE_ENABLED: "1"
+      PROXY_ONBOARDING_BASE_URL: "http://magic-link:8787"
+      PROXY_EVIDENCE_STORE: "s3"
+      PROXY_EVIDENCE_S3_ENDPOINT: "http://minio:9000"
+      PROXY_EVIDENCE_S3_REGION: "${NOOTERRA_EVIDENCE_S3_REGION:-us-east-1}"
+      PROXY_EVIDENCE_S3_BUCKET: "${NOOTERRA_EVIDENCE_S3_BUCKET:-nooterra-evidence}"
+      PROXY_EVIDENCE_S3_FORCE_PATH_STYLE: "1"
+      PROXY_EVIDENCE_S3_ACCESS_KEY_ID: "${NOOTERRA_EVIDENCE_S3_ACCESS_KEY_ID:?set NOOTERRA_EVIDENCE_S3_ACCESS_KEY_ID}"
+      PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY: "${NOOTERRA_EVIDENCE_S3_SECRET_ACCESS_KEY:?set NOOTERRA_EVIDENCE_S3_SECRET_ACCESS_KEY}"
+    ports:
+      - "${NOOTERRA_SELFHOST_API_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  maintenance:
+    build: ../..
+    command: ["src/api/maintenance.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgres://proxy:proxy@postgres:5432/proxy"
+      PROXY_PG_SCHEMA: "${PROXY_PG_SCHEMA:-public}"
+      PROXY_MAINTENANCE_INTERVAL_SECONDS: "${NOOTERRA_MAINTENANCE_INTERVAL_SECONDS:-300}"
+
+  magic-link:
+    build: ../..
+    command: ["services/magic-link/src/server.js"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      MAGIC_LINK_HOST: "0.0.0.0"
+      MAGIC_LINK_PORT: "8787"
+      MAGIC_LINK_DATA_DIR: "/data"
+      MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR: "1"
+      MAGIC_LINK_MIGRATE_ON_STARTUP: "1"
+      MAGIC_LINK_API_KEY: "${MAGIC_LINK_API_KEY:?set MAGIC_LINK_API_KEY}"
+      MAGIC_LINK_SETTINGS_KEY_HEX: "${MAGIC_LINK_SETTINGS_KEY_HEX:?set MAGIC_LINK_SETTINGS_KEY_HEX}"
+      MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1"
+      MAGIC_LINK_BUYER_OTP_DELIVERY_MODE: "${MAGIC_LINK_BUYER_OTP_DELIVERY_MODE:-record}"
+      MAGIC_LINK_DECISION_OTP_DELIVERY_MODE: "${MAGIC_LINK_DECISION_OTP_DELIVERY_MODE:-record}"
+      MAGIC_LINK_NOOTERRA_API_BASE_URL: "http://api:3000"
+      MAGIC_LINK_NOOTERRA_OPS_TOKEN: "${NOOTERRA_OPS_TOKEN:?set NOOTERRA_OPS_TOKEN}"
+      MAGIC_LINK_NOOTERRA_PROTOCOL: "1.0"
+    ports:
+      - "${NOOTERRA_SELFHOST_MAGIC_LINK_PORT:-8787}:8787"
+    volumes:
+      - nooterra_selfhost_magic_link_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  x402-upstream-mock:
+    build: ../..
+    command: ["services/x402-gateway/examples/upstream-mock.js"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PORT: "9402"
+      BIND_HOST: "0.0.0.0"
+      NOOTERRA_PAY_KEYSET_URL: "http://api:3000/.well-known/nooterra-keys.json"
+    ports:
+      - "${NOOTERRA_SELFHOST_UPSTREAM_MOCK_PORT:-9402}:9402"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:9402/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  x402-gateway:
+    build: ../..
+    command: ["services/x402-gateway/src/server.js"]
+    depends_on:
+      api:
+        condition: service_healthy
+      x402-upstream-mock:
+        condition: service_healthy
+    environment:
+      PORT: "8402"
+      BIND_HOST: "0.0.0.0"
+      NOOTERRA_API_URL: "http://api:3000"
+      NOOTERRA_API_KEY: "${NOOTERRA_GATEWAY_API_KEY:?set NOOTERRA_GATEWAY_API_KEY (keyId.secret)}"
+      UPSTREAM_URL: "http://x402-upstream-mock:9402"
+      HOLDBACK_BPS: "${NOOTERRA_X402_HOLDBACK_BPS:-0}"
+      DISPUTE_WINDOW_MS: "${NOOTERRA_X402_DISPUTE_WINDOW_MS:-3600000}"
+      X402_AUTOFUND: "${NOOTERRA_X402_AUTOFUND:-0}"
+      X402_PROVIDER_JWKS_URL: "http://x402-upstream-mock:9402/.well-known/nooterra-provider-keys.json"
+    ports:
+      - "${NOOTERRA_SELFHOST_X402_GATEWAY_PORT:-8402}:8402"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8402/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  nooterra_selfhost_pgdata:
+  nooterra_selfhost_minio_data:
+  nooterra_selfhost_magic_link_data:

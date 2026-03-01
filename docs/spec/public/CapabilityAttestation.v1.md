@@ -46,6 +46,25 @@ They bind:
 - `not_active`
 - `revoked`
 
+## Capability identifier policy
+
+`capability` accepts two backward-safe forms:
+
+- legacy non-URI strings (for existing deployments), for example `travel.booking`
+- URI namespace form: `capability://<namespace>[@vN]`
+
+URI form rules:
+
+- scheme MUST be exactly `capability://`
+- namespace MUST be lowercase
+- namespace segments MUST be dot-separated and use `[a-z0-9-]` only
+- empty segments are invalid
+- segment and total-length policies are enforced deterministically
+- optional version suffix MUST be `@vN` where `N` is a positive integer
+- reserved top-level namespaces MUST fail closed
+
+Validation failures MUST be fail-closed and expose stable `CAPABILITY_IDENTIFIER_*` reason codes in error messaging.
+
 ## Invariants
 
 - `attestationHash` is deterministic over canonicalized content.

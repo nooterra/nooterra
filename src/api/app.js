@@ -84,6 +84,11 @@ import {
   AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY,
   AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL,
   AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL,
+  FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION,
+  FEDERATION_DISPUTE_POLICY_PATH,
+  FEDERATION_DISPUTE_PRIMARY_PLANE,
+  FEDERATION_DISPUTE_COUNTERPART_STATUS,
+  FEDERATION_DISPUTE_TIE_BREAK,
   AGENT_RUN_SETTLEMENT_DECISION_MODE,
   AGENT_RUN_SETTLEMENT_DECISION_STATUS,
   AGENT_RUN_SETTLEMENT_STATUS,
@@ -133,6 +138,7 @@ import {
   buildCapabilityAttestationV1,
   evaluateCapabilityAttestationV1,
   getCapabilityAttestationLevelRank,
+  normalizeCapabilityIdentifier,
   revokeCapabilityAttestationV1,
   validateCapabilityAttestationV1
 } from "../core/capability-attestation.js";
@@ -178,6 +184,10 @@ import {
   validateSessionEventPayloadV1,
   validateSessionV1
 } from "../core/session-collab.js";
+import {
+  evaluateSessionMemoryReadAccessV1,
+  parseSessionMemoryAccessScope
+} from "../core/session-memory-access.js";
 import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../core/session-replay-pack.js";
 import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../core/session-transcript.js";
 import {
@@ -199,6 +209,10 @@ import {
   buildNooterraAgentCard,
   validateAgentCardV1
 } from "../core/agent-card.js";
+import {
+  AGENT_CARD_PUBLISH_REASON_CODE,
+  verifyAgentCardPublishSignatureV1
+} from "../core/agent-card-publish.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
 import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
 import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
@@ -240,6 +254,10 @@ import {
 } from "../core/sla-events.js";
 import { buildAuditExport, buildEvidenceExport } from "../core/audit-export.js";
 import { buildAuditLineageV1 } from "../core/audit-lineage.js";
+import {
+  RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE,
+  buildRunSettlementExplainabilityV1
+} from "../core/settlement-explainability.js";
 import { DEFAULT_TENANT_ID, makeScopedKey, normalizeTenantId, parseScopedKey } from "../core/tenancy.js";
 import {
   COVERAGE_FEE_MODEL,
@@ -390,7 +408,8 @@ import { reconcileGlBatchAgainstPartyStatements } from "../../packages/artifact-
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../federation/proxy-policy.js";
 import { FEDERATION_ERROR_CODE } from "../federation/error-codes.js";
 import { createFederationReplayLedger } from "./federation/replay-ledger.js";
-import { createApprovalRequest, enforceHighRiskApproval } from "../services/human-approval/gate.js";
+import { createFederationStatsTracker } from "./federation/stats.js";
+import { createApprovalRequest, enforceHighRiskApproval, hashActionForApproval } from "../services/human-approval/gate.js";
 import { runDeterministicSimulation } from "../services/simulation/harness.js";
 
 export function createApi({
@@ -405,6 +424,10 @@ export function createApi({
   deliveryBackoffMaxMs = 60_000,
   deliveryRandom = Math.random,
   fetchFn = null,
+  federationForwardMaxAttempts = null,
+  federationForwardTimeoutMs = null,
+  federationForwardRetryBaseMs = null,
+  federationForwardRetryMaxMs = null,
   rateLimitRpm = null,
   rateLimitBurst = null,
   protocol = null,
@@ -461,6 +484,7 @@ export function createApi({
   x402RequireAgentPassport = null,
   x402RequireExecutionIntent = null,
   x402RequireAuthorityGrant = null,
+  workOrderRequireAcceptanceBinding = null,
   x402PromptRiskForceMode = null,
   x402PromptRiskForceModeByPrincipal = null,
   x402SessionTaintEscalateAmountCents = null,
@@ -481,6 +505,7 @@ export function createApi({
   agentCardPublicDiscoveryMaxPerKey = null,
   agentCardPublicDiscoveryPaidBypassEnabled = null,
   agentCardPublicDiscoveryPaidToolId = null,
+  agentCardPublicRequirePublishSignature = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null,
@@ -555,6 +580,19 @@ export function createApi({
     EMERGENCY_ROLE.INCIDENT_COMMANDER
   ]);
   const EMERGENCY_ALLOWED_ROLES_SENSITIVE = new Set([EMERGENCY_ROLE.OPS_ADMIN, EMERGENCY_ROLE.INCIDENT_COMMANDER]);
+  const AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION = "AutonomousRoutinePolicy.v1";
+  const AUTONOMOUS_ROUTINE_CONTROL_EVENT_SCHEMA_VERSION = "AutonomousRoutineControlEvent.v1";
+  const AUTONOMOUS_ROUTINE_EXECUTION_SCHEMA_VERSION = "AutonomousRoutineExecutionReceipt.v1";
+  const AUTONOMOUS_ROUTINE_STATUS = Object.freeze({
+    ACTIVE: "active",
+    PAUSED: "paused"
+  });
+  const AUTONOMOUS_ROUTINE_STATUSES = new Set(Object.values(AUTONOMOUS_ROUTINE_STATUS));
+  const AUTONOMOUS_ROUTINE_CONTROL_ACTION = Object.freeze({
+    KILL_SWITCH: "kill-switch",
+    RESUME: "resume"
+  });
+  const AUTONOMOUS_ROUTINE_CONTROL_ACTIONS = new Set(Object.values(AUTONOMOUS_ROUTINE_CONTROL_ACTION));
 
   const opsTokensRaw = opsTokens ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKENS ?? null) : null);
   const legacyOpsTokenRaw = opsToken ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKEN ?? null) : null);
@@ -616,11 +654,1105 @@ export function createApi({
     federationProxyBaseUrlRaw && String(federationProxyBaseUrlRaw).trim() !== ""
       ? normalizeOptionalAbsoluteUrl(String(federationProxyBaseUrlRaw).trim(), { fieldName: "FEDERATION_PROXY_BASE_URL" })?.replace(/\/+$/, "")
       : null;
+  const federationWorkOrderForwardEnabled =
+    typeof process !== "undefined" &&
+    ["1", "true", "yes", "on"].includes(String(process.env.PROXY_FEDERATION_WORK_ORDER_FORWARD ?? "").trim().toLowerCase());
+  function parsePositiveFederationInt(raw, { fieldName, fallback }) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return fallback;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new TypeError(`${fieldName} must be a positive safe integer`);
+    return parsed;
+  }
+  const federationForwardMaxAttemptsValue = parsePositiveFederationInt(
+    federationForwardMaxAttempts ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_MAX_ATTEMPTS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_MAX_ATTEMPTS", fallback: 3 }
+  );
+  const federationForwardTimeoutMsValue = parsePositiveFederationInt(
+    federationForwardTimeoutMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_TIMEOUT_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_TIMEOUT_MS", fallback: 5_000 }
+  );
+  const federationForwardRetryBaseMsValue = parsePositiveFederationInt(
+    federationForwardRetryBaseMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_RETRY_BASE_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_RETRY_BASE_MS", fallback: 100 }
+  );
+  const federationForwardRetryMaxMsValue = parsePositiveFederationInt(
+    federationForwardRetryMaxMs ?? (typeof process !== "undefined" ? process.env.PROXY_FEDERATION_FORWARD_RETRY_MAX_MS ?? null : null),
+    { fieldName: "PROXY_FEDERATION_FORWARD_RETRY_MAX_MS", fallback: 2_000 }
+  );
+  if (federationForwardRetryMaxMsValue < federationForwardRetryBaseMsValue) {
+    throw new TypeError("PROXY_FEDERATION_FORWARD_RETRY_MAX_MS must be greater than or equal to PROXY_FEDERATION_FORWARD_RETRY_BASE_MS");
+  }
   const federationProxyPolicy = buildFederationProxyPolicy({
     env: typeof process !== "undefined" ? process.env : {},
     fallbackBaseUrl: federationProxyBaseUrl
   });
   const federationReplayLedger = createFederationReplayLedger();
+  const federationStatsTracker = createFederationStatsTracker({ now: nowIso });
+  const federationIncomingInvokeRows = new Map();
+  const federationIncomingDispatchQueue = [];
+  const federationIncomingResultRows = new Map();
+  const federationIncomingResultSettlementRows = new Map();
+  const federationOutgoingInvokeRows = new Map();
+  const federationOutgoingDispatchQueue = [];
+  const federationInvocationReplayRows = new Map();
+  const federationTrustRegistryRaw =
+    typeof process !== "undefined" ? process.env.PROXY_FEDERATION_TRUST_REGISTRY ?? process.env.FEDERATION_TRUST_REGISTRY ?? null : null;
+  const federationTrustRegistryStrict = parseBooleanLike(
+    typeof process !== "undefined" ? process.env.PROXY_FEDERATION_TRUST_REGISTRY_STRICT ?? null : null,
+    false
+  );
+  const FEDERATION_TRUST_REASON_CODE = Object.freeze({
+    UNKNOWN: "FEDERATION_TRUST_ANCHOR_UNKNOWN",
+    STALE: "FEDERATION_TRUST_ANCHOR_STALE",
+    REVOKED: "FEDERATION_TRUST_ANCHOR_REVOKED",
+    ROTATED: "FEDERATION_TRUST_ANCHOR_ROTATED",
+    MISMATCH: "FEDERATION_TRUST_ANCHOR_MISMATCH",
+    VERSION_MISMATCH: "FEDERATION_TRUST_ANCHOR_VERSION_MISMATCH",
+    VERSION_INVALID: "FEDERATION_TRUST_ANCHOR_VERSION_INVALID",
+    SIGNED_AT_INVALID: "FEDERATION_TRUST_SIGNED_AT_INVALID"
+  });
+
+  function normalizeFederationTrustDid(value) {
+    if (typeof value !== "string") return null;
+    const did = value.trim();
+    if (!did) return null;
+    if (!/^did:[a-z0-9]+:[A-Za-z0-9._:-]{1,256}$/.test(did)) return null;
+    return did;
+  }
+
+  function normalizeFederationTrustIso(value, { fieldName }) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const iso = String(value).trim();
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) throw new TypeError(`${fieldName} must be an ISO date-time`);
+    return { iso, ms };
+  }
+
+  function parseFederationTrustRegistry(raw) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return new Map();
+    let parsed = raw;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (err) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY must be valid JSON: ${err?.message ?? String(err ?? "")}`);
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError("PROXY_FEDERATION_TRUST_REGISTRY must be an object keyed by keyId");
+    }
+    const rows = [];
+    for (const [keyIdRaw, anchorRaw] of Object.entries(parsed)) {
+      const keyId = typeof keyIdRaw === "string" ? keyIdRaw.trim() : "";
+      if (!keyId) continue;
+      if (!anchorRaw || typeof anchorRaw !== "object" || Array.isArray(anchorRaw)) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId} must be an object`);
+      }
+      const statusInput = typeof anchorRaw.status === "string" ? anchorRaw.status.trim().toLowerCase() : "active";
+      if (statusInput !== "active" && statusInput !== "rotated" && statusInput !== "revoked") {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.status must be active|rotated|revoked`);
+      }
+      const coordinatorDid = normalizeFederationTrustDid(anchorRaw.coordinatorDid ?? null);
+      if (anchorRaw.coordinatorDid !== undefined && anchorRaw.coordinatorDid !== null && !coordinatorDid) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.coordinatorDid must be a DID`);
+      }
+      const version =
+        anchorRaw.version === null || anchorRaw.version === undefined || String(anchorRaw.version).trim() === ""
+          ? null
+          : Number(anchorRaw.version);
+      if (version !== null && (!Number.isSafeInteger(version) || version <= 0)) {
+        throw new TypeError(`PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.version must be a positive integer`);
+      }
+      rows.push([
+        keyId,
+        {
+          keyId,
+          coordinatorDid,
+          status: statusInput,
+          version,
+          propagatedAt: normalizeFederationTrustIso(anchorRaw.propagatedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.propagatedAt`
+          }),
+          rotatedAt: normalizeFederationTrustIso(anchorRaw.rotatedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.rotatedAt`
+          }),
+          revokedAt: normalizeFederationTrustIso(anchorRaw.revokedAt ?? null, {
+            fieldName: `PROXY_FEDERATION_TRUST_REGISTRY.${keyId}.revokedAt`
+          }),
+          publicKeyPem:
+            typeof anchorRaw.publicKeyPem === "string" && anchorRaw.publicKeyPem.trim() !== "" ? anchorRaw.publicKeyPem.trim() : null
+        }
+      ]);
+    }
+    rows.sort((left, right) => left[0].localeCompare(right[0]));
+    return new Map(rows);
+  }
+
+  const federationTrustRegistry = parseFederationTrustRegistry(federationTrustRegistryRaw);
+  if (!(store.federationTrustAnchors instanceof Map)) {
+    store.federationTrustAnchors = new Map(federationTrustRegistry);
+  } else {
+    for (const [keyId, anchor] of federationTrustRegistry.entries()) {
+      if (!store.federationTrustAnchors.has(keyId)) store.federationTrustAnchors.set(keyId, anchor);
+    }
+  }
+  for (const [keyId, anchor] of (store.federationTrustAnchors instanceof Map ? store.federationTrustAnchors : federationTrustRegistry).entries()) {
+    if (!anchor || typeof anchor !== "object") continue;
+    if (!anchor.publicKeyPem || !(store.publicKeyByKeyId instanceof Map)) continue;
+    if (!store.publicKeyByKeyId.has(keyId)) store.publicKeyByKeyId.set(keyId, anchor.publicKeyPem);
+  }
+
+  function currentFederationTrustRegistry() {
+    return store.federationTrustAnchors instanceof Map ? store.federationTrustAnchors : federationTrustRegistry;
+  }
+
+  function federationIdentityKey({ invocationId, originDid, targetDid }) {
+    return [invocationId, originDid, targetDid].join("\n");
+  }
+
+  function federationParticipantKey({ invocationId, originDid, targetDid }) {
+    const participants = [originDid, targetDid].sort((a, b) => a.localeCompare(b));
+    return [invocationId, ...participants].join("\n");
+  }
+
+  function ensureFederationInvocationReplayState({ envelope }) {
+    const replayKey = federationParticipantKey(envelope);
+    let row = federationInvocationReplayRows.get(replayKey);
+    if (!row) {
+      row = {
+        schemaVersion: "FederationInvocationReplayState.v1",
+        replayKey,
+        invocationId: envelope.invocationId,
+        participantDids: [envelope.originDid, envelope.targetDid].sort((a, b) => a.localeCompare(b)),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        events: [],
+        terminal: null
+      };
+      federationInvocationReplayRows.set(replayKey, row);
+    }
+    return row;
+  }
+
+  function appendFederationInvocationReplayEvent({ endpoint, envelope, eventType, status, details = null, terminal = null }) {
+    if (!envelope || typeof envelope !== "object") return null;
+    const replayState = ensureFederationInvocationReplayState({ envelope });
+    const sequence = replayState.events.length + 1;
+    const recordedAt = nowIso();
+    const eventDetails =
+      details && typeof details === "object" && !Array.isArray(details)
+        ? normalizeForCanonicalJson(details, { path: "$" })
+        : details === null || details === undefined
+          ? null
+          : normalizeForCanonicalJson({ value: details }, { path: "$" });
+    const hashPayload = normalizeForCanonicalJson(
+      {
+        schemaVersion: "FederationInvocationReplayEventHashPayload.v1",
+        replayKey: replayState.replayKey,
+        sequence,
+        endpoint: typeof endpoint === "string" ? endpoint : "unknown",
+        eventType: typeof eventType === "string" ? eventType : "unknown",
+        status: typeof status === "string" ? status : "unknown",
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        details: eventDetails
+      },
+      { path: "$" }
+    );
+    const eventHash = sha256Hex(canonicalJsonStringify(hashPayload));
+    const event = {
+      schemaVersion: "FederationInvocationReplayEvent.v1",
+      eventId: `frevt_${eventHash.slice(0, 24)}`,
+      eventHash,
+      sequence,
+      recordedAt,
+      endpoint: typeof endpoint === "string" ? endpoint : "unknown",
+      eventType: typeof eventType === "string" ? eventType : "unknown",
+      status: typeof status === "string" ? status : "unknown",
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      details: eventDetails
+    };
+    replayState.events.push(event);
+    replayState.updatedAt = recordedAt;
+    if (terminal && typeof terminal === "object" && !Array.isArray(terminal)) {
+      replayState.terminal = normalizeForCanonicalJson(
+        {
+          schemaVersion: "FederationInvocationTerminal.v1",
+          state: typeof terminal.state === "string" ? terminal.state : "unknown",
+          reasonCode: typeof terminal.reasonCode === "string" ? terminal.reasonCode : null,
+          statusCode: Number.isFinite(Number(terminal.statusCode)) ? Number(terminal.statusCode) : null,
+          attempts: Number.isFinite(Number(terminal.attempts)) ? Number(terminal.attempts) : null,
+          terminalAt: recordedAt
+        },
+        { path: "$" }
+      );
+    }
+    return event;
+  }
+
+  function resolveFederationInvocationReplayState({ invocationId, originDid = null, targetDid = null }) {
+    const normalizedInvocationId = typeof invocationId === "string" ? invocationId.trim() : "";
+    if (!normalizedInvocationId) {
+      return {
+        ok: false,
+        statusCode: 400,
+        code: "SCHEMA_INVALID",
+        message: "invocationId is required"
+      };
+    }
+    const originFilter = typeof originDid === "string" && originDid.trim() !== "" ? originDid.trim() : null;
+    const targetFilter = typeof targetDid === "string" && targetDid.trim() !== "" ? targetDid.trim() : null;
+    const participantsFilter =
+      originFilter && targetFilter ? [originFilter, targetFilter].sort((a, b) => a.localeCompare(b)).join("\n") : null;
+    const matches = [];
+    for (const row of federationInvocationReplayRows.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (row.invocationId !== normalizedInvocationId) continue;
+      if (participantsFilter && Array.isArray(row.participantDids) && row.participantDids.join("\n") !== participantsFilter) continue;
+      matches.push(row);
+    }
+    if (matches.length === 0) {
+      return {
+        ok: false,
+        statusCode: 404,
+        code: "FEDERATION_REPLAY_NOT_FOUND",
+        message: "federation invocation replay not found",
+        details: {
+          invocationId: normalizedInvocationId
+        }
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "FEDERATION_REPLAY_AMBIGUOUS",
+        message: "federation invocation replay is ambiguous; provide originDid and targetDid",
+        details: {
+          invocationId: normalizedInvocationId,
+          matchCount: matches.length
+        }
+      };
+    }
+    return { ok: true, row: matches[0] };
+  }
+
+  function buildFederationInvocationReplayPack({ invocationId, originDid = null, targetDid = null }) {
+    const resolved = resolveFederationInvocationReplayState({ invocationId, originDid, targetDid });
+    if (!resolved.ok) return resolved;
+    const row = resolved.row;
+    const events = [...(Array.isArray(row.events) ? row.events : [])]
+      .sort((left, right) => Number(left.sequence ?? 0) - Number(right.sequence ?? 0))
+      .map((event) => ({
+        schemaVersion: event.schemaVersion ?? "FederationInvocationReplayEvent.v1",
+        eventId: event.eventId ?? null,
+        eventHash: event.eventHash ?? null,
+        sequence: event.sequence ?? null,
+        recordedAt: event.recordedAt ?? null,
+        endpoint: event.endpoint ?? null,
+        eventType: event.eventType ?? null,
+        status: event.status ?? null,
+        originDid: event.originDid ?? null,
+        targetDid: event.targetDid ?? null,
+        details: event.details ?? null
+      }));
+    const timelineHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationInvocationReplayTimelineHashPayload.v1",
+            replayKey: row.replayKey,
+            events: events.map((event) => ({ eventId: event.eventId, eventHash: event.eventHash }))
+          },
+          { path: "$" }
+        )
+      )
+    );
+    return {
+      ok: true,
+      replayPack: normalizeForCanonicalJson(
+        {
+          schemaVersion: "FederationInvocationReplayPack.v1",
+          generatedAt: nowIso(),
+          invocationId: row.invocationId,
+          participantDids: Array.isArray(row.participantDids) ? row.participantDids.slice() : [],
+          createdAt: row.createdAt ?? null,
+          updatedAt: row.updatedAt ?? null,
+          timelineHash,
+          eventCount: events.length,
+          terminal: row.terminal ?? null,
+          events
+        },
+        { path: "$" }
+      )
+    };
+  }
+
+  function computeFederationForwardDelayMs({ attempt }) {
+    const base = Math.max(1, federationForwardRetryBaseMsValue);
+    const max = Math.max(base, federationForwardRetryMaxMsValue);
+    const exponent = Math.max(0, Number(attempt) - 1);
+    return Math.max(0, Math.min(max, base * Math.pow(2, exponent)));
+  }
+
+  function isFederationRetryableStatusCode(statusCode) {
+    const numeric = Number(statusCode);
+    if (!Number.isFinite(numeric)) return false;
+    if (numeric === 408 || numeric === 409 || numeric === 425 || numeric === 429) return true;
+    return numeric >= 500;
+  }
+
+  async function performFederationForwardAttempt({ upstreamFetch, targetUrl, headers, body }) {
+    const timeoutMs = Math.max(1, federationForwardTimeoutMsValue);
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timeoutTriggered = false;
+    let timeoutHandle = null;
+    if (controller) {
+      timeoutHandle = setTimeout(() => {
+        timeoutTriggered = true;
+        try {
+          controller.abort();
+        } catch {
+          // ignore
+        }
+      }, timeoutMs);
+    }
+    try {
+      const response = await upstreamFetch(targetUrl, {
+        method: "POST",
+        headers,
+        body,
+        redirect: "error",
+        ...(controller ? { signal: controller.signal } : {})
+      });
+      return {
+        ok: true,
+        timeout: false,
+        response
+      };
+    } catch (err) {
+      const isAbortError =
+        err?.name === "AbortError" ||
+        (typeof err?.message === "string" && err.message.toLowerCase().includes("aborted"));
+      return {
+        ok: false,
+        timeout: timeoutTriggered || isAbortError,
+        error: err
+      };
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  }
+
+  function evaluateFederationTrustAnchor({ envelope, body, signatureInspection }) {
+    const keyId = typeof signatureInspection?.keyId === "string" ? signatureInspection.keyId.trim() : "";
+    if (!keyId) {
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: null
+      };
+    }
+    const registry = currentFederationTrustRegistry();
+    if (!(registry instanceof Map) || registry.size === 0) {
+      if (federationTrustRegistryStrict !== true) return { ok: true, anchor: null, signedAt: null };
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: { keyId }
+      };
+    }
+    const anchor = registry.get(keyId) ?? null;
+    if (!anchor || typeof anchor !== "object") {
+      if (federationTrustRegistryStrict !== true) return { ok: true, anchor: null, signedAt: null };
+      return {
+        ok: false,
+        reason: "trust_anchor_unknown",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+        details: { keyId }
+      };
+    }
+    const signedAtRaw =
+      typeof body?.signedAt === "string" && body.signedAt.trim() !== ""
+        ? body.signedAt.trim()
+        : typeof body?.signature?.signedAt === "string" && body.signature.signedAt.trim() !== ""
+          ? body.signature.signedAt.trim()
+          : null;
+    const signedAtMs = signedAtRaw ? Date.parse(signedAtRaw) : Number.NaN;
+    if (signedAtRaw && !Number.isFinite(signedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_signed_at_invalid",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.SIGNED_AT_INVALID,
+        details: { keyId, signedAt: signedAtRaw }
+      };
+    }
+    const evaluatedAtIso = signedAtRaw && Number.isFinite(signedAtMs) ? signedAtRaw : nowIso();
+    const evaluatedAtMs = Date.parse(evaluatedAtIso);
+    if (!Number.isFinite(evaluatedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_signed_at_invalid",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.SIGNED_AT_INVALID,
+        details: { keyId, signedAt: evaluatedAtIso }
+      };
+    }
+    if (typeof anchor.coordinatorDid === "string" && anchor.coordinatorDid.trim() !== "" && anchor.coordinatorDid !== envelope?.originDid) {
+      return {
+        ok: false,
+        reason: "trust_anchor_mismatch",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.MISMATCH,
+        details: {
+          keyId,
+          expectedOriginDid: anchor.coordinatorDid,
+          receivedOriginDid: envelope?.originDid ?? null
+        }
+      };
+    }
+    const propagatedAtMs = Number(anchor?.propagatedAt?.ms ?? Number.NaN);
+    if (Number.isFinite(propagatedAtMs) && evaluatedAtMs < propagatedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_stale",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.STALE,
+        details: {
+          keyId,
+          propagatedAt: anchor.propagatedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    const trustVersionRaw = body?.trust && typeof body.trust === "object" && !Array.isArray(body.trust) ? body.trust.anchorVersion : body?.trustAnchorVersion;
+    if (trustVersionRaw !== null && trustVersionRaw !== undefined && String(trustVersionRaw).trim() !== "") {
+      const trustVersion = Number(trustVersionRaw);
+      if (!Number.isSafeInteger(trustVersion) || trustVersion <= 0) {
+        return {
+          ok: false,
+          reason: "trust_anchor_version_invalid",
+          reasonCode: FEDERATION_TRUST_REASON_CODE.VERSION_INVALID,
+          details: {
+            keyId,
+            anchorVersion: trustVersionRaw
+          }
+        };
+      }
+      if (Number.isSafeInteger(anchor.version) && trustVersion !== anchor.version) {
+        return {
+          ok: false,
+          reason: "trust_anchor_version_mismatch",
+          reasonCode: FEDERATION_TRUST_REASON_CODE.VERSION_MISMATCH,
+          details: {
+            keyId,
+            expectedAnchorVersion: anchor.version,
+            receivedAnchorVersion: trustVersion
+          }
+        };
+      }
+    }
+    const revokedAtMs = Number(anchor?.revokedAt?.ms ?? Number.NaN);
+    const rotatedAtMs = Number(anchor?.rotatedAt?.ms ?? Number.NaN);
+    if (anchor.status === "revoked" && !Number.isFinite(revokedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_anchor_revoked",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.REVOKED,
+        details: { keyId, revokedAt: null }
+      };
+    }
+    if (anchor.status === "rotated" && !Number.isFinite(rotatedAtMs)) {
+      return {
+        ok: false,
+        reason: "trust_anchor_rotated",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.ROTATED,
+        details: { keyId, rotatedAt: null }
+      };
+    }
+    if (Number.isFinite(revokedAtMs) && evaluatedAtMs >= revokedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_revoked",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.REVOKED,
+        details: {
+          keyId,
+          revokedAt: anchor.revokedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    if (Number.isFinite(rotatedAtMs) && evaluatedAtMs >= rotatedAtMs) {
+      return {
+        ok: false,
+        reason: "trust_anchor_rotated",
+        reasonCode: FEDERATION_TRUST_REASON_CODE.ROTATED,
+        details: {
+          keyId,
+          rotatedAt: anchor.rotatedAt?.iso ?? null,
+          evaluatedAt: evaluatedAtIso
+        }
+      };
+    }
+    return {
+      ok: true,
+      anchor: {
+        keyId,
+        coordinatorDid: anchor.coordinatorDid ?? null,
+        version: Number.isSafeInteger(anchor.version) ? anchor.version : null,
+        status: anchor.status ?? null,
+        propagatedAt: anchor.propagatedAt?.iso ?? null,
+        rotatedAt: anchor.rotatedAt?.iso ?? null,
+        revokedAt: anchor.revokedAt?.iso ?? null
+      },
+      signedAt: signedAtRaw ?? null
+    };
+  }
+
+  function enqueueIncomingFederationInvoke({ envelope, body, requestHash }) {
+    const queueKey = federationIdentityKey(envelope);
+    const existing = federationIncomingInvokeRows.get(queueKey);
+    if (existing) return existing;
+    const row = {
+      schemaVersion: "FederationInvokeQueueEntry.v1",
+      queuedAt: nowIso(),
+      invocationId: envelope.invocationId,
+      traceId: typeof body?.trace?.traceId === "string" && body.trace.traceId.trim() !== "" ? body.trace.traceId.trim() : null,
+      capabilityId: envelope.capabilityId ?? null,
+      agentDid: typeof body?.agentDid === "string" && body.agentDid.trim() !== "" ? body.agentDid.trim() : null,
+      mandateId: typeof body?.mandateId === "string" && body.mandateId.trim() !== "" ? body.mandateId.trim() : null,
+      constraints: body?.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints) ? body.constraints : null,
+      input: body?.payload ?? null,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      requestHash,
+      isFederation: true,
+      status: "queued"
+    };
+    federationIncomingInvokeRows.set(queueKey, row);
+    federationIncomingDispatchQueue.push(queueKey);
+    appendFederationInvocationReplayEvent({
+      endpoint: "invoke",
+      envelope,
+      eventType: "incoming_queued",
+      status: "queued",
+      details: {
+        queueKey,
+        requestHash,
+        queuedAt: row.queuedAt
+      }
+    });
+    return row;
+  }
+
+  function ingestIncomingFederationResult({ envelope, body, requestHash }) {
+    const recordKey = federationIdentityKey(envelope);
+    const existing = federationIncomingResultRows.get(recordKey);
+    if (existing) return existing;
+    const receiptId = `fedrcpt_${requestHash.slice(0, 24)}`;
+    const evidenceRefs = normalizeEvidenceRefList([
+      ...(Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : []),
+      `federation:request_sha256:${requestHash}`
+    ]);
+    const evidenceRefsHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultEvidenceRefs.v1",
+            evidenceRefs
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const resultPayloadHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultPayload.v1",
+            result: body?.result ?? null
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const row = {
+      schemaVersion: "FederationResultReceipt.v1",
+      acceptedAt: nowIso(),
+      receiptId,
+      invocationId: envelope.invocationId,
+      status: envelope.status,
+      result: body?.result ?? null,
+      resultPayloadHash,
+      evidenceRefs,
+      evidenceRefsHash,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      requestHash,
+      settlementApplied: false
+    };
+    federationIncomingResultRows.set(recordKey, row);
+    appendFederationInvocationReplayEvent({
+      endpoint: "result",
+      envelope,
+      eventType: "incoming_result_ingested",
+      status: envelope.status,
+      details: {
+        requestHash,
+        receiptId,
+        evidenceRefsHash,
+        resultPayloadHash
+      }
+    });
+    return row;
+  }
+
+  function applyIncomingFederationResultSettlement({ envelope, receipt }) {
+    const settlementKey = federationIdentityKey(envelope);
+    const existing = federationIncomingResultSettlementRows.get(settlementKey);
+    if (existing) return existing;
+    const settledAt = nowIso();
+    const settlementPayloadHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultSettlementPayload.v1",
+            invocationId: envelope.invocationId,
+            originDid: envelope.originDid,
+            targetDid: envelope.targetDid,
+            status: envelope.status,
+            receiptId: receipt?.receiptId ?? null,
+            settledAt
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const settlementBindingHash = sha256Hex(
+      canonicalJsonStringify(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: "FederationResultSettlementBinding.v1",
+            invocationId: envelope.invocationId,
+            originDid: envelope.originDid,
+            targetDid: envelope.targetDid,
+            status: envelope.status,
+            requestHash: receipt?.requestHash ?? null,
+            receiptId: receipt?.receiptId ?? null,
+            evidenceRefsHash: receipt?.evidenceRefsHash ?? null,
+            resultPayloadHash: receipt?.resultPayloadHash ?? null,
+            settlementPayloadHash,
+            settledAt
+          },
+          { path: "$" }
+        )
+      )
+    );
+    const row = {
+      schemaVersion: "FederationResultSettlementLedgerEntry.v1",
+      ledgerEntryId: `fedledg_${settlementPayloadHash.slice(0, 24)}`,
+      settledAt,
+      invocationId: envelope.invocationId,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      status: envelope.status,
+      receiptId: receipt?.receiptId ?? null,
+      settlementPayloadHash,
+      settlementBindingHash,
+      evidenceRefsHash: receipt?.evidenceRefsHash ?? null,
+      resultPayloadHash: receipt?.resultPayloadHash ?? null
+    };
+    federationIncomingResultSettlementRows.set(settlementKey, row);
+    if (receipt && typeof receipt === "object") {
+      receipt.settlementApplied = true;
+      receipt.settlementLedgerEntryId = row.ledgerEntryId;
+      receipt.settledAt = settledAt;
+      receipt.settlementPayloadHash = settlementPayloadHash;
+      receipt.settlementBindingHash = settlementBindingHash;
+    }
+    appendFederationInvocationReplayEvent({
+      endpoint: "result",
+      envelope,
+      eventType: "incoming_result_settled",
+      status: envelope.status,
+      details: {
+        receiptId: row.receiptId,
+        settlementLedgerEntryId: row.ledgerEntryId,
+        settlementPayloadHash,
+        settlementBindingHash
+      },
+      terminal: {
+        state: "settled",
+        reasonCode: "FEDERATION_RESULT_SETTLED",
+        statusCode: 200,
+        attempts: 1
+      }
+    });
+    return row;
+  }
+
+  function enqueueOutgoingFederationInvoke({ envelope, payload, requestHash, route }) {
+    const queueKey = federationIdentityKey(envelope);
+    const existing = federationOutgoingInvokeRows.get(queueKey);
+    if (existing) return existing;
+    const queuedAt = nowIso();
+    const row = {
+      schemaVersion: "FederationOutgoingInvokeQueueEntry.v1",
+      queuedAt,
+      invocationId: envelope.invocationId,
+      capabilityId: envelope.capabilityId ?? null,
+      traceId: typeof payload?.trace?.traceId === "string" && payload.trace.traceId.trim() !== "" ? payload.trace.traceId.trim() : null,
+      originDid: envelope.originDid,
+      targetDid: envelope.targetDid,
+      namespaceDid: route?.namespaceDid ?? null,
+      upstreamBaseUrl: route?.upstreamBaseUrl ?? null,
+      payload,
+      requestHash,
+      status: "queued",
+      maxAttempts: federationForwardMaxAttemptsValue,
+      attempts: 0,
+      attemptHistory: [],
+      terminalState: "pending",
+      terminalReasonCode: null,
+      terminalStatusCode: null,
+      terminalAt: null,
+      isFederation: true
+    };
+    federationOutgoingInvokeRows.set(queueKey, row);
+    federationOutgoingDispatchQueue.push(queueKey);
+    appendFederationInvocationReplayEvent({
+      endpoint: "invoke",
+      envelope,
+      eventType: "outgoing_queued",
+      status: "queued",
+      details: {
+        queueKey,
+        requestHash,
+        queuedAt,
+        namespaceDid: route?.namespaceDid ?? null
+      }
+    });
+    return row;
+  }
+
+  async function forwardOutgoingFederationInvoke({ payload, route, requestId = null }) {
+    const envelope = {
+      invocationId: typeof payload?.invocationId === "string" ? payload.invocationId : null,
+      originDid: typeof payload?.originDid === "string" ? payload.originDid : null,
+      targetDid: typeof payload?.targetDid === "string" ? payload.targetDid : null
+    };
+    const upstreamBaseUrl =
+      typeof route?.upstreamBaseUrl === "string" && route.upstreamBaseUrl.trim() !== "" ? route.upstreamBaseUrl.trim() : null;
+    if (!upstreamBaseUrl) {
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "not_configured",
+          details: {
+            message: "federation upstream route is not configured"
+          },
+          terminal: {
+            state: "failed_closed",
+            reasonCode: FEDERATION_ERROR_CODE.NOT_CONFIGURED,
+            statusCode: 503,
+            attempts: 0
+          }
+        });
+      }
+      return {
+        ok: false,
+        statusCode: 503,
+        message: "federation upstream route is not configured",
+        details: null,
+        code: FEDERATION_ERROR_CODE.NOT_CONFIGURED
+      };
+    }
+    const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
+    if (typeof upstreamFetch !== "function") {
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "fetch_unavailable",
+          details: {
+            message: "federation proxy fetch is unavailable"
+          },
+          terminal: {
+            state: "failed_closed",
+            reasonCode: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE,
+            statusCode: 500,
+            attempts: 0
+          }
+        });
+      }
+      return {
+        ok: false,
+        statusCode: 500,
+        message: "federation proxy fetch is unavailable",
+        details: null,
+        code: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE
+      };
+    }
+    const targetUrl = new URL("/v1/federation/invoke", `${upstreamBaseUrl}/`).toString();
+    const queueKey = envelope.invocationId && envelope.originDid && envelope.targetDid ? federationIdentityKey(envelope) : null;
+    const queueRow = queueKey ? federationOutgoingInvokeRows.get(queueKey) ?? null : null;
+    if (queueRow && queueRow.terminalState === "forwarded" && queueRow.statusCode === 202) {
+      return {
+        ok: true,
+        statusCode: 202,
+        body: queueRow.responseBody ?? null,
+        duplicate: true
+      };
+    }
+    const requestBody = canonicalJsonStringify(payload);
+    const maxAttempts = Math.max(1, federationForwardMaxAttemptsValue);
+    let terminalError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const startedAt = nowIso();
+      if (queueRow) {
+        queueRow.attempts = attempt;
+        queueRow.status = "forwarding";
+      }
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_attempt",
+          status: "started",
+          details: {
+            attempt,
+            maxAttempts,
+            startedAt
+          }
+        });
+      }
+      const attemptResult = await performFederationForwardAttempt({
+        upstreamFetch,
+        targetUrl,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...(requestId ? { "x-request-id": String(requestId) } : {}),
+          ...(route?.namespaceDid ? { "x-federation-namespace-did": String(route.namespaceDid) } : {})
+        },
+        body: requestBody
+      });
+      if (!attemptResult.ok) {
+        const canRetry = attempt < maxAttempts;
+        terminalError = {
+          ok: false,
+          statusCode: 502,
+          message: "federation upstream invoke is unreachable",
+          details: {
+            attempt,
+            maxAttempts,
+            timeout: attemptResult.timeout === true,
+            message: attemptResult?.error?.message ?? String(attemptResult?.error ?? "network error")
+          },
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: attemptResult.timeout === true ? "timeout" : "network_error",
+                retrying: canRetry
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_attempt",
+            status: attemptResult.timeout === true ? "timeout" : "network_error",
+            details: {
+              attempt,
+              maxAttempts,
+              retrying: canRetry
+            },
+            ...(canRetry
+              ? {}
+              : {
+                  terminal: {
+                    state: attemptResult.timeout === true ? "timeout" : "failed_closed",
+                    reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                    statusCode: 502,
+                    attempts: attempt
+                  }
+                })
+          });
+        }
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+
+      const response = attemptResult.response;
+      const bodyText = await response.text();
+      let bodyJson = null;
+      try {
+        bodyJson = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        // ignore non-json response bodies
+      }
+      if (!response.ok) {
+        const canRetry = isFederationRetryableStatusCode(response.status) && attempt < maxAttempts;
+        terminalError = {
+          ok: false,
+          statusCode: response.status,
+          message: "federation upstream invoke failed",
+          details: normalizeForCanonicalJson(
+            {
+              attempt,
+              maxAttempts,
+              retrying: canRetry,
+              body: bodyJson ?? (bodyText ? { raw: bodyText } : null)
+            },
+            { path: "$" }
+          ),
+          code: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: `upstream_${response.status}`,
+                retrying: canRetry
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_attempt",
+            status: `upstream_${response.status}`,
+            details: {
+              attempt,
+              maxAttempts,
+              retrying: canRetry
+            },
+            ...(canRetry
+              ? {}
+              : {
+                  terminal: {
+                    state: "failed_closed",
+                    reasonCode: bodyJson?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                    statusCode: response.status,
+                    attempts: attempt
+                  }
+                })
+          });
+        }
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+      if (response.status !== 202) {
+        terminalError = {
+          ok: false,
+          statusCode: 502,
+          message: "federation upstream invoke returned unexpected status",
+          details: {
+            expectedStatusCode: 202,
+            receivedStatusCode: response.status,
+            body: bodyJson
+          },
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+        };
+        if (queueRow) {
+          queueRow.attemptHistory.push(
+            normalizeForCanonicalJson(
+              {
+                attempt,
+                at: nowIso(),
+                status: `unexpected_${response.status}`,
+                retrying: false
+              },
+              { path: "$" }
+            )
+          );
+        }
+        if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+          appendFederationInvocationReplayEvent({
+            endpoint: "invoke",
+            envelope,
+            eventType: "outgoing_terminal",
+            status: "unexpected_status",
+            details: {
+              attempt,
+              receivedStatusCode: response.status
+            },
+            terminal: {
+              state: "failed_closed",
+              reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+              statusCode: 502,
+              attempts: attempt
+            }
+          });
+        }
+        break;
+      }
+      if (queueRow) {
+        queueRow.status = "forwarded";
+        queueRow.statusCode = response.status;
+        queueRow.forwardedAt = nowIso();
+        queueRow.responseBody = bodyJson ?? null;
+        queueRow.terminalState = "forwarded";
+        queueRow.terminalReasonCode = null;
+        queueRow.terminalStatusCode = response.status;
+        queueRow.terminalAt = queueRow.forwardedAt;
+      }
+      if (envelope.invocationId && envelope.originDid && envelope.targetDid) {
+        appendFederationInvocationReplayEvent({
+          endpoint: "invoke",
+          envelope,
+          eventType: "outgoing_terminal",
+          status: "forwarded",
+          details: {
+            attempt,
+            statusCode: response.status
+          },
+          terminal: {
+            state: "completed",
+            reasonCode: "FEDERATION_FORWARD_SUCCESS",
+            statusCode: response.status,
+            attempts: attempt
+          }
+        });
+      }
+      return {
+        ok: true,
+        statusCode: response.status,
+        body: bodyJson
+      };
+    }
+    if (queueRow && terminalError) {
+      queueRow.status = "failed";
+      queueRow.terminalState = terminalError.details?.timeout === true ? "timeout" : "failed_closed";
+      queueRow.terminalReasonCode = terminalError.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE;
+      queueRow.terminalStatusCode = terminalError.statusCode ?? 502;
+      queueRow.terminalAt = nowIso();
+    }
+    return terminalError ?? {
+      ok: false,
+      statusCode: 502,
+      message: "federation upstream invoke failed",
+      details: null,
+      code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE
+    };
+  }
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -1329,6 +2461,12 @@ export function createApi({
       "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID must be configured when PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_BYPASS_ENABLED=1"
     );
   }
+  const agentCardPublicRequirePublishSignatureValue = (() => {
+    const raw =
+      agentCardPublicRequirePublishSignature ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_REQUIRE_PUBLISH_SIGNATURE ?? null : null);
+    return parseBooleanLike(raw, false);
+  })();
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
     const raw =
       agentCardPublicRequireCapabilityAttestation ??
@@ -1972,6 +3110,12 @@ export function createApi({
     const raw =
       x402RequireAuthorityGrant ??
       (typeof process !== "undefined" ? process.env.X402_REQUIRE_AUTHORITY_GRANT : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const workOrderRequireAcceptanceBindingValue = (() => {
+    const raw =
+      workOrderRequireAcceptanceBinding ??
+      (typeof process !== "undefined" ? process.env.WORK_ORDER_REQUIRE_ACCEPTANCE_BINDING : null);
     return parseBooleanLike(raw, false);
   })();
   const x402QuoteTtlSecondsValue = (() => {
@@ -2837,6 +3981,7 @@ export function createApi({
   const BILLING_PERIOD_CLOSE_ARTIFACT_TYPE = "BillingPeriodClose.v1";
   const BILLING_STRIPE_CHECKOUT_SESSION_SCHEMA = "BillingStripeCheckoutSession.v1";
   const BILLING_STRIPE_PORTAL_SESSION_SCHEMA = "BillingStripePortalSession.v1";
+  const COMMAND_CENTER_WORKSPACE_SCHEMA_VERSION = "OpsNetworkCommandCenterWorkspace.v1";
   const COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS = Object.freeze({
     httpClientErrorRateThresholdPct: 1,
     httpServerErrorRateThresholdPct: 1,
@@ -2870,6 +4015,15 @@ export function createApi({
     if (value < min) throw new TypeError(`${name} must be >= ${min}`);
     if (Number.isFinite(max) && value > max) throw new TypeError(`${name} must be <= ${max}`);
     return value;
+  }
+
+  function isCommandCenterDependencyUnavailableError(err) {
+    const message = String(err?.message ?? "").toLowerCase();
+    if (!message) return false;
+    if (message.includes("not supported for this store")) return true;
+    if (message.includes("dependency unavailable")) return true;
+    if (message.includes("is not a function")) return true;
+    return false;
   }
 
   function evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds } = {}) {
@@ -3149,7 +4303,8 @@ export function createApi({
     tenantId,
     transactionFeeBps = 100,
     windowHours = 24,
-    disputeSlaHours = 24
+    disputeSlaHours = 24,
+    failClosed = false
   } = {}) {
     const t = normalizeTenant(tenantId);
     const nowAt = nowIso();
@@ -3167,7 +4322,11 @@ export function createApi({
     const snapshot = (() => {
       try {
         return metrics.snapshot();
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "metrics snapshot dependency unavailable";
+          throw new TypeError(message);
+        }
         return null;
       }
     })();
@@ -3207,7 +4366,7 @@ export function createApi({
     }, 0);
 
     const runs = await listAgentRunsForTenant({ tenantId: t });
-    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs, failClosed });
 
     let resolvedCountInWindow = 0;
     let releasedAmountCentsInWindow = 0;
@@ -3352,7 +4511,11 @@ export function createApi({
         if (leftAge !== rightAge) return rightAge - leftAge;
         return String(left?.caseId ?? "").localeCompare(String(right?.caseId ?? ""));
       });
-    } catch {
+    } catch (err) {
+      if (failClosed) {
+        const message = err?.message ? String(err.message) : "arbitration case dependency unavailable";
+        throw new TypeError(message);
+      }
       // Arbitration case SLA detail is best-effort.
     }
 
@@ -3378,14 +4541,19 @@ export function createApi({
           agentId,
           at: nowAt,
           reputationVersion: "v2",
-          reputationWindow: AGENT_REPUTATION_WINDOW.THIRTY_DAYS
+          reputationWindow: AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+          failClosed
         });
         const trustScore = Number(reputation?.trustScore ?? Number.NaN);
         if (!Number.isFinite(trustScore)) continue;
         trustSampledAgents += 1;
         trustScoreTotal += trustScore;
       }
-    } catch {
+    } catch (err) {
+      if (failClosed) {
+        const message = err?.message ? String(err.message) : "trust summary dependency unavailable";
+        throw new TypeError(message);
+      }
       // trust summary is best-effort.
     }
 
@@ -4106,7 +5274,6 @@ export function createApi({
     const heldCandidates = artifacts
       .filter((artifact) => artifact?.artifactType === ARTIFACT_TYPE.HELD_EXPOSURE_ROLLFORWARD_V1 && String(artifact?.period ?? "") === String(period))
       .sort((a, b) => String(a?.generatedAt ?? a?.artifactId ?? "").localeCompare(String(b?.generatedAt ?? b?.artifactId ?? "")));
-    const heldRollforwardArtifact = heldCandidates.length ? heldCandidates[heldCandidates.length - 1] : null;
 
     function sumHeldBucketNetCents(bucket) {
       const byCurrency = bucket && typeof bucket === "object" ? bucket.byCurrency : null;
@@ -4120,16 +5287,20 @@ export function createApi({
       return total;
     }
 
-    const rollforwardBuckets = heldRollforwardArtifact?.rollforward?.buckets ?? null;
-    const heldRollforwardNet = rollforwardBuckets
-      ? {
-          openingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.opening),
-          newLocksCents: sumHeldBucketNetCents(rollforwardBuckets.newHolds),
-          releasesCents: sumHeldBucketNetCents(rollforwardBuckets.released),
-          forfeitsCents: sumHeldBucketNetCents(rollforwardBuckets.forfeited),
-          endingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.ending)
-        }
-      : null;
+    function computeHeldRollforwardNet(artifact) {
+      const rollforwardBuckets = artifact?.rollforward?.buckets ?? null;
+      if (!rollforwardBuckets) return null;
+      return {
+        openingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.opening),
+        newLocksCents: sumHeldBucketNetCents(rollforwardBuckets.newHolds),
+        releasesCents: sumHeldBucketNetCents(rollforwardBuckets.released),
+        forfeitsCents: sumHeldBucketNetCents(rollforwardBuckets.forfeited),
+        endingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.ending)
+      };
+    }
+
+    const heldRollforwardArtifact = heldCandidates.length ? heldCandidates[heldCandidates.length - 1] : null;
+    const heldRollforwardNet = computeHeldRollforwardNet(heldRollforwardArtifact);
 
     const ledgerEntries = await listAllLedgerEntriesForTenant({ tenantId });
     ledgerEntries.sort((a, b) => {
@@ -4198,23 +5369,39 @@ export function createApi({
     ledgerEscrow.endingHeldCents = actualEndingHeldCents;
 
     const ledgerConserved = computedEndingHeldCents === actualEndingHeldCents;
-    const heldRollforwardConserved = heldRollforwardNet
-      ? heldRollforwardNet.openingHeldCents + heldRollforwardNet.newLocksCents - heldRollforwardNet.releasesCents - heldRollforwardNet.forfeitsCents ===
-        heldRollforwardNet.endingHeldCents
-      : false;
-    const heldRollforwardMatchesLedger = heldRollforwardNet
-      ? heldRollforwardNet.openingHeldCents === ledgerEscrow.openingHeldCents &&
-        heldRollforwardNet.newLocksCents === ledgerEscrow.newLocksCents &&
-        heldRollforwardNet.releasesCents === ledgerEscrow.releasesCents &&
-        heldRollforwardNet.forfeitsCents === ledgerEscrow.forfeitsCents &&
-        heldRollforwardNet.endingHeldCents === ledgerEscrow.endingHeldCents
-      : false;
+    function heldRollforwardConserved(net) {
+      if (!net) return false;
+      return net.openingHeldCents + net.newLocksCents - net.releasesCents - net.forfeitsCents === net.endingHeldCents;
+    }
+
+    function heldRollforwardMatchesLedger(net) {
+      if (!net) return false;
+      return (
+        net.openingHeldCents === ledgerEscrow.openingHeldCents &&
+        net.newLocksCents === ledgerEscrow.newLocksCents &&
+        net.releasesCents === ledgerEscrow.releasesCents &&
+        net.forfeitsCents === ledgerEscrow.forfeitsCents &&
+        net.endingHeldCents === ledgerEscrow.endingHeldCents
+      );
+    }
+
+    const heldRollforwardConservedSelected = heldRollforwardConserved(heldRollforwardNet);
+    const heldRollforwardMatchesLedgerSelected = heldRollforwardMatchesLedger(heldRollforwardNet);
+    const heldRollforwardValidation = heldCandidates.map((candidate) => {
+      const net = computeHeldRollforwardNet(candidate);
+      return {
+        conserved: heldRollforwardConserved(net),
+        matchesLedger: heldRollforwardMatchesLedger(net)
+      };
+    });
+    const heldRollforwardInvalidDetected = heldRollforwardValidation.some((row) => row.conserved !== true);
+    const heldRollforwardLedgerMismatchDetected = heldRollforwardValidation.some((row) => row.matchesLedger !== true);
 
     const mismatchCodes = [];
     if (!heldRollforwardArtifact) mismatchCodes.push("HELD_ROLLFORWARD_MISSING");
     if (!ledgerConserved) mismatchCodes.push("LEDGER_ESCROW_ROLLFORWARD_INVALID");
-    if (heldRollforwardArtifact && !heldRollforwardConserved) mismatchCodes.push("HELD_ROLLFORWARD_INVALID");
-    if (heldRollforwardArtifact && !heldRollforwardMatchesLedger) mismatchCodes.push("HELD_ROLLFORWARD_LEDGER_MISMATCH");
+    if (heldRollforwardArtifact && heldRollforwardInvalidDetected) mismatchCodes.push("HELD_ROLLFORWARD_INVALID");
+    if (heldRollforwardArtifact && heldRollforwardLedgerMismatchDetected) mismatchCodes.push("HELD_ROLLFORWARD_LEDGER_MISMATCH");
     if (ledgerEscrow.unknownPositiveAdjustmentsCents !== 0 || ledgerEscrow.unknownNegativeAdjustmentsCents !== 0) {
       mismatchCodes.push("LEDGER_UNCLASSIFIED_ESCROW_ADJUSTMENT");
     }
@@ -4231,8 +5418,8 @@ export function createApi({
       heldRollforward: heldRollforwardNet,
       invariants: {
         ledgerConserved,
-        heldRollforwardConserved,
-        heldRollforwardMatchesLedger,
+        heldRollforwardConserved: heldRollforwardConservedSelected,
+        heldRollforwardMatchesLedger: heldRollforwardMatchesLedgerSelected,
         computedEndingHeldCents,
         actualEndingHeldCents
       },
@@ -7320,7 +8507,7 @@ export function createApi({
     return runs;
   }
 
-  async function listAgentRunSettlementsForRuns({ tenantId, runs = [] } = {}) {
+  async function listAgentRunSettlementsForRuns({ tenantId, runs = [], failClosed = false } = {}) {
     const t = normalizeTenant(tenantId);
     const out = [];
     if (!Array.isArray(runs) || runs.length === 0) return out;
@@ -7330,7 +8517,11 @@ export function createApi({
       try {
         const settlement = await getAgentRunSettlementRecord({ tenantId: t, runId });
         if (settlement && typeof settlement === "object" && !Array.isArray(settlement)) out.push(settlement);
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "agent run settlement dependency unavailable";
+          throw new TypeError(message);
+        }
         // Ignore unsupported settlement store or missing record.
       }
     }
@@ -7349,6 +8540,19 @@ export function createApi({
     const value = String(rawValue).trim();
     if (!Object.values(AGENT_REPUTATION_WINDOW).includes(value)) throw new TypeError("reputationWindow must be one of 7d|30d|allTime");
     return value;
+  }
+
+  function parseAsOfDateTime(rawValue, { defaultValue = nowIso(), fieldName = "asOf" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (!Number.isFinite(Date.parse(String(defaultValue ?? "")))) {
+        throw new TypeError(`${fieldName} must be an ISO date-time`);
+      }
+      return new Date(Date.parse(String(defaultValue))).toISOString();
+    }
+    const candidate = String(rawValue).trim();
+    const parsedMs = Date.parse(candidate);
+    if (!Number.isFinite(parsedMs)) throw new TypeError(`${fieldName} must be an ISO date-time`);
+    return new Date(parsedMs).toISOString();
   }
 
   function parseDiscoveryStatus(rawValue) {
@@ -7635,15 +8839,16 @@ export function createApi({
     };
   }
 
-  function mergeWorkOrderMetadataWithMetering({ metadata = null, meteringPolicy = null, settlementSplitPolicy = null } = {}) {
+  function mergeWorkOrderMetadataWithMetering({ metadata = null, meteringPolicy = null, settlementSplitPolicy = null, dispatchPlan = null } = {}) {
     const baseMetadata =
       metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null;
-    if (!meteringPolicy && !settlementSplitPolicy) return baseMetadata;
+    if (!meteringPolicy && !settlementSplitPolicy && !dispatchPlan) return baseMetadata;
     return normalizeForCanonicalJson(
       {
         ...(baseMetadata ?? {}),
         ...(meteringPolicy ? { metering: meteringPolicy } : {}),
-        ...(settlementSplitPolicy ? { settlementSplitPolicy } : {})
+        ...(settlementSplitPolicy ? { settlementSplitPolicy } : {}),
+        ...(dispatchPlan ? { dispatch: dispatchPlan } : {})
       },
       { path: "$.metadata" }
     );
@@ -8419,6 +9624,110 @@ export function createApi({
     return value;
   }
 
+  function resolveSubAgentDispatchRoute({
+    workOrderId,
+    requiredCapability,
+    executionCoordinatorDid = null,
+    asOf = null
+  } = {}) {
+    const localCoordinatorDid = parseExecutionCoordinatorDid(federationProxyPolicy?.localCoordinatorDid ?? null, {
+      allowNull: true,
+      fieldName: "COORDINATOR_DID"
+    });
+    const targetCoordinatorDid = parseExecutionCoordinatorDid(executionCoordinatorDid, {
+      allowNull: true,
+      fieldName: "executionCoordinatorDid"
+    });
+    if (!targetCoordinatorDid) {
+      return {
+        ok: true,
+        channel: "local",
+        localCoordinatorDid: localCoordinatorDid ?? null,
+        targetCoordinatorDid: targetCoordinatorDid ?? null,
+        route: null
+      };
+    }
+    if (!localCoordinatorDid) {
+      return {
+        ok: false,
+        statusCode: 503,
+        message: "local federation coordinator identity is not configured",
+        details: null,
+        code: FEDERATION_ERROR_CODE.IDENTITY_NOT_CONFIGURED,
+        localCoordinatorDid: null,
+        targetCoordinatorDid
+      };
+    }
+    if (targetCoordinatorDid === localCoordinatorDid) {
+      return {
+        ok: true,
+        channel: "local",
+        localCoordinatorDid,
+        targetCoordinatorDid,
+        route: null
+      };
+    }
+    const route = evaluateFederationTrustAndRoute({
+      endpoint: "invoke",
+      envelope: {
+        version: "1.0",
+        type: "coordinatorInvoke",
+        invocationId: String(workOrderId ?? ""),
+        originDid: localCoordinatorDid,
+        targetDid: targetCoordinatorDid,
+        capabilityId: String(requiredCapability ?? "")
+      },
+      policy: federationProxyPolicy,
+      asOf
+    });
+    if (!route?.ok) {
+      return {
+        ok: false,
+        statusCode: route?.statusCode ?? 503,
+        message: route?.message ?? "federation route denied",
+        details: route?.details ?? null,
+        code: route?.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        localCoordinatorDid,
+        targetCoordinatorDid
+      };
+    }
+    return {
+      ok: true,
+      channel: "federation",
+      localCoordinatorDid,
+      targetCoordinatorDid,
+      route
+    };
+  }
+
+  function buildWorkOrderDispatchPlan({
+    routedAt,
+    workOrderId,
+    requiredCapability,
+    executionCoordinatorDid = null,
+    dispatchRoute
+  } = {}) {
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "SubAgentDispatchPlan.v1",
+        workOrderId: String(workOrderId ?? ""),
+        capabilityId: String(requiredCapability ?? ""),
+        routedAt: String(routedAt ?? ""),
+        channel: String(dispatchRoute?.channel ?? "local"),
+        localCoordinatorDid: dispatchRoute?.localCoordinatorDid ?? null,
+        executionCoordinatorDid: executionCoordinatorDid ?? null,
+        targetCoordinatorDid: dispatchRoute?.targetCoordinatorDid ?? null,
+        namespaceDid: dispatchRoute?.route?.namespaceDid ?? null,
+        upstreamBaseUrl: dispatchRoute?.route?.upstreamBaseUrl ?? null,
+        routingReasonCode: dispatchRoute?.route?.routingReasonCode ?? null,
+        resolvedCoordinatorDid: dispatchRoute?.route?.resolvedCoordinatorDid ?? null,
+        namespaceDecisionId: dispatchRoute?.route?.namespaceLineage?.decisionId ?? null,
+        namespaceLineage: dispatchRoute?.route?.namespaceLineage ?? null
+      },
+      { path: "$.dispatch" }
+    );
+  }
+
   function normalizeAgentCardToolDescriptorsForDiscovery(agentCard) {
     const source = Array.isArray(agentCard?.tools) ? agentCard.tools : [];
     const out = [];
@@ -8453,6 +9762,46 @@ export function createApi({
     }
     out.sort((left, right) => String(left.toolId ?? "").localeCompare(String(right.toolId ?? "")));
     return out;
+  }
+
+  function parseAgentCardPolicyCompatibilityFilter(rawValue, { fieldName } = {}) {
+    const label = typeof fieldName === "string" && fieldName.trim() !== "" ? fieldName.trim() : "value";
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return null;
+    if (typeof rawValue !== "string") throw new TypeError(`${label} must be a string`);
+    const value = rawValue.trim();
+    if (value.length > 200) throw new TypeError(`${label} must be <= 200 characters`);
+    if (!/^[A-Za-z0-9._:/-]+$/.test(value)) {
+      throw new TypeError(`${label} must match ^[A-Za-z0-9._:/-]+$`);
+    }
+    return value;
+  }
+
+  function normalizeAgentCardPolicyCompatibilityForDiscovery(agentCard) {
+    const source =
+      agentCard?.policyCompatibility && typeof agentCard.policyCompatibility === "object" && !Array.isArray(agentCard.policyCompatibility)
+        ? agentCard.policyCompatibility
+        : null;
+    const supportsPolicyTemplates = Array.isArray(source?.supportsPolicyTemplates)
+      ? [...new Set(source.supportsPolicyTemplates.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    const supportsEvidencePacks = Array.isArray(source?.supportsEvidencePacks)
+      ? [...new Set(source.supportsEvidencePacks.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion:
+          typeof source?.schemaVersion === "string" && source.schemaVersion.trim() !== ""
+            ? source.schemaVersion.trim()
+            : "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates,
+        supportsEvidencePacks
+      },
+      { path: "$.policyCompatibility" }
+    );
   }
 
   function parseSessionVisibility(rawValue, { allowAll = true, defaultVisibility = SESSION_VISIBILITY.TENANT } = {}) {
@@ -8886,6 +10235,136 @@ export function createApi({
       throw new TypeError("scoreStrategy must be balanced|recent_bias|trust_weighted");
     }
     return value;
+  }
+
+  const AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION = "AgentReputationPenaltySignal.v1";
+  const REPUTATION_PENALTY_REASON_CODE = Object.freeze({
+    DISPUTE_LOST: "PENALTY_DISPUTE_LOST",
+    CHARGEBACK: "PENALTY_CHARGEBACK",
+    INVALID_SIGNATURE: "PENALTY_INVALID_SIGNATURE"
+  });
+  const REPUTATION_QUARANTINE_REASON_CODE = Object.freeze({
+    DISPUTE_LOST_THRESHOLD: "REPUTATION_QUARANTINE_DISPUTE_LOST_THRESHOLD",
+    CHARGEBACK_THRESHOLD: "REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD",
+    INVALID_SIGNATURE_THRESHOLD: "REPUTATION_QUARANTINE_INVALID_SIGNATURE_THRESHOLD",
+    TOTAL_PENALTY_THRESHOLD: "REPUTATION_QUARANTINE_TOTAL_PENALTY_THRESHOLD",
+    SIGNAL_UNAVAILABLE: "REPUTATION_QUARANTINE_SIGNAL_UNAVAILABLE"
+  });
+  const REPUTATION_PENALTY_QUARANTINE_THRESHOLDS = Object.freeze({
+    disputeLostCount: 1,
+    chargebackCount: 1,
+    invalidSignatureCount: 1,
+    totalPenaltyCount: 2
+  });
+
+  function isLikelySignerIssueMessage(message) {
+    return /signature|signer.?key|invalid signer|openedbyagentid/i.test(String(message ?? ""));
+  }
+
+  function derivePenaltyQuarantineReasonCodes(counts) {
+    const reasons = [];
+    if ((counts?.disputeLostCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.disputeLostCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.DISPUTE_LOST_THRESHOLD);
+    }
+    if ((counts?.chargebackCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.chargebackCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.CHARGEBACK_THRESHOLD);
+    }
+    if ((counts?.invalidSignatureCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.invalidSignatureCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.INVALID_SIGNATURE_THRESHOLD);
+    }
+    if ((counts?.totalPenaltyCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.totalPenaltyCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.TOTAL_PENALTY_THRESHOLD);
+    }
+    reasons.sort((left, right) => left.localeCompare(right));
+    return reasons;
+  }
+
+  function buildReputationPenaltySignalUnavailable({ asOf, reasonCode = REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE } = {}) {
+    const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION,
+        asOf: asOfValue,
+        evaluationStatus: "unavailable",
+        thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
+        counts: {
+          disputeLostCount: 0,
+          chargebackCount: 0,
+          invalidSignatureCount: 0,
+          totalPenaltyCount: 0
+        },
+        quarantineRecommended: true,
+        reasonCodes: [String(reasonCode ?? REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE)]
+      },
+      { path: "$.penaltySignal" }
+    );
+  }
+
+  function computeReputationPenaltySignal({
+    events = [],
+    agentId,
+    asOf,
+    windowStartAt = null
+  } = {}) {
+    const normalizedAgentId = String(agentId ?? "").trim();
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
+    const asOfMs = Date.parse(asOfValue);
+    const windowStartMs = windowStartAt ? Date.parse(String(windowStartAt)) : Number.NaN;
+    const counts = {
+      disputeLostCount: 0,
+      chargebackCount: 0,
+      invalidSignatureCount: 0,
+      totalPenaltyCount: 0
+    };
+
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      if (!subject || String(subject.agentId ?? "").trim() !== normalizedAgentId) continue;
+      const occurredAtMs = Date.parse(String(event.occurredAt ?? ""));
+      if (Number.isFinite(asOfMs) && Number.isFinite(occurredAtMs) && occurredAtMs > asOfMs) continue;
+      if (Number.isFinite(windowStartMs) && Number.isFinite(occurredAtMs) && occurredAtMs < windowStartMs) continue;
+      const kind = String(event.eventKind ?? "").trim().toLowerCase();
+      if (kind === REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST) counts.disputeLostCount += 1;
+      else if (kind === REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK) counts.chargebackCount += 1;
+      else if (kind === REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE) counts.invalidSignatureCount += 1;
+    }
+
+    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount;
+    const reasonCodes = derivePenaltyQuarantineReasonCodes(counts);
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION,
+        asOf: asOfValue,
+        evaluationStatus: "ok",
+        thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
+        counts,
+        quarantineRecommended: reasonCodes.length > 0,
+        reasonCodes
+      },
+      { path: "$.penaltySignal" }
+    );
+  }
+
+  function isReputationPenaltyQuarantined(reputation) {
+    return (
+      reputation?.penaltySignal &&
+      typeof reputation.penaltySignal === "object" &&
+      !Array.isArray(reputation.penaltySignal) &&
+      reputation.penaltySignal.quarantineRecommended === true
+    );
+  }
+
+  function withPenaltySignal(reputation, penaltySignal) {
+    if (!reputation || typeof reputation !== "object" || Array.isArray(reputation)) return reputation;
+    return normalizeForCanonicalJson(
+      {
+        ...reputation,
+        penaltySignal: penaltySignal ?? null
+      },
+      { path: "$.reputation" }
+    );
   }
 
   function computeMarketplaceRankingScore({ reputation, strategy = "balanced", reputationVersion = "v2", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
@@ -9674,12 +11153,13 @@ export function createApi({
     capability = null
   } = {}) {
     const t = normalizeTenant(tenantId);
+    const capabilityFilter = typeof capability === "string" && capability.trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     if (typeof store.listCapabilityAttestations === "function") {
       return store.listCapabilityAttestations({
         tenantId: t,
         subjectAgentId,
         issuerAgentId,
-        capability,
+        capability: capabilityFilter,
         limit: 10_000,
         offset: 0
       });
@@ -9688,7 +11168,6 @@ export function createApi({
       const out = [];
       const subjectFilter = typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null;
       const issuerFilter = typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null;
-      const capabilityFilter = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
       for (const row of store.capabilityAttestations.values()) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
         if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
@@ -9711,7 +11190,8 @@ export function createApi({
     issuerAgentId = null,
     at = nowIso()
   } = {}) {
-    const effectiveCapability = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
+    const effectiveCapability =
+      typeof capability === "string" && capability.trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     if (!effectiveCapability) {
       return {
         isValid: false,
@@ -9929,12 +11409,20 @@ export function createApi({
     });
   }
 
-  async function computeAgentReputationSnapshotVersioned({ tenantId, agentId, at = nowIso(), reputationVersion = "v1", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
+  async function computeAgentReputationSnapshotVersioned({
+    tenantId,
+    agentId,
+    at = nowIso(),
+    reputationVersion = "v1",
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    failClosed = false
+  } = {}) {
     const t = normalizeTenant(tenantId);
     const a = String(agentId ?? "");
     if (a.trim() === "") throw new TypeError("agentId is required");
     const version = parseReputationVersion(reputationVersion);
     const window = parseReputationWindow(reputationWindow);
+    const asOf = parseAsOfDateTime(at, { fieldName: "at" });
 
     let runs = [];
     if (typeof store.listAgentRuns === "function") {
@@ -9952,25 +11440,60 @@ export function createApi({
           offset += batch.length;
         }
         runs = pagedRuns;
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "agent run dependency unavailable";
+          throw new TypeError(message);
+        }
         runs = [];
       }
     } else {
       runs = listAgentRuns({ tenantId: t, agentId: a, status: null });
     }
 
-    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
-    if (version === "v2") {
-      return computeAgentReputationV2({
-        tenantId: t,
-        agentId: a,
-        runs,
-        settlements,
-        at,
-        primaryWindow: window
-      });
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs, failClosed });
+    const baseReputation =
+      version === "v2"
+        ? computeAgentReputationV2({
+            tenantId: t,
+            agentId: a,
+            runs,
+            settlements,
+            at: asOf,
+            primaryWindow: window
+          })
+        : computeAgentReputation({ tenantId: t, agentId: a, runs, settlements, at: asOf });
+
+    let penaltySignal = null;
+    if (typeof store.listReputationEvents !== "function" && typeof store.listArtifacts !== "function") {
+      if (failClosed) throw new TypeError("reputation penalty signal dependency unavailable");
+      penaltySignal = buildReputationPenaltySignalUnavailable({ asOf });
+    } else {
+      try {
+        const windowStartAt = reputationWindowStartAt({ window, at: asOf });
+        const events = await listRoutingReputationEvents({
+          tenantId: t,
+          agentId: a,
+          occurredAtGte: windowStartAt,
+          occurredAtLte: asOf,
+          pageSize: 5000
+        });
+        penaltySignal = computeReputationPenaltySignal({
+          events,
+          agentId: a,
+          asOf,
+          windowStartAt
+        });
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "reputation penalty signal evaluation failed";
+          throw new TypeError(message);
+        }
+        penaltySignal = buildReputationPenaltySignalUnavailable({ asOf });
+      }
     }
-    return computeAgentReputation({ tenantId: t, agentId: a, runs, settlements, at });
+
+    return withPenaltySignal(baseReputation, penaltySignal);
   }
 
   async function searchMarketplaceAgents({
@@ -9984,7 +11507,8 @@ export function createApi({
     includeReputation = true,
     reputationVersion = "v2",
     reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
-    scoreStrategy = "balanced"
+    scoreStrategy = "balanced",
+    asOf = nowIso()
   } = {}) {
     const t = normalizeTenant(tenantId);
     const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(100, limit) : 50;
@@ -9993,8 +11517,10 @@ export function createApi({
     const version = parseReputationVersion(reputationVersion);
     const window = parseReputationWindow(reputationWindow);
     const rankingStrategy = parseScoreStrategy(scoreStrategy);
+    const evaluatedAt = parseAsOfDateTime(asOf, { fieldName: "asOf" });
 
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
     if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
       throw new TypeError("minTrustScore must be an integer within 0..100");
@@ -10016,16 +11542,33 @@ export function createApi({
     }
 
     const ranked = [];
+    const excludedQuarantineCandidates = [];
     for (const agentIdentity of agents) {
       const agentId = String(agentIdentity?.agentId ?? "");
       if (!agentId) continue;
       const reputation = await computeAgentReputationSnapshotVersioned({
         tenantId: t,
         agentId,
-        at: nowIso(),
+        at: evaluatedAt,
         reputationVersion: version,
         reputationWindow: window
       });
+      if (isReputationPenaltyQuarantined(reputation)) {
+        const reasonCodes = Array.isArray(reputation?.penaltySignal?.reasonCodes)
+          ? reputation.penaltySignal.reasonCodes.map((value) => String(value)).filter(Boolean)
+          : [REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE];
+        excludedQuarantineCandidates.push(
+          normalizeForCanonicalJson(
+            {
+              agentId,
+              reasonCodes: [...new Set(reasonCodes)].sort((left, right) => left.localeCompare(right)),
+              evaluationStatus: String(reputation?.penaltySignal?.evaluationStatus ?? "unavailable")
+            },
+            { path: "$.excludedQuarantineCandidates[]" }
+          )
+        );
+        continue;
+      }
       const trustScore = Number(reputation?.trustScore ?? 0);
       const riskTierValue = String(reputation?.riskTier ?? "high");
       if (minScore !== null && trustScore < minScore) continue;
@@ -10068,15 +11611,18 @@ export function createApi({
       return item;
     });
 
-    return {
+    const out = {
       reputationVersion: version,
       reputationWindow: window,
+      asOf: evaluatedAt,
       scoreStrategy: rankingStrategy,
       total,
       limit: safeLimit,
       offset: safeOffset,
       results
     };
+    if (excludedQuarantineCandidates.length > 0) out.excludedQuarantineCandidates = excludedQuarantineCandidates;
+    return out;
   }
 
   async function discoverAgentCards({
@@ -10090,6 +11636,8 @@ export function createApi({
     toolSideEffecting = null,
     toolMaxPriceCents = null,
     toolRequiresEvidenceKind = null,
+    supportsPolicyTemplate = null,
+    supportsEvidencePack = null,
     status = AGENT_CARD_STATUS.ACTIVE,
     visibility = AGENT_CARD_VISIBILITY.PUBLIC,
     runtime = null,
@@ -10106,7 +11654,8 @@ export function createApi({
     reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
     scoreStrategy = "balanced",
     requesterAgentId = null,
-    includeRoutingFactors = false
+    includeRoutingFactors = false,
+    asOf = nowIso()
   } = {}) {
     const discoveryScope = typeof scope === "string" && scope.trim() !== "" ? scope.trim().toLowerCase() : "tenant";
     if (discoveryScope !== "tenant" && discoveryScope !== "public") {
@@ -10121,7 +11670,8 @@ export function createApi({
     if (isPublicScope && visibilityFilter !== AGENT_CARD_VISIBILITY.PUBLIC) {
       throw new TypeError("public discovery visibility must be public");
     }
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
       allowNull: true,
       fieldName: "executionCoordinatorDid"
@@ -10149,6 +11699,12 @@ export function createApi({
         ? null
         : normalizeOptionalX402PositiveSafeInt(toolMaxPriceCents, "toolMaxPriceCents", { allowNull: true });
     const parsedToolRequiresEvidenceKind = parseToolDescriptorEvidenceKind(toolRequiresEvidenceKind, { allowNull: true });
+    const parsedSupportsPolicyTemplate = parseAgentCardPolicyCompatibilityFilter(supportsPolicyTemplate, {
+      fieldName: "supportsPolicyTemplate"
+    });
+    const parsedSupportsEvidencePack = parseAgentCardPolicyCompatibilityFilter(supportsEvidencePack, {
+      fieldName: "supportsEvidencePack"
+    });
     const hasToolDescriptorFilter =
       toolIdFilter !== null ||
       toolMcpNameFilter !== null ||
@@ -10181,7 +11737,7 @@ export function createApi({
     const rankingStrategy = parseScoreStrategy(scoreStrategy);
     const parsedRequesterAgentId = normalizeOptionalX402RefInput(requesterAgentId, "requesterAgentId", { allowNull: true, max: 200 });
     const includeRouting = includeRoutingFactors === true || rankingStrategy === "trust_weighted";
-    const evaluatedAt = nowIso();
+    const evaluatedAt = parseAsOfDateTime(asOf, { fieldName: "asOf" });
     const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
     if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
       throw new TypeError("minTrustScore must be an integer within 0..100");
@@ -10274,14 +11830,15 @@ export function createApi({
       cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
     }
 
-    let quarantinedAgentScopedKeys = null;
-    if (isPublicScope) {
-      quarantinedAgentScopedKeys = new Set();
-      const publicTenantIds = [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
-        left.localeCompare(right)
-      );
+    const quarantinedAgentScopedKeys = new Set();
+    {
+      const quarantineTenantIds = isPublicScope
+        ? [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
+            left.localeCompare(right)
+          )
+        : [t];
       if (typeof store.listEmergencyControlState === "function") {
-        for (const cardTenantId of publicTenantIds) {
+        for (const cardTenantId of quarantineTenantIds) {
           // eslint-disable-next-line no-await-in-loop
           const controls = await store.listEmergencyControlState({
             tenantId: cardTenantId,
@@ -10312,6 +11869,7 @@ export function createApi({
           const scopeId = typeof control.scopeId === "string" && control.scopeId.trim() !== "" ? control.scopeId.trim() : null;
           if (!scopeId) continue;
           const controlTenantId = normalizeTenantId(control.tenantId ?? DEFAULT_TENANT_ID);
+          if (!isPublicScope && controlTenantId !== t) continue;
           quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: controlTenantId, id: scopeId }));
         }
       }
@@ -10320,10 +11878,24 @@ export function createApi({
 
     const ranked = [];
     const excludedAttestationCandidates = [];
+    const excludedQuarantineCandidates = [];
     for (const agentCard of cards) {
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
       const normalizedToolDescriptors = normalizeAgentCardToolDescriptorsForDiscovery(agentCard);
+      const normalizedPolicyCompatibility = normalizeAgentCardPolicyCompatibilityForDiscovery(agentCard);
+      if (
+        parsedSupportsPolicyTemplate &&
+        !normalizedPolicyCompatibility.supportsPolicyTemplates.includes(parsedSupportsPolicyTemplate)
+      ) {
+        continue;
+      }
+      if (
+        parsedSupportsEvidencePack &&
+        !normalizedPolicyCompatibility.supportsEvidencePacks.includes(parsedSupportsEvidencePack)
+      ) {
+        continue;
+      }
       if (hasToolDescriptorFilter) {
         const hasToolMatch = normalizedToolDescriptors.some((descriptor) => {
           if (toolIdFilter !== null && String(descriptor.toolId ?? "") !== toolIdFilter) return false;
@@ -10352,7 +11924,7 @@ export function createApi({
         if (!hasToolMatch) continue;
       }
       const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
-      if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
+      if (quarantinedAgentScopedKeys.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (isPublicScope && abuseSuppressedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
@@ -10424,6 +11996,23 @@ export function createApi({
         reputationVersion: version,
         reputationWindow: window
       });
+      if (isReputationPenaltyQuarantined(reputation)) {
+        const reasonCodes = Array.isArray(reputation?.penaltySignal?.reasonCodes)
+          ? reputation.penaltySignal.reasonCodes.map((value) => String(value)).filter(Boolean)
+          : [REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE];
+        excludedQuarantineCandidates.push(
+          normalizeForCanonicalJson(
+            {
+              agentId,
+              tenantId: cardTenantId,
+              reasonCodes: [...new Set(reasonCodes)].sort((left, right) => left.localeCompare(right)),
+              evaluationStatus: String(reputation?.penaltySignal?.evaluationStatus ?? "unavailable")
+            },
+            { path: "$.excludedQuarantineCandidates[]" }
+          )
+        );
+        continue;
+      }
       const trustScore = Number(reputation?.trustScore ?? 0);
       const riskTierValue = String(reputation?.riskTier ?? "high");
       if (minScore !== null && trustScore < minScore) continue;
@@ -10492,6 +12081,7 @@ export function createApi({
       scope: discoveryScope,
       reputationVersion: version,
       reputationWindow: window,
+      asOf: evaluatedAt,
       scoreStrategy: rankingStrategy,
       total,
       limit: safeLimit,
@@ -10499,6 +12089,7 @@ export function createApi({
       results
     };
     if (requireAttestation) out.excludedAttestationCandidates = excludedAttestationCandidates;
+    if (excludedQuarantineCandidates.length > 0) out.excludedQuarantineCandidates = excludedQuarantineCandidates;
     if (requireAttestationByPolicy) {
       out.attestationPolicy = {
         schemaVersion: "AgentCardPublicDiscoveryAttestationPolicy.v1",
@@ -10523,7 +12114,8 @@ export function createApi({
     runtime = null
   } = {}) {
     const statusFilter = parseDiscoveryStatus(status);
-    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const capabilityFilter =
+      capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
       allowNull: true,
       fieldName: "executionCoordinatorDid"
@@ -10824,6 +12416,9 @@ export function createApi({
   const X402_EXECUTION_INTENT_SCHEMA_VERSION = "ExecutionIntent.v1";
   const X402_QUOTE_SCHEMA_VERSION = "X402Quote.v1";
   const X402_WALLET_POLICY_SCHEMA_VERSION = "X402WalletPolicy.v1";
+  const X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION = "X402DelegatedBudgetEnvelope.v1";
+  const X402_AUTHORIZATION_GOVERNANCE_SCHEMA_VERSION = "X402AuthorizationGovernance.v1";
+  const X402_AUTHORIZATION_APPROVAL_AUDIT_SCHEMA_VERSION = "X402AuthorizationApprovalAudit.v1";
   const X402_ZK_VERIFICATION_KEY_SCHEMA_VERSION = "X402ZkVerificationKey.v1";
   const X402_AGENT_LIFECYCLE_SCHEMA_VERSION = "X402AgentLifecycle.v1";
   const X402_AGENT_LIFECYCLE_STATUS = Object.freeze({
@@ -11888,6 +13483,463 @@ export function createApi({
         metadata,
         createdAt,
         updatedAt: createdAt
+      },
+      { path: "$" }
+    );
+  }
+
+  function autonomousRoutinePolicyStoreKey({ tenantId, routineId }) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+    if (!normalizedRoutineId) throw new TypeError("routineId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: normalizedRoutineId });
+  }
+
+  function autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId }) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedRoutineId = typeof routineId === "string" ? routineId.trim() : "";
+    const normalizedExecutionId = typeof executionId === "string" ? executionId.trim() : "";
+    if (!normalizedRoutineId) throw new TypeError("routineId is required");
+    if (!normalizedExecutionId) throw new TypeError("executionId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: `${normalizedRoutineId}::${normalizedExecutionId}` });
+  }
+
+  function normalizeAutonomousRoutineStatusInput(value, { fieldPath = "status", allowNull = false } = {}) {
+    if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!AUTONOMOUS_ROUTINE_STATUSES.has(normalized)) throw new TypeError(`${fieldPath} must be active|paused`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineControlActionInput(value, { fieldPath = "action" } = {}) {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "enable") return AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH;
+    if (normalized === "disable") return AUTONOMOUS_ROUTINE_CONTROL_ACTION.RESUME;
+    if (!AUTONOMOUS_ROUTINE_CONTROL_ACTIONS.has(normalized)) throw new TypeError(`${fieldPath} must be kill-switch|resume|enable|disable`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineCurrencyInput(value, { fieldPath = "currency" } = {}) {
+    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+    if (!/^[A-Z]{3}$/.test(normalized)) throw new TypeError(`${fieldPath} must be a 3-letter ISO currency code`);
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineMicrosInput(value, { fieldPath }) {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${fieldPath} must be a non-negative safe integer`);
+    return parsed;
+  }
+
+  function normalizeAutonomousRoutinePolicyGuardrailsInput(rawValue, { fieldPath = "policyGuardrails" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const allowPaidExecution = rawValue.allowPaidExecution === true;
+    const requireHumanApproval = rawValue.requireHumanApproval === true;
+    const allowExternalNetwork = rawValue.allowExternalNetwork === true;
+    return normalizeForCanonicalJson(
+      {
+        allowPaidExecution,
+        requireHumanApproval,
+        allowExternalNetwork
+      },
+      { path: fieldPath }
+    );
+  }
+
+  function normalizeAutonomousRoutineSpendingLimitsInput(rawValue, { fieldPath = "spendingLimits" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const currency = normalizeAutonomousRoutineCurrencyInput(rawValue.currency, { fieldPath: `${fieldPath}.currency` });
+    const maxPerExecutionMicros = normalizeAutonomousRoutineMicrosInput(rawValue.maxPerExecutionMicros, {
+      fieldPath: `${fieldPath}.maxPerExecutionMicros`
+    });
+    const maxPerDayMicros = normalizeAutonomousRoutineMicrosInput(rawValue.maxPerDayMicros, { fieldPath: `${fieldPath}.maxPerDayMicros` });
+    if (maxPerDayMicros < maxPerExecutionMicros) {
+      throw new TypeError(`${fieldPath}.maxPerDayMicros must be greater than or equal to maxPerExecutionMicros`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        currency,
+        maxPerExecutionMicros,
+        maxPerDayMicros
+      },
+      { path: fieldPath }
+    );
+  }
+
+  function normalizeAutonomousRoutinePolicyInput(rawValue, { fieldPath = "routine", existing = null } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const routineId = typeof rawValue.routineId === "string" ? rawValue.routineId.trim() : "";
+    if (!routineId) throw new TypeError(`${fieldPath}.routineId is required`);
+    const name = typeof rawValue.name === "string" ? rawValue.name.trim() : "";
+    if (!name) throw new TypeError(`${fieldPath}.name is required`);
+    const taskTemplate = typeof rawValue.taskTemplate === "string" ? rawValue.taskTemplate.trim() : "";
+    if (!taskTemplate) throw new TypeError(`${fieldPath}.taskTemplate is required`);
+    const cadence = rawValue.cadence === null || rawValue.cadence === undefined ? null : String(rawValue.cadence).trim() || null;
+    const description =
+      rawValue.description === null || rawValue.description === undefined ? null : String(rawValue.description).trim() || null;
+    const status = normalizeAutonomousRoutineStatusInput(rawValue.status ?? existing?.status ?? AUTONOMOUS_ROUTINE_STATUS.ACTIVE, {
+      fieldPath: `${fieldPath}.status`,
+      allowNull: false
+    });
+    const policyGuardrails = normalizeAutonomousRoutinePolicyGuardrailsInput(rawValue.policyGuardrails, {
+      fieldPath: `${fieldPath}.policyGuardrails`
+    });
+    const spendingLimits = normalizeAutonomousRoutineSpendingLimitsInput(rawValue.spendingLimits, {
+      fieldPath: `${fieldPath}.spendingLimits`
+    });
+    const metadata =
+      rawValue.metadata === null || rawValue.metadata === undefined
+        ? null
+        : typeof rawValue.metadata === "object" && !Array.isArray(rawValue.metadata)
+          ? normalizeForCanonicalJson(rawValue.metadata, { path: `${fieldPath}.metadata` })
+          : (() => {
+              throw new TypeError(`${fieldPath}.metadata must be object or null`);
+            })();
+    const createdAt =
+      typeof existing?.createdAt === "string" && Number.isFinite(Date.parse(existing.createdAt)) ? existing.createdAt : nowIso();
+    const previousKillSwitch =
+      existing?.killSwitch && typeof existing.killSwitch === "object" && !Array.isArray(existing.killSwitch) ? existing.killSwitch : null;
+    const inputKillSwitch =
+      rawValue.killSwitch && typeof rawValue.killSwitch === "object" && !Array.isArray(rawValue.killSwitch) ? rawValue.killSwitch : null;
+    if (inputKillSwitch && inputKillSwitch.active !== undefined && previousKillSwitch && Boolean(inputKillSwitch.active) !== Boolean(previousKillSwitch.active)) {
+      throw new TypeError(`${fieldPath}.killSwitch.active is read-only; use /ops/routines/{routineId}/kill-switch`);
+    }
+    if (inputKillSwitch && inputKillSwitch.active === true && !previousKillSwitch) {
+      throw new TypeError(`${fieldPath}.killSwitch.active cannot be enabled during create; use /ops/routines/{routineId}/kill-switch`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION,
+        routineId,
+        name,
+        description,
+        cadence,
+        taskTemplate,
+        status,
+        policyGuardrails,
+        spendingLimits,
+        killSwitch: {
+          active: previousKillSwitch?.active === true,
+          revision:
+            Number.isSafeInteger(Number(previousKillSwitch?.revision)) && Number(previousKillSwitch.revision) >= 0
+              ? Number(previousKillSwitch.revision)
+              : 0,
+          updatedAt: typeof previousKillSwitch?.updatedAt === "string" ? previousKillSwitch.updatedAt : null,
+          reasonCode: typeof previousKillSwitch?.reasonCode === "string" ? previousKillSwitch.reasonCode : null,
+          reason: typeof previousKillSwitch?.reason === "string" ? previousKillSwitch.reason : null,
+          lastIncidentId: typeof previousKillSwitch?.lastIncidentId === "string" ? previousKillSwitch.lastIncidentId : null
+        },
+        metadata,
+        createdAt,
+        updatedAt: nowIso()
+      },
+      { path: "$" }
+    );
+  }
+
+  function autonomousRoutineFeatureSupported() {
+    return (
+      typeof store.getAutonomousRoutinePolicy === "function" ||
+      typeof store.listAutonomousRoutinePolicies === "function" ||
+      store.autonomousRoutinePolicies instanceof Map
+    );
+  }
+
+  async function getAutonomousRoutinePolicyRecord({ tenantId, routineId }) {
+    if (typeof store.getAutonomousRoutinePolicy === "function") {
+      return await store.getAutonomousRoutinePolicy({ tenantId, routineId });
+    }
+    if (!(store.autonomousRoutinePolicies instanceof Map)) return null;
+    return store.autonomousRoutinePolicies.get(autonomousRoutinePolicyStoreKey({ tenantId, routineId })) ?? null;
+  }
+
+  async function listAutonomousRoutinePolicyRecords({
+    tenantId,
+    status = null,
+    killSwitchActive = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const statusFilter =
+      status === null || status === undefined || String(status).trim() === ""
+        ? null
+        : normalizeAutonomousRoutineStatusInput(status, { fieldPath: "status", allowNull: false });
+    if (killSwitchActive !== null && typeof killSwitchActive !== "boolean") throw new TypeError("killSwitchActive must be null or boolean");
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(1000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutinePolicies === "function") {
+      return await store.listAutonomousRoutinePolicies({
+        tenantId: normalizedTenantId,
+        status: statusFilter,
+        killSwitchActive,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutinePolicies instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutinePolicies.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (killSwitchActive !== null && Boolean(row?.killSwitch?.active) !== killSwitchActive) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.routineId ?? "").localeCompare(String(right?.routineId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function getAutonomousRoutineExecutionRecord({ tenantId, routineId, executionId }) {
+    if (!(store.autonomousRoutineExecutions instanceof Map)) return null;
+    return store.autonomousRoutineExecutions.get(autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId })) ?? null;
+  }
+
+  async function listAutonomousRoutineExecutionRecords({
+    tenantId,
+    routineId = null,
+    allowed = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const routineFilter = routineId === null ? null : String(routineId).trim();
+    if (routineFilter === "") throw new TypeError("routineId must be null or non-empty string");
+    if (allowed !== null && typeof allowed !== "boolean") throw new TypeError("allowed must be null or boolean");
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(2000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutineExecutions === "function") {
+      return await store.listAutonomousRoutineExecutions({
+        tenantId: normalizedTenantId,
+        routineId: routineFilter,
+        allowed,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutineExecutions instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutineExecutions.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (routineFilter !== null && String(row.routineId ?? "") !== routineFilter) continue;
+      if (allowed !== null && Boolean(row?.decision?.allowed) !== allowed) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.executedAt ?? ""))) ? Date.parse(String(left.executedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.executedAt ?? ""))) ? Date.parse(String(right.executedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.executionId ?? "").localeCompare(String(right?.executionId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function listAutonomousRoutineControlEventRecords({
+    tenantId,
+    routineId = null,
+    action = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const routineFilter = routineId === null ? null : String(routineId).trim();
+    if (routineFilter === "") throw new TypeError("routineId must be null or non-empty string");
+    const actionFilter =
+      action === null || action === undefined || String(action).trim() === ""
+        ? null
+        : normalizeAutonomousRoutineControlActionInput(action, { fieldPath: "action" });
+    const safeLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(2000, Number(limit)) : 200;
+    const safeOffset = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
+    if (typeof store.listAutonomousRoutineControlEvents === "function") {
+      return await store.listAutonomousRoutineControlEvents({
+        tenantId: normalizedTenantId,
+        routineId: routineFilter,
+        action: actionFilter,
+        limit: safeLimit,
+        offset: safeOffset
+      });
+    }
+    if (!(store.autonomousRoutineControlEvents instanceof Map)) return [];
+    const rows = [];
+    for (const row of store.autonomousRoutineControlEvents.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (routineFilter !== null && String(row.routineId ?? "") !== routineFilter) continue;
+      if (actionFilter !== null && String(row.action ?? "").toLowerCase() !== actionFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.effectiveAt ?? ""))) ? Date.parse(String(left.effectiveAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.effectiveAt ?? ""))) ? Date.parse(String(right.effectiveAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.incidentId ?? "").localeCompare(String(right?.incidentId ?? ""));
+    });
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  function normalizeAutonomousRoutineExecutionRequestInput(rawValue, { fieldPath = "execution" } = {}) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const executionId = typeof rawValue.executionId === "string" ? rawValue.executionId.trim() : "";
+    if (!executionId) throw new TypeError(`${fieldPath}.executionId is required`);
+    const requestedAt = typeof rawValue.requestedAt === "string" ? rawValue.requestedAt.trim() : "";
+    if (!requestedAt || !Number.isFinite(Date.parse(requestedAt))) throw new TypeError(`${fieldPath}.requestedAt must be an ISO date-time`);
+    const requestedSpendMicros = normalizeAutonomousRoutineMicrosInput(rawValue.requestedSpendMicros, {
+      fieldPath: `${fieldPath}.requestedSpendMicros`
+    });
+    const currency = normalizeAutonomousRoutineCurrencyInput(rawValue.currency, { fieldPath: `${fieldPath}.currency` });
+    const expectedPolicyRevision =
+      rawValue.expectedPolicyRevision === null || rawValue.expectedPolicyRevision === undefined || rawValue.expectedPolicyRevision === ""
+        ? null
+        : normalizeAutonomousRoutineMicrosInput(rawValue.expectedPolicyRevision, { fieldPath: `${fieldPath}.expectedPolicyRevision` });
+    const taskInputHash =
+      rawValue.taskInputHash === null || rawValue.taskInputHash === undefined ? null : String(rawValue.taskInputHash).trim() || null;
+    const context =
+      rawValue.context === null || rawValue.context === undefined
+        ? null
+        : typeof rawValue.context === "object" && !Array.isArray(rawValue.context)
+          ? normalizeForCanonicalJson(rawValue.context, { path: `${fieldPath}.context` })
+          : (() => {
+              throw new TypeError(`${fieldPath}.context must be object or null`);
+            })();
+    return normalizeForCanonicalJson(
+      {
+        executionId,
+        requestedAt: new Date(requestedAt).toISOString(),
+        requestedSpendMicros,
+        currency,
+        expectedPolicyRevision,
+        taskInputHash,
+        context
+      },
+      { path: "$" }
+    );
+  }
+
+  function evaluateAutonomousRoutineExecutionDecision({ routine, execution, dailyApprovedSpendMicros }) {
+    if (!routine || typeof routine !== "object" || Array.isArray(routine)) {
+      return { allowed: false, code: "ROUTINE_NOT_FOUND", message: "routine not found" };
+    }
+    if (routine.status !== AUTONOMOUS_ROUTINE_STATUS.ACTIVE) {
+      return { allowed: false, code: "ROUTINE_INACTIVE", message: "routine is not active" };
+    }
+    if (routine?.killSwitch?.active === true) {
+      return { allowed: false, code: "ROUTINE_KILL_SWITCH_ACTIVE", message: "routine kill switch is active" };
+    }
+    const policyRevision = Number(routine?.killSwitch?.revision ?? 0);
+    if (
+      execution.expectedPolicyRevision !== null &&
+      (!Number.isSafeInteger(policyRevision) || policyRevision !== Number(execution.expectedPolicyRevision))
+    ) {
+      return {
+        allowed: false,
+        code: "ROUTINE_POLICY_REVISION_MISMATCH",
+        message: "routine policy revision mismatch",
+        details: {
+          expectedPolicyRevision: execution.expectedPolicyRevision,
+          actualPolicyRevision: Number.isSafeInteger(policyRevision) ? policyRevision : null
+        }
+      };
+    }
+    const allowPaidExecution = routine?.policyGuardrails?.allowPaidExecution === true;
+    if (!allowPaidExecution && execution.requestedSpendMicros > 0) {
+      return { allowed: false, code: "ROUTINE_PAID_EXECUTION_FORBIDDEN", message: "routine policy forbids paid execution" };
+    }
+    const routineCurrency = normalizeAutonomousRoutineCurrencyInput(routine.spendingLimits.currency, { fieldPath: "routine.spendingLimits.currency" });
+    if (execution.currency !== routineCurrency) {
+      return {
+        allowed: false,
+        code: "ROUTINE_SPEND_CURRENCY_MISMATCH",
+        message: "execution currency does not match routine spending policy"
+      };
+    }
+    if (execution.requestedSpendMicros > Number(routine.spendingLimits.maxPerExecutionMicros)) {
+      return { allowed: false, code: "ROUTINE_SPEND_LIMIT_EXCEEDED", message: "execution spend exceeds per-execution limit" };
+    }
+    if (Number(dailyApprovedSpendMicros) + execution.requestedSpendMicros > Number(routine.spendingLimits.maxPerDayMicros)) {
+      return { allowed: false, code: "ROUTINE_DAILY_SPEND_LIMIT_EXCEEDED", message: "execution spend exceeds daily routine limit" };
+    }
+    return { allowed: true, code: "ROUTINE_EXECUTION_ALLOWED", message: "execution allowed" };
+  }
+
+  function buildAutonomousRoutineExecutionReceipt({
+    tenantId,
+    routine,
+    execution,
+    decision,
+    dailyApprovedSpendMicros,
+    principalId = null,
+    authKeyId = null
+  }) {
+    const executedAt = execution.requestedAt;
+    const dailySpendBeforeMicros = Number(dailyApprovedSpendMicros);
+    const dailySpendAfterMicros = decision.allowed ? dailySpendBeforeMicros + execution.requestedSpendMicros : dailySpendBeforeMicros;
+    const decisionPayload = normalizeForCanonicalJson(
+      {
+        schemaVersion: "AutonomousRoutineExecutionDecisionPayload.v1",
+        tenantId: normalizeTenant(tenantId),
+        routineId: routine.routineId,
+        executionId: execution.executionId,
+        requestedAt: execution.requestedAt,
+        requestedSpendMicros: execution.requestedSpendMicros,
+        currency: execution.currency,
+        policyRevision: Number(routine?.killSwitch?.revision ?? 0),
+        dailySpendBeforeMicros,
+        dailySpendAfterMicros,
+        decision: {
+          allowed: decision.allowed === true,
+          code: decision.code ?? null,
+          message: decision.message ?? null
+        }
+      },
+      { path: "$" }
+    );
+    const decisionHash = sha256Hex(canonicalJsonStringify(decisionPayload));
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AUTONOMOUS_ROUTINE_EXECUTION_SCHEMA_VERSION,
+        tenantId: normalizeTenant(tenantId),
+        routineId: routine.routineId,
+        executionId: execution.executionId,
+        requestedAt: execution.requestedAt,
+        executedAt,
+        requestedSpendMicros: execution.requestedSpendMicros,
+        currency: execution.currency,
+        dailySpendBeforeMicros,
+        dailySpendAfterMicros,
+        policyRef: {
+          schemaVersion: AUTONOMOUS_ROUTINE_POLICY_SCHEMA_VERSION,
+          routineId: routine.routineId,
+          policyRevision: Number(routine?.killSwitch?.revision ?? 0),
+          policyHash: sha256Hex(canonicalJsonStringify(routine))
+        },
+        decision: {
+          allowed: decision.allowed === true,
+          code: decision.code ?? null,
+          message: decision.message ?? null,
+          details: decision.details ?? null
+        },
+        decisionHash,
+        taskInputHash: execution.taskInputHash ?? null,
+        context: execution.context ?? null,
+        requestedBy: {
+          principalId: principalId ?? null,
+          keyId: authKeyId ?? null
+        },
+        requestId: null
       },
       { path: "$" }
     );
@@ -13779,6 +15831,209 @@ export function createApi({
       });
     }
     return executionIntent;
+  }
+
+  function normalizeX402DelegatedBudgetEnvelopeInput(rawValue, { fieldPath = "delegatedBudgetEnvelope", allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const schemaVersionRaw =
+      typeof rawValue.schemaVersion === "string" && rawValue.schemaVersion.trim() !== ""
+        ? rawValue.schemaVersion.trim()
+        : X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION;
+    if (schemaVersionRaw !== X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION) {
+      throw new TypeError(`${fieldPath}.schemaVersion must be ${X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION}`);
+    }
+    const envelopeId = normalizeOptionalX402RefInput(rawValue.envelopeId, `${fieldPath}.envelopeId`, { allowNull: false, max: 200 });
+    const teamId = normalizeOptionalX402RefInput(rawValue.teamId ?? null, `${fieldPath}.teamId`, { allowNull: true, max: 200 });
+    const policyRef = normalizeOptionalX402RefInput(rawValue.policyRef ?? null, `${fieldPath}.policyRef`, { allowNull: true, max: 200 });
+    const currencyRaw =
+      typeof rawValue.currency === "string" && rawValue.currency.trim() !== "" ? rawValue.currency.trim().toUpperCase() : "USD";
+    if (!/^[A-Z][A-Z0-9_]{2,11}$/.test(currencyRaw)) {
+      throw new TypeError(`${fieldPath}.currency must match ^[A-Z][A-Z0-9_]{2,11}$`);
+    }
+    const maxTotalCents = normalizeOptionalX402PositiveSafeInt(rawValue.maxTotalCents, `${fieldPath}.maxTotalCents`, { allowNull: false });
+    const approvalThresholdCents = normalizeOptionalNonNegativeSafeInt(rawValue.approvalThresholdCents ?? null, {
+      fieldName: `${fieldPath}.approvalThresholdCents`,
+      allowNull: true
+    });
+    const approvalTimeoutAt =
+      rawValue.approvalTimeoutAt === null || rawValue.approvalTimeoutAt === undefined || String(rawValue.approvalTimeoutAt).trim() === ""
+        ? null
+        : String(rawValue.approvalTimeoutAt).trim();
+    if (approvalTimeoutAt !== null && !Number.isFinite(Date.parse(approvalTimeoutAt))) {
+      throw new TypeError(`${fieldPath}.approvalTimeoutAt must be an ISO timestamp when provided`);
+    }
+    if (rawValue.emergencyStop !== undefined && typeof rawValue.emergencyStop !== "boolean") {
+      throw new TypeError(`${fieldPath}.emergencyStop must be boolean when provided`);
+    }
+    if (rawValue.requireEvidenceRefs !== undefined && typeof rawValue.requireEvidenceRefs !== "boolean") {
+      throw new TypeError(`${fieldPath}.requireEvidenceRefs must be boolean when provided`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_DELEGATED_BUDGET_ENVELOPE_SCHEMA_VERSION,
+        envelopeId,
+        ...(teamId ? { teamId } : {}),
+        ...(policyRef ? { policyRef } : {}),
+        currency: currencyRaw,
+        maxTotalCents,
+        ...(approvalThresholdCents !== null ? { approvalThresholdCents } : {}),
+        ...(approvalTimeoutAt !== null ? { approvalTimeoutAt } : {}),
+        emergencyStop: rawValue.emergencyStop === true,
+        requireEvidenceRefs: rawValue.requireEvidenceRefs === true
+      },
+      { path: "$" }
+    );
+  }
+
+  function extractX402DelegatedBudgetEnvelopeFromReceiptBinding(binding) {
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)) return null;
+    const governance = binding.governance;
+    if (!governance || typeof governance !== "object" || Array.isArray(governance)) return null;
+    const budgetEnvelope = governance.budgetEnvelope;
+    if (!budgetEnvelope || typeof budgetEnvelope !== "object" || Array.isArray(budgetEnvelope)) return null;
+    const envelopeId =
+      typeof budgetEnvelope.envelopeId === "string" && budgetEnvelope.envelopeId.trim() !== "" ? budgetEnvelope.envelopeId.trim() : null;
+    if (!envelopeId) return null;
+    return {
+      envelopeId,
+      budgetEnvelope
+    };
+  }
+
+  async function computeX402DelegatedBudgetEnvelopeUsageCents({ tenantId, payerAgentId, envelopeId } = {}) {
+    if (typeof store.listX402Receipts !== "function") {
+      const err = new Error("delegated budget envelope cumulative spend check requires x402 receipt listing support");
+      err.code = "X402_DELEGATED_BUDGET_RESOLVER_UNAVAILABLE";
+      throw err;
+    }
+    const receipts = await store.listX402Receipts({
+      tenantId,
+      agentId: payerAgentId,
+      limit: 50_000,
+      offset: 0
+    });
+    let usedCents = 0;
+    for (const row of Array.isArray(receipts) ? receipts : []) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const bindingSources = [row?.bindings, row?.decisionRecord?.bindings, row?.settlementReceipt?.bindings];
+      let matched = false;
+      for (const bindingSource of bindingSources) {
+        const extracted = extractX402DelegatedBudgetEnvelopeFromReceiptBinding(bindingSource);
+        if (!extracted) continue;
+        if (String(extracted.envelopeId) !== String(envelopeId)) continue;
+        matched = true;
+        break;
+      }
+      if (!matched) continue;
+      const releasedAmountCents = Number(
+        row?.settlementReceipt?.releasedAmountCents ??
+          row?.releasedAmountCents ??
+          (String(row?.settlementState ?? "").toLowerCase() === "released" ? row?.amountCents : 0)
+      );
+      if (!Number.isSafeInteger(releasedAmountCents) || releasedAmountCents <= 0) continue;
+      usedCents += releasedAmountCents;
+    }
+    return usedCents;
+  }
+
+  function createX402AuthorizationApprovalAuditEntry({
+    profile,
+    action = null,
+    approvalCheck = null,
+    approvalDecision = null,
+    checkedAt = null
+  } = {}) {
+    if (!approvalCheck || typeof approvalCheck !== "object" || Array.isArray(approvalCheck)) return null;
+    const profileId = typeof profile === "string" && profile.trim() !== "" ? profile.trim() : "default";
+    const checkedAtIso = typeof checkedAt === "string" && checkedAt.trim() !== "" ? checkedAt.trim() : nowIso();
+    const decision =
+      approvalDecision && typeof approvalDecision === "object" && !Array.isArray(approvalDecision) ? approvalDecision : null;
+    const decisionBinding =
+      decision?.binding && typeof decision.binding === "object" && !Array.isArray(decision.binding)
+        ? normalizeForCanonicalJson(
+            {
+              gateId: typeof decision.binding.gateId === "string" && decision.binding.gateId.trim() !== "" ? decision.binding.gateId.trim() : null,
+              runId: typeof decision.binding.runId === "string" && decision.binding.runId.trim() !== "" ? decision.binding.runId.trim() : null,
+              settlementId:
+                typeof decision.binding.settlementId === "string" && decision.binding.settlementId.trim() !== ""
+                  ? decision.binding.settlementId.trim()
+                  : null,
+              delegationGrantRef:
+                typeof decision.binding.delegationGrantRef === "string" && decision.binding.delegationGrantRef.trim() !== ""
+                  ? decision.binding.delegationGrantRef.trim()
+                  : null,
+              authorityGrantRef:
+                typeof decision.binding.authorityGrantRef === "string" && decision.binding.authorityGrantRef.trim() !== ""
+                  ? decision.binding.authorityGrantRef.trim()
+                  : null,
+              policyHashSha256:
+                typeof decision.binding.policyHashSha256 === "string" && /^[0-9a-f]{64}$/i.test(decision.binding.policyHashSha256.trim())
+                  ? decision.binding.policyHashSha256.trim().toLowerCase()
+                  : null,
+              policyVersion:
+                Number.isSafeInteger(Number(decision.binding.policyVersion)) && Number(decision.binding.policyVersion) > 0
+                  ? Number(decision.binding.policyVersion)
+                  : null
+            },
+            { path: "$.decision.binding" }
+          )
+        : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_AUTHORIZATION_APPROVAL_AUDIT_SCHEMA_VERSION,
+        profile: profileId,
+        checkedAt: checkedAtIso,
+        actionId:
+          typeof approvalCheck.actionId === "string" && approvalCheck.actionId.trim() !== ""
+            ? approvalCheck.actionId.trim()
+            : typeof action?.actionId === "string" && action.actionId.trim() !== ""
+              ? action.actionId.trim()
+              : null,
+        actionSha256:
+          typeof approvalCheck.actionSha256 === "string" && approvalCheck.actionSha256.trim() !== ""
+            ? approvalCheck.actionSha256.trim().toLowerCase()
+            : action
+              ? hashActionForApproval(action)
+              : null,
+        requiresExplicitApproval: approvalCheck.requiresExplicitApproval === true,
+        approved: approvalCheck.approved === true,
+        decisionDigest:
+          typeof approvalCheck.decisionDigest === "string" && approvalCheck.decisionDigest.trim() !== ""
+            ? approvalCheck.decisionDigest.trim().toLowerCase()
+            : null,
+        reasonCodes: Array.isArray(approvalCheck.blockingIssues)
+          ? Array.from(
+              new Set(
+                approvalCheck.blockingIssues
+                  .map((issue) => (typeof issue?.code === "string" ? issue.code.trim() : ""))
+                  .filter(Boolean)
+              )
+            ).sort((left, right) => left.localeCompare(right))
+          : [],
+        decision:
+          decision !== null
+            ? {
+                decisionId: typeof decision.decisionId === "string" && decision.decisionId.trim() !== "" ? decision.decisionId.trim() : null,
+                decidedBy: typeof decision.decidedBy === "string" && decision.decidedBy.trim() !== "" ? decision.decidedBy.trim() : null,
+                decidedAt: typeof decision.decidedAt === "string" && decision.decidedAt.trim() !== "" ? decision.decidedAt.trim() : null,
+                approved: decision.approved === true,
+                ...(decisionBinding ? { binding: decisionBinding } : {}),
+                evidenceRefs: Array.isArray(decision.evidenceRefs)
+                  ? Array.from(new Set(decision.evidenceRefs.map((row) => String(row ?? "").trim()).filter(Boolean))).sort((a, b) =>
+                      a.localeCompare(b)
+                    )
+                  : []
+              }
+            : null
+      },
+      { path: "$" }
+    );
   }
 
   function x402AgentPassportHasProtocolEnvelope(passport) {
@@ -16093,6 +18348,217 @@ export function createApi({
     });
   }
 
+  function buildRunSettlementExplainabilityDiagnostic({ code, message, details = null } = {}) {
+    const normalizedCode = typeof code === "string" && code.trim() !== "" ? code.trim() : "lineage_unknown";
+    const normalizedMessage =
+      typeof message === "string" && message.trim() !== ""
+        ? message.trim()
+        : "run settlement explainability lineage diagnostics reported a validation error";
+    const normalizedDetails = details && typeof details === "object" && !Array.isArray(details) ? normalizeForCanonicalJson(details, { path: "$.details" }) : null;
+    return normalizeForCanonicalJson(
+      {
+        code: normalizedCode,
+        message: normalizedMessage,
+        details: normalizedDetails
+      },
+      { path: "$.diagnostic" }
+    );
+  }
+
+  function buildRunSettlementExplainabilityLineageDiagnostics({ runId, runEvents, settlement, kernelVerification } = {}) {
+    const diagnostics = [];
+    const normalizedRunId = typeof runId === "string" && runId.trim() !== "" ? runId.trim() : null;
+    const normalizedRunEvents = Array.isArray(runEvents) ? runEvents : [];
+    const settlementTrace =
+      settlement?.decisionTrace && typeof settlement.decisionTrace === "object" && !Array.isArray(settlement.decisionTrace)
+        ? settlement.decisionTrace
+        : null;
+
+    if (normalizedRunEvents.length === 0) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RUN_EVENT_HISTORY_MISSING,
+          message: "run event history is required for explainability timeline",
+          details: { runId: normalizedRunId }
+        })
+      );
+    }
+
+    if (!settlementTrace) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.DECISION_TRACE_MISSING,
+          message: "settlement decisionTrace is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+      return diagnostics;
+    }
+
+    const policyDecision =
+      settlementTrace.policyDecision && typeof settlementTrace.policyDecision === "object" && !Array.isArray(settlementTrace.policyDecision)
+        ? settlementTrace.policyDecision
+        : null;
+    if (!policyDecision) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.POLICY_DECISION_MISSING,
+          message: "settlement policy decision is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const decisionRecord =
+      settlementTrace.decisionRecord && typeof settlementTrace.decisionRecord === "object" && !Array.isArray(settlementTrace.decisionRecord)
+        ? settlementTrace.decisionRecord
+        : null;
+    if (!decisionRecord) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.DECISION_RECORD_MISSING,
+          message: "settlement decision record is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const settlementReceipt =
+      settlementTrace.settlementReceipt && typeof settlementTrace.settlementReceipt === "object" && !Array.isArray(settlementTrace.settlementReceipt)
+        ? settlementTrace.settlementReceipt
+        : null;
+    if (!settlementReceipt) {
+      diagnostics.push(
+        buildRunSettlementExplainabilityDiagnostic({
+          code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RECEIPT_MISSING,
+          message: "settlement receipt is missing",
+          details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null }
+        })
+      );
+    }
+
+    const settlementStatus = String(settlement?.status ?? "").toLowerCase();
+    const requiresResolutionEvent = settlementStatus !== "" && settlementStatus !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED;
+    if (requiresResolutionEvent) {
+      const resolutionEventId =
+        typeof settlement?.resolutionEventId === "string" && settlement.resolutionEventId.trim() !== "" ? settlement.resolutionEventId.trim() : null;
+      if (!resolutionEventId) {
+        diagnostics.push(
+          buildRunSettlementExplainabilityDiagnostic({
+            code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RESOLUTION_EVENT_MISSING,
+            message: "resolved settlement is missing resolutionEventId lineage reference",
+            details: { runId: normalizedRunId, settlementId: settlement?.settlementId ?? null, settlementStatus }
+          })
+        );
+      } else {
+        const hasResolutionEvent = normalizedRunEvents.some((event) => String(event?.id ?? "") === resolutionEventId);
+        if (!hasResolutionEvent) {
+          diagnostics.push(
+            buildRunSettlementExplainabilityDiagnostic({
+              code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.RESOLUTION_EVENT_NOT_FOUND,
+              message: "settlement resolutionEventId does not match any run event",
+              details: {
+                runId: normalizedRunId,
+                settlementId: settlement?.settlementId ?? null,
+                settlementStatus,
+                resolutionEventId
+              }
+            })
+          );
+        }
+      }
+    }
+
+    if (kernelVerification?.valid === false && Array.isArray(kernelVerification.errors)) {
+      for (const kernelErrorCode of kernelVerification.errors) {
+        diagnostics.push(
+          buildRunSettlementExplainabilityDiagnostic({
+            code: RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_DIAGNOSTIC_CODE.KERNEL_BINDING_INVALID,
+            message: "settlement kernel verification failed",
+            details: {
+              runId: normalizedRunId,
+              settlementId: settlement?.settlementId ?? null,
+              kernelErrorCode: typeof kernelErrorCode === "string" ? kernelErrorCode : null
+            }
+          })
+        );
+      }
+    }
+    return diagnostics;
+  }
+
+  function collectRunSettlementExplainabilityTraceIds({ run, settlement, events, agreement, linkedTask } = {}) {
+    const traceIds = new Set();
+    const addTraceIds = (value) => {
+      for (const traceId of collectTraceIdsForAuditLineage(value)) traceIds.add(traceId);
+    };
+    addTraceIds(run);
+    addTraceIds(settlement);
+    addTraceIds(agreement);
+    addTraceIds(linkedTask);
+    for (const event of Array.isArray(events) ? events : []) {
+      addTraceIds(event);
+      if (event?.payload && typeof event.payload === "object" && !Array.isArray(event.payload)) addTraceIds(event.payload);
+    }
+    return [...traceIds.values()].sort((left, right) => left.localeCompare(right));
+  }
+
+  async function listRunSettlementExplainabilitySessionEvents({ tenantId, traceIds } = {}) {
+    const normalizedTraceIds = Array.isArray(traceIds)
+      ? [...new Set(traceIds.map((row) => (row === null || row === undefined ? "" : String(row).trim())).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        )
+      : [];
+    if (normalizedTraceIds.length === 0) return [];
+    const hasSessionListStore = typeof store.listSessions === "function" || store.sessions instanceof Map;
+    const hasSessionEventStore = typeof store.getSessionEvents === "function" || store.sessionEvents instanceof Map;
+    if (!hasSessionListStore || !hasSessionEventStore) return [];
+
+    const sessions = await listSessionRecords({ tenantId, limit: 1000, offset: 0 });
+    const traceFilter = new Set(normalizedTraceIds);
+    const rows = [];
+    for (const session of Array.isArray(sessions) ? sessions : []) {
+      const sessionId = typeof session?.sessionId === "string" ? session.sessionId : null;
+      if (!sessionId) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const events = await getSessionEventRecords({ tenantId, sessionId });
+      for (const event of Array.isArray(events) ? events : []) {
+        const eventPayload = event?.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : null;
+        const eventTraceIds = new Set([
+          ...collectTraceIdsForAuditLineage(event),
+          ...(eventPayload ? collectTraceIdsForAuditLineage(eventPayload) : [])
+        ]);
+        const matchedTraceIds = [...eventTraceIds.values()].filter((traceId) => traceFilter.has(traceId)).sort((left, right) => left.localeCompare(right));
+        if (matchedTraceIds.length === 0) continue;
+        rows.push(
+          normalizeForCanonicalJson(
+            {
+              sessionId,
+              eventId: event?.id ?? null,
+              eventType: event?.type ?? null,
+              at: event?.at ?? null,
+              chainHash: event?.chainHash ?? null,
+              prevChainHash: event?.prevChainHash ?? null,
+              payloadHash: event?.payloadHash ?? null,
+              traceIds: matchedTraceIds,
+              evidenceRefs: []
+            },
+            { path: "$.sessionEvent" }
+          )
+        );
+      }
+    }
+    rows.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.at ?? ""))) ? Date.parse(String(left.at)) : Number.MAX_SAFE_INTEGER;
+      const rightMs = Number.isFinite(Date.parse(String(right?.at ?? ""))) ? Date.parse(String(right.at)) : Number.MAX_SAFE_INTEGER;
+      if (leftMs !== rightMs) return leftMs - rightMs;
+      const bySession = String(left?.sessionId ?? "").localeCompare(String(right?.sessionId ?? ""));
+      if (bySession !== 0) return bySession;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+    return rows;
+  }
+
   function parsePagination({ limitRaw, offsetRaw, defaultLimit = 50, maxLimit = 200 } = {}) {
     const limit = limitRaw === null || limitRaw === undefined || String(limitRaw).trim() === "" ? defaultLimit : Number(limitRaw);
     const offset = offsetRaw === null || offsetRaw === undefined || String(offsetRaw).trim() === "" ? 0 : Number(offsetRaw);
@@ -16932,6 +19398,125 @@ export function createApi({
     throw new TypeError("agent cards not supported for this store");
   }
 
+  function buildAgentCardPublishSignatureDetails({
+    reasonCode,
+    reason,
+    signerKeyId = null,
+    signedAt = null,
+    expectedSignerKeyId = null,
+    signerStatus = null,
+    validFrom = null,
+    validTo = null,
+    revokedAt = null,
+    expectedPayloadHash = null,
+    actualPayloadHash = null
+  } = {}) {
+    return normalizeForCanonicalJson(
+      {
+        reasonCode:
+          typeof reasonCode === "string" && reasonCode.trim() !== ""
+            ? reasonCode.trim()
+            : "AGENT_CARD_PUBLISH_SIGNATURE_INVALID",
+        reason:
+          typeof reason === "string" && reason.trim() !== ""
+            ? reason.trim()
+            : "agent card publish signature verification failed",
+        signerKeyId: typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null,
+        signedAt: typeof signedAt === "string" && signedAt.trim() !== "" ? signedAt.trim() : null,
+        expectedSignerKeyId:
+          typeof expectedSignerKeyId === "string" && expectedSignerKeyId.trim() !== "" ? expectedSignerKeyId.trim() : null,
+        signerStatus: typeof signerStatus === "string" && signerStatus.trim() !== "" ? signerStatus.trim() : null,
+        validFrom: typeof validFrom === "string" && validFrom.trim() !== "" ? validFrom.trim() : null,
+        validTo: typeof validTo === "string" && validTo.trim() !== "" ? validTo.trim() : null,
+        revokedAt: typeof revokedAt === "string" && revokedAt.trim() !== "" ? revokedAt.trim() : null,
+        expectedPayloadHash:
+          typeof expectedPayloadHash === "string" && expectedPayloadHash.trim() !== "" ? expectedPayloadHash.trim() : null,
+        actualPayloadHash:
+          typeof actualPayloadHash === "string" && actualPayloadHash.trim() !== "" ? actualPayloadHash.trim() : null
+      },
+      { path: "$.agentCardPublishSignature" }
+    );
+  }
+
+  async function verifyAgentCardPublishSignature({
+    tenantId,
+    agentIdentity,
+    requestBody,
+    publishSignatureInput
+  } = {}) {
+    const expectedSignerKeyId = String(agentIdentity?.keys?.keyId ?? "").trim();
+    const expectedPublicKeyPem = String(agentIdentity?.keys?.publicKeyPem ?? "").trim();
+    if (!expectedSignerKeyId || !expectedPublicKeyPem) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_UNAVAILABLE",
+          reason: "agent identity publish signer key is unavailable",
+          expectedSignerKeyId
+        })
+      };
+    }
+
+    const verification = verifyAgentCardPublishSignatureV1({
+      tenantId,
+      requestBody,
+      publishSignature: publishSignatureInput,
+      publicKeyPem: expectedPublicKeyPem
+    });
+    if (!verification.ok) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: verification.reasonCode ?? AGENT_CARD_PUBLISH_REASON_CODE.SIGNATURE_INVALID,
+          reason: verification.message ?? "agent card publish signature verification failed",
+          expectedSignerKeyId,
+          expectedPayloadHash: verification.expectedPayloadHash ?? null,
+          actualPayloadHash: verification.actualPayloadHash ?? null
+        })
+      };
+    }
+
+    const normalizedPublishSignature = verification.publishSignature;
+    const signerKeyId = String(normalizedPublishSignature?.signerKeyId ?? "").trim();
+    if (signerKeyId !== expectedSignerKeyId) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_MISMATCH",
+          reason: "publish.signerKeyId does not match agent identity key",
+          signerKeyId,
+          signedAt: normalizedPublishSignature?.signedAt ?? null,
+          expectedSignerKeyId
+        })
+      };
+    }
+
+    const signerLifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at: normalizedPublishSignature?.signedAt ?? null,
+      requireRegistered: false
+    });
+    if (!signerLifecycle.ok) {
+      return {
+        ok: false,
+        details: buildAgentCardPublishSignatureDetails({
+          reasonCode: "AGENT_CARD_PUBLISH_SIGNER_KEY_INVALID",
+          reason: signerLifecycle.message ?? "agent card publish signer key lifecycle verification failed",
+          signerKeyId,
+          signedAt: normalizedPublishSignature?.signedAt ?? null,
+          expectedSignerKeyId,
+          signerStatus: signerLifecycle.signerStatus ?? null,
+          validFrom: signerLifecycle.validFrom ?? null,
+          validTo: signerLifecycle.validTo ?? null,
+          revokedAt: signerLifecycle.revokedAt ?? null
+        })
+      };
+    }
+
+    return { ok: true, publishSignature: normalizedPublishSignature, payloadHash: verification.payloadHash ?? null };
+  }
+
   async function getAgentCardAbuseReportRecord({ tenantId, reportId }) {
     if (typeof store.getAgentCardAbuseReport === "function") return store.getAgentCardAbuseReport({ tenantId, reportId });
     if (store.agentCardAbuseReports instanceof Map) return store.agentCardAbuseReports.get(makeScopedKey({ tenantId, id: String(reportId) })) ?? null;
@@ -17576,6 +20161,239 @@ export function createApi({
       return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
     }
     throw new TypeError("state checkpoints not supported for this store");
+  }
+
+  function normalizeStateCheckpointArtifactHash(value) {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    return /^[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+  }
+
+  const ARTIFACT_READ_REDACTION_SCHEMA_VERSION = "ArtifactReadRedaction.v1";
+  const ARTIFACT_READ_REDACTABLE_FIELDS = Object.freeze([
+    "payload",
+    "content",
+    "state",
+    "stateSnapshot",
+    "stateDiff",
+    "diff",
+    "diffs",
+    "metadata"
+  ]);
+
+  function normalizeArtifactRefIdForPolicy(ref) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref)) return null;
+    const artifactId = typeof ref.artifactId === "string" ? ref.artifactId.trim() : "";
+    return artifactId || null;
+  }
+
+  function stateCheckpointReferencesArtifactId(checkpoint, artifactId) {
+    const candidateId = typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!candidateId) return false;
+    const stateRefId = normalizeArtifactRefIdForPolicy(checkpoint?.stateRef);
+    if (stateRefId === candidateId) return true;
+    const diffRefs = Array.isArray(checkpoint?.diffRefs) ? checkpoint.diffRefs : [];
+    for (const ref of diffRefs) {
+      if (normalizeArtifactRefIdForPolicy(ref) === candidateId) return true;
+    }
+    return false;
+  }
+
+  async function lookupArtifactReadRedactionContext({ tenantId, artifactId, contextCache = null } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const normalizedArtifactId = typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!normalizedArtifactId) return null;
+    const cacheKey = `${normalizedTenantId}:${normalizedArtifactId}`;
+    if (contextCache instanceof Map && contextCache.has(cacheKey)) {
+      return contextCache.get(cacheKey);
+    }
+    const matches = [];
+    let offset = 0;
+    const limit = 500;
+    let page = 0;
+    while (page < 200) {
+      page += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await listStateCheckpointRecords({
+        tenantId: normalizedTenantId,
+        limit,
+        offset
+      });
+      if (!Array.isArray(rows) || rows.length === 0) break;
+      for (const checkpoint of rows) {
+        if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) continue;
+        if (!stateCheckpointReferencesArtifactId(checkpoint, normalizedArtifactId)) continue;
+        const redactionPolicyRef =
+          typeof checkpoint.redactionPolicyRef === "string" && checkpoint.redactionPolicyRef.trim() !== ""
+            ? checkpoint.redactionPolicyRef.trim()
+            : null;
+        if (!redactionPolicyRef) continue;
+        const checkpointId = typeof checkpoint.checkpointId === "string" ? checkpoint.checkpointId.trim() : "";
+        if (!checkpointId) continue;
+        matches.push({ checkpointId, redactionPolicyRef });
+      }
+      if (rows.length < limit) break;
+      offset += rows.length;
+    }
+    let selected = null;
+    if (matches.length > 0) {
+      matches.sort((left, right) => {
+        const checkpointOrder = String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? ""));
+        if (checkpointOrder !== 0) return checkpointOrder;
+        return String(left.redactionPolicyRef ?? "").localeCompare(String(right.redactionPolicyRef ?? ""));
+      });
+      selected = matches[0];
+    }
+    if (contextCache instanceof Map) contextCache.set(cacheKey, selected);
+    return selected;
+  }
+
+  function redactArtifactForStateCheckpointPolicy(artifact, { checkpointId, redactionPolicyRef } = {}) {
+    const base = artifact && typeof artifact === "object" && !Array.isArray(artifact) ? { ...artifact } : artifact;
+    if (!base || typeof base !== "object" || Array.isArray(base)) return base;
+    const redactedFields = [];
+    for (const field of ARTIFACT_READ_REDACTABLE_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(base, field)) continue;
+      if (base[field] === null || base[field] === undefined) continue;
+      base[field] = null;
+      redactedFields.push(field);
+    }
+    redactedFields.sort((left, right) => left.localeCompare(right));
+    base.readRedaction = normalizeForCanonicalJson(
+      {
+        schemaVersion: ARTIFACT_READ_REDACTION_SCHEMA_VERSION,
+        mode: "state_checkpoint_policy",
+        checkpointId: typeof checkpointId === "string" && checkpointId.trim() !== "" ? checkpointId.trim() : null,
+        redactionPolicyRef:
+          typeof redactionPolicyRef === "string" && redactionPolicyRef.trim() !== "" ? redactionPolicyRef.trim() : null,
+        redactedFields
+      },
+      { path: "$.readRedaction" }
+    );
+    return base;
+  }
+
+  async function enforceArtifactReadPolicy({
+    tenantId,
+    artifact,
+    scopes = [],
+    contextCache = null
+  } = {}) {
+    const artifactId = typeof artifact?.artifactId === "string" && artifact.artifactId.trim() !== "" ? artifact.artifactId.trim() : null;
+    if (!artifactId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "artifact read policy evaluation failed",
+        details: { message: "artifactId is required" },
+        code: "ARTIFACT_ACCESS_EVALUATION_FAILED"
+      };
+    }
+    let redactionContext = null;
+    try {
+      redactionContext = await lookupArtifactReadRedactionContext({ tenantId, artifactId, contextCache });
+    } catch (err) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "artifact read policy evaluation failed",
+        details: { artifactId, message: err?.message ?? null },
+        code: "ARTIFACT_ACCESS_EVALUATION_FAILED"
+      };
+    }
+    if (!redactionContext) {
+      return { ok: true, artifact };
+    }
+    const hasAuditRead = requireScope(scopes, OPS_SCOPES.AUDIT_READ);
+    const hasOpsRead = requireScope(scopes, OPS_SCOPES.OPS_READ);
+    if (!hasAuditRead && !hasOpsRead) {
+      return {
+        ok: false,
+        statusCode: 403,
+        message: "artifact access denied by state checkpoint policy",
+        details: {
+          artifactId,
+          checkpointId: redactionContext.checkpointId,
+          redactionPolicyRef: redactionContext.redactionPolicyRef
+        },
+        code: "ARTIFACT_ACCESS_DENIED"
+      };
+    }
+    if (hasAuditRead) return { ok: true, artifact };
+    return {
+      ok: true,
+      artifact: redactArtifactForStateCheckpointPolicy(artifact, redactionContext)
+    };
+  }
+
+  async function verifyStateCheckpointArtifactRefsForCreate({ tenantId, stateRef, diffRefs = [] } = {}) {
+    if (typeof store.getArtifact !== "function") {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "state checkpoint artifact verification unavailable",
+        details: null,
+        code: "STATE_CHECKPOINT_ARTIFACT_VERIFICATION_UNAVAILABLE"
+      };
+    }
+    const refs = [{ refPath: "stateRef", ref: stateRef }, ...(Array.isArray(diffRefs) ? diffRefs : []).map((ref, index) => ({ refPath: `diffRefs[${index}]`, ref }))];
+    for (const entry of refs) {
+      const refPath = entry.refPath;
+      const ref = entry.ref;
+      const artifactId = typeof ref?.artifactId === "string" && ref.artifactId.trim() !== "" ? ref.artifactId.trim() : null;
+      if (!artifactId) {
+        return {
+          ok: false,
+          statusCode: 400,
+          message: "invalid state checkpoint artifact reference",
+          details: { message: `${refPath}.artifactId is required` },
+          code: "SCHEMA_INVALID"
+        };
+      }
+
+      let artifact = null;
+      try {
+        artifact = await store.getArtifact({ tenantId, artifactId });
+      } catch (err) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: "state checkpoint artifact lookup failed",
+          details: { refPath, artifactId, message: err?.message ?? null },
+          code: "STATE_CHECKPOINT_ARTIFACT_LOOKUP_FAILED"
+        };
+      }
+      if (!artifact) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: "state checkpoint artifact reference not found",
+          details: { refPath, artifactId },
+          code: "STATE_CHECKPOINT_ARTIFACT_NOT_FOUND"
+        };
+      }
+
+      const expectedArtifactHash = normalizeStateCheckpointArtifactHash(ref?.artifactHash);
+      if (expectedArtifactHash) {
+        const actualArtifactHash = normalizeStateCheckpointArtifactHash(artifact?.artifactHash);
+        if (!actualArtifactHash || actualArtifactHash !== expectedArtifactHash) {
+          return {
+            ok: false,
+            statusCode: 409,
+            message: "state checkpoint artifact hash mismatch",
+            details: {
+              refPath,
+              artifactId,
+              expectedArtifactHash,
+              actualArtifactHash
+            },
+            code: "STATE_CHECKPOINT_ARTIFACT_HASH_MISMATCH"
+          };
+        }
+      }
+    }
+    return { ok: true };
   }
 
   async function getSessionRelayStateRecord({ tenantId, checkpointId }) {
@@ -23558,6 +26376,179 @@ export function createApi({
 	    }
 	  }
 
+  async function emitPenaltyReputationEventBestEffort({
+    tenantId,
+    penaltyKind,
+    occurredAt = nowIso(),
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "payee",
+    sourceRef,
+    reasonCode = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    if (
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST &&
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK &&
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE
+    ) {
+      return null;
+    }
+    const occurredAtValue = parseAsOfDateTime(occurredAt, { fieldName: "occurredAt" });
+    const normalizedCounterpartyAgentId =
+      typeof counterpartyAgentId === "string" && counterpartyAgentId.trim() !== "" ? counterpartyAgentId.trim() : null;
+    const normalizedToolId = typeof toolId === "string" && toolId.trim() !== "" ? toolId.trim() : null;
+    const normalizedRole = typeof role === "string" && role.trim() !== "" ? role.trim().toLowerCase() : "payee";
+    const safeReasonCode = typeof reasonCode === "string" && reasonCode.trim() !== "" ? reasonCode.trim() : REPUTATION_PENALTY_REASON_CODE.INVALID_SIGNATURE;
+    const safeReasonMessage = typeof reasonMessage === "string" && reasonMessage.trim() !== "" ? reasonMessage.trim() : null;
+    const safePenalizedCents = toSafeNonNegativeInt(amountPenalizedCents);
+    const normalizedSourceRef =
+      sourceRef && typeof sourceRef === "object" && !Array.isArray(sourceRef)
+        ? sourceRef
+        : { kind: "penalty_event", sourceId: `penalty_${subjectAgentId}` };
+    const facts = normalizeForCanonicalJson(
+      {
+        reasonCode: safeReasonCode,
+        reasonMessage: safeReasonMessage,
+        amountPenalizedCents: safePenalizedCents ?? 0,
+        ...(extraFacts && typeof extraFacts === "object" && !Array.isArray(extraFacts) ? extraFacts : {})
+      },
+      { path: "$.facts" }
+    );
+    const eventSeed = normalizeForCanonicalJson(
+      {
+        tenantId,
+        occurredAt: occurredAtValue,
+        eventKind: penaltyKind,
+        subject: {
+          agentId: subjectAgentId,
+          toolId: normalizedToolId,
+          counterpartyAgentId: normalizedCounterpartyAgentId,
+          role: normalizedRole
+        },
+        sourceRef: normalizedSourceRef,
+        facts
+      },
+      { path: "$.eventSeed" }
+    );
+    const eventId = `rep_pen_${sha256Hex(canonicalJsonStringify(eventSeed))}`;
+    return emitReputationEventBestEffort(
+      {
+        tenantId,
+        eventId,
+        occurredAt: occurredAtValue,
+        eventKind: penaltyKind,
+        subject: {
+          agentId: subjectAgentId,
+          ...(normalizedToolId ? { toolId: normalizedToolId } : {}),
+          ...(normalizedCounterpartyAgentId ? { counterpartyAgentId: normalizedCounterpartyAgentId } : {}),
+          role: normalizedRole
+        },
+        sourceRef: normalizedSourceRef,
+        facts
+      },
+      { context: context ?? "reputation.penalty" }
+    );
+  }
+
+  async function emitInvalidSignaturePenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "system",
+    sourceRef = null,
+    reasonMessage = null,
+    occurredAt = nowIso(),
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.INVALID_SIGNATURE,
+      reasonMessage,
+      context: context ?? "reputation.penalty.invalid_signature"
+    });
+  }
+
+  async function emitDisputeLostPenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "payee",
+    sourceRef = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    occurredAt = nowIso(),
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.DISPUTE_LOST,
+      reasonMessage,
+      amountPenalizedCents,
+      extraFacts,
+      context: context ?? "reputation.penalty.dispute_lost"
+    });
+  }
+
+  async function emitChargebackPenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = "money_rail",
+    role = "payee",
+    sourceRef = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    occurredAt = nowIso(),
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.CHARGEBACK,
+      reasonMessage,
+      amountPenalizedCents,
+      extraFacts,
+      context: context ?? "reputation.penalty.chargeback"
+    });
+  }
+
 	  function buildWorkOrderSettlementDecisionHashV1({
 	    tenantId,
 	    workOrderId,
@@ -29433,6 +32424,8 @@ export function createApi({
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
     if (m === "POST" && p === "/v1/federation/invoke") return "/v1/federation/invoke";
     if (m === "POST" && p === "/v1/federation/result") return "/v1/federation/result";
+    if (m === "GET" && p === "/internal/federation/stats") return "/internal/federation/stats";
+    if (m === "GET" && p === "/internal/federation/invocations/replay") return "/internal/federation/invocations/replay";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
     if (m === "POST" && p === "/exports/ack") return "/exports/ack";
     if (m === "GET" && p === "/evidence/download") return "/evidence/download";
@@ -29590,11 +32583,94 @@ export function createApi({
   }
 
   async function proxyFederationRequest(req, res, { path, search, requestId }) {
+    const startedAtMs = Date.now();
     const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
     if (typeof upstreamFetch !== "function") {
       return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: FEDERATION_ERROR_CODE.FETCH_UNAVAILABLE });
     }
     const endpoint = path === "/v1/federation/result" ? "result" : "invoke";
+    const receivedLogMsg = endpoint === "result" ? "federation_result_received" : "federation_invoke_received";
+    function latencyMs() {
+      return Math.max(0, Date.now() - startedAtMs);
+    }
+    function inspectFederationSignatureBlock(value) {
+      if (value === undefined || value === null) return { present: false, valid: true };
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return { present: true, valid: false, reason: "signature_block_invalid" };
+      }
+      const algorithm = typeof value.algorithm === "string" ? value.algorithm.trim().toLowerCase() : typeof value.alg === "string" ? value.alg.trim().toLowerCase() : "";
+      if (!algorithm) return { present: true, valid: false, reason: "signature_algorithm_required" };
+      if (algorithm !== "ed25519" && algorithm !== "eddsa-ed25519") {
+        return { present: true, valid: false, reason: "signature_algorithm_unsupported" };
+      }
+      const keyId = typeof value.keyId === "string" ? value.keyId.trim() : typeof value.kid === "string" ? value.kid.trim() : "";
+      if (!keyId) return { present: true, valid: false, reason: "signature_key_id_required" };
+      const signature = typeof value.signature === "string" ? value.signature.trim() : typeof value.sig === "string" ? value.sig.trim() : "";
+      if (!signature) return { present: true, valid: false, reason: "signature_value_required" };
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) {
+        return { present: true, valid: false, reason: "signature_base64_invalid" };
+      }
+      return { present: true, valid: true, algorithm, keyId, signature };
+    }
+    function verifyFederationSignatureBlock({ envelope, body, signatureInspection }) {
+      if (!signatureInspection?.present) return { ok: true, verified: false };
+      const keyId = String(signatureInspection.keyId ?? "").trim();
+      const trustCheck = evaluateFederationTrustAnchor({
+        envelope,
+        body,
+        signatureInspection
+      });
+      if (!trustCheck.ok) {
+        return {
+          ok: false,
+          reason: trustCheck.reason ?? "trust_anchor_unknown",
+          reasonCode: trustCheck.reasonCode ?? FEDERATION_TRUST_REASON_CODE.UNKNOWN,
+          reasonDetails: trustCheck.details ?? null
+        };
+      }
+      const publicKeyPem = store?.publicKeyByKeyId instanceof Map ? store.publicKeyByKeyId.get(keyId) ?? null : null;
+      if (!publicKeyPem) {
+        return { ok: false, reason: "signature_key_unknown" };
+      }
+      const normalizedBody =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? normalizeForCanonicalJson(
+              Object.fromEntries(Object.entries(body).filter(([key]) => key !== "signature")),
+              { path: "$" }
+            )
+          : null;
+      if (!normalizedBody) return { ok: false, reason: "signature_payload_invalid" };
+      const payloadHash = sha256Hex(canonicalJsonStringify(normalizedBody));
+      const isValid = verifyHashHexEd25519({
+        hashHex: payloadHash,
+        signatureBase64: signatureInspection.signature,
+        publicKeyPem
+      });
+      if (!isValid) return { ok: false, reason: "signature_verification_failed" };
+      return { ok: true, verified: true, keyId, payloadHash, trustAnchor: trustCheck.anchor ?? null, signedAt: trustCheck.signedAt ?? null };
+    }
+    function logFederationReceived({ envelope, status, statusCode = null, code = null, level = "info" }) {
+      if (!envelope || typeof envelope !== "object") return;
+      const safeStatus = typeof status === "string" && status.trim() !== "" ? status.trim() : "unknown";
+      const fields = {
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        capabilityId: envelope.capabilityId ?? null,
+        invocationId: envelope.invocationId,
+        status: safeStatus,
+        latencyMs: latencyMs()
+      };
+      if (Number.isFinite(statusCode) && statusCode > 0) fields.statusCode = Math.floor(statusCode);
+      if (typeof code === "string" && code.trim() !== "") fields.code = code.trim();
+      if (level === "warn") logger.warn(receivedLogMsg, fields);
+      else logger.info(receivedLogMsg, fields);
+      federationStatsTracker.record({
+        endpoint,
+        originDid: envelope.originDid,
+        targetDid: envelope.targetDid,
+        status: safeStatus
+      });
+    }
     const upstreamHeaders = new Headers();
     for (const [nameRaw, valueRaw] of Object.entries(req.headers ?? {})) {
       const name = String(nameRaw ?? "").toLowerCase();
@@ -29648,12 +32724,125 @@ export function createApi({
         { code: envelopeCheck.code ?? FEDERATION_ERROR_CODE.ENVELOPE_INVALID }
       );
     }
+    const signatureInspection = inspectFederationSignatureBlock(parsedBody?.signature);
+    if (!signatureInspection.valid) {
+      logger.warn("federation_signature_invalid", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        reason: signatureInspection.reason,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "signature_invalid",
+        statusCode: 403,
+        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "signature_invalid",
+        status: "signature_invalid",
+        details: {
+          reason: signatureInspection.reason
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+          statusCode: 403,
+          attempts: 1
+        }
+      });
+      return sendError(
+        res,
+        403,
+        "federation signature invalid",
+        { reason: signatureInspection.reason },
+        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
+      );
+    }
+    const signatureVerification = verifyFederationSignatureBlock({
+      envelope: envelopeCheck.envelope,
+      body: parsedBody,
+      signatureInspection
+    });
+    if (!signatureVerification.ok) {
+      logger.warn("federation_signature_invalid", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        reason: signatureVerification.reason,
+        reasonCode: signatureVerification.reasonCode ?? null,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "signature_invalid",
+        statusCode: 403,
+        code: FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "signature_invalid",
+        status: "signature_invalid",
+        details: {
+          reason: signatureVerification.reason,
+          reasonCode: signatureVerification.reasonCode ?? null
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: signatureVerification.reasonCode ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+          statusCode: 403,
+          attempts: 1
+        }
+      });
+      return sendError(
+        res,
+        403,
+        "federation signature invalid",
+        {
+          reason: signatureVerification.reason,
+          reasonCode: signatureVerification.reasonCode ?? null,
+          ...(signatureVerification.reasonDetails && typeof signatureVerification.reasonDetails === "object"
+            ? { trust: signatureVerification.reasonDetails }
+            : {})
+        },
+        { code: FEDERATION_ERROR_CODE.REQUEST_DENIED }
+      );
+    }
+    appendFederationInvocationReplayEvent({
+      endpoint,
+      envelope: envelopeCheck.envelope,
+      eventType: "trust_verified",
+      status: signatureVerification.verified === true ? "verified" : "unsigned",
+      details: {
+        keyId: signatureVerification.keyId ?? null,
+        signedAt: signatureVerification.signedAt ?? null,
+        trustAnchor: signatureVerification.trustAnchor ?? null
+      }
+    });
     const routeCheck = evaluateFederationTrustAndRoute({
       endpoint,
       envelope: envelopeCheck.envelope,
-      policy: federationProxyPolicy
+      policy: federationProxyPolicy,
+      asOf: nowIso()
     });
     if (!routeCheck.ok) {
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "denied",
+        statusCode: routeCheck.statusCode ?? 503,
+        code: routeCheck.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED,
+        level: "warn"
+      });
       return sendError(
         res,
         routeCheck.statusCode ?? 503,
@@ -29664,6 +32853,22 @@ export function createApi({
     }
 
     upstreamHeaders.set("x-federation-namespace-did", routeCheck.namespaceDid);
+    if (routeCheck?.routingReasonCode) {
+      upstreamHeaders.set("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+    }
+    if (routeCheck?.namespaceLineage?.decisionId) {
+      upstreamHeaders.set("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+    }
+    appendFederationInvocationReplayEvent({
+      endpoint,
+      envelope: envelopeCheck.envelope,
+      eventType: "envelope_received",
+      status: routeCheck.direction,
+      details: {
+        routingReasonCode: routeCheck.routingReasonCode ?? null,
+        namespaceDid: routeCheck.namespaceDid ?? null
+      }
+    });
 
     const requestHash = sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(parsedBody, { path: "$" })));
     const replayKey = [
@@ -29675,6 +32880,36 @@ export function createApi({
     ].join("\n");
     const replayClaim = federationReplayLedger.claim({ key: replayKey, requestHash });
     if (replayClaim.type === "conflict") {
+      logger.warn("federation_replay_conflict", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_conflict",
+        statusCode: 409,
+        code: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT,
+        level: "warn"
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_conflict",
+        status: "replay_conflict",
+        details: {
+          requestSha256Values: [replayClaim.expectedHash, replayClaim.actualHash].sort()
+        },
+        terminal: {
+          state: "failed_closed",
+          reasonCode: FEDERATION_ERROR_CODE.ENVELOPE_CONFLICT,
+          statusCode: 409,
+          attempts: 1
+        }
+      });
       return sendError(
         res,
         409,
@@ -29687,9 +32922,45 @@ export function createApi({
       );
     }
     if (replayClaim.type === "in_flight") {
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_in_flight",
+        statusCode: 409,
+        code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT,
+        level: "warn"
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_in_flight",
+        status: "replay_in_flight",
+        details: null
+      });
       return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: FEDERATION_ERROR_CODE.ENVELOPE_IN_FLIGHT });
     }
     if (replayClaim.type === "replay") {
+      logger.info("federation_replay_duplicate", {
+        endpoint,
+        originDid: envelopeCheck.envelope.originDid,
+        targetDid: envelopeCheck.envelope.targetDid,
+        capabilityId: envelopeCheck.envelope.capabilityId ?? null,
+        invocationId: envelopeCheck.envelope.invocationId,
+        latencyMs: latencyMs()
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "replay_duplicate",
+        statusCode: replayClaim.response.statusCode
+      });
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "replay_duplicate",
+        status: "replay_duplicate",
+        details: {
+          statusCode: replayClaim.response.statusCode
+        }
+      });
       res.statusCode = replayClaim.response.statusCode;
       for (const [name, value] of Object.entries(replayClaim.response.headers ?? {})) {
         if (!name || HOP_BY_HOP_HEADERS.has(String(name).toLowerCase())) continue;
@@ -29707,28 +32978,241 @@ export function createApi({
       return res.end(replayClaim.response.bodyBytes);
     }
 
-    const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
-    let upstreamRes;
-    try {
-      upstreamRes = await upstreamFetch(targetUrl, {
-        method,
-        headers: upstreamHeaders,
-        body,
-        redirect: "error"
+    if (endpoint === "invoke" && routeCheck.direction === "incoming") {
+      const queued = enqueueIncomingFederationInvoke({
+        envelope: envelopeCheck.envelope,
+        body: parsedBody,
+        requestHash
       });
-    } catch (err) {
+      const responseBody = {
+        ok: true,
+        invocationId: envelopeCheck.envelope.invocationId,
+        status: "queued",
+        queuedAt: queued.queuedAt
+      };
+      const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
+      try {
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("x-federation-dispatch-channel", "local");
+        if (routeCheck?.routingReasonCode) res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+        if (routeCheck?.namespaceLineage?.decisionId) {
+          res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+        }
+      } catch {
+        // ignore
+      }
+      federationReplayLedger.complete({
+        key: replayKey,
+        requestHash,
+        response: {
+          statusCode: 202,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-federation-dispatch-channel": "local",
+            ...(routeCheck?.routingReasonCode
+              ? { "x-federation-routing-reason-code": String(routeCheck.routingReasonCode) }
+              : {}),
+            ...(routeCheck?.namespaceLineage?.decisionId
+              ? { "x-federation-namespace-decision-id": String(routeCheck.namespaceLineage.decisionId) }
+              : {})
+          },
+          bodyBytes: bytes
+        }
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "queued",
+        statusCode: 202
+      });
+      res.statusCode = 202;
+      return res.end(bytes);
+    }
+
+    if (endpoint === "result" && routeCheck.direction === "incoming") {
+      const receipt = ingestIncomingFederationResult({
+        envelope: envelopeCheck.envelope,
+        body: parsedBody,
+        requestHash
+      });
+      const settlement = applyIncomingFederationResultSettlement({
+        envelope: envelopeCheck.envelope,
+        receipt
+      });
+      const responseBody = {
+        ok: true,
+        invocationId: envelopeCheck.envelope.invocationId,
+        status: envelopeCheck.envelope.status,
+        receiptId: receipt.receiptId,
+        acceptedAt: receipt.acceptedAt,
+        evidenceRefsHash: receipt.evidenceRefsHash ?? null,
+        resultPayloadHash: receipt.resultPayloadHash ?? null,
+        settlementApplied: receipt.settlementApplied === true,
+        settlementLedgerEntryId: settlement.ledgerEntryId,
+        settlementPayloadHash: settlement.settlementPayloadHash ?? null,
+        settlementBindingHash: settlement.settlementBindingHash ?? null,
+        settledAt: settlement.settledAt
+      };
+      const bytes = Buffer.from(JSON.stringify(responseBody, null, 2), "utf8");
+      try {
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("x-federation-dispatch-channel", "local");
+        if (routeCheck?.routingReasonCode) res.setHeader("x-federation-routing-reason-code", String(routeCheck.routingReasonCode));
+        if (routeCheck?.namespaceLineage?.decisionId) {
+          res.setHeader("x-federation-namespace-decision-id", String(routeCheck.namespaceLineage.decisionId));
+        }
+      } catch {
+        // ignore
+      }
+      federationReplayLedger.complete({
+        key: replayKey,
+        requestHash,
+        response: {
+          statusCode: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-federation-dispatch-channel": "local",
+            ...(routeCheck?.routingReasonCode
+              ? { "x-federation-routing-reason-code": String(routeCheck.routingReasonCode) }
+              : {}),
+            ...(routeCheck?.namespaceLineage?.decisionId
+              ? { "x-federation-namespace-decision-id": String(routeCheck.namespaceLineage.decisionId) }
+              : {})
+          },
+          bodyBytes: bytes
+        }
+      });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: "result_ingested",
+        statusCode: 200
+      });
+      res.statusCode = 200;
+      return res.end(bytes);
+    }
+
+    const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
+    const maxAttempts = Math.max(1, federationForwardMaxAttemptsValue);
+    let terminalFailure = null;
+    let terminalResponse = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "outgoing_attempt",
+        status: "started",
+        details: {
+          attempt,
+          maxAttempts
+        }
+      });
+      const attemptResult = await performFederationForwardAttempt({
+        upstreamFetch,
+        targetUrl,
+        headers: upstreamHeaders,
+        body
+      });
+      if (!attemptResult.ok) {
+        const canRetry = attempt < maxAttempts;
+        terminalFailure = {
+          statusCode: 502,
+          code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+          message: "federation proxy upstream unreachable",
+          details: {
+            attempt,
+            maxAttempts,
+            timeout: attemptResult.timeout === true,
+            message: attemptResult?.error?.message ?? String(attemptResult?.error ?? "network error")
+          }
+        };
+        appendFederationInvocationReplayEvent({
+          endpoint,
+          envelope: envelopeCheck.envelope,
+          eventType: "outgoing_attempt",
+          status: attemptResult.timeout === true ? "timeout" : "network_error",
+          details: {
+            attempt,
+            maxAttempts,
+            retrying: canRetry
+          },
+          ...(canRetry
+            ? {}
+            : {
+                terminal: {
+                  state: attemptResult.timeout === true ? "timeout" : "failed_closed",
+                  reasonCode: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+                  statusCode: 502,
+                  attempts: attempt
+                }
+              })
+        });
+        if (!canRetry) break;
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+
+      const upstreamRes = attemptResult.response;
+      const bytes = Buffer.from(await upstreamRes.arrayBuffer());
+      const bodyText = bytes.toString("utf8");
+      let bodyJson = null;
+      try {
+        bodyJson = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        // ignore non-json responses
+      }
+      const canRetry = isFederationRetryableStatusCode(upstreamRes.status) && attempt < maxAttempts;
+      appendFederationInvocationReplayEvent({
+        endpoint,
+        envelope: envelopeCheck.envelope,
+        eventType: "outgoing_attempt",
+        status: `upstream_${String(upstreamRes.status)}`,
+        details: {
+          attempt,
+          maxAttempts,
+          retrying: canRetry
+        },
+        ...(canRetry
+          ? {}
+          : {
+              terminal: {
+                state: upstreamRes.status >= 400 ? "failed_closed" : "completed",
+                reasonCode: upstreamRes.status >= 400 ? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE : "FEDERATION_FORWARD_SUCCESS",
+                statusCode: upstreamRes.status,
+                attempts: attempt
+              }
+            })
+      });
+      if (canRetry) {
+        await sleep(computeFederationForwardDelayMs({ attempt }));
+        continue;
+      }
+      terminalResponse = {
+        upstreamRes,
+        bytes,
+        bodyJson
+      };
+      break;
+    }
+
+    if (!terminalResponse) {
       federationReplayLedger.release({ key: replayKey, requestHash });
+      logFederationReceived({
+        envelope: envelopeCheck.envelope,
+        status: terminalFailure?.details?.timeout === true ? "upstream_timeout" : "upstream_unreachable",
+        statusCode: terminalFailure?.statusCode ?? 502,
+        code: terminalFailure?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE,
+        level: "warn"
+      });
       return sendError(
         res,
-        502,
-        "federation proxy upstream unreachable",
-        { message: err?.message ?? String(err) },
-        { code: FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
+        terminalFailure?.statusCode ?? 502,
+        terminalFailure?.message ?? "federation proxy upstream unreachable",
+        terminalFailure?.details ?? null,
+        { code: terminalFailure?.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
       );
     }
 
-    const bytes = Buffer.from(await upstreamRes.arrayBuffer());
     const replayHeaders = {};
+    const { upstreamRes, bytes } = terminalResponse;
     res.statusCode = upstreamRes.status;
     for (const [name, value] of upstreamRes.headers.entries()) {
       const n = String(name ?? "").toLowerCase();
@@ -29756,6 +33240,11 @@ export function createApi({
         headers: replayHeaders,
         bodyBytes: bytes
       }
+    });
+    logFederationReceived({
+      envelope: envelopeCheck.envelope,
+      status: `upstream_${String(upstreamRes.status)}`,
+      statusCode: upstreamRes.status
     });
     return res.end(bytes);
   }
@@ -29948,6 +33437,21 @@ export function createApi({
           if (normalized.includes("RESUME")) return "resumed";
           if (normalized.includes("_ISSUE") || normalized.includes("_CREATE") || normalized.includes("_UPSERT")) return "granted";
           return "other";
+        }
+
+        function requiredAuditLinkedRefForAction(action) {
+          const normalized = typeof action === "string" ? action.trim().toUpperCase() : "";
+          if (!normalized) return null;
+          if (normalized.startsWith("EMERGENCY_CONTROL_")) {
+            return { key: "emergencyControlRef", code: "AUDIT_EXPORT_EMERGENCY_REF_REQUIRED" };
+          }
+          if (normalized.startsWith("DELEGATION_GRANT_")) {
+            return { key: "delegationGrantId", code: "AUDIT_EXPORT_DELEGATION_REF_REQUIRED" };
+          }
+          if (normalized.startsWith("AUTHORITY_GRANT_")) {
+            return { key: "authorityGrantId", code: "AUDIT_EXPORT_AUTHORITY_REF_REQUIRED" };
+          }
+          return null;
         }
 
         function extractAuditLinkedRefs(row, details) {
@@ -30227,11 +33731,82 @@ export function createApi({
           }
         }
 
-        signals.ok = Boolean(signals.dbOk);
-        return sendJson(res, signals.ok ? 200 : 503, signals);
-      }
+	        signals.ok = Boolean(signals.dbOk);
+	        return sendJson(res, signals.ok ? 200 : 503, signals);
+	      }
 
-	      if (!authExempt && !path.startsWith("/ops")) {
+        if (req.method === "GET" && path === "/internal/federation/stats") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const outgoingTerminalStateCounts = {};
+          for (const row of federationOutgoingInvokeRows.values()) {
+            if (!row || typeof row !== "object") continue;
+            const state =
+              typeof row.terminalState === "string" && row.terminalState.trim() !== "" ? row.terminalState.trim() : "pending";
+            outgoingTerminalStateCounts[state] = (outgoingTerminalStateCounts[state] ?? 0) + 1;
+          }
+          const trustStatusCounts = {};
+          let trustAnchorCount = 0;
+          let trustStaleCount = 0;
+          const nowMs = Date.parse(nowIso());
+          for (const anchor of currentFederationTrustRegistry().values()) {
+            if (!anchor || typeof anchor !== "object") continue;
+            trustAnchorCount += 1;
+            const status = typeof anchor.status === "string" && anchor.status.trim() !== "" ? anchor.status.trim() : "active";
+            trustStatusCounts[status] = (trustStatusCounts[status] ?? 0) + 1;
+            const propagatedAtMs = Number(anchor?.propagatedAt?.ms ?? Number.NaN);
+            if (Number.isFinite(propagatedAtMs) && Number.isFinite(nowMs) && nowMs < propagatedAtMs) trustStaleCount += 1;
+          }
+          return sendJson(res, 200, {
+            ok: true,
+            stats: federationStatsTracker.snapshot(),
+            ingress: {
+              schemaVersion: "FederationIngressState.v1",
+              incomingInvokeCount: federationIncomingInvokeRows.size,
+              incomingInvokeQueueDepth: federationIncomingDispatchQueue.length,
+              incomingResultReceiptCount: federationIncomingResultRows.size,
+              incomingResultSettlementCount: federationIncomingResultSettlementRows.size,
+              outgoingInvokeCount: federationOutgoingInvokeRows.size,
+              outgoingInvokeQueueDepth: federationOutgoingDispatchQueue.length,
+              outgoingTerminalStateCounts,
+              replayInvocationCount: federationInvocationReplayRows.size,
+              trust: {
+                schemaVersion: "FederationTrustRegistrySnapshot.v1",
+                strictMode: federationTrustRegistryStrict === true,
+                anchorCount: trustAnchorCount,
+                staleAnchorCount: trustStaleCount,
+                statusCounts: Object.fromEntries(Object.entries(trustStatusCounts).sort((a, b) => a[0].localeCompare(b[0])))
+              }
+            }
+          });
+        }
+        if (req.method === "GET" && path === "/internal/federation/invocations/replay") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const invocationId = url.searchParams.get("invocationId");
+          const originDid = url.searchParams.get("originDid");
+          const targetDid = url.searchParams.get("targetDid");
+          const replayPack = buildFederationInvocationReplayPack({
+            invocationId,
+            originDid,
+            targetDid
+          });
+          if (!replayPack.ok) {
+            return sendError(
+              res,
+              replayPack.statusCode ?? 400,
+              replayPack.message ?? "federation replay lookup failed",
+              replayPack.details ?? null,
+              { code: replayPack.code ?? "SCHEMA_INVALID" }
+            );
+          }
+          return sendJson(res, 200, {
+            ok: true,
+            replayPack: replayPack.replayPack
+          });
+        }
+
+			      if (!authExempt && !path.startsWith("/ops")) {
 	        const isRead = req.method === "GET" || req.method === "HEAD";
 	        const isAuditExport = req.method === "GET" && /^\/jobs\/[^/]+\/audit$/.test(path);
 	        const requiredScope =
@@ -31285,6 +34860,488 @@ export function createApi({
                     required: dualControlRequired,
                     requiredRoles: Array.from(allowedOperatorRoles.values())
                   }
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+        }
+
+        if (parts[1] === "routines") {
+          const hasReadScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          const hasWriteScope = requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!autonomousRoutineFeatureSupported()) {
+            return sendError(res, 501, "autonomous routines not supported for this store");
+          }
+
+          if (req.method === "GET" && parts.length === 2) {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            let status = null;
+            let killSwitchActive = null;
+            try {
+              const statusRaw = url.searchParams.get("status");
+              if (statusRaw !== null && statusRaw !== "") {
+                const normalizedStatusRaw = String(statusRaw).trim().toLowerCase();
+                status =
+                  normalizedStatusRaw === "all"
+                    ? null
+                    : normalizeAutonomousRoutineStatusInput(normalizedStatusRaw, { fieldPath: "status", allowNull: false });
+              }
+              const killSwitchRaw = url.searchParams.get("killSwitchActive");
+              if (killSwitchRaw !== null && killSwitchRaw !== "") {
+                const normalizedKillSwitchRaw = String(killSwitchRaw).trim().toLowerCase();
+                if (normalizedKillSwitchRaw === "all") killSwitchActive = null;
+                else if (normalizedKillSwitchRaw === "true" || normalizedKillSwitchRaw === "1") killSwitchActive = true;
+                else if (normalizedKillSwitchRaw === "false" || normalizedKillSwitchRaw === "0") killSwitchActive = false;
+                else throw new TypeError("killSwitchActive must be true|false|all");
+              }
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const routines = await listAutonomousRoutinePolicyRecords({
+              tenantId,
+              status,
+              killSwitchActive,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, status, killSwitchActive, limit, offset, routines });
+          }
+
+          if (req.method === "POST" && parts.length === 2) {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            const routineInput =
+              body?.routine && typeof body.routine === "object" && !Array.isArray(body.routine) ? body.routine : body;
+            let existingRoutine = null;
+            const requestedRoutineId =
+              typeof routineInput?.routineId === "string" && routineInput.routineId.trim() !== "" ? routineInput.routineId.trim() : null;
+            if (requestedRoutineId) {
+              existingRoutine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId: requestedRoutineId });
+            }
+            let routine = null;
+            try {
+              routine = normalizeAutonomousRoutinePolicyInput(routineInput, {
+                fieldPath: "routine",
+                existing: existingRoutine
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const created = existingRoutine ? false : true;
+            const statusCode = created ? 201 : 200;
+            const responseBody = {
+              ok: true,
+              created,
+              tenantId,
+              routine
+            };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_POLICY_UPSERT", tenantId, routine }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTONOMOUS_ROUTINE_POLICY_UPSERT",
+                targetType: "autonomous_routine_policy",
+                targetId: routine.routineId,
+                details: {
+                  status: routine.status,
+                  killSwitchActive: routine?.killSwitch?.active === true,
+                  spendingLimits: routine.spendingLimits
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+
+          if (req.method === "GET" && parts.length === 3) {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            return sendJson(res, 200, { ok: true, tenantId, routine });
+          }
+
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "executions") {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            const allowedRaw = url.searchParams.get("allowed");
+            let allowed = null;
+            if (allowedRaw !== null && allowedRaw !== "") {
+              const normalizedAllowed = String(allowedRaw).trim().toLowerCase();
+              if (normalizedAllowed === "all") allowed = null;
+              else if (normalizedAllowed === "true" || normalizedAllowed === "1") allowed = true;
+              else if (normalizedAllowed === "false" || normalizedAllowed === "0") allowed = false;
+              else return sendError(res, 400, "allowed must be true|false|all", null, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const executions = await listAutonomousRoutineExecutionRecords({
+              tenantId,
+              routineId,
+              allowed,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, routineId, allowed, limit, offset, executions });
+          }
+
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "incidents") {
+            if (!hasReadScope) return sendError(res, 403, "forbidden");
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+            const actionRaw = url.searchParams.get("action");
+            let action = null;
+            try {
+              action =
+                actionRaw === null || actionRaw === undefined || String(actionRaw).trim() === ""
+                  ? null
+                  : normalizeAutonomousRoutineControlActionInput(actionRaw, { fieldPath: "action" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine incident query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+              return sendError(res, 400, "limit must be an integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative integer", null, { code: "SCHEMA_INVALID" });
+            }
+            const incidents = await listAutonomousRoutineControlEventRecords({
+              tenantId,
+              routineId,
+              action,
+              limit,
+              offset
+            });
+            return sendJson(res, 200, { ok: true, tenantId, routineId, action, limit, offset, incidents });
+          }
+
+          if (req.method === "POST" && parts.length === 4 && parts[3] === "kill-switch") {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            let action = null;
+            try {
+              action = normalizeAutonomousRoutineControlActionInput(body?.action ?? null, { fieldPath: "action" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine control action", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const effectiveAt =
+              typeof body?.effectiveAt === "string" && body.effectiveAt.trim() !== ""
+                ? body.effectiveAt.trim()
+                : nowIso();
+            if (!Number.isFinite(Date.parse(effectiveAt))) {
+              return sendError(res, 400, "effectiveAt must be an ISO timestamp", null, { code: "SCHEMA_INVALID" });
+            }
+            const reasonCode =
+              body?.reasonCode === null || body?.reasonCode === undefined || String(body.reasonCode).trim() === ""
+                ? null
+                : String(body.reasonCode).trim().slice(0, 120);
+            const reason =
+              body?.reason === null || body?.reason === undefined || String(body.reason).trim() === ""
+                ? null
+                : String(body.reason).trim().slice(0, 500);
+            const currentlyActive = routine?.killSwitch?.active === true;
+            if ((action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH && currentlyActive) || (action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.RESUME && !currentlyActive)) {
+              const responseBody = {
+                ok: true,
+                tenantId,
+                routineId,
+                applied: false,
+                action,
+                reason: action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH ? "already_active" : "already_inactive"
+              };
+              if (idemStoreKey) {
+                await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+              }
+              return sendJson(res, 200, responseBody);
+            }
+
+            const event = normalizeForCanonicalJson(
+              {
+                schemaVersion: AUTONOMOUS_ROUTINE_CONTROL_EVENT_SCHEMA_VERSION,
+                incidentId: createId("rctl"),
+                tenantId,
+                routineId,
+                action,
+                reasonCode,
+                reason,
+                requestedBy: {
+                  keyId: auth.ok ? (auth.keyId ?? null) : null,
+                  principalId: principalId ?? null
+                },
+                requestId,
+                createdAt: nowIso(),
+                effectiveAt
+              },
+              { path: "$" }
+            );
+            const statusCode = action === AUTONOMOUS_ROUTINE_CONTROL_ACTION.KILL_SWITCH ? 201 : 200;
+            const responseBody = {
+              ok: true,
+              tenantId,
+              routineId,
+              applied: true,
+              action,
+              event
+            };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND", tenantId, event }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND",
+                targetType: "autonomous_routine_control",
+                targetId: `${routineId}:${action}`,
+                details: {
+                  routineId,
+                  action,
+                  reasonCode,
+                  reason
+                }
+              })
+            });
+            return sendJson(res, statusCode, responseBody);
+          }
+
+          if (req.method === "POST" && parts.length === 4 && parts[3] === "execute") {
+            if (!hasWriteScope) return sendError(res, 403, "forbidden");
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const routineId = decodePathPart(parts[2]);
+            if (!routineId) return sendError(res, 400, "routineId is required", null, { code: "SCHEMA_INVALID" });
+            const routine = await getAutonomousRoutinePolicyRecord({ tenantId, routineId });
+            if (!routine) return sendError(res, 404, "autonomous routine not found", null, { code: "NOT_FOUND" });
+
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            const executionInput =
+              body?.execution && typeof body.execution === "object" && !Array.isArray(body.execution) ? body.execution : body;
+            if (
+              executionInput?.routineId !== null &&
+              executionInput?.routineId !== undefined &&
+              String(executionInput.routineId).trim() !== "" &&
+              String(executionInput.routineId).trim() !== routineId
+            ) {
+              return sendError(res, 400, "execution.routineId must match path routineId", null, { code: "SCHEMA_INVALID" });
+            }
+            let execution = null;
+            try {
+              execution = normalizeAutonomousRoutineExecutionRequestInput(executionInput, { fieldPath: "execution" });
+            } catch (err) {
+              return sendError(res, 400, "invalid autonomous routine execution request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const existingExecution = await getAutonomousRoutineExecutionRecord({
+              tenantId,
+              routineId,
+              executionId: execution.executionId
+            });
+            if (existingExecution) {
+              const existingRequestedAt = String(existingExecution.requestedAt ?? "");
+              const existingRequestedSpendMicros = Number(existingExecution.requestedSpendMicros);
+              const existingCurrency = String(existingExecution.currency ?? "").toUpperCase();
+              const existingTaskInputHash =
+                existingExecution.taskInputHash === null || existingExecution.taskInputHash === undefined
+                  ? null
+                  : String(existingExecution.taskInputHash);
+              const incomingTaskInputHash = execution.taskInputHash === null || execution.taskInputHash === undefined ? null : execution.taskInputHash;
+              const existingContextHash = sha256Hex(canonicalJsonStringify(existingExecution.context ?? null));
+              const incomingContextHash = sha256Hex(canonicalJsonStringify(execution.context ?? null));
+              const existingPolicyRevision = Number(existingExecution?.policyRef?.policyRevision ?? 0);
+              const expectedPolicyRevisionMatches =
+                execution.expectedPolicyRevision === null ? true : existingPolicyRevision === Number(execution.expectedPolicyRevision);
+              const mismatch =
+                existingRequestedAt !== execution.requestedAt ||
+                !Number.isSafeInteger(existingRequestedSpendMicros) ||
+                existingRequestedSpendMicros !== execution.requestedSpendMicros ||
+                existingCurrency !== execution.currency ||
+                existingTaskInputHash !== incomingTaskInputHash ||
+                existingContextHash !== incomingContextHash ||
+                !expectedPolicyRevisionMatches;
+              if (mismatch) {
+                return sendError(
+                  res,
+                  409,
+                  "autonomous routine execution conflict",
+                  null,
+                  { code: "AUTONOMOUS_ROUTINE_EXECUTION_CONFLICT" }
+                );
+              }
+              const existingAllowed = existingExecution?.decision?.allowed === true;
+              const statusCode = existingAllowed ? 200 : 409;
+              const responseBody = existingAllowed
+                ? { ok: true, tenantId, routineId, execution: existingExecution }
+                : {
+                    ok: false,
+                    tenantId,
+                    routineId,
+                    code: existingExecution?.decision?.code ?? "ROUTINE_EXECUTION_BLOCKED",
+                    message: existingExecution?.decision?.message ?? "routine execution blocked",
+                    execution: existingExecution
+                  };
+              return sendJson(res, statusCode, responseBody);
+            }
+
+            let dailyApprovedSpendMicros = 0;
+            const requestedDatePrefix = String(execution.requestedAt).slice(0, 10);
+            if (store.autonomousRoutineExecutions instanceof Map) {
+              for (const row of store.autonomousRoutineExecutions.values()) {
+                if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+                if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizeTenant(tenantId)) continue;
+                if (String(row.routineId ?? "") !== routineId) continue;
+                if (row?.decision?.allowed !== true) continue;
+                if (String(row.executedAt ?? "").slice(0, 10) !== requestedDatePrefix) continue;
+                const spendMicros = Number(row.requestedSpendMicros);
+                if (Number.isSafeInteger(spendMicros) && spendMicros > 0) dailyApprovedSpendMicros += spendMicros;
+              }
+            } else {
+              const approvedExecutions = await listAutonomousRoutineExecutionRecords({
+                tenantId,
+                routineId,
+                allowed: true,
+                limit: 2000,
+                offset: 0
+              });
+              for (const row of approvedExecutions) {
+                if (String(row.executedAt ?? "").slice(0, 10) !== requestedDatePrefix) continue;
+                const spendMicros = Number(row.requestedSpendMicros);
+                if (Number.isSafeInteger(spendMicros) && spendMicros > 0) dailyApprovedSpendMicros += spendMicros;
+              }
+            }
+
+            const decision = evaluateAutonomousRoutineExecutionDecision({
+              routine,
+              execution,
+              dailyApprovedSpendMicros
+            });
+            const receipt = buildAutonomousRoutineExecutionReceipt({
+              tenantId,
+              routine,
+              execution,
+              decision,
+              dailyApprovedSpendMicros,
+              principalId,
+              authKeyId: auth.ok ? (auth.keyId ?? null) : null
+            });
+
+            const statusCode = decision.allowed ? 201 : 409;
+            const responseBody = decision.allowed
+              ? {
+                  ok: true,
+                  tenantId,
+                  routineId,
+                  execution: receipt
+                }
+              : {
+                  ok: false,
+                  tenantId,
+                  routineId,
+                  code: decision.code ?? "ROUTINE_EXECUTION_BLOCKED",
+                  message: decision.message ?? "routine execution blocked",
+                  execution: receipt
+                };
+            const ops = [{ kind: "AUTONOMOUS_ROUTINE_EXECUTION_APPEND", tenantId, execution: receipt }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: decision.allowed ? "AUTONOMOUS_ROUTINE_EXECUTION_ALLOWED" : "AUTONOMOUS_ROUTINE_EXECUTION_BLOCKED",
+                targetType: "autonomous_routine_execution",
+                targetId: `${routineId}:${execution.executionId}`,
+                details: {
+                  routineId,
+                  executionId: execution.executionId,
+                  allowed: decision.allowed === true,
+                  code: decision.code ?? null,
+                  requestedSpendMicros: execution.requestedSpendMicros,
+                  currency: execution.currency,
+                  requestedAt: execution.requestedAt
                 }
               })
             });
@@ -37778,6 +41835,146 @@ export function createApi({
           });
         }
 
+        if (parts[1] === "network" && parts[2] === "command-center" && parts[3] === "workspace" && parts.length === 4 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const transactionFeeBpsRaw = url.searchParams.get("transactionFeeBps");
+          const windowHoursRaw = url.searchParams.get("windowHours");
+          const disputeSlaHoursRaw = url.searchParams.get("disputeSlaHours");
+
+          const transactionFeeBps =
+            transactionFeeBpsRaw === null || transactionFeeBpsRaw.trim() === ""
+              ? 100
+              : Number(transactionFeeBpsRaw);
+          if (!Number.isSafeInteger(transactionFeeBps) || transactionFeeBps < 0 || transactionFeeBps > 5000) {
+            return sendError(res, 400, "transactionFeeBps must be an integer within 0..5000");
+          }
+
+          const windowHours =
+            windowHoursRaw === null || windowHoursRaw.trim() === ""
+              ? 24
+              : Number(windowHoursRaw);
+          if (!Number.isSafeInteger(windowHours) || windowHours <= 0 || windowHours > 24 * 365) {
+            return sendError(res, 400, "windowHours must be an integer within 1..8760");
+          }
+
+          const disputeSlaHours =
+            disputeSlaHoursRaw === null || disputeSlaHoursRaw.trim() === ""
+              ? 24
+              : Number(disputeSlaHoursRaw);
+          if (!Number.isSafeInteger(disputeSlaHours) || disputeSlaHours <= 0 || disputeSlaHours > 24 * 365) {
+            return sendError(res, 400, "disputeSlaHours must be an integer within 1..8760");
+          }
+
+          let thresholds;
+          try {
+            thresholds = {
+              httpClientErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpClientErrorRateThresholdPct"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpClientErrorRateThresholdPct,
+                min: 0,
+                name: "httpClientErrorRateThresholdPct"
+              }),
+              httpServerErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpServerErrorRateThresholdPct"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpServerErrorRateThresholdPct,
+                min: 0,
+                name: "httpServerErrorRateThresholdPct"
+              }),
+              deliveryDlqThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("deliveryDlqThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.deliveryDlqThreshold,
+                min: 0,
+                name: "deliveryDlqThreshold"
+              }),
+              disputeOverSlaThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("disputeOverSlaThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.disputeOverSlaThreshold,
+                min: 0,
+                name: "disputeOverSlaThreshold"
+              }),
+              determinismRejectThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("determinismRejectThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.determinismRejectThreshold,
+                min: 0,
+                name: "determinismRejectThreshold"
+              }),
+              kernelVerificationErrorThreshold: parseThresholdIntegerQueryValue(
+                url.searchParams.get("kernelVerificationErrorThreshold"),
+                {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.kernelVerificationErrorThreshold,
+                  min: 0,
+                  name: "kernelVerificationErrorThreshold"
+                }
+              )
+            };
+          } catch (err) {
+            return sendError(res, 400, err?.message ?? "invalid alert thresholds");
+          }
+
+          let commandCenter;
+          try {
+            commandCenter = await computeNetworkCommandCenterSummary({
+              tenantId,
+              transactionFeeBps,
+              windowHours,
+              disputeSlaHours,
+              failClosed: true
+            });
+          } catch (err) {
+            if (isCommandCenterDependencyUnavailableError(err)) {
+              return sendError(
+                res,
+                501,
+                "command-center workspace dependencies unavailable",
+                { message: err?.message ?? String(err) },
+                { code: "COMMAND_CENTER_DEPENDENCY_UNAVAILABLE" }
+              );
+            }
+            return sendError(
+              res,
+              500,
+              "failed to compute command-center workspace",
+              { message: err?.message ?? String(err) },
+              { code: "COMMAND_CENTER_WORKSPACE_FAILED" }
+            );
+          }
+
+          const breaches = evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds });
+          const workspace = normalizeForCanonicalJson(
+            {
+              schemaVersion: COMMAND_CENTER_WORKSPACE_SCHEMA_VERSION,
+              generatedAt: commandCenter.generatedAt,
+              parameters: {
+                transactionFeeBps,
+                windowHours,
+                disputeSlaHours
+              },
+              reliability: commandCenter.reliability,
+              safety: {
+                determinism: commandCenter.determinism,
+                settlement: commandCenter.settlement,
+                disputes: commandCenter.disputes,
+                alerts: {
+                  thresholds,
+                  evaluatedCount: Object.keys(COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS).length,
+                  breachCount: breaches.length,
+                  breaches
+                }
+              },
+              trust: commandCenter.trust,
+              revenue: commandCenter.revenue,
+              actionability: {
+                canPersistAlerts: requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)
+              },
+              links: {
+                summary: "/ops/network/command-center",
+                status: "/ops/status"
+              }
+            },
+            { path: "$" }
+          );
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            workspace
+          });
+        }
+
         if (parts[1] === "maintenance" && parts[2] === "finance-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
           const hasMaintenanceWriteScope =
             requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
@@ -38783,6 +42980,12 @@ export function createApi({
             const settlementAgentIds = collectAgentIdsForAuditLineage(settlement);
             const settlementTraceIds = collectTraceIdsForAuditLineage(settlement);
             if (!matchesFilters({ agentIds: settlementAgentIds, traceIds: settlementTraceIds })) continue;
+            const settlementFederationJurisdiction =
+              settlement?.disputeResolution?.federationJurisdiction && typeof settlement.disputeResolution.federationJurisdiction === "object"
+                ? settlement.disputeResolution.federationJurisdiction
+                : settlement?.disputeContext?.federationJurisdiction && typeof settlement.disputeContext.federationJurisdiction === "object"
+                  ? settlement.disputeContext.federationJurisdiction
+                  : null;
             records.push({
               kind: "RUN_SETTLEMENT",
               recordId: String(settlement.settlementId ?? run.runId ?? ""),
@@ -38793,7 +42996,11 @@ export function createApi({
               refs: {
                 runId: run.runId ?? null,
                 settlementId: settlement.settlementId ?? null,
-                disputeStatus: settlement?.dispute?.status ?? null
+                disputeStatus: settlement?.dispute?.status ?? null,
+                federationDisputePolicyPath: settlementFederationJurisdiction?.policyPath ?? null,
+                federationDisputeCoordinationId: settlementFederationJurisdiction?.disputeCoordinationId ?? null,
+                federationDisputeCounterpartStatus: settlementFederationJurisdiction?.counterpartStatus ?? null,
+                federationDisputeContinuityHash: settlementFederationJurisdiction?.continuityHash ?? null
               }
             });
           }
@@ -38957,37 +43164,73 @@ export function createApi({
                 { code: "AUDIT_EXPORT_REASON_CODE_REQUIRED" }
               );
             }
+            const linkedRefs = extractAuditLinkedRefs(row, details);
+            const requiredRef = requiredAuditLinkedRefForAction(action);
+            if (requiredRef && !linkedRefs?.[requiredRef.key]) {
+              return sendError(
+                res,
+                409,
+                "ops audit export blocked",
+                {
+                  message: `required linked reference is missing: ${requiredRef.key}`,
+                  auditId: row?.id ?? null,
+                  action,
+                  requiredRef: requiredRef.key
+                },
+                { code: "AUDIT_EXPORT_BINDING_REQUIRED" }
+              );
+            }
+            const baseRow = normalizeForCanonicalJson(
+              {
+                schemaVersion: "OpsAuditExportRow.v1",
+                auditId: Number.isSafeInteger(Number(row?.id)) ? Number(row.id) : null,
+                at,
+                action,
+                targetType: typeof row?.targetType === "string" && row.targetType.trim() !== "" ? row.targetType.trim() : null,
+                targetId: typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null,
+                detailsHash: typeof row?.detailsHash === "string" && row.detailsHash.trim() !== "" ? row.detailsHash.trim() : null,
+                actor: {
+                  keyId: typeof row?.actorKeyId === "string" && row.actorKeyId.trim() !== "" ? row.actorKeyId.trim() : null,
+                  principalId:
+                    typeof row?.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== "" ? row.actorPrincipalId.trim() : null,
+                  operatorId:
+                    typeof details?.operatorAction?.action?.actor?.operatorId === "string" &&
+                    details.operatorAction.action.actor.operatorId.trim() !== ""
+                      ? details.operatorAction.action.actor.operatorId.trim()
+                      : null,
+                  role:
+                    typeof details?.operatorAction?.action?.actor?.role === "string" &&
+                    details.operatorAction.action.actor.role.trim() !== ""
+                      ? details.operatorAction.action.actor.role.trim()
+                      : null
+                },
+                decision: {
+                  outcome,
+                  reasonCode,
+                  reason: typeof details.reason === "string" && details.reason.trim() !== "" ? details.reason.trim() : null
+                },
+                linkedRefs
+              },
+              { path: "$" }
+            );
+            const prevRowHash = rows.length > 0 ? rows[rows.length - 1]?.rowHash ?? null : null;
+            const rowHash = sha256Hex(
+              canonicalJsonStringify(
+                normalizeForCanonicalJson(
+                  {
+                    ...baseRow,
+                    prevRowHash
+                  },
+                  { path: "$" }
+                )
+              )
+            );
             rows.push(
               normalizeForCanonicalJson(
                 {
-                  schemaVersion: "OpsAuditExportRow.v1",
-                  auditId: Number.isSafeInteger(Number(row?.id)) ? Number(row.id) : null,
-                  at,
-                  action,
-                  targetType: typeof row?.targetType === "string" && row.targetType.trim() !== "" ? row.targetType.trim() : null,
-                  targetId: typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null,
-                  detailsHash: typeof row?.detailsHash === "string" && row.detailsHash.trim() !== "" ? row.detailsHash.trim() : null,
-                  actor: {
-                    keyId: typeof row?.actorKeyId === "string" && row.actorKeyId.trim() !== "" ? row.actorKeyId.trim() : null,
-                    principalId:
-                      typeof row?.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== "" ? row.actorPrincipalId.trim() : null,
-                    operatorId:
-                      typeof details?.operatorAction?.action?.actor?.operatorId === "string" &&
-                      details.operatorAction.action.actor.operatorId.trim() !== ""
-                        ? details.operatorAction.action.actor.operatorId.trim()
-                        : null,
-                    role:
-                      typeof details?.operatorAction?.action?.actor?.role === "string" &&
-                      details.operatorAction.action.actor.role.trim() !== ""
-                        ? details.operatorAction.action.actor.role.trim()
-                        : null
-                  },
-                  decision: {
-                    outcome,
-                    reasonCode,
-                    reason: typeof details.reason === "string" && details.reason.trim() !== "" ? details.reason.trim() : null
-                  },
-                  linkedRefs: extractAuditLinkedRefs(row, details)
+                  ...baseRow,
+                  prevRowHash,
+                  rowHash
                 },
                 { path: "$" }
               )
@@ -39003,6 +43246,7 @@ export function createApi({
               requireReasonCodes,
               generatedAt,
               count: rows.length,
+              rowChainHeadHash: rows.length > 0 ? rows[rows.length - 1]?.rowHash ?? null : null,
               rows
             },
             { path: "$" }
@@ -44629,6 +48873,7 @@ export function createApi({
                 : ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeReputation")).trim().toLowerCase()),
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced"
           });
           return sendJson(res, 200, result);
@@ -47644,6 +51889,174 @@ export function createApi({
             }
           }
           const nowAt = nowIso();
+          const authorizationApprovalDecisions = [];
+          let authorizationBudgetEnvelope = null;
+          let delegatedApprovalAction = null;
+          let delegatedApprovalPolicy = null;
+          let delegatedApprovalDecision = null;
+          let delegatedApprovalAuditIndex = null;
+          let s8ApprovalAction = null;
+          let s8ApprovalPolicy = null;
+          let s8ApprovalDecision = null;
+          let s8ApprovalAuditIndex = null;
+          const delegatedBudgetEnvelopeInput = body?.delegatedBudgetEnvelope ?? body?.budgetEnvelope ?? null;
+          let delegatedBudgetEnvelope = null;
+          try {
+            delegatedBudgetEnvelope = normalizeX402DelegatedBudgetEnvelopeInput(delegatedBudgetEnvelopeInput, {
+              fieldPath: "delegatedBudgetEnvelope",
+              allowNull: true
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid delegatedBudgetEnvelope", { message: err?.message ?? null }, { code: "SCHEMA_INVALID" });
+          }
+          if (delegatedBudgetEnvelope) {
+            if (delegatedBudgetEnvelope.emergencyStop === true) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope emergency stop is active",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null
+                },
+                { code: "X402_DELEGATED_EXECUTION_STOPPED" }
+              );
+            }
+            if (String(delegatedBudgetEnvelope.currency ?? "").toUpperCase() !== String(currency ?? "").toUpperCase()) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope currency does not match gate currency",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  envelopeCurrency: delegatedBudgetEnvelope.currency,
+                  gateCurrency: currency
+                },
+                { code: "X402_DELEGATED_BUDGET_CURRENCY_MISMATCH" }
+              );
+            }
+            let usedCents = 0;
+            try {
+              usedCents = await computeX402DelegatedBudgetEnvelopeUsageCents({
+                tenantId,
+                payerAgentId,
+                envelopeId: delegatedBudgetEnvelope.envelopeId
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope cumulative spend check unavailable",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  message: err?.message ?? null
+                },
+                { code: err?.code ?? "X402_DELEGATED_BUDGET_RESOLVER_UNAVAILABLE" }
+              );
+            }
+            const projectedCents = usedCents + amountCents;
+            if (projectedCents > delegatedBudgetEnvelope.maxTotalCents) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope exceeded",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null,
+                  currentUsedCents: usedCents,
+                  amountCents,
+                  projectedCents,
+                  maxTotalCents: delegatedBudgetEnvelope.maxTotalCents
+                },
+                { code: "X402_DELEGATED_BUDGET_ENVELOPE_EXCEEDED" }
+              );
+            }
+            authorizationBudgetEnvelope = normalizeForCanonicalJson(
+              {
+                ...delegatedBudgetEnvelope,
+                currentUsedCents: usedCents,
+                requestedAmountCents: amountCents,
+                projectedCents,
+                remainingCents: Math.max(0, delegatedBudgetEnvelope.maxTotalCents - projectedCents),
+                evaluatedAt: nowAt
+              },
+              { path: "$" }
+            );
+            const approvalThresholdCents = Number(delegatedBudgetEnvelope.approvalThresholdCents ?? Number.NaN);
+            if (
+              !s8ApprovalEnforceX402AuthorizePaymentValue &&
+              Number.isSafeInteger(approvalThresholdCents) &&
+              approvalThresholdCents >= 0
+            ) {
+              delegatedApprovalAction = {
+                actionId: `x402_budget_envelope_authorize:${gateId}:${delegatedBudgetEnvelope.envelopeId}`,
+                actionType: "delegated_budget_authorize",
+                actorId: payerAgentId,
+                riskTier: "medium",
+                amountCents,
+                metadata: {
+                  tenantId,
+                  gateId,
+                  runId,
+                  currency,
+                  payeeProviderId,
+                  envelopeId: delegatedBudgetEnvelope.envelopeId,
+                  teamId: delegatedBudgetEnvelope.teamId ?? null
+                }
+              };
+              delegatedApprovalDecision =
+                body?.delegatedApprovalDecision ??
+                body?.s8ApprovalDecision ??
+                body?.humanApprovalDecision ??
+                body?.approvalDecision ??
+                null;
+              delegatedApprovalPolicy = {
+                requireApprovalAboveCents: approvalThresholdCents,
+                strictEvidenceRefs: delegatedBudgetEnvelope.requireEvidenceRefs === true,
+                ...(delegatedBudgetEnvelope.approvalTimeoutAt ? { decisionTimeoutAt: delegatedBudgetEnvelope.approvalTimeoutAt } : {})
+              };
+              const delegatedApprovalCheck = enforceHighRiskApproval({
+                action: delegatedApprovalAction,
+                approvalPolicy: delegatedApprovalPolicy,
+                approvalDecision: delegatedApprovalDecision,
+                nowIso: () => nowAt
+              });
+              delegatedApprovalAuditIndex =
+                authorizationApprovalDecisions.push(
+                  createX402AuthorizationApprovalAuditEntry({
+                    profile: "delegated_budget_threshold",
+                    action: delegatedApprovalAction,
+                    approvalCheck: delegatedApprovalCheck,
+                    approvalDecision: delegatedApprovalDecision,
+                    checkedAt: nowAt
+                  })
+                ) - 1;
+              if (!delegatedApprovalCheck.approved) {
+                return sendError(
+                  res,
+                  409,
+                  "delegated budget envelope approval threshold requires explicit approval",
+                  {
+                    gateId,
+                    envelopeId: delegatedBudgetEnvelope.envelopeId,
+                    approvalCheck: delegatedApprovalCheck,
+                    approvalRequest: delegatedApprovalCheck.requiresExplicitApproval
+                      ? createApprovalRequest({
+                          action: delegatedApprovalAction,
+                          requestedBy: principalId ?? payerAgentId,
+                          requestedAt: nowAt
+                        })
+                      : null
+                  },
+                  { code: delegatedApprovalCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_REQUIRED" }
+                );
+              }
+            }
+          }
           if (s8ApprovalEnforceX402AuthorizePaymentValue) {
             const requestApprovalPolicyRaw =
               body?.s8ApprovalPolicy && typeof body.s8ApprovalPolicy === "object" && !Array.isArray(body.s8ApprovalPolicy)
@@ -47652,7 +52065,7 @@ export function createApi({
             if (body?.s8ApprovalPolicy !== undefined && requestApprovalPolicyRaw === null) {
               return sendError(res, 400, "invalid s8ApprovalPolicy", { message: "s8ApprovalPolicy must be a plain object" }, { code: "SCHEMA_INVALID" });
             }
-            const approvalAction = {
+            s8ApprovalAction = {
               actionId: `x402_authorize_payment:${gateId}`,
               actionType: "funds_transfer",
               actorId: payerAgentId,
@@ -47666,16 +52079,28 @@ export function createApi({
                 payeeProviderId
               }
             };
+            s8ApprovalDecision =
+              body?.s8ApprovalDecision ??
+              body?.humanApprovalDecision ??
+              body?.approvalDecision ??
+              null;
+            s8ApprovalPolicy = requestApprovalPolicyRaw ?? s8ApprovalPolicyValue;
             const approvalCheck = enforceHighRiskApproval({
-              action: approvalAction,
-              approvalPolicy: requestApprovalPolicyRaw ?? s8ApprovalPolicyValue,
-              approvalDecision:
-                body?.s8ApprovalDecision ??
-                body?.humanApprovalDecision ??
-                body?.approvalDecision ??
-                null,
+              action: s8ApprovalAction,
+              approvalPolicy: s8ApprovalPolicy,
+              approvalDecision: s8ApprovalDecision,
               nowIso: () => nowAt
             });
+            s8ApprovalAuditIndex =
+              authorizationApprovalDecisions.push(
+                createX402AuthorizationApprovalAuditEntry({
+                  profile: "s8_high_risk",
+                  action: s8ApprovalAction,
+                  approvalCheck,
+                  approvalDecision: s8ApprovalDecision,
+                  checkedAt: nowAt
+                })
+              ) - 1;
             if (!approvalCheck.approved) {
               return sendError(
                 res,
@@ -47685,7 +52110,7 @@ export function createApi({
                   approvalCheck,
                   approvalRequest: approvalCheck.requiresExplicitApproval
                     ? createApprovalRequest({
-                        action: approvalAction,
+                        action: s8ApprovalAction,
                         requestedBy: principalId ?? payerAgentId,
                         requestedAt: nowAt
                       })
@@ -48133,6 +52558,98 @@ export function createApi({
             typeof resolvedWalletPolicy?.policyFingerprint === "string" && resolvedWalletPolicy.policyFingerprint.trim() !== ""
               ? resolvedWalletPolicy.policyFingerprint.trim().toLowerCase()
               : null;
+          const approvalContextBinding = normalizeForCanonicalJson(
+            {
+              gateId,
+              runId,
+              settlementId: null,
+              delegationGrantRef: effectiveDelegationGrantRef,
+              authorityGrantRef: effectiveAuthorityGrantRefInput,
+              policyHashSha256: expectedPolicyHash,
+              policyVersion: expectedPolicyVersion
+            },
+            { path: "$.approvalContextBinding" }
+          );
+          if (delegatedApprovalAction && delegatedApprovalPolicy) {
+            const delegatedContextualCheck = enforceHighRiskApproval({
+              action: delegatedApprovalAction,
+              approvalPolicy: {
+                ...delegatedApprovalPolicy,
+                requireContextBinding: true
+              },
+              approvalDecision: delegatedApprovalDecision,
+              contextBinding: approvalContextBinding,
+              nowIso: () => nowAt
+            });
+            if (Number.isSafeInteger(delegatedApprovalAuditIndex) && delegatedApprovalAuditIndex >= 0) {
+              authorizationApprovalDecisions[delegatedApprovalAuditIndex] = createX402AuthorizationApprovalAuditEntry({
+                profile: "delegated_budget_threshold",
+                action: delegatedApprovalAction,
+                approvalCheck: delegatedContextualCheck,
+                approvalDecision: delegatedApprovalDecision,
+                checkedAt: nowAt
+              });
+            }
+            if (!delegatedContextualCheck.approved) {
+              return sendError(
+                res,
+                409,
+                "delegated budget envelope approval context binding failed",
+                {
+                  gateId,
+                  envelopeId: delegatedBudgetEnvelope?.envelopeId ?? null,
+                  approvalCheck: delegatedContextualCheck,
+                  approvalRequest: delegatedContextualCheck.requiresExplicitApproval
+                    ? createApprovalRequest({
+                        action: delegatedApprovalAction,
+                        requestedBy: principalId ?? payerAgentId,
+                        requestedAt: nowAt
+                      })
+                    : null
+                },
+                { code: delegatedContextualCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH" }
+              );
+            }
+          }
+          if (s8ApprovalAction && s8ApprovalPolicy) {
+            const s8ContextualCheck = enforceHighRiskApproval({
+              action: s8ApprovalAction,
+              approvalPolicy: {
+                ...(s8ApprovalPolicy && typeof s8ApprovalPolicy === "object" && !Array.isArray(s8ApprovalPolicy) ? s8ApprovalPolicy : {}),
+                requireContextBinding: true
+              },
+              approvalDecision: s8ApprovalDecision,
+              contextBinding: approvalContextBinding,
+              nowIso: () => nowAt
+            });
+            if (Number.isSafeInteger(s8ApprovalAuditIndex) && s8ApprovalAuditIndex >= 0) {
+              authorizationApprovalDecisions[s8ApprovalAuditIndex] = createX402AuthorizationApprovalAuditEntry({
+                profile: "s8_high_risk",
+                action: s8ApprovalAction,
+                approvalCheck: s8ContextualCheck,
+                approvalDecision: s8ApprovalDecision,
+                checkedAt: nowAt
+              });
+            }
+            if (!s8ContextualCheck.approved) {
+              return sendError(
+                res,
+                409,
+                "human approval context binding failed for high-risk x402 authorization",
+                {
+                  approvalCheck: s8ContextualCheck,
+                  approvalRequest: s8ContextualCheck.requiresExplicitApproval
+                    ? createApprovalRequest({
+                        action: s8ApprovalAction,
+                        requestedBy: principalId ?? payerAgentId,
+                        requestedAt: nowAt
+                      })
+                    : null
+                },
+                { code: s8ContextualCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH" }
+              );
+            }
+          }
           const effectiveExecutionIntentInput = parsedExecutionIntent ?? existingAuthorizationExecutionIntent ?? null;
           if (x402RequireExecutionIntentValue && !effectiveExecutionIntentInput) {
             return sendError(
@@ -48449,6 +52966,23 @@ export function createApi({
               }
             }
           }
+          const authorizationGovernance =
+            authorizationBudgetEnvelope ||
+            authorizationApprovalDecisions.some((row) => row && typeof row === "object" && !Array.isArray(row))
+              ? normalizeForCanonicalJson(
+                  {
+                    schemaVersion: X402_AUTHORIZATION_GOVERNANCE_SCHEMA_VERSION,
+                    ...(authorizationBudgetEnvelope ? { budgetEnvelope: authorizationBudgetEnvelope } : {}),
+                    approvals: authorizationApprovalDecisions
+                      .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+                      .map((row) => normalizeForCanonicalJson(row, { path: "$" })),
+                    evaluatedAt: nowAt
+                  },
+                  { path: "$" }
+                )
+              : existingAuthorization?.governance && typeof existingAuthorization.governance === "object" && !Array.isArray(existingAuthorization.governance)
+                ? existingAuthorization.governance
+                : null;
           if (hasLiveToken && requestBindingMatchesLiveToken && quoteMatchesLiveToken) {
             const responseBody = {
               gateId,
@@ -48475,7 +53009,8 @@ export function createApi({
                 circleTransferId: existingReserve.reserveId,
                 reserveId: existingReserve.reserveId,
                 status: "reserved"
-              }
+              },
+              ...(authorizationGovernance ? { governance: authorizationGovernance } : {})
             };
             if (idemStoreKey) {
               await store.commitTx({
@@ -48763,6 +53298,7 @@ export function createApi({
                         : null,
                 ...(authorizationDelegationLineage ? { delegationLineage: authorizationDelegationLineage } : {}),
                 ...(effectiveExecutionIntent ? { executionIntent: effectiveExecutionIntent } : {}),
+                ...(authorizationGovernance ? { governance: authorizationGovernance } : {}),
                 walletEscrow: {
                   status: walletEscrowLocked ? "locked" : "unlocked",
                   amountCents,
@@ -48822,7 +53358,8 @@ export function createApi({
               circleTransferId: reserve.circleTransferId ?? reserve.reserveId,
               reserveId: reserve.reserveId,
               status: "reserved"
-            }
+            },
+            ...(authorizationGovernance ? { governance: authorizationGovernance } : {})
           };
 
           const ops = [];
@@ -49870,6 +54407,10 @@ export function createApi({
                 : Number.isSafeInteger(Number(gateAgentPassport?.policyVersion)) && Number(gateAgentPassport.policyVersion) > 0
                   ? Number(gateAgentPassport.policyVersion)
                   : null;
+          const authorizationGovernanceForBindings =
+            gateAuthorization?.governance && typeof gateAuthorization.governance === "object" && !Array.isArray(gateAuthorization.governance)
+              ? gateAuthorization.governance
+              : null;
           const settlementBindingsMetadata = (() => {
             const x402 = {};
             if (settlementAssignmentSponsorWalletRef && settlementAssignmentPolicyRef && settlementAssignmentPolicyVersion) {
@@ -49968,6 +54509,7 @@ export function createApi({
                         : null
                   }
                 : null,
+            ...(authorizationGovernanceForBindings ? { governance: authorizationGovernanceForBindings } : {}),
             executionIntent: gateExecutionIntent
               ? {
                   schemaVersion:
@@ -51436,13 +55978,16 @@ export function createApi({
           const signRaw = url.searchParams.get("sign");
           const signerKeyIdRaw = url.searchParams.get("signerKeyId");
           const includeTranscriptRaw = url.searchParams.get("includeTranscript");
+          const memoryScopeRaw = url.searchParams.get("memoryScope");
           let signReplayExport = false;
           let signerKeyId = null;
           let includeTranscript = true;
+          let memoryScope = null;
           try {
             signReplayExport = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
             signerKeyId = parseSessionArtifactSignerKeyId(signerKeyIdRaw, { allowNull: true });
             includeTranscript = parseBooleanQueryValue(includeTranscriptRaw, { defaultValue: true, name: "includeTranscript" });
+            memoryScope = parseSessionMemoryAccessScope(memoryScopeRaw, { allowNull: true, name: "memoryScope" });
             if (!signReplayExport && signerKeyId !== null) {
               throw new TypeError("signerKeyId requires sign=true");
             }
@@ -51452,6 +55997,59 @@ export function createApi({
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
+          if (typeof store.appendOpsAudit !== "function") {
+            return sendError(res, 501, "session memory access audit not supported for this store", { sessionId }, { code: "AUDIT_LOG_UNSUPPORTED" });
+          }
+
+          let callerPrincipalId = null;
+          try {
+            callerPrincipalId = normalizePrincipalId(req?.headers ?? {});
+          } catch {
+            callerPrincipalId = typeof principalId === "string" && principalId.trim() !== "" ? principalId.trim() : null;
+          }
+
+          const memoryAccess = evaluateSessionMemoryReadAccessV1({
+            principalId: callerPrincipalId,
+            participants: Array.isArray(session?.participants) ? session.participants : [],
+            policy: session?.metadata?.memoryAccessPolicy ?? null,
+            scope: memoryScope
+          });
+          if (!memoryAccess.ok) {
+            try {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "SESSION_MEMORY_READ_DENIED",
+                  targetType: "session",
+                  targetId: sessionId,
+                  details: {
+                    path: `/sessions/${sessionId}/replay-export`,
+                    sessionId,
+                    principalId: callerPrincipalId ?? null,
+                    requestedScope: memoryScope ?? null,
+                    resolvedScope: memoryAccess.scope ?? null,
+                    reasonCode: memoryAccess.code ?? null,
+                    policyHash: memoryAccess.policyHash ?? null
+                  }
+                })
+              });
+            } catch (err) {
+              return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+            }
+            return sendError(
+              res,
+              403,
+              "session memory access denied",
+              {
+                sessionId,
+                principalId: callerPrincipalId ?? null,
+                requestedScope: memoryScope ?? null,
+                resolvedScope: memoryAccess.scope ?? null
+              },
+              { code: memoryAccess.code ?? "SESSION_MEMORY_ACCESS_DENIED" }
+            );
+          }
+
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay export" });
           if (!verified.ok) {
             return sendError(
@@ -51552,6 +56150,29 @@ export function createApi({
             memoryExportRef,
             importVerification
           });
+          try {
+            await store.appendOpsAudit({
+              tenantId,
+              audit: makeOpsAudit({
+                action: "SESSION_MEMORY_READ_ALLOWED",
+                targetType: "session",
+                targetId: sessionId,
+                details: {
+                  path: `/sessions/${sessionId}/replay-export`,
+                  sessionId,
+                  principalId: callerPrincipalId ?? null,
+                  requestedScope: memoryScope ?? null,
+                  resolvedScope: memoryAccess.scope ?? null,
+                  policyHash: memoryAccess.policyHash ?? null,
+                  replayPackHash: replayPack?.packHash ?? null,
+                  memoryExportHash: exportMetadata?.memoryExportHash ?? null,
+                  exportHash: exportMetadata?.exportHash ?? null
+                }
+              })
+            });
+          } catch (err) {
+            return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+          }
           return sendJson(res, 200, { ok: true, replayPack, transcript, memoryExport, memoryExportRef, exportMetadata });
         }
 
@@ -52584,6 +57205,9 @@ export function createApi({
         const shouldRateLimitPublicPublish =
           requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
           String(existingCard?.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC;
+        const requirePublishSignature =
+          requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
+          agentCardPublicRequirePublishSignatureValue === true;
 
         if (shouldRateLimitPublicPublish) {
           const publishRateCheck = takePublicAgentCardPublishToken({ tenantId, agentId });
@@ -52610,6 +57234,45 @@ export function createApi({
           }
         }
 
+        const publishSignatureInput =
+          body?.publish && typeof body.publish === "object" && !Array.isArray(body.publish)
+            ? body.publish
+            : body?.publish === null || body?.publish === undefined
+              ? null
+              : "__invalid__";
+        if (publishSignatureInput === null && requirePublishSignature) {
+          return sendError(
+            res,
+            409,
+            "agent card publish signature is required for public visibility",
+            buildAgentCardPublishSignatureDetails({
+              reasonCode: "AGENT_CARD_PUBLISH_SIGNATURE_REQUIRED",
+              reason: "agent card publish signature is required for public visibility"
+            }),
+            { code: "AGENT_CARD_PUBLISH_SIGNATURE_REQUIRED" }
+          );
+        }
+        let publishSignature = null;
+        if (publishSignatureInput !== null) {
+          const verification = await verifyAgentCardPublishSignature({
+            tenantId,
+            agentIdentity,
+            requestBody: body,
+            publishSignatureInput:
+              publishSignatureInput === "__invalid__" ? body?.publish ?? null : publishSignatureInput
+          });
+          if (!verification.ok) {
+            return sendError(
+              res,
+              409,
+              "agent card publish signature verification failed",
+              verification.details ?? null,
+              { code: "AGENT_CARD_PUBLISH_SIGNATURE_INVALID" }
+            );
+          }
+          publishSignature = verification.publishSignature ?? null;
+        }
+
         const upsertedAt = nowIso();
         let agentCard = null;
         try {
@@ -52630,7 +57293,9 @@ export function createApi({
               attestations: body?.attestations ?? undefined,
               tools: body?.tools ?? undefined,
               tags: body?.tags ?? undefined,
-              metadata: body?.metadata ?? undefined
+              metadata: body?.metadata ?? undefined,
+              policyCompatibility: body?.policyCompatibility ?? undefined,
+              publish: publishSignature ?? null
             }
           });
           validateAgentCardV1(agentCard);
@@ -52820,7 +57485,9 @@ export function createApi({
                 attestations: body?.attestations ?? undefined,
                 tools: body?.tools ?? undefined,
                 tags: body?.tags ?? undefined,
-                metadata: cardMetadataInput
+                metadata: cardMetadataInput,
+                policyCompatibility: body?.policyCompatibility ?? undefined,
+                publish: publishSignature ?? null
               }
             });
             validateAgentCardV1(agentCard);
@@ -52873,6 +57540,8 @@ export function createApi({
             toolSideEffecting,
             toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
             toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
+            supportsPolicyTemplate: url.searchParams.get("supportsPolicyTemplate"),
+            supportsEvidencePack: url.searchParams.get("supportsEvidencePack"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),
@@ -52887,6 +57556,7 @@ export function createApi({
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
             requesterAgentId: url.searchParams.get("requesterAgentId"),
             includeRoutingFactors
@@ -52901,12 +57571,17 @@ export function createApi({
         let toolSideEffecting = null;
         let sinceCursor = null;
         let executionCoordinatorDid = null;
+        let capabilityFilter = null;
         try {
           const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
           toolSideEffecting =
             toolSideEffectingRaw === null
               ? null
               : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
+          capabilityFilter =
+            typeof url.searchParams.get("capability") === "string" && url.searchParams.get("capability").trim() !== ""
+              ? normalizeCapabilityIdentifier(url.searchParams.get("capability"), { name: "capability" })
+              : null;
           executionCoordinatorDid = parseExecutionCoordinatorDid(url.searchParams.get("executionCoordinatorDid"), {
             allowNull: true,
             fieldName: "executionCoordinatorDid"
@@ -52921,7 +57596,7 @@ export function createApi({
         }
 
         const query = {
-          capability: url.searchParams.get("capability"),
+          capability: capabilityFilter,
           executionCoordinatorDid,
           toolId: url.searchParams.get("toolId"),
           toolMcpName: url.searchParams.get("toolMcpName"),
@@ -53169,13 +57844,10 @@ export function createApi({
         const parts = path.split("/").filter(Boolean);
         if (req.method === "GET" && parts[0] === "public" && parts[1] === "agents" && parts[2] && parts[3] === "reputation-summary" && parts.length === 4) {
           const targetAgentId = parts[2];
-          let asOf = nowIso();
+          const defaultAsOf = nowIso();
+          let asOf = defaultAsOf;
           try {
-            if (url.searchParams.get("asOf")) {
-              const candidate = String(url.searchParams.get("asOf") ?? "").trim();
-              if (!Number.isFinite(Date.parse(candidate))) throw new TypeError("asOf must be an ISO date-time");
-              asOf = candidate;
-            }
+            asOf = parseAsOfDateTime(url.searchParams.get("asOf"), { defaultValue: defaultAsOf, fieldName: "asOf" });
           } catch (err) {
             return sendError(res, 400, "invalid public reputation summary query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
@@ -53393,6 +58065,8 @@ export function createApi({
             toolSideEffecting,
             toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
             toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
+            supportsPolicyTemplate: url.searchParams.get("supportsPolicyTemplate"),
+            supportsEvidencePack: url.searchParams.get("supportsEvidencePack"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),
@@ -53407,6 +58081,7 @@ export function createApi({
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
             requesterAgentId: url.searchParams.get("requesterAgentId"),
             includeRoutingFactors
@@ -53433,12 +58108,17 @@ export function createApi({
         let statusFilter = null;
         let visibilityFilter = null;
         let executionCoordinatorDidFilter = null;
+        let capabilityFilter = null;
         try {
           statusFilter = status && status.trim() !== "" ? parseDiscoveryStatus(status) : null;
           visibilityFilter = visibility && visibility.trim() !== "" ? parseAgentCardVisibility(visibility, { allowAll: false }) : null;
           executionCoordinatorDidFilter =
             typeof executionCoordinatorDid === "string" && executionCoordinatorDid.trim() !== ""
               ? parseExecutionCoordinatorDid(executionCoordinatorDid, { allowNull: false, fieldName: "executionCoordinatorDid" })
+              : null;
+          capabilityFilter =
+            typeof capability === "string" && capability.trim() !== ""
+              ? normalizeCapabilityIdentifier(capability, { name: "capability" })
               : null;
         } catch (err) {
           return sendError(res, 400, "invalid agent card query", { message: err?.message }, { code: "SCHEMA_INVALID" });
@@ -53451,7 +58131,7 @@ export function createApi({
               agentId: typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null,
               status: statusFilter === "all" ? null : statusFilter,
               visibility: visibilityFilter,
-              capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null,
+              capability: capabilityFilter,
               executionCoordinatorDid: executionCoordinatorDidFilter,
               runtime: typeof runtime === "string" && runtime.trim() !== "" ? runtime.trim().toLowerCase() : null,
               limit: safeLimit,
@@ -53464,9 +58144,7 @@ export function createApi({
               .filter((row) => (statusFilter && statusFilter !== "all" ? String(row.status ?? "").toLowerCase() === statusFilter : true))
               .filter((row) => (visibilityFilter ? String(row.visibility ?? "").toLowerCase() === visibilityFilter : true))
               .filter((row) =>
-                typeof capability === "string" && capability.trim() !== ""
-                  ? Array.isArray(row.capabilities) && row.capabilities.includes(capability.trim())
-                  : true
+                capabilityFilter ? Array.isArray(row.capabilities) && row.capabilities.includes(capabilityFilter) : true
               )
               .filter((row) =>
                 executionCoordinatorDidFilter
@@ -54453,9 +59131,15 @@ export function createApi({
         const attestationId =
           typeof body?.attestationId === "string" && body.attestationId.trim() !== "" ? body.attestationId.trim() : createId("catt");
         const subjectAgentId = typeof body?.subjectAgentId === "string" && body.subjectAgentId.trim() !== "" ? body.subjectAgentId.trim() : null;
-        const capability = typeof body?.capability === "string" && body.capability.trim() !== "" ? body.capability.trim() : null;
-        if (!subjectAgentId || !capability) {
+        const capabilityRaw = typeof body?.capability === "string" && body.capability.trim() !== "" ? body.capability.trim() : null;
+        if (!subjectAgentId || !capabilityRaw) {
           return sendError(res, 400, "subjectAgentId and capability are required", null, { code: "SCHEMA_INVALID" });
+        }
+        let capability = null;
+        try {
+          capability = normalizeCapabilityIdentifier(capabilityRaw, { name: "capability" });
+        } catch (err) {
+          return sendError(res, 400, "invalid capability attestation", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
         const subjectIdentity = await getAgentIdentityRecord({ tenantId, agentId: subjectAgentId });
         if (!subjectIdentity) return sendError(res, 404, "subject agent identity not found", null, { code: "NOT_FOUND" });
@@ -54563,8 +59247,13 @@ export function createApi({
         const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
         const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
         let statusFilter = null;
+        let capabilityFilter = null;
         try {
           statusFilter = parseCapabilityAttestationQueryStatus(statusRaw, { allowNull: true });
+          capabilityFilter =
+            typeof capability === "string" && capability.trim() !== ""
+              ? normalizeCapabilityIdentifier(capability, { name: "capability" })
+              : null;
         } catch (err) {
           return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
@@ -54576,7 +59265,7 @@ export function createApi({
             attestationId: typeof attestationId === "string" && attestationId.trim() !== "" ? attestationId.trim() : null,
             subjectAgentId: typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null,
             issuerAgentId: typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null,
-            capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null
+            capability: capabilityFilter
           });
         } catch (err) {
           return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
@@ -54802,6 +59491,45 @@ export function createApi({
           return sendError(res, 400, "invalid state checkpoint", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
+        if (stateCheckpoint.parentCheckpointId) {
+          let parentStateCheckpoint = null;
+          try {
+            parentStateCheckpoint = await getStateCheckpointRecord({
+              tenantId,
+              checkpointId: stateCheckpoint.parentCheckpointId
+            });
+          } catch (err) {
+            return sendError(res, 501, "state checkpoints not supported for this store", { message: err?.message });
+          }
+          if (!parentStateCheckpoint) {
+            return sendError(
+              res,
+              409,
+              "parent state checkpoint not found",
+              {
+                checkpointId,
+                parentCheckpointId: stateCheckpoint.parentCheckpointId
+              },
+              { code: "STATE_CHECKPOINT_PARENT_NOT_FOUND" }
+            );
+          }
+        }
+
+        const artifactRefVerification = await verifyStateCheckpointArtifactRefsForCreate({
+          tenantId,
+          stateRef: stateCheckpoint.stateRef,
+          diffRefs: stateCheckpoint.diffRefs
+        });
+        if (!artifactRefVerification?.ok) {
+          return sendError(
+            res,
+            artifactRefVerification?.statusCode ?? 409,
+            artifactRefVerification?.message ?? "state checkpoint artifact verification failed",
+            artifactRefVerification?.details ?? null,
+            { code: artifactRefVerification?.code ?? "STATE_CHECKPOINT_ARTIFACT_VERIFICATION_FAILED" }
+          );
+        }
+
         const responseBody = { ok: true, stateCheckpoint };
         const ops = [{ kind: "STATE_CHECKPOINT_UPSERT", tenantId, checkpointId, stateCheckpoint }];
         if (idemStoreKey) {
@@ -54811,7 +59539,14 @@ export function createApi({
             value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
           });
         }
-        await commitTx(ops);
+        try {
+          await commitTx(ops);
+        } catch (err) {
+          if (err?.code === "STATE_CHECKPOINT_ALREADY_EXISTS") {
+            return sendError(res, 409, "state checkpoint already exists", null, { code: "CONFLICT" });
+          }
+          throw err;
+        }
         return sendJson(res, 201, responseBody);
       }
 
@@ -55071,6 +59806,52 @@ export function createApi({
         if (!principalIdentity) return sendError(res, 404, "principal agent identity not found", null, { code: "NOT_FOUND" });
         const subIdentity = await getAgentIdentityRecord({ tenantId, agentId: subAgentId });
         if (!subIdentity) return sendError(res, 404, "sub-agent identity not found", null, { code: "NOT_FOUND" });
+        let subAgentExecutionCoordinatorDid = null;
+        try {
+          const subAgentCard = await getAgentCardRecord({ tenantId, agentId: subAgentId });
+          subAgentExecutionCoordinatorDid = parseExecutionCoordinatorDid(subAgentCard?.executionCoordinatorDid ?? null, {
+            allowNull: true,
+            fieldName: "agentCard.executionCoordinatorDid"
+          });
+        } catch (err) {
+          if (!String(err?.message ?? "").includes("agent cards not supported")) {
+            return sendError(res, 409, "work order routing blocked", { message: err?.message }, { code: "WORK_ORDER_ROUTING_BLOCKED" });
+          }
+        }
+        const dispatchRoute = resolveSubAgentDispatchRoute({
+          workOrderId,
+          requiredCapability,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid
+        });
+        if (!dispatchRoute.ok) {
+          return sendError(
+            res,
+            dispatchRoute.statusCode ?? 503,
+            dispatchRoute.message ?? "work order federation route denied",
+            dispatchRoute.details ?? null,
+            { code: dispatchRoute.code ?? FEDERATION_ERROR_CODE.REQUEST_DENIED }
+          );
+        }
+        const dispatchPlan = buildWorkOrderDispatchPlan({
+          routedAt: nowAt,
+          workOrderId,
+          requiredCapability,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid,
+          dispatchRoute
+        });
+        logger.info("sub_agent_dispatch_routed", {
+          workOrderId,
+          principalAgentId,
+          subAgentId,
+          channel: dispatchRoute.channel,
+          localCoordinatorDid: dispatchRoute.localCoordinatorDid ?? null,
+          executionCoordinatorDid: subAgentExecutionCoordinatorDid,
+          targetCoordinatorDid: dispatchRoute.targetCoordinatorDid ?? null,
+          resolvedCoordinatorDid: dispatchRoute?.route?.resolvedCoordinatorDid ?? null,
+          routingReasonCode: dispatchRoute?.route?.routingReasonCode ?? null,
+          namespaceDecisionId: dispatchRoute?.route?.namespaceLineage?.decisionId ?? null
+        });
+        metricInc("sub_agent_dispatch_routing_total", { channel: dispatchRoute.channel }, 1);
         const createLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
           tenantId,
           principalAgentId,
@@ -55130,7 +59911,8 @@ export function createApi({
         const workOrderMetadata = mergeWorkOrderMetadataWithMetering({
           metadata: body?.metadata ?? null,
           meteringPolicy: workOrderMeteringPolicy,
-          settlementSplitPolicy: workOrderSettlementSplitPolicy
+          settlementSplitPolicy: workOrderSettlementSplitPolicy,
+          dispatchPlan
         });
 
         const delegationGrantRef =
@@ -55402,7 +60184,77 @@ export function createApi({
           return sendError(res, 400, "invalid work order", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
+        if (dispatchRoute.channel === "federation") {
+          const federationInvokePayload = normalizeForCanonicalJson(
+            {
+              version: "1.0",
+              type: "coordinatorInvoke",
+              invocationId: workOrderId,
+              originDid: dispatchRoute.localCoordinatorDid,
+              targetDid: dispatchRoute.targetCoordinatorDid,
+              capabilityId: requiredCapability,
+              payload: {
+                schemaVersion: "FederationWorkOrderInvokePayload.v1",
+                workOrderId,
+                tenantId,
+                principalAgentId,
+                subAgentId,
+                requiredCapability,
+                traceId: workOrder?.traceId ?? null,
+                specification:
+                  body?.specification && typeof body.specification === "object" && !Array.isArray(body.specification) ? body.specification : {},
+                pricing: {
+                  amountCents,
+                  currency,
+                  quoteId: typeof body?.pricing?.quoteId === "string" && body.pricing.quoteId.trim() !== "" ? body.pricing.quoteId.trim() : null
+                },
+                constraints: body?.constraints ?? null
+              },
+              trace:
+                typeof workOrder?.traceId === "string" && workOrder.traceId.trim() !== ""
+                  ? {
+                      traceId: workOrder.traceId.trim()
+                    }
+                  : null
+            },
+            { path: "$" }
+          );
+          const requestHash = sha256Hex(canonicalJsonStringify(federationInvokePayload));
+          enqueueOutgoingFederationInvoke({
+            envelope: {
+              invocationId: federationInvokePayload.invocationId,
+              originDid: federationInvokePayload.originDid,
+              targetDid: federationInvokePayload.targetDid,
+              capabilityId: federationInvokePayload.capabilityId
+            },
+            payload: federationInvokePayload,
+            requestHash,
+            route: dispatchRoute.route
+          });
+          if (federationWorkOrderForwardEnabled) {
+            const forwarded = await forwardOutgoingFederationInvoke({
+              payload: federationInvokePayload,
+              route: dispatchRoute.route,
+              requestId
+            });
+            if (!forwarded.ok) {
+              return sendError(
+                res,
+                forwarded.statusCode ?? 502,
+                forwarded.message ?? "federation invoke forward failed",
+                forwarded.details ?? null,
+                { code: forwarded.code ?? FEDERATION_ERROR_CODE.UPSTREAM_UNREACHABLE }
+              );
+            }
+          }
+        }
+
         const responseBody = { ok: true, workOrder };
+        try {
+          res.setHeader("x-sub-agent-dispatch-channel", dispatchRoute.channel);
+        } catch {
+          // ignore
+        }
         const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder }];
         if (idemStoreKey) {
           ops.push({
@@ -56253,6 +61105,19 @@ export function createApi({
             !Array.isArray(existingWorkOrder.acceptanceBinding)
               ? existingWorkOrder.acceptanceBinding
               : null;
+          if (workOrderRequireAcceptanceBindingValue && !workOrderAcceptanceBinding) {
+            return sendError(
+              res,
+              409,
+              "work order settlement blocked",
+              {
+                reasonCode: "WORK_ORDER_ACCEPTANCE_BINDING_REQUIRED",
+                message: "acceptance binding is required for work order settlement",
+                workOrderId
+              },
+              { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+            );
+          }
           if (workOrderAcceptanceBinding) {
             const boundAcceptanceId =
               typeof workOrderAcceptanceBinding.acceptanceId === "string" && workOrderAcceptanceBinding.acceptanceId.trim() !== ""
@@ -56881,10 +61746,46 @@ export function createApi({
               }
             }
           }
-	          const workOrderAuthorityGrantRef =
-	            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
-	              ? existingWorkOrder.authorityGrantRef.trim()
-	              : null;
+		          const workOrderDelegationGrantRef =
+		            typeof existingWorkOrder?.delegationGrantRef === "string" && existingWorkOrder.delegationGrantRef.trim() !== ""
+		              ? existingWorkOrder.delegationGrantRef.trim()
+		              : null;
+		          let gateDelegationGrantRef = null;
+		          const gateDelegationCandidates = [
+		            linkedX402Gate?.delegationGrantRef,
+		            linkedX402Gate?.authorization?.delegationGrantRef,
+		            linkedX402Gate?.agentPassport?.delegationGrantRef
+		          ];
+		          for (const candidate of gateDelegationCandidates) {
+		            if (typeof candidate !== "string" || candidate.trim() === "") continue;
+		            try {
+		              gateDelegationGrantRef = normalizeOptionalX402RefInput(candidate.trim(), "delegationGrantRef", {
+		                allowNull: false,
+		                max: 200
+		              });
+		              break;
+		            } catch (err) {
+		              return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+		            }
+		          }
+		          if (workOrderDelegationGrantRef && gateDelegationGrantRef && workOrderDelegationGrantRef !== gateDelegationGrantRef) {
+		            return sendError(
+		              res,
+		              409,
+		              "work order settlement conflict",
+		              {
+		                message: "delegationGrantRef mismatch between work order and x402 gate binding",
+		                workOrderDelegationGrantRef,
+		                gateDelegationGrantRef
+		              },
+		              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+		            );
+		          }
+		          const effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
+		          const workOrderAuthorityGrantRef =
+		            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
+		              ? existingWorkOrder.authorityGrantRef.trim()
+		              : null;
 	          let gateAuthorityGrantRef = null;
 	          const gateAuthorityCandidates = [
 	            linkedX402Gate?.authorization?.authorityGrantRef,
@@ -56941,10 +61842,10 @@ export function createApi({
 	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
 	            );
 	          }
-		          const effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
-		          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRef) {
-		            return sendError(
-		              res,
+			          let effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
+			          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRef) {
+			            return sendError(
+			              res,
 		              409,
 		              "work order settlement blocked",
 		              {
@@ -56952,26 +61853,65 @@ export function createApi({
 		                message: "authority grant is required for work order settlement",
 		                workOrderId
 		              },
-		              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
-		            );
-		          }
-		          if (effectiveAuthorityGrantRef) {
+			              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+			            );
+			          }
+          const grantValidationAt = nowIso();
+          let resolvedDelegationGrant = null;
+          if (effectiveDelegationGrantRef) {
+            if (typeof store.getDelegationGrant !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: effectiveDelegationGrantRef });
+            if (!delegationGrant) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "X402_DELEGATION_GRANT_NOT_FOUND",
+                  message: "delegation grant was not found",
+                  delegationGrantRef: effectiveDelegationGrantRef
+                },
+                { code: "X402_DELEGATION_GRANT_NOT_FOUND" }
+              );
+            }
             try {
-              await resolveX402AuthorityGrantForAuthorization({
-                tenantId,
-		                gate: linkedX402Gate ?? {
-		                  payerAgentId: existingWorkOrder?.principalAgentId ?? null,
+              validateDelegationGrantV1(delegationGrant);
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "X402_DELEGATION_GRANT_INVALID",
+                  message: err?.message ?? null
+                },
+                { code: "X402_DELEGATION_GRANT_INVALID" }
+              );
+            }
+            resolvedDelegationGrant = delegationGrant;
+          }
+          let resolvedAuthorityGrant = null;
+          if (effectiveAuthorityGrantRef) {
+	            try {
+	              const authorityResolution = await resolveX402AuthorityGrantForAuthorization({
+	                tenantId,
+			                gate: linkedX402Gate ?? {
+			                  payerAgentId: existingWorkOrder?.principalAgentId ?? null,
 		                  toolId: workOrderToolId
 		                },
-			                authorityGrantRef: effectiveAuthorityGrantRef,
-			                nowAt: nowIso(),
-			                amountCents: settlementAmountCents,
-			                currency: settlementCurrency,
-			                payeeProviderId: gateProviderId ?? workOrderProviderId ?? null
-			              });
-		            } catch (err) {
-	              return sendError(
-	                res,
+				                authorityGrantRef: effectiveAuthorityGrantRef,
+				                nowAt: grantValidationAt,
+				                amountCents: settlementAmountCents,
+				                currency: settlementCurrency,
+				                payeeProviderId: gateProviderId ?? workOrderProviderId ?? null
+				              });
+			              resolvedAuthorityGrant = authorityResolution?.authorityGrant ?? null;
+			              effectiveAuthorityGrantRef = authorityResolution?.authorityGrantRef ?? effectiveAuthorityGrantRef;
+			            } catch (err) {
+		              return sendError(
+		                res,
 	                409,
 	                "work order settlement blocked",
 	                {
@@ -56979,11 +61919,35 @@ export function createApi({
 	                  message: err?.message ?? null,
 	                  ...(err?.details && typeof err.details === "object" ? err.details : {})
 	                },
-	                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
-	              );
-	            }
-	          }
-	          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
+		                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+		              );
+		            }
+		          }
+          if (resolvedDelegationGrant && resolvedAuthorityGrant) {
+            try {
+              await assertDelegationGrantWithinAuthorityGrant({
+                tenantId,
+                nowAt: grantValidationAt,
+                delegationGrant: resolvedDelegationGrant,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                authorityGrant: resolvedAuthorityGrant,
+                authorityGrantRef: effectiveAuthorityGrantRef
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+                  message: err?.message ?? null,
+                  ...(err?.details && typeof err.details === "object" ? err.details : {})
+                },
+                { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
+              );
+            }
+          }
+		          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
           const promptRiskSessionRef =
             sessionRef ??
             (typeof linkedX402Gate?.sessionRef === "string" && linkedX402Gate.sessionRef.trim() !== ""
@@ -57149,17 +62113,28 @@ export function createApi({
       if (req.method === "GET" && path === "/agents") {
         const status = url.searchParams.get("status");
         const capabilityFilterRaw = url.searchParams.get("capability");
-        const capabilityFilter = capabilityFilterRaw && capabilityFilterRaw.trim() !== "" ? capabilityFilterRaw.trim() : null;
+        let capabilityFilter = null;
+        try {
+          capabilityFilter =
+            typeof capabilityFilterRaw === "string" && capabilityFilterRaw.trim() !== ""
+              ? normalizeCapabilityIdentifier(capabilityFilterRaw, { name: "capability" })
+              : null;
+        } catch (err) {
+          return sendError(res, 400, "invalid agent identity query", { message: err?.message });
+        }
         const minTrustScoreRaw = url.searchParams.get("minTrustScore");
         const includeReputationRaw = url.searchParams.get("includeReputation");
         const includeReputation = includeReputationRaw !== null && ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
         const reputationVersionRaw = url.searchParams.get("reputationVersion");
         const reputationWindowRaw = url.searchParams.get("reputationWindow");
+        const asOfRaw = url.searchParams.get("asOf");
         let reputationVersion = "v1";
         let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+        let asOf = nowIso();
         try {
           reputationVersion = parseReputationVersion(reputationVersionRaw);
           reputationWindow = parseReputationWindow(reputationWindowRaw);
+          asOf = parseAsOfDateTime(asOfRaw, { defaultValue: asOf, fieldName: "asOf" });
         } catch (err) {
           return sendError(res, 400, "invalid reputation query", { message: err?.message });
         }
@@ -57214,7 +62189,7 @@ export function createApi({
           const reputation = await computeAgentReputationSnapshotVersioned({
             tenantId,
             agentId,
-            at: nowIso(),
+            at: asOf,
             reputationVersion,
             reputationWindow
           });
@@ -57283,9 +62258,18 @@ export function createApi({
         }
 
         const capabilitiesRaw = Array.isArray(body?.capabilities) ? body.capabilities : [];
-        const capabilities = [...new Set(capabilitiesRaw.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
-          left.localeCompare(right)
-        );
+        const capabilitySet = new Set();
+        try {
+          for (let index = 0; index < capabilitiesRaw.length; index += 1) {
+            const raw = capabilitiesRaw[index];
+            const candidate = String(raw ?? "").trim();
+            if (!candidate) continue;
+            capabilitySet.add(normalizeCapabilityIdentifier(candidate, { name: `capabilities[${index}]` }));
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid agent identity", { message: err?.message });
+        }
+        const capabilities = Array.from(capabilitySet.values()).sort((left, right) => left.localeCompare(right));
 
         const nowAt = nowIso();
         const candidate = {
@@ -57836,7 +62820,41 @@ export function createApi({
             } catch (err) {
               const signerDetails =
                 err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+              const invalidSignerAgentId =
+                typeof disputeOpenEnvelopeRaw?.openedByAgentId === "string" && disputeOpenEnvelopeRaw.openedByAgentId.trim() !== ""
+                  ? disputeOpenEnvelopeRaw.openedByAgentId.trim()
+                  : typeof body?.openedByAgentId === "string" && body.openedByAgentId.trim() !== ""
+                    ? body.openedByAgentId.trim()
+                    : null;
+              const invalidSignerRole =
+                invalidSignerAgentId === String(hold?.payerAgentId ?? "")
+                  ? "payer"
+                  : invalidSignerAgentId === String(hold?.payeeAgentId ?? "")
+                    ? "payee"
+                    : "system";
               if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+                await emitInvalidSignaturePenaltyBestEffort({
+                  tenantId,
+                  agentId: invalidSignerAgentId,
+                  counterpartyAgentId:
+                    invalidSignerAgentId === String(hold?.payerAgentId ?? "") ? String(hold?.payeeAgentId ?? "") : String(hold?.payerAgentId ?? ""),
+                  toolId: "tool_call",
+                  role: invalidSignerRole,
+                  sourceRef: {
+                    kind: "dispute_open_envelope",
+                    sourceId: defaultCaseId,
+                    agreementHash,
+                    receiptHash,
+                    holdHash,
+                    runId,
+                    settlementId,
+                    disputeId,
+                    caseId
+                  },
+                  reasonMessage: err?.message ?? null,
+                  occurredAt: nowAt,
+                  context: "tool_call_dispute.open.invalid_signature"
+                });
                 return sendError(res, 409, "invalid disputeOpenEnvelope", signerDetails ?? { message: err?.message }, {
                   code: "DISPUTE_INVALID_SIGNER"
                 });
@@ -57845,6 +62863,30 @@ export function createApi({
               const signerIssue =
                 /signature|signerkeyid|openedbyagentid|unknown signerkeyid|invalid disputeopenenvelope/i.test(message) ||
                 /does not match openedbyagentid key/i.test(message);
+              if (signerIssue) {
+                await emitInvalidSignaturePenaltyBestEffort({
+                  tenantId,
+                  agentId: invalidSignerAgentId,
+                  counterpartyAgentId:
+                    invalidSignerAgentId === String(hold?.payerAgentId ?? "") ? String(hold?.payeeAgentId ?? "") : String(hold?.payerAgentId ?? ""),
+                  toolId: "tool_call",
+                  role: invalidSignerRole,
+                  sourceRef: {
+                    kind: "dispute_open_envelope",
+                    sourceId: defaultCaseId,
+                    agreementHash,
+                    receiptHash,
+                    holdHash,
+                    runId,
+                    settlementId,
+                    disputeId,
+                    caseId
+                  },
+                  reasonMessage: message,
+                  occurredAt: nowAt,
+                  context: "tool_call_dispute.open.invalid_signature"
+                });
+              }
               return sendError(
                 res,
                 signerIssue ? 409 : 400,
@@ -58162,6 +63204,36 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : typeof arbitrationCase?.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
+                  ? arbitrationCase.arbiterAgentId.trim()
+                  : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(hold?.payerAgentId ?? ""),
+                toolId: "tool_call",
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: caseId,
+                  agreementHash,
+                  receiptHash,
+                  holdHash,
+                  runId: arbitrationCase?.runId ?? runId,
+                  settlementId: arbitrationCase?.settlementId ?? settlementId,
+                  disputeId: arbitrationCase?.disputeId ?? disputeId,
+                  caseId
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "tool_call_dispute.verdict.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -58414,6 +63486,36 @@ export function createApi({
             },
             { context: "tool_call_dispute.verdict_issued" }
           );
+          if (verdictOutcome === "payer_win") {
+            await emitDisputeLostPenaltyBestEffort({
+              tenantId,
+              agentId: String(hold.payeeAgentId),
+              counterpartyAgentId: String(hold.payerAgentId),
+              toolId: "tool_call",
+              role: "payee",
+              sourceRef: {
+                kind: "arbitration_verdict",
+                sourceId: caseId,
+                verdictHash: signedArbitrationVerdict.verdictHash ?? null,
+                agreementHash,
+                receiptHash,
+                holdHash,
+                runId: arbitrationCase.runId,
+                settlementId: arbitrationCase.settlementId,
+                disputeId: arbitrationCase.disputeId,
+                caseId
+              },
+              reasonMessage: "arbitration verdict rejected in favor of payer",
+              amountPenalizedCents: heldAmountCents,
+              occurredAt: String(signedArbitrationVerdict.issuedAt ?? nowAt),
+              extraFacts: {
+                verdictOutcome,
+                releaseRatePct,
+                amountCents: heldAmountCents
+              },
+              context: "tool_call_dispute.verdict.penalty_dispute_lost"
+            });
+          }
           await emitReputationEventBestEffort(
             {
               tenantId,
@@ -59596,6 +64698,132 @@ export function createApi({
             decisionRecordReplayCriticalMatchesStored: replayCriticalMatchesStored,
             verifierRefMatchesStored,
             kernelBindingsValid: kernelVerification.valid === true
+          }
+        });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "explainability" && parts.length === 4 && req.method === "GET") {
+        const runId = parts[1];
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        const events = await getAgentRunEvents(tenantId, runId);
+        const verification = computeAgentRunVerification({ run, events });
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        const agreement =
+          linkedTask?.agreement && typeof linkedTask.agreement === "object" && !Array.isArray(linkedTask.agreement) ? linkedTask.agreement : null;
+
+        let replayVerificationStatus = run?.status === "failed" ? "red" : verification?.verificationStatus ?? "amber";
+        let replayDecision =
+          settlement?.decisionTrace?.policyDecision &&
+          typeof settlement.decisionTrace.policyDecision === "object" &&
+          !Array.isArray(settlement.decisionTrace.policyDecision)
+            ? settlement.decisionTrace.policyDecision
+            : null;
+        let agreementPolicyMaterial = null;
+        let replayVerifierExecution = null;
+        if (agreement) {
+          agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
+          replayVerifierExecution = evaluateRunSettlementVerifierExecution({
+            verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+            run,
+            verification
+          });
+          replayVerificationStatus = replayVerifierExecution.verificationStatus;
+          try {
+            replayDecision = evaluateSettlementPolicy({
+              policy: agreementPolicyMaterial.policy ?? null,
+              verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+              verificationStatus: replayVerificationStatus,
+              runStatus: run.status === "failed" ? "failed" : "completed",
+              amountCents: settlement.amountCents
+            });
+          } catch (err) {
+            return sendError(res, 409, "run settlement explainability replay failed", { message: err?.message }, { code: "POLICY_REPLAY_FAILED" });
+          }
+          replayDecision = applyAgreementMilestoneRelease({
+            policyDecision: replayDecision,
+            agreement,
+            run,
+            verification,
+            amountCents: settlement.amountCents
+          }).decision;
+        }
+
+        const kernelVerification = verifySettlementKernelArtifacts({ settlement, runId });
+        const lineageDiagnostics = buildRunSettlementExplainabilityLineageDiagnostics({
+          runId,
+          runEvents: events,
+          settlement,
+          kernelVerification
+        });
+        if (lineageDiagnostics.length > 0) {
+          return sendError(
+            res,
+            409,
+            "run settlement explainability blocked",
+            normalizeForCanonicalJson(
+              {
+                runId,
+                settlementId: settlement?.settlementId ?? null,
+                diagnostics: lineageDiagnostics,
+                kernelVerification
+              },
+              { path: "$.details" }
+            ),
+            { code: "RUN_SETTLEMENT_EXPLAINABILITY_LINEAGE_INVALID" }
+          );
+        }
+
+        const traceIds = collectRunSettlementExplainabilityTraceIds({
+          run,
+          settlement,
+          events,
+          agreement,
+          linkedTask
+        });
+        let sessionEvents = [];
+        try {
+          sessionEvents = await listRunSettlementExplainabilitySessionEvents({ tenantId, traceIds });
+        } catch {
+          sessionEvents = [];
+        }
+        const explainability = buildRunSettlementExplainabilityV1({
+          tenantId,
+          runId,
+          run,
+          settlement,
+          runEvents: events,
+          sessionEvents,
+          policyVerdict: replayDecision,
+          verificationStatus: replayVerificationStatus,
+          traceIds,
+          lineageDiagnostics: []
+        });
+        return sendJson(res, 200, {
+          runId,
+          explainability,
+          replay: {
+            policyVersion: agreementPolicyMaterial?.policyVersion ?? null,
+            policyHash: agreementPolicyMaterial?.policyHash ?? null,
+            verificationMethodHash: agreementPolicyMaterial?.verificationMethodHash ?? null,
+            policyRef: agreementPolicyMaterial?.policyRef ?? null,
+            verifierRef: replayVerifierExecution?.verifierRef ?? null,
+            verificationStatus: replayVerificationStatus,
+            decision: replayDecision
           }
         });
       }
@@ -61057,6 +66285,33 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : typeof arbitrationCase?.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
+                  ? arbitrationCase.arbiterAgentId.trim()
+                  : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: caseId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: arbitrationCase?.disputeId ?? settlement?.disputeId ?? null,
+                  caseId
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_arbitration.verdict.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -61349,6 +66604,32 @@ export function createApi({
               replayVerificationArtifact = null;
             }
           }
+          const disputeResolutionOutcome = String(nextSettlement?.disputeResolution?.outcome ?? "").toLowerCase();
+          if (disputeResolutionOutcome === "rejected") {
+            await emitDisputeLostPenaltyBestEffort({
+              tenantId,
+              agentId: String(nextSettlement?.agentId ?? settlement?.agentId ?? ""),
+              counterpartyAgentId: String(nextSettlement?.payerAgentId ?? settlement?.payerAgentId ?? ""),
+              toolId: null,
+              role: "payee",
+              sourceRef: {
+                kind: "arbitration_case",
+                sourceId: caseId,
+                runId,
+                settlementId: nextSettlement?.settlementId ?? settlement?.settlementId ?? null,
+                disputeId: nextSettlement?.disputeId ?? settlement?.disputeId ?? disputeId ?? null,
+                caseId
+              },
+              reasonMessage: "arbitration close resolved as rejected",
+              amountPenalizedCents: Number(nextSettlement?.refundedAmountCents ?? settlement?.amountCents ?? 0),
+              occurredAt: nowAt,
+              extraFacts: {
+                outcome: disputeResolutionOutcome,
+                releaseRatePct: Number(nextSettlement?.disputeResolution?.releaseRatePct ?? 0)
+              },
+              context: "run_arbitration.close.penalty_dispute_lost"
+            });
+          }
           return sendJson(res, 200, {
             ...responseBody,
             arbitrationCaseArtifact,
@@ -61601,6 +66882,234 @@ export function createApi({
         }
 
         const nowAt = nowIso();
+        const FEDERATION_DISPUTE_REASON_CODE = Object.freeze({
+          JURISDICTION_REQUIRED: "FEDERATION_DISPUTE_JURISDICTION_REQUIRED",
+          POLICY_MISMATCH: "FEDERATION_DISPUTE_JURISDICTION_POLICY_MISMATCH",
+          AUTHORIZATION_REQUIRED: "FEDERATION_DISPUTE_AUTHORIZATION_REQUIRED",
+          EVIDENCE_REQUIRED: "FEDERATION_DISPUTE_EVIDENCE_REQUIRED"
+        });
+        const normalizeFederatedDisputeString = (value, { name, allowNull = true, max = 256 } = {}) => {
+          if (value === null || value === undefined) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          const text = String(value).trim();
+          if (!text) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          if (text.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+          return text;
+        };
+        const normalizeFederatedDisputeStringArray = (value, { name } = {}) => {
+          if (value === null || value === undefined) return [];
+          if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
+          const out = [];
+          const seen = new Set();
+          for (let index = 0; index < value.length; index += 1) {
+            const item = normalizeFederatedDisputeString(value[index], {
+              name: `${name}[${index}]`,
+              allowNull: false,
+              max: 512
+            });
+            if (seen.has(item)) continue;
+            seen.add(item);
+            out.push(item);
+          }
+          out.sort((left, right) => left.localeCompare(right));
+          return out;
+        };
+        const normalizeFederatedDisputeJurisdictionInput = (value, { name = "federationJurisdiction", allowNull = true } = {}) => {
+          if (value === null || value === undefined) {
+            if (allowNull) return null;
+            throw new TypeError(`${name} is required`);
+          }
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new TypeError(`${name} must be an object`);
+          }
+          const policyPath = String(value.policyPath ?? FEDERATION_DISPUTE_POLICY_PATH.LOCAL_PRIMARY)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_POLICY_PATH).includes(policyPath)) {
+            throw new TypeError(
+              `${name}.policyPath must be ${Object.values(FEDERATION_DISPUTE_POLICY_PATH).join("|")}`
+            );
+          }
+          const primaryPlane = String(value.primaryPlane ?? FEDERATION_DISPUTE_PRIMARY_PLANE.LOCAL)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_PRIMARY_PLANE).includes(primaryPlane)) {
+            throw new TypeError(
+              `${name}.primaryPlane must be ${Object.values(FEDERATION_DISPUTE_PRIMARY_PLANE).join("|")}`
+            );
+          }
+          const counterpartStatus = String(value.counterpartStatus ?? FEDERATION_DISPUTE_COUNTERPART_STATUS.REACHABLE)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_COUNTERPART_STATUS).includes(counterpartStatus)) {
+            throw new TypeError(
+              `${name}.counterpartStatus must be ${Object.values(FEDERATION_DISPUTE_COUNTERPART_STATUS).join("|")}`
+            );
+          }
+          const tieBreaker = String(value.tieBreaker ?? FEDERATION_DISPUTE_TIE_BREAK.NONE)
+            .trim()
+            .toLowerCase();
+          if (!Object.values(FEDERATION_DISPUTE_TIE_BREAK).includes(tieBreaker)) {
+            throw new TypeError(
+              `${name}.tieBreaker must be ${Object.values(FEDERATION_DISPUTE_TIE_BREAK).join("|")}`
+            );
+          }
+          const continuityHashRaw = normalizeFederatedDisputeString(value.continuityHash, {
+            name: `${name}.continuityHash`,
+            allowNull: true,
+            max: 64
+          });
+          const continuityHash = continuityHashRaw ? continuityHashRaw.toLowerCase() : null;
+          if (continuityHash && !/^[0-9a-f]{64}$/.test(continuityHash)) {
+            throw new TypeError(`${name}.continuityHash must be a 64-character lowercase hex sha256`);
+          }
+          const asOf = normalizeFederatedDisputeString(value.asOf, {
+            name: `${name}.asOf`,
+            allowNull: true,
+            max: 64
+          });
+          if (asOf && !Number.isFinite(Date.parse(asOf))) {
+            throw new TypeError(`${name}.asOf must be an ISO date-time`);
+          }
+          return normalizeForCanonicalJson(
+            {
+              schemaVersion: FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION,
+              policyPath,
+              primaryPlane,
+              counterpartStatus,
+              tieBreaker,
+              disputeCoordinationId: normalizeFederatedDisputeString(value.disputeCoordinationId, {
+                name: `${name}.disputeCoordinationId`,
+                allowNull: true
+              }),
+              authorizationRef: normalizeFederatedDisputeString(value.authorizationRef, {
+                name: `${name}.authorizationRef`,
+                allowNull: true,
+                max: 512
+              }),
+              reasonCode: normalizeFederatedDisputeString(value.reasonCode, {
+                name: `${name}.reasonCode`,
+                allowNull: true,
+                max: 120
+              }),
+              continuityHash,
+              asOf,
+              evidenceRefs: normalizeFederatedDisputeStringArray(value.evidenceRefs, {
+                name: `${name}.evidenceRefs`
+              }),
+              invocationRefs: normalizeFederatedDisputeStringArray(value.invocationRefs, {
+                name: `${name}.invocationRefs`
+              })
+            },
+            { path: "$" }
+          );
+        };
+        const evaluateFederatedDisputeJurisdiction = ({ action: disputeAction, jurisdiction }) => {
+          if (!jurisdiction || typeof jurisdiction !== "object" || Array.isArray(jurisdiction)) return { ok: true };
+          if (disputeAction !== "close") return { ok: true };
+          const policyPath = String(jurisdiction.policyPath ?? "").trim().toLowerCase();
+          const counterpartStatus = String(jurisdiction.counterpartStatus ?? "").trim().toLowerCase();
+          const tieBreaker = String(jurisdiction.tieBreaker ?? "").trim().toLowerCase();
+          const authorizationRef = normalizeFederatedDisputeString(jurisdiction.authorizationRef, {
+            name: "federationJurisdiction.authorizationRef",
+            allowNull: true,
+            max: 512
+          });
+          const evidenceRefs = Array.isArray(jurisdiction.evidenceRefs) ? jurisdiction.evidenceRefs : [];
+          if (
+            (counterpartStatus === FEDERATION_DISPUTE_COUNTERPART_STATUS.DISAGREED ||
+              counterpartStatus === FEDERATION_DISPUTE_COUNTERPART_STATUS.UNAVAILABLE) &&
+            policyPath !== FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK
+          ) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.POLICY_MISMATCH,
+              message: "federated dispute close requires tie_break policy path when counterpart is disagreed or unavailable",
+              details: { policyPath, counterpartStatus }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && tieBreaker === FEDERATION_DISPUTE_TIE_BREAK.NONE) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.POLICY_MISMATCH,
+              message: "tie_break policy path requires a tieBreaker",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && !authorizationRef) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.AUTHORIZATION_REQUIRED,
+              message: "tie_break jurisdiction requires authorizationRef",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          if (policyPath === FEDERATION_DISPUTE_POLICY_PATH.TIE_BREAK && evidenceRefs.length === 0) {
+            return {
+              ok: false,
+              code: FEDERATION_DISPUTE_REASON_CODE.EVIDENCE_REQUIRED,
+              message: "tie_break jurisdiction requires evidenceRefs",
+              details: { policyPath, tieBreaker }
+            };
+          }
+          return { ok: true };
+        };
+        const buildFederatedDisputeContinuityHash = ({ action: disputeAction, disputeId, jurisdiction }) =>
+          sha256Hex(
+            canonicalJsonStringify(
+              normalizeForCanonicalJson(
+                {
+                  schemaVersion: "FederationDisputeAuditContinuityHashPayload.v1",
+                  tenantId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: disputeId ?? null,
+                  action: disputeAction,
+                  jurisdiction: {
+                    policyPath: jurisdiction?.policyPath ?? null,
+                    primaryPlane: jurisdiction?.primaryPlane ?? null,
+                    counterpartStatus: jurisdiction?.counterpartStatus ?? null,
+                    tieBreaker: jurisdiction?.tieBreaker ?? null,
+                    disputeCoordinationId: jurisdiction?.disputeCoordinationId ?? null,
+                    authorizationRef: jurisdiction?.authorizationRef ?? null,
+                    evidenceRefs: Array.isArray(jurisdiction?.evidenceRefs) ? jurisdiction.evidenceRefs : [],
+                    invocationRefs: Array.isArray(jurisdiction?.invocationRefs) ? jurisdiction.invocationRefs : []
+                  }
+                },
+                { path: "$" }
+              )
+            )
+          );
+        const rawFederatedDisputeJurisdiction =
+          body?.federationJurisdiction !== undefined
+            ? body.federationJurisdiction
+            : settlement?.disputeContext?.federationJurisdiction ?? null;
+        let federatedDisputeJurisdiction = null;
+        try {
+          federatedDisputeJurisdiction = normalizeFederatedDisputeJurisdictionInput(rawFederatedDisputeJurisdiction, {
+            allowNull: true
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid federation dispute jurisdiction", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        const federationJurisdictionCheck = evaluateFederatedDisputeJurisdiction({
+          action,
+          jurisdiction: federatedDisputeJurisdiction
+        });
+        if (!federationJurisdictionCheck.ok) {
+          return sendError(
+            res,
+            409,
+            federationJurisdictionCheck.message,
+            federationJurisdictionCheck.details ?? null,
+            { code: federationJurisdictionCheck.code }
+          );
+        }
         if (action === "open") {
           const endsAt = settlementDisputeWindowEndsAtMs(settlement);
           const nowMs = Date.parse(nowAt);
@@ -61623,6 +67132,30 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.verdict?.arbiterAgentId === "string" && body.verdict.arbiterAgentId.trim() !== ""
+                ? body.verdict.arbiterAgentId.trim()
+                : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "dispute_verdict",
+                  sourceId: body?.disputeId ?? settlement?.disputeId ?? runId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: body?.disputeId ?? settlement?.disputeId ?? null
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_dispute.close.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid dispute verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -61647,6 +67180,30 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: body?.disputeId ?? settlement?.disputeId ?? runId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: body?.disputeId ?? settlement?.disputeId ?? null
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_dispute.close.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -61683,7 +67240,8 @@ export function createApi({
                 reason: body?.reason ?? null,
                 evidenceRefs: body?.evidenceRefs,
                 channel: body?.disputeChannel ?? body?.channel,
-                escalationLevel: body?.escalationLevel
+                escalationLevel: body?.escalationLevel,
+                federationJurisdiction: null
               }
             : null;
         let resolutionInput = null;
@@ -61699,7 +67257,32 @@ export function createApi({
           if (body?.resolutionEscalationLevel !== undefined) mergedResolution.escalationLevel = body.resolutionEscalationLevel;
           if (body?.resolutionReleaseRatePct !== undefined) mergedResolution.releaseRatePct = body.resolutionReleaseRatePct;
           if (body?.resolutionEvidenceRefs !== undefined) mergedResolution.evidenceRefs = body.resolutionEvidenceRefs;
+          mergedResolution.federationJurisdiction = null;
           resolutionInput = mergedResolution;
+        }
+        let federatedDisputeJurisdictionWithContinuity = null;
+        if (federatedDisputeJurisdiction) {
+          const disputeIdForContinuity = body?.disputeId ?? settlement?.disputeId ?? `dsp_${runId}`;
+          const continuityHash = buildFederatedDisputeContinuityHash({
+            action,
+            disputeId: disputeIdForContinuity,
+            jurisdiction: federatedDisputeJurisdiction
+          });
+          federatedDisputeJurisdictionWithContinuity = normalizeForCanonicalJson(
+            {
+              ...federatedDisputeJurisdiction,
+              continuityHash,
+              asOf: nowAt
+            },
+            { path: "$" }
+          );
+          if (action === "open" && disputeContextInput && typeof disputeContextInput === "object" && !Array.isArray(disputeContextInput)) {
+            disputeContextInput.federationJurisdiction = federatedDisputeJurisdictionWithContinuity;
+          }
+          if (action === "close") {
+            if (!resolutionInput || typeof resolutionInput !== "object" || Array.isArray(resolutionInput)) resolutionInput = {};
+            resolutionInput.federationJurisdiction = federatedDisputeJurisdictionWithContinuity;
+          }
         }
         if (action === "close" && (signedVerdict || signedArbitrationVerdict)) {
           const nowMs = Date.parse(nowAt);
@@ -61849,7 +67432,10 @@ export function createApi({
               evidenceRefs: mergeUniqueStringArrays(
                 Array.isArray(resolutionInput?.evidenceRefs) ? resolutionInput.evidenceRefs : [],
                 Array.isArray(signedVerdict?.evidenceRefs) ? signedVerdict.evidenceRefs : [],
-                Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
+                Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : [],
+                Array.isArray(federatedDisputeJurisdictionWithContinuity?.evidenceRefs)
+                  ? federatedDisputeJurisdictionWithContinuity.evidenceRefs
+                  : []
               )
             });
             if (!disputeCloseBinding.ok) {
@@ -62034,15 +67620,18 @@ export function createApi({
           });
           if (escalateBindingBlocked) return;
           try {
-            settlement = patchAgentRunSettlementDisputeContext({
-              settlement,
-              contextPatch: {
-                escalationLevel: requestedEscalationLevel,
-                channel: channelInput,
-                reason
-              },
-              at: nowAt
-            });
+              settlement = patchAgentRunSettlementDisputeContext({
+                settlement,
+                contextPatch: {
+                  escalationLevel: requestedEscalationLevel,
+                  channel: channelInput,
+                  reason,
+                  ...(federatedDisputeJurisdictionWithContinuity
+                    ? { federationJurisdiction: federatedDisputeJurisdictionWithContinuity }
+                    : {})
+                },
+                at: nowAt
+              });
           } catch (err) {
             return sendError(res, 409, "dispute escalation rejected", { message: err?.message }, { code: "TRANSITION_ILLEGAL" });
           }
@@ -62253,18 +67842,21 @@ export function createApi({
         if (parts[2] === "reputation" && req.method === "GET" && parts.length === 3) {
           const reputationVersionRaw = url.searchParams.get("reputationVersion");
           const reputationWindowRaw = url.searchParams.get("reputationWindow");
+          const asOfRaw = url.searchParams.get("asOf");
           let reputationVersion = "v1";
           let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          let asOf = nowIso();
           try {
             reputationVersion = parseReputationVersion(reputationVersionRaw);
             reputationWindow = parseReputationWindow(reputationWindowRaw);
+            asOf = parseAsOfDateTime(asOfRaw, { defaultValue: asOf, fieldName: "asOf" });
           } catch (err) {
             return sendError(res, 400, "invalid reputation query", { message: err?.message });
           }
           const reputation = await computeAgentReputationSnapshotVersioned({
             tenantId,
             agentId,
-            at: nowIso(),
+            at: asOf,
             reputationVersion,
             reputationWindow
           });
@@ -63920,8 +69512,21 @@ export function createApi({
           return sendError(res, 400, "invalid artifact id", { message: err?.message });
         }
         if (!artifact) return sendError(res, 404, "artifact not found");
-
-        return sendJson(res, 200, { artifact });
+        const artifactPolicy = await enforceArtifactReadPolicy({
+          tenantId,
+          artifact,
+          scopes: auth.scopes
+        });
+        if (!artifactPolicy?.ok) {
+          return sendError(
+            res,
+            artifactPolicy?.statusCode ?? 403,
+            artifactPolicy?.message ?? "artifact access denied",
+            artifactPolicy?.details ?? null,
+            { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+          );
+        }
+        return sendJson(res, 200, { artifact: artifactPolicy.artifact });
       }
 
       if (parts[0] === "jobs" && parts[1]) {
@@ -63985,6 +69590,7 @@ export function createApi({
 	          if (!artifactType || String(artifactType).trim() === "") return sendError(res, 400, "type is required");
 
 	          const settledEventId = job?.settlement?.settledEventId ?? null;
+	          const artifactPolicyContextCache = new Map();
 	          if (typeof settledEventId === "string" && settledEventId.trim() !== "") {
 	            const artifacts = await store.listArtifacts({
 	              tenantId,
@@ -63998,8 +69604,23 @@ export function createApi({
 	            if (artifacts.length > 1) {
 	              return sendError(res, 500, "multiple settlement-backed artifacts found", { settledEventId, count: artifacts.length });
 	            }
-	            return sendJson(res, 200, {
+	            const artifactPolicy = await enforceArtifactReadPolicy({
+	              tenantId,
 	              artifact: artifacts[0],
+	              scopes: auth.scopes,
+	              contextCache: artifactPolicyContextCache
+	            });
+	            if (!artifactPolicy?.ok) {
+	              return sendError(
+	                res,
+	                artifactPolicy?.statusCode ?? 403,
+	                artifactPolicy?.message ?? "artifact access denied",
+	                artifactPolicy?.details ?? null,
+	                { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+	              );
+	            }
+	            return sendJson(res, 200, {
+	              artifact: artifactPolicy.artifact,
 	              selection: { kind: "SETTLED_EVENT", sourceEventId: settledEventId }
 	            });
 	          }
@@ -64082,8 +69703,23 @@ export function createApi({
 	          if (artifacts.length > 1) {
 	            return sendError(res, 500, "multiple artifacts found for effective source event", { sourceEventId: proofEvent.id, count: artifacts.length });
 	          }
-	          return sendJson(res, 200, {
+	          const artifactPolicy = await enforceArtifactReadPolicy({
+	            tenantId,
 	            artifact: artifacts[0],
+	            scopes: auth.scopes,
+	            contextCache: artifactPolicyContextCache
+	          });
+	          if (!artifactPolicy?.ok) {
+	            return sendError(
+	              res,
+	              artifactPolicy?.statusCode ?? 403,
+	              artifactPolicy?.message ?? "artifact access denied",
+	              artifactPolicy?.details ?? null,
+	              { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+	            );
+	          }
+	          return sendJson(res, 200, {
+	            artifact: artifactPolicy.artifact,
 	            selection: {
 	              kind: "PROOF_EVENT",
 	              sourceEventId: proofEvent.id,
@@ -64178,13 +69814,34 @@ export function createApi({
 	              return sendError(res, 400, "invalid artifacts query", { message: err?.message });
 	            }
 
-	            const hasMore = rows.length > pageSize;
-	            const page = rows.slice(0, pageSize);
-	            const artifacts = page.map((r) => r?.artifact ?? null).filter(Boolean);
-	            const last = page.length ? page[page.length - 1] : null;
-	            const nextCursor = hasMore && last?.db?.createdAt && last?.db?.artifactId ? encodeCursor(last.db) : null;
-	            return sendJson(res, 200, { artifacts, nextCursor, hasMore, limit: pageSize });
-	          }
+		            const hasMore = rows.length > pageSize;
+		            const page = rows.slice(0, pageSize);
+		            const artifactsRaw = page.map((r) => r?.artifact ?? null).filter(Boolean);
+		            const artifactPolicyContextCache = new Map();
+		            const artifacts = [];
+		            for (const artifact of artifactsRaw) {
+		              // eslint-disable-next-line no-await-in-loop
+		              const artifactPolicy = await enforceArtifactReadPolicy({
+		                tenantId,
+		                artifact,
+		                scopes: auth.scopes,
+		                contextCache: artifactPolicyContextCache
+		              });
+		              if (!artifactPolicy?.ok) {
+		                return sendError(
+		                  res,
+		                  artifactPolicy?.statusCode ?? 403,
+		                  artifactPolicy?.message ?? "artifact access denied",
+		                  artifactPolicy?.details ?? null,
+		                  { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+		                );
+		              }
+		              artifacts.push(artifactPolicy.artifact);
+		            }
+		            const last = page.length ? page[page.length - 1] : null;
+		            const nextCursor = hasMore && last?.db?.createdAt && last?.db?.artifactId ? encodeCursor(last.db) : null;
+		            return sendJson(res, 200, { artifacts, nextCursor, hasMore, limit: pageSize });
+		          }
 
 	          let artifacts;
 	          try {
@@ -64196,11 +69853,32 @@ export function createApi({
 	              limit,
 	              offset
 	            });
-	          } catch (err) {
-	            return sendError(res, 400, "invalid artifacts query", { message: err?.message });
-	          }
-	          return sendJson(res, 200, { artifacts });
-	        }
+		          } catch (err) {
+		            return sendError(res, 400, "invalid artifacts query", { message: err?.message });
+		          }
+		          const artifactPolicyContextCache = new Map();
+		          const visibleArtifacts = [];
+		          for (const artifact of artifacts) {
+		            // eslint-disable-next-line no-await-in-loop
+		            const artifactPolicy = await enforceArtifactReadPolicy({
+		              tenantId,
+		              artifact,
+		              scopes: auth.scopes,
+		              contextCache: artifactPolicyContextCache
+		            });
+		            if (!artifactPolicy?.ok) {
+		              return sendError(
+		                res,
+		                artifactPolicy?.statusCode ?? 403,
+		                artifactPolicy?.message ?? "artifact access denied",
+		                artifactPolicy?.details ?? null,
+		                { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+		              );
+		            }
+		            visibleArtifacts.push(artifactPolicy.artifact);
+		          }
+		          return sendJson(res, 200, { artifacts: visibleArtifacts });
+		        }
 
         const getWindowZoneId = (windowZoneId) => normalizeZoneId(windowZoneId ?? job.booking?.zoneId ?? job.constraints?.zoneId);
 
