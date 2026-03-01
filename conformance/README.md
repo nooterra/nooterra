@@ -16,6 +16,7 @@ They are intended for:
 - `conformance/intent-negotiation-v1/` — intent negotiation handshake interoperability pack (propose/counter/accept transcript, hash-required fail-closed checks, tamper detection for event and bound intent contract hashes).
 - `conformance/federation-v1/` — federation namespace routing, trust boundary, and replay/conflict fail-closed vectors.
 - `conformance/typed-discovery-v1/` — typed discovery fail-closed vectors (tool descriptor schema invalid, capability namespace adversarial input, attestation exclusion reason codes, deterministic typed ordering).
+- `conformance/signer-lifecycle-v1/` — key lifecycle conformance vectors for deterministic `validAt`/`validNow` signer continuity decisions (including `KEY_CHAIN_GAP` and historical-valid/current-invalid behavior).
 
 Publication tooling:
 
