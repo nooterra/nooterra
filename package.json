@@ -93,6 +93,7 @@
     "conformance:session:v1": "node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "conformance:session:v1:publish": "node scripts/conformance/publish-session-conformance-cert.mjs --runtime-id nooterra-reference-node --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "conformance:session-stream:v1": "node conformance/session-stream-v1/run.mjs --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs",
+    "conformance:intent-negotiation:v1": "node conformance/intent-negotiation-v1/run.mjs --adapter-node-bin conformance/intent-negotiation-v1/reference/nooterra-intent-negotiation-runtime-adapter.mjs",
     "conformance:session-stream:v1:publish": "node scripts/conformance/publish-session-stream-conformance-cert.mjs --runtime-id nooterra-reference-node --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs",
     "provider:publish": "node scripts/provider/publish.mjs",
     "provider:keys:generate": "node scripts/provider/keys-generate.mjs",

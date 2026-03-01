@@ -1,0 +1,401 @@
+{
+  "schemaVersion": "IntentNegotiationConformanceCases.v1",
+  "adapterProtocolVersion": "IntentNegotiationConformanceRequest.v1",
+  "fixtures": {
+    "negotiation_transcript_ok": {
+      "intentContract": {
+        "schemaVersion": "IntentContract.v1",
+        "intentId": "intent_conf_0001",
+        "negotiationId": "nego_conf_0001",
+        "tenantId": "tenant_conformance",
+        "proposerAgentId": "agt_buyer_1",
+        "responderAgentId": "agt_seller_1",
+        "intent": {
+          "taskType": "tool_call",
+          "capabilityId": "travel.booking",
+          "riskClass": "action",
+          "expectedDeterminism": "bounded_nondeterministic",
+          "sideEffecting": true,
+          "maxLossCents": 5000,
+          "spendLimit": {
+            "currency": "USD",
+            "maxAmountCents": 4200
+          },
+          "parametersHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "constraints": {
+            "region": "us",
+            "class": "economy"
+          }
+        },
+        "idempotencyKey": "idem_conf_0001",
+        "nonce": "nonce_conf_0001",
+        "expiresAt": "2026-03-01T01:00:00.000Z",
+        "metadata": {
+          "channel": "conformance"
+        },
+        "createdAt": "2026-03-01T00:00:00.000Z",
+        "updatedAt": "2026-03-01T00:00:00.000Z",
+        "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c"
+      },
+      "events": [
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0001",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "propose",
+          "reasonCode": "INTENT_NEGOTIATION_PROPOSED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:01.000Z",
+          "prevEventHash": null,
+          "metadata": {
+            "step": "propose"
+          },
+          "eventHash": "7d46b97ede2829ba434980f1bf05c9ac978f595092014385b654a9db6342cbfe"
+        },
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0002",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "counter",
+          "reasonCode": "INTENT_NEGOTIATION_COUNTERED",
+          "actorAgentId": "agt_seller_1",
+          "at": "2026-03-01T00:00:02.000Z",
+          "prevEventHash": "7d46b97ede2829ba434980f1bf05c9ac978f595092014385b654a9db6342cbfe",
+          "metadata": {
+            "step": "counter"
+          },
+          "eventHash": "2244653fbb9a123ea485d7412bd4a383aabe0b302844345b47ba8ba899078447"
+        },
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0003",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "accept",
+          "reasonCode": "INTENT_NEGOTIATION_ACCEPTED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:03.000Z",
+          "prevEventHash": "2244653fbb9a123ea485d7412bd4a383aabe0b302844345b47ba8ba899078447",
+          "metadata": {
+            "step": "accept"
+          },
+          "eventHash": "fe1a96941a274cfae5a664c3abc2284feb45f50d48ca59fa63ab195fe99a6da1"
+        }
+      ],
+      "verifyEventIndex": 2
+    },
+    "negotiation_missing_intent_hash": {
+      "intentContract": {
+        "schemaVersion": "IntentContract.v1",
+        "intentId": "intent_conf_0001",
+        "negotiationId": "nego_conf_0001",
+        "tenantId": "tenant_conformance",
+        "proposerAgentId": "agt_buyer_1",
+        "responderAgentId": "agt_seller_1",
+        "intent": {
+          "taskType": "tool_call",
+          "capabilityId": "travel.booking",
+          "riskClass": "action",
+          "expectedDeterminism": "bounded_nondeterministic",
+          "sideEffecting": true,
+          "maxLossCents": 5000,
+          "spendLimit": {
+            "currency": "USD",
+            "maxAmountCents": 4200
+          },
+          "parametersHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "constraints": {
+            "region": "us",
+            "class": "economy"
+          }
+        },
+        "idempotencyKey": "idem_conf_0001",
+        "nonce": "nonce_conf_0001",
+        "expiresAt": "2026-03-01T01:00:00.000Z",
+        "metadata": {
+          "channel": "conformance"
+        },
+        "createdAt": "2026-03-01T00:00:00.000Z",
+        "updatedAt": "2026-03-01T00:00:00.000Z",
+        "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c"
+      },
+      "events": [
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0001",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "eventType": "propose",
+          "reasonCode": "INTENT_NEGOTIATION_PROPOSED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:01.000Z",
+          "prevEventHash": null,
+          "metadata": {
+            "step": "propose"
+          },
+          "eventHash": "7d46b97ede2829ba434980f1bf05c9ac978f595092014385b654a9db6342cbfe"
+        }
+      ],
+      "verifyEventIndex": 0
+    },
+    "negotiation_missing_event_hash": {
+      "intentContract": {
+        "schemaVersion": "IntentContract.v1",
+        "intentId": "intent_conf_0001",
+        "negotiationId": "nego_conf_0001",
+        "tenantId": "tenant_conformance",
+        "proposerAgentId": "agt_buyer_1",
+        "responderAgentId": "agt_seller_1",
+        "intent": {
+          "taskType": "tool_call",
+          "capabilityId": "travel.booking",
+          "riskClass": "action",
+          "expectedDeterminism": "bounded_nondeterministic",
+          "sideEffecting": true,
+          "maxLossCents": 5000,
+          "spendLimit": {
+            "currency": "USD",
+            "maxAmountCents": 4200
+          },
+          "parametersHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "constraints": {
+            "region": "us",
+            "class": "economy"
+          }
+        },
+        "idempotencyKey": "idem_conf_0001",
+        "nonce": "nonce_conf_0001",
+        "expiresAt": "2026-03-01T01:00:00.000Z",
+        "metadata": {
+          "channel": "conformance"
+        },
+        "createdAt": "2026-03-01T00:00:00.000Z",
+        "updatedAt": "2026-03-01T00:00:00.000Z",
+        "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c"
+      },
+      "events": [
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0001",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "propose",
+          "reasonCode": "INTENT_NEGOTIATION_PROPOSED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:01.000Z",
+          "prevEventHash": null,
+          "metadata": {
+            "step": "propose"
+          }
+        }
+      ],
+      "verifyEventIndex": 0
+    },
+    "negotiation_event_hash_tampered": {
+      "intentContract": {
+        "schemaVersion": "IntentContract.v1",
+        "intentId": "intent_conf_0001",
+        "negotiationId": "nego_conf_0001",
+        "tenantId": "tenant_conformance",
+        "proposerAgentId": "agt_buyer_1",
+        "responderAgentId": "agt_seller_1",
+        "intent": {
+          "taskType": "tool_call",
+          "capabilityId": "travel.booking",
+          "riskClass": "action",
+          "expectedDeterminism": "bounded_nondeterministic",
+          "sideEffecting": true,
+          "maxLossCents": 5000,
+          "spendLimit": {
+            "currency": "USD",
+            "maxAmountCents": 4200
+          },
+          "parametersHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "constraints": {
+            "region": "us",
+            "class": "economy"
+          }
+        },
+        "idempotencyKey": "idem_conf_0001",
+        "nonce": "nonce_conf_0001",
+        "expiresAt": "2026-03-01T01:00:00.000Z",
+        "metadata": {
+          "channel": "conformance"
+        },
+        "createdAt": "2026-03-01T00:00:00.000Z",
+        "updatedAt": "2026-03-01T00:00:00.000Z",
+        "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c"
+      },
+      "events": [
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0001",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "propose",
+          "reasonCode": "INTENT_NEGOTIATION_PROPOSED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:01.000Z",
+          "prevEventHash": null,
+          "metadata": {
+            "step": "propose",
+            "tampered": true
+          },
+          "eventHash": "7d46b97ede2829ba434980f1bf05c9ac978f595092014385b654a9db6342cbfe"
+        }
+      ],
+      "verifyEventIndex": 0
+    },
+    "negotiation_bound_contract_hash_tampered": {
+      "intentContract": {
+        "schemaVersion": "IntentContract.v1",
+        "intentId": "intent_conf_0001",
+        "negotiationId": "nego_conf_0001",
+        "tenantId": "tenant_conformance",
+        "proposerAgentId": "agt_buyer_1",
+        "responderAgentId": "agt_seller_1",
+        "intent": {
+          "taskType": "tool_call",
+          "capabilityId": "travel.booking",
+          "riskClass": "action",
+          "expectedDeterminism": "bounded_nondeterministic",
+          "sideEffecting": true,
+          "maxLossCents": 5000,
+          "spendLimit": {
+            "currency": "USD",
+            "maxAmountCents": 4201
+          },
+          "parametersHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "constraints": {
+            "region": "us",
+            "class": "economy"
+          }
+        },
+        "idempotencyKey": "idem_conf_0001",
+        "nonce": "nonce_conf_0001",
+        "expiresAt": "2026-03-01T01:00:00.000Z",
+        "metadata": {
+          "channel": "conformance"
+        },
+        "createdAt": "2026-03-01T00:00:00.000Z",
+        "updatedAt": "2026-03-01T00:00:00.000Z",
+        "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c"
+      },
+      "events": [
+        {
+          "schemaVersion": "IntentNegotiationEvent.v1",
+          "eventId": "inev_conf_0001",
+          "negotiationId": "nego_conf_0001",
+          "intentId": "intent_conf_0001",
+          "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+          "eventType": "propose",
+          "reasonCode": "INTENT_NEGOTIATION_PROPOSED",
+          "actorAgentId": "agt_buyer_1",
+          "at": "2026-03-01T00:00:01.000Z",
+          "prevEventHash": null,
+          "metadata": {
+            "step": "propose"
+          },
+          "eventHash": "7d46b97ede2829ba434980f1bf05c9ac978f595092014385b654a9db6342cbfe"
+        }
+      ],
+      "verifyEventIndex": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "intent_negotiation_transcript_accept_pass",
+      "fixtureId": "negotiation_transcript_ok",
+      "invariantIds": [
+        "ACS-NS2-INTENT-NEGOTIATION-HANDSHAKE",
+        "ACS-NS2-INTENT-NEGOTIATION-TRANSCRIPT-DETERMINISM"
+      ],
+      "expected": {
+        "outcome": "pass",
+        "result": {
+          "verification": {
+            "ok": true,
+            "eventHash": "fe1a96941a274cfae5a664c3abc2284feb45f50d48ca59fa63ab195fe99a6da1"
+          },
+          "transcript": {
+            "ok": true,
+            "status": "accepted",
+            "eventCount": 3,
+            "lastEventType": "accept",
+            "negotiationId": "nego_conf_0001",
+            "intentId": "intent_conf_0001",
+            "intentHash": "b985fef32ec4542bfab0d9064f41cd3dac0538087361930d1736fb0714968b7c",
+            "transcriptHash": "48aaf91da69101278146a6d6aa4e60c09316c8eba2e7363dc8940019eb2defcb"
+          }
+        }
+      }
+    },
+    {
+      "id": "intent_negotiation_missing_intent_hash_fail_closed",
+      "fixtureId": "negotiation_missing_intent_hash",
+      "invariantIds": [
+        "ACS-NS2-INTENT-HASH-REQUIRED-FAIL-CLOSED"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "INTENT_CONTRACT_HASH_REQUIRED",
+        "details": {
+          "phase": "verify_event",
+          "reasonCode": "INTENT_CONTRACT_HASH_REQUIRED"
+        }
+      }
+    },
+    {
+      "id": "intent_negotiation_missing_event_hash_fail_closed",
+      "fixtureId": "negotiation_missing_event_hash",
+      "invariantIds": [
+        "ACS-NS2-EVENT-HASH-REQUIRED-FAIL-CLOSED"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "INTENT_NEGOTIATION_EVENT_HASH_REQUIRED",
+        "details": {
+          "phase": "verify_event",
+          "reasonCode": "INTENT_NEGOTIATION_EVENT_HASH_REQUIRED"
+        }
+      }
+    },
+    {
+      "id": "intent_negotiation_event_hash_tampered_fail_closed",
+      "fixtureId": "negotiation_event_hash_tampered",
+      "invariantIds": [
+        "ACS-NS2-EVENT-HASH-TAMPER-FAIL-CLOSED"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "INTENT_NEGOTIATION_EVENT_HASH_TAMPERED",
+        "details": {
+          "phase": "verify_event",
+          "reasonCode": "INTENT_NEGOTIATION_EVENT_HASH_TAMPERED"
+        }
+      }
+    },
+    {
+      "id": "intent_negotiation_bound_contract_hash_tampered_fail_closed",
+      "fixtureId": "negotiation_bound_contract_hash_tampered",
+      "invariantIds": [
+        "ACS-NS2-INTENT-CONTRACT-BINDING-TAMPER-FAIL-CLOSED"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "INTENT_CONTRACT_HASH_TAMPERED",
+        "details": {
+          "phase": "verify_event",
+          "reasonCode": "INTENT_CONTRACT_HASH_TAMPERED"
+        }
+      }
+    }
+  ]
+}
