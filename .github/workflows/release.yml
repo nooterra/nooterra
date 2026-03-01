@@ -358,21 +358,21 @@ jobs:
             core.info(`go-live-gate.yml run: ${goLiveRun.id} (${goLiveRun.html_url})`);
 
       - name: Download tests.yml artifacts (kernel/prod/parity/onboarding gates)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.upstream.outputs.tests_run_id }}
           path: /tmp/release-upstream/tests
 
       - name: Download go-live gate artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.upstream.outputs.go_live_run_id }}
           path: /tmp/release-upstream/go-live
 
       - name: Download release deploy-safety artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-deploy-safety-${{ github.run_id }}
           path: /tmp/release-upstream/release-gate
@@ -947,7 +947,7 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: python-artifacts-${{ steps.v.outputs.version }}
           path: .artifacts/python
@@ -1102,43 +1102,43 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Download npm artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-artifacts-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/npm-artifacts
 
       - name: Download Python artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-artifacts-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/python-artifacts
 
       - name: Download conformance pack
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: conformance-pack-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/conformance-pack
 
       - name: Download audit packet
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: audit-packet-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/audit-packet
 
       - name: Download Helm chart
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: helm-chart-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/helm-chart
 
       - name: Download SBOM artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sbom-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/sbom
 
       - name: Download release promotion guard artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-promotion-guard-${{ github.run_id }}
           path: /tmp/release-artifacts/release-promotion-guard
