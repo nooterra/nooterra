@@ -437,6 +437,20 @@ test("production cutover gate: derives NS3 evidence-binding coverage check as pa
   assert.equal(evaluated.details?.verdictOk, true);
 });
 
+test("production cutover gate: derives NS3 evidence-binding coverage check as pass from top-level ok", () => {
+  const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
+    {
+      schemaVersion: "NooterraNs3EvidenceBindingCoverageMatrixReport.v1",
+      ok: true
+    },
+    "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.failureCode, null);
+  assert.equal(evaluated.details?.verdictOk, true);
+});
+
 test("production cutover gate: derives NS3 evidence-binding coverage check fail-closed when report verdict is not ok", () => {
   const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
     {
@@ -445,6 +459,19 @@ test("production cutover gate: derives NS3 evidence-binding coverage check fail-
         ok: false,
         status: "fail"
       }
+    },
+    "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "ns3_coverage_report_not_ok");
+});
+
+test("production cutover gate: derives NS3 evidence-binding coverage check fail-closed when top-level ok is false", () => {
+  const evaluated = evaluateNs3EvidenceBindingCoverageCheck(
+    {
+      schemaVersion: "NooterraNs3EvidenceBindingCoverageMatrixReport.v1",
+      ok: false
     },
     "artifacts/gates/ns3-evidence-binding-coverage-matrix.json"
   );

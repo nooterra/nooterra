@@ -512,8 +512,10 @@ export function evaluateNs3EvidenceBindingCoverageCheck(ns3CoverageReport, repor
     };
   }
 
-  const verdict = ns3CoverageReport.verdict;
-  if (!isPlainObject(verdict) || typeof verdict.ok !== "boolean") {
+  const verdict = isPlainObject(ns3CoverageReport.verdict) ? ns3CoverageReport.verdict : null;
+  const verdictOk =
+    typeof verdict?.ok === "boolean" ? verdict.ok : typeof ns3CoverageReport.ok === "boolean" ? ns3CoverageReport.ok : null;
+  if (typeof verdictOk !== "boolean") {
     return {
       status: "failed",
       exitCode: 1,
@@ -521,12 +523,12 @@ export function evaluateNs3EvidenceBindingCoverageCheck(ns3CoverageReport, repor
       details: {
         expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
         reportSchemaVersion: schemaVersion,
-        message: "ns3 coverage report verdict.ok must be a boolean"
+        message: "ns3 coverage report must include boolean verdict.ok or top-level ok"
       }
     };
   }
 
-  if (verdict.ok !== true) {
+  if (verdictOk !== true) {
     return {
       status: "failed",
       exitCode: 1,
@@ -534,9 +536,9 @@ export function evaluateNs3EvidenceBindingCoverageCheck(ns3CoverageReport, repor
       details: {
         expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
         reportSchemaVersion: schemaVersion,
-        verdictOk: verdict.ok,
-        verdictStatus: normalizeOptionalString(verdict.status),
-        message: "ns3 coverage report verdict.ok must be true"
+        verdictOk,
+        verdictStatus: normalizeOptionalString(verdict?.status),
+        message: "ns3 coverage report verdict.ok/top-level ok must be true"
       }
     };
   }
@@ -549,7 +551,7 @@ export function evaluateNs3EvidenceBindingCoverageCheck(ns3CoverageReport, repor
       expectedSchemaVersion: NS3_EVIDENCE_BINDING_COVERAGE_REPORT_SCHEMA_VERSION,
       reportSchemaVersion: schemaVersion,
       verdictOk: true,
-      verdictStatus: normalizeOptionalString(verdict.status)
+      verdictStatus: normalizeOptionalString(verdict?.status)
     }
   };
 }
@@ -872,7 +874,7 @@ async function runNs3EvidenceBindingCoverageCheck({ reportPath }) {
     failureCode: "ns3_coverage_report_missing",
     reportPath,
     durationMs: 0,
-    command: ["derive", "ns3_evidence_binding_coverage", "verdict.ok"]
+    command: ["derive", "ns3_evidence_binding_coverage", "verdict.ok|ok"]
   };
   try {
     const raw = await readFile(reportPath, "utf8");
