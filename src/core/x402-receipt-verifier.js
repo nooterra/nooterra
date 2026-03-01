@@ -5,6 +5,7 @@ import { verifySettlementKernelArtifacts } from "./settlement-kernel.js";
 import { verifyToolProviderSignatureV1 } from "./tool-provider-signature.js";
 import { verifyX402ProviderRefundDecisionV1 } from "./x402-provider-refund-decision.js";
 import { verifyX402ReversalCommandV1 } from "./x402-reversal-command.js";
+import { evaluateSignerLifecycleForContinuity } from "../services/identity/signer-lifecycle.js";
 
 export const X402_RECEIPT_VERIFICATION_REPORT_SCHEMA_VERSION = "X402ReceiptVerificationReport.v1";
 
@@ -89,6 +90,129 @@ function parseEvidenceRefMap(evidenceRefs) {
     }
   }
   return out;
+}
+
+function hasSignerLifecycleMaterial(keyContext) {
+  if (!isPlainObject(keyContext)) return false;
+  const status = typeof keyContext.status === "string" && keyContext.status.trim() !== "";
+  const validFrom = typeof keyContext.validFrom === "string" && keyContext.validFrom.trim() !== "";
+  const validTo = typeof keyContext.validTo === "string" && keyContext.validTo.trim() !== "";
+  const rotatedAt = typeof keyContext.rotatedAt === "string" && keyContext.rotatedAt.trim() !== "";
+  const revokedAt = typeof keyContext.revokedAt === "string" && keyContext.revokedAt.trim() !== "";
+  return status || validFrom || validTo || rotatedAt || revokedAt;
+}
+
+function buildSignerLifecycleContextKey(keyContext) {
+  if (!isPlainObject(keyContext)) return null;
+  const status = typeof keyContext.status === "string" && keyContext.status.trim() !== "" ? keyContext.status.trim() : undefined;
+  const validFrom = typeof keyContext.validFrom === "string" && keyContext.validFrom.trim() !== "" ? keyContext.validFrom.trim() : null;
+  const validTo = typeof keyContext.validTo === "string" && keyContext.validTo.trim() !== "" ? keyContext.validTo.trim() : null;
+  const rotatedAt = typeof keyContext.rotatedAt === "string" && keyContext.rotatedAt.trim() !== "" ? keyContext.rotatedAt.trim() : null;
+  const revokedAt = typeof keyContext.revokedAt === "string" && keyContext.revokedAt.trim() !== "" ? keyContext.revokedAt.trim() : null;
+  return {
+    status,
+    validFrom,
+    validTo,
+    rotatedAt,
+    revokedAt
+  };
+}
+
+function resolveProviderOutputSignatureCandidate({ receipt, evidence, bindings }) {
+  const expectedResponseSha = normalizeSha256OrNull(bindings?.response?.sha256);
+  const fromReceipt = isPlainObject(receipt?.providerSignature) ? { ...receipt.providerSignature } : null;
+  const fromEvidence =
+    evidence.providerKeyId && evidence.providerSignedAt && evidence.providerNonce && evidence.providerSignatureBase64 && expectedResponseSha
+      ? {
+          schemaVersion: "ToolProviderSignature.v1",
+          algorithm: "ed25519",
+          keyId: evidence.providerKeyId,
+          signedAt: evidence.providerSignedAt,
+          nonce: evidence.providerNonce,
+          responseHash: expectedResponseSha,
+          payloadHash: evidence.providerPayloadSha256,
+          signatureBase64: evidence.providerSignatureBase64
+        }
+      : null;
+  return fromReceipt ?? fromEvidence;
+}
+
+function resolveProviderQuoteSignatureCandidate({ receipt }) {
+  if (!isPlainObject(receipt?.providerQuoteSignature)) return null;
+  return { ...receipt.providerQuoteSignature };
+}
+
+function resolveLifecycleNowAt({ receipt, signedAt }) {
+  return (
+    normalizeIsoDateTimeOrNull(receipt?.updatedAt) ??
+    normalizeIsoDateTimeOrNull(receipt?.settledAt) ??
+    normalizeIsoDateTimeOrNull(receipt?.createdAt) ??
+    normalizeIsoDateTimeOrNull(signedAt) ??
+    null
+  );
+}
+
+function verifySignerLifecycleContinuity({
+  checkId,
+  issuePrefix,
+  signatureLabel,
+  signature,
+  keyContext,
+  receipt,
+  checks,
+  warnings,
+  errors
+}) {
+  if (!isPlainObject(signature) || !isPlainObject(keyContext)) {
+    pushCheck(checks, { id: checkId, ok: true, detail: { skipped: true } });
+    return;
+  }
+  if (!hasSignerLifecycleMaterial(keyContext)) {
+    pushCheck(checks, { id: checkId, ok: true, detail: { skipped: true, hasLifecycleMaterial: false } });
+    return;
+  }
+  const signedAt = normalizeIsoDateTimeOrNull(signature?.signedAt);
+  const nowAt = resolveLifecycleNowAt({ receipt, signedAt });
+  const lifecycle = evaluateSignerLifecycleForContinuity({
+    signerKey: buildSignerLifecycleContextKey(keyContext),
+    at: signedAt,
+    now: nowAt,
+    requireRegistered: false,
+    enforceCurrentValidity: false
+  });
+  const detail = normalizeForCanonicalJson(
+    {
+      keyId: typeof keyContext?.keyId === "string" && keyContext.keyId.trim() !== "" ? keyContext.keyId.trim() : null,
+      signatureKeyId: typeof signature?.keyId === "string" && signature.keyId.trim() !== "" ? signature.keyId.trim() : null,
+      signedAt,
+      now: nowAt,
+      signerStatus: lifecycle?.signerStatus ?? null,
+      validFrom: lifecycle?.validFrom ?? null,
+      validTo: lifecycle?.validTo ?? null,
+      rotatedAt: lifecycle?.rotatedAt ?? null,
+      revokedAt: lifecycle?.revokedAt ?? null,
+      validAt: lifecycle?.validAt ?? null,
+      validNow: lifecycle?.validNow ?? null
+    },
+    { path: "$.detail" }
+  );
+  if (lifecycle?.ok !== true) {
+    pushIssue(errors, {
+      code: `${issuePrefix}_invalid_at_signing`,
+      message: `${signatureLabel} signer key lifecycle is invalid at signing time`,
+      detail
+    });
+    pushCheck(checks, { id: checkId, ok: false, detail });
+    return;
+  }
+  if (lifecycle?.validNow && lifecycle.validNow.ok !== true) {
+    pushIssue(warnings, {
+      code: `${issuePrefix}_currently_invalid`,
+      message: `${signatureLabel} signer key is currently invalid but signature remains historically verifiable`,
+      detail
+    });
+  }
+  pushCheck(checks, { id: checkId, ok: true, detail });
 }
 
 function parseEvidenceRefSha256Set(evidenceRefs, prefix) {
@@ -690,6 +814,28 @@ export function verifyX402ReceiptRecord({ receipt, strict = false } = {}) {
 
   verifyProviderOutputSignature({ receipt, bindings, verificationContext, evidence, checks, warnings, errors });
   verifyProviderQuoteSignature({ receipt, bindings, verificationContext, evidence, checks, warnings, errors });
+  verifySignerLifecycleContinuity({
+    checkId: "provider_output_signer_lifecycle_continuity",
+    issuePrefix: "provider_signature_signer_key",
+    signatureLabel: "provider output signature",
+    signature: resolveProviderOutputSignatureCandidate({ receipt, evidence, bindings }),
+    keyContext: verificationContext?.providerSigningKey,
+    receipt,
+    checks,
+    warnings,
+    errors
+  });
+  verifySignerLifecycleContinuity({
+    checkId: "provider_quote_signer_lifecycle_continuity",
+    issuePrefix: "provider_quote_signature_signer_key",
+    signatureLabel: "provider quote signature",
+    signature: resolveProviderQuoteSignatureCandidate({ receipt }),
+    keyContext: verificationContext?.providerQuoteSigningKey,
+    receipt,
+    checks,
+    warnings,
+    errors
+  });
   verifyReversalEvents({ receipt, checks, errors });
 
   const strictMode = strict === true;
