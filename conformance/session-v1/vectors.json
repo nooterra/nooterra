@@ -138,6 +138,80 @@
           "error": null
         }
       }
+    },
+    "session_vectors_acl_denied_1": {
+      "tenantId": "tenant_vectors",
+      "session": {
+        "schemaVersion": "Session.v1",
+        "tenantId": "tenant_vectors",
+        "sessionId": "sess_vectors_acl_1",
+        "visibility": "tenant",
+        "participants": [
+          "agt_orchestrator_1",
+          "agt_worker_1"
+        ],
+        "metadata": {
+          "workflowId": "wf_vectors_acl_1",
+          "objective": "conformance replay ACL deny fail-closed"
+        },
+        "createdAt": "2026-02-01T00:00:00.000Z",
+        "updatedAt": "2026-02-01T00:00:01.000Z"
+      },
+      "events": [
+        {
+          "v": 1,
+          "id": "ev_vectors_acl_1",
+          "at": "2026-02-01T00:00:01.000Z",
+          "streamId": "sess_vectors_acl_1",
+          "type": "TASK_REQUESTED",
+          "actor": {
+            "type": "agent",
+            "id": "agt_orchestrator_1"
+          },
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED",
+            "at": "2026-02-01T00:00:01.000Z",
+            "traceId": "trace_vectors_acl_1",
+            "provenance": {
+              "schemaVersion": "SessionEventProvenance.v1",
+              "label": "trusted",
+              "derivedFromEventId": null,
+              "isTainted": false,
+              "taintDepth": 0,
+              "explicitTaint": false,
+              "reasonCodes": []
+            },
+            "body": {
+              "taskId": "task_vectors_acl_1",
+              "prompt": "acl denied conformance fixture"
+            }
+          },
+          "payloadHash": "70b6115c8ebdff7dad95489173851d57bcd4fc6be84dc17ce3d17f3be14ecd4e",
+          "prevChainHash": null,
+          "chainHash": "3b12df4b5d588de369304c00ec6ef7f95bd652f8d4b2408aa55a59c01f471f6d",
+          "signature": "AyPCfdYzAXwl5SfofOsdl6HNMBGweVt1wLs0iC8Sb1Y9AjhWm5sEf9t1aMu5ZzVBtQn2Wg6lkPJs4AMfnBmFAA==",
+          "signerKeyId": "key_9ed38005b42d9364601ffab3"
+        }
+      ],
+      "verification": {
+        "chainOk": true,
+        "verifiedEventCount": 1,
+        "error": null,
+        "provenance": {
+          "ok": true,
+          "verifiedEventCount": 1,
+          "taintedEventCount": 0,
+          "error": null
+        }
+      },
+      "acl": {
+        "principalId": "agt_intruder_1",
+        "participants": [
+          "agt_orchestrator_1",
+          "agt_worker_1"
+        ]
+      }
     }
   },
   "cases": [
@@ -180,6 +254,28 @@
         "transcriptSignaturePresent": true,
         "replaySignatureBase64": "XyxiyukKIkjd6XYz2Ul8TktbBVml7VpVVy7jsNCA/ZqsLfTORp19DiNRpp8X7D9/TUBuBLJBKSfXpQjNUQzUCA==",
         "transcriptSignatureBase64": "S2zWGzbyOFidpz5ULZwS8BmWmJ9W8jtw9DObmVFS/E3ncZxshWDbFH84X4q02iGpeaJcyZObq/rqb1GNZXVVDw=="
+      }
+    },
+    {
+      "id": "session_artifacts_acl_denied_fail_closed",
+      "fixtureId": "session_vectors_acl_denied_1",
+      "invariantIds": [
+        "ACS-NS2-SESSION-REPLAY-ACL-DENY",
+        "ACS-NS2-SESSION-TRANSCRIPT-ACL-DENY"
+      ],
+      "signing": null,
+      "expected": {
+        "outcome": "fail",
+        "code": "SESSION_ACCESS_DENIED",
+        "message": "session access denied",
+        "details": {
+          "sessionId": "sess_vectors_acl_1",
+          "principalId": "agt_intruder_1",
+          "participants": [
+            "agt_orchestrator_1",
+            "agt_worker_1"
+          ]
+        }
       }
     }
   ]
