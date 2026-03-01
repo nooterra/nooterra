@@ -9921,6 +9921,36 @@ export function createApi({
     );
   }
 
+  function buildSessionEventCursorRegressionDetails({
+    sessionId,
+    checkpointId = null,
+    checkpointConsumerId = null,
+    existingSinceEventId = null,
+    requestedSinceEventId = null,
+    existingCursorIndex = null,
+    requestedCursorIndex = null,
+    events = [],
+    phase = "checkpoint_write"
+  } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        sessionId: normalizedSessionId,
+        checkpointId: normalizeSessionInboxEventId(checkpointId),
+        checkpointConsumerId: normalizeSessionInboxEventId(checkpointConsumerId),
+        existingSinceEventId: normalizeSessionInboxEventId(existingSinceEventId),
+        requestedSinceEventId: normalizeSessionInboxEventId(requestedSinceEventId),
+        existingCursorIndex: Number.isSafeInteger(existingCursorIndex) ? existingCursorIndex : null,
+        requestedCursorIndex: Number.isSafeInteger(requestedCursorIndex) ? requestedCursorIndex : null,
+        phase,
+        reasonCode: "SESSION_EVENT_CURSOR_REGRESSION",
+        reason: "checkpoint cursor must advance monotonically",
+        ...summarizeSessionEventCursorRange(events)
+      },
+      { path: "$.details" }
+    );
+  }
+
   function normalizeSessionInboxEventId(value) {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
@@ -21162,8 +21192,18 @@ export function createApi({
     tenantId,
     principalAgentId = null,
     subAgentId = null,
-    operation = "work_order"
+    operation = "work_order",
+    at = null,
+    enforceSignerLifecycle = true,
+    signerErrorCode = "X402_AGENT_SIGNER_KEY_INVALID"
   } = {}) {
+    const shouldEnforceSignerLifecycle = enforceSignerLifecycle === true;
+    const atIso =
+      shouldEnforceSignerLifecycle && typeof at === "string" && at.trim() !== ""
+        ? at.trim()
+        : shouldEnforceSignerLifecycle
+          ? nowIso()
+          : null;
     const participants = [
       { role: "principal", agentId: principalAgentId },
       { role: "sub_agent", agentId: subAgentId }
@@ -21191,6 +21231,29 @@ export function createApi({
             { path: "$.details" }
           )
         };
+      }
+      if (shouldEnforceSignerLifecycle) {
+        const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+          tenantId,
+          agentId,
+          at: atIso
+        });
+        if (!signerLifecycle.ok) {
+          return {
+            blocked: true,
+            httpStatus: 409,
+            code: signerErrorCode,
+            message: `${participant.role} signer key lifecycle blocked for ${operation}`,
+            details: buildGrantParticipantSignerLifecycleDetails({
+              operation,
+              role: participant.role,
+              agentId,
+              signerKeyId: signerLifecycle.signerKeyId ?? null,
+              at: atIso,
+              lifecycle: signerLifecycle.lifecycle ?? null
+            })
+          };
+        }
       }
     }
     return { blocked: false };
@@ -57204,9 +57267,11 @@ export function createApi({
           if (!requireSessionParticipantAccess({ req, res, session, sessionId, principalId })) return;
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
+          const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
+          let requestedCursorIndex = -1;
           if (sinceEventId) {
-            const cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
-            if (cursorIndex < 0) {
+            requestedCursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (requestedCursorIndex < 0) {
               return sendError(
                 res,
                 409,
@@ -57217,15 +57282,55 @@ export function createApi({
                   events,
                   phase: "checkpoint_write",
                   cursorSource: "checkpoint_write",
-                  checkpointId: buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId }),
+                  checkpointId,
                   checkpointConsumerId
                 }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
             }
           }
-          const checkpointId = buildSessionRelayCheckpointId({ sessionId, consumerId: checkpointConsumerId });
           const existingRelayState = await getSessionRelayStateRecord({ tenantId, checkpointId });
+          const existingSinceEventId = normalizeSessionInboxEventId(existingRelayState?.sinceEventId ?? null);
+          let existingCursorIndex = -1;
+          if (existingSinceEventId) {
+            existingCursorIndex = events.findIndex((row) => String(row?.id ?? "") === existingSinceEventId);
+            if (existingCursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId: existingSinceEventId,
+                  events,
+                  phase: "checkpoint_write",
+                  cursorSource: "checkpoint",
+                  checkpointId,
+                  checkpointConsumerId
+                }),
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+          if (existingCursorIndex > requestedCursorIndex) {
+            return sendError(
+              res,
+              409,
+              "session event checkpoint regression blocked",
+              buildSessionEventCursorRegressionDetails({
+                sessionId,
+                checkpointId,
+                checkpointConsumerId,
+                existingSinceEventId,
+                requestedSinceEventId: sinceEventId,
+                existingCursorIndex,
+                requestedCursorIndex,
+                events,
+                phase: "checkpoint_write"
+              }),
+              { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+            );
+          }
           const relayState = buildSessionRelayCheckpointRecord({
             tenantId,
             sessionId,

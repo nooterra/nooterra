@@ -275,3 +275,120 @@ test("API e2e: replay export enforces memory scopes and records deterministic au
   assert.ok(deniedRows.every((row) => typeof row?.details?.reasonCode === "string" && row.details.reasonCode !== ""));
   assert.ok(memoryAuditRows.every((row) => typeof row?.details?.policyHash === "string" && row.details.policyHash.length === 64));
 });
+
+test("API e2e: replay export fails closed on unresolved or invalid memory access policy", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_replay_scope_owner_unresolved_1";
+  const participantAgentId = "agt_replay_scope_participant_unresolved_1";
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: participantAgentId, capabilities: ["analysis"] });
+
+  const unresolvedCreated = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_unresolved_create_1",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      sessionId: "sess_replay_scope_unresolved_1",
+      visibility: "tenant",
+      participants: [ownerAgentId, participantAgentId],
+      metadata: {
+        memoryAccessPolicy: {
+          schemaVersion: "SessionMemoryAccessPolicy.v1",
+          ownerPrincipalId: ownerAgentId,
+          teamPrincipalIds: [],
+          delegatedPrincipalIds: [],
+          allowTeamRead: true,
+          allowDelegatedRead: true,
+          allowCrossAgentSharing: false
+        }
+      }
+    }
+  });
+  assert.equal(unresolvedCreated.statusCode, 201, unresolvedCreated.body);
+
+  const unresolvedAppended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_replay_scope_unresolved_1/events",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_unresolved_append_1",
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_replay_scope_unresolved_1" }
+    }
+  });
+  assert.equal(unresolvedAppended.statusCode, 201, unresolvedAppended.body);
+
+  const unresolvedDenied = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_unresolved_1/replay-export",
+    headers: { "x-proxy-principal-id": participantAgentId }
+  });
+  assert.equal(unresolvedDenied.statusCode, 403, unresolvedDenied.body);
+  assert.equal(unresolvedDenied.json?.code, "SESSION_MEMORY_ACCESS_SCOPE_UNRESOLVED");
+
+  const teamDenied = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_unresolved_1/replay-export?memoryScope=team",
+    headers: { "x-proxy-principal-id": participantAgentId }
+  });
+  assert.equal(teamDenied.statusCode, 403, teamDenied.body);
+  assert.equal(teamDenied.json?.code, "SESSION_MEMORY_ACCESS_TEAM_SCOPE_DENIED");
+
+  const delegatedDenied = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_unresolved_1/replay-export?memoryScope=delegated",
+    headers: { "x-proxy-principal-id": participantAgentId }
+  });
+  assert.equal(delegatedDenied.statusCode, 403, delegatedDenied.body);
+  assert.equal(delegatedDenied.json?.code, "SESSION_MEMORY_ACCESS_DELEGATED_SCOPE_DENIED");
+
+  const invalidPolicyCreated = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_invalid_policy_create_1",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      sessionId: "sess_replay_scope_invalid_policy_1",
+      visibility: "tenant",
+      participants: [ownerAgentId],
+      metadata: {
+        memoryAccessPolicy: {
+          schemaVersion: "SessionMemoryAccessPolicy.v999",
+          ownerPrincipalId: ownerAgentId
+        }
+      }
+    }
+  });
+  assert.equal(invalidPolicyCreated.statusCode, 201, invalidPolicyCreated.body);
+
+  const invalidPolicyAppended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_replay_scope_invalid_policy_1/events",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_invalid_policy_append_1",
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_replay_scope_invalid_policy_1" }
+    }
+  });
+  assert.equal(invalidPolicyAppended.statusCode, 201, invalidPolicyAppended.body);
+
+  const invalidPolicyDenied = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_invalid_policy_1/replay-export",
+    headers: { "x-proxy-principal-id": ownerAgentId }
+  });
+  assert.equal(invalidPolicyDenied.statusCode, 403, invalidPolicyDenied.body);
+  assert.equal(invalidPolicyDenied.json?.code, "SESSION_MEMORY_ACCESS_POLICY_INVALID");
+});
