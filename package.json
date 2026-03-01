@@ -181,7 +181,7 @@
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@coinbase/cdp-sdk": "^1.44.1",
-    "pg": "^8.11.5"
+    "pg": "^8.19.0"
   },
   "devDependencies": {
     "ajv": "^8.18.0",
