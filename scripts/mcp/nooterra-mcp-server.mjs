@@ -1356,6 +1356,18 @@ function buildTools() {
       }
     },
     {
+      name: "nooterra.agent_resolve",
+      description: "Resolve a public agent reference via deterministic AgentLocator.v1.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentRef"],
+        properties: {
+          agentRef: { type: "string" }
+        }
+      }
+    },
+    {
       name: "nooterra.capability_attest",
       description: "Issue a signed capability attestation record for agent discovery/routing.",
       inputSchema: {
@@ -3030,6 +3042,16 @@ async function main() {
               timedOut: out?.timedOut === true,
               events: redactSecrets(out?.events ?? [])
             };
+          } else if (name === "nooterra.agent_resolve") {
+            const resolveArgs = args === null || args === undefined ? {} : args;
+            assertPlainObject(resolveArgs, "arguments");
+            assertNoUnknownKeys(resolveArgs, ["agentRef"], "nooterra.agent_resolve arguments");
+            const agentRef = parseOptionalStringArg(resolveArgs.agentRef, "agentRef", { max: 1024 });
+            assertNonEmptyString(agentRef, "agentRef");
+            const query = new URLSearchParams();
+            query.set("agent", agentRef);
+            const out = await client.requestJson(`/v1/public/agents/resolve?${query.toString()}`, { method: "GET" });
+            result = { ok: true, agentRef, ...redactSecrets(out) };
           } else if (name === "nooterra.relationships_list") {
             const agentId = String(args?.agentId ?? "").trim();
             assertNonEmptyString(agentId, "agentId");

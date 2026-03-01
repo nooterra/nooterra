@@ -1189,6 +1189,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
   };
 
   store.listAgentCardsPublic = async function listAgentCardsPublic({
+    agentId = null,
     status = null,
     visibility = "public",
     capability = null,
@@ -1205,9 +1206,13 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
   } = {}) {
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) {
+      throw new TypeError("agentId must be null or a non-empty string");
+    }
     if (visibility !== null && visibility !== undefined && String(visibility).trim().toLowerCase() !== "public") {
       throw new TypeError("visibility must be public");
     }
+    const agentIdFilter = agentId === null || agentId === undefined || String(agentId).trim() === "" ? null : String(agentId).trim();
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
@@ -1226,6 +1231,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     for (const row of store.agentCards.values()) {
       if (!row || typeof row !== "object") continue;
       if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
+      if (agentIdFilter !== null && String(row.agentId ?? "") !== agentIdFilter) continue;
       if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
       if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
       if (runtimeFilter) {

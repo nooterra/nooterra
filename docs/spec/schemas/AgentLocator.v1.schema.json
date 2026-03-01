@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/AgentLocator.v1.schema.json",
+  "title": "AgentLocator.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "agentRef",
+    "parsedRef",
+    "status",
+    "reasonCode",
+    "matchCount",
+    "resolved",
+    "candidates",
+    "deterministicHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "AgentLocator.v1"
+    },
+    "agentRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "parsedRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["agent_id", "did", "url"]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["resolved", "malformed", "not_found", "ambiguous"]
+    },
+    "reasonCode": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "AGENT_LOCATOR_MALFORMED_REF",
+            "AGENT_LOCATOR_NOT_FOUND",
+            "AGENT_LOCATOR_AMBIGUOUS"
+          ]
+        }
+      ]
+    },
+    "matchCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resolved": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tenantId", "agentId", "displayName", "executionCoordinatorDid", "hostEndpoint"],
+          "properties": {
+            "tenantId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "agentId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9:_-]+$"
+            },
+            "displayName": {
+              "type": ["string", "null"],
+              "maxLength": 200
+            },
+            "executionCoordinatorDid": {
+              "type": ["string", "null"],
+              "maxLength": 512
+            },
+            "hostEndpoint": {
+              "type": ["string", "null"],
+              "maxLength": 1024
+            }
+          }
+        }
+      ]
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rank",
+          "score",
+          "tieBreakHash",
+          "matchReasons",
+          "tenantId",
+          "agentId",
+          "displayName",
+          "executionCoordinatorDid",
+          "hostEndpoint"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tieBreakHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "matchReasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AGENT_ID_EXACT",
+                "EXECUTION_COORDINATOR_DID_EXACT",
+                "HOST_ENDPOINT_EXACT"
+              ]
+            }
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9:_-]+$"
+          },
+          "displayName": {
+            "type": ["string", "null"],
+            "maxLength": 200
+          },
+          "executionCoordinatorDid": {
+            "type": ["string", "null"],
+            "maxLength": 512
+          },
+          "hostEndpoint": {
+            "type": ["string", "null"],
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "deterministicHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

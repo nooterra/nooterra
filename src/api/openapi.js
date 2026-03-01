@@ -2281,6 +2281,89 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const AgentLocatorV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "agentRef",
+      "parsedRef",
+      "status",
+      "reasonCode",
+      "matchCount",
+      "resolved",
+      "candidates",
+      "deterministicHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["AgentLocator.v1"] },
+      agentRef: { type: "string" },
+      parsedRef: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        required: ["kind", "value"],
+        properties: {
+          kind: { type: "string", enum: ["agent_id", "did", "url"] },
+          value: { type: "string" }
+        }
+      },
+      status: { type: "string", enum: ["resolved", "malformed", "not_found", "ambiguous"] },
+      reasonCode: {
+        type: "string",
+        nullable: true,
+        enum: ["AGENT_LOCATOR_MALFORMED_REF", "AGENT_LOCATOR_NOT_FOUND", "AGENT_LOCATOR_AMBIGUOUS", null]
+      },
+      matchCount: { type: "integer", minimum: 0 },
+      resolved: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        required: ["tenantId", "agentId", "displayName", "executionCoordinatorDid", "hostEndpoint"],
+        properties: {
+          tenantId: { type: "string" },
+          agentId: { type: "string" },
+          displayName: { type: "string", nullable: true },
+          executionCoordinatorDid: { type: "string", nullable: true },
+          hostEndpoint: { type: "string", nullable: true }
+        }
+      },
+      candidates: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "rank",
+            "score",
+            "tieBreakHash",
+            "matchReasons",
+            "tenantId",
+            "agentId",
+            "displayName",
+            "executionCoordinatorDid",
+            "hostEndpoint"
+          ],
+          properties: {
+            rank: { type: "integer", minimum: 1 },
+            score: { type: "integer", minimum: 1 },
+            tieBreakHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+            matchReasons: {
+              type: "array",
+              items: { type: "string", enum: ["AGENT_ID_EXACT", "EXECUTION_COORDINATOR_DID_EXACT", "HOST_ENDPOINT_EXACT"] }
+            },
+            tenantId: { type: "string" },
+            agentId: { type: "string" },
+            displayName: { type: "string", nullable: true },
+            executionCoordinatorDid: { type: "string", nullable: true },
+            hostEndpoint: { type: "string", nullable: true }
+          }
+        }
+      },
+      deterministicHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
   const InteractionGraphSummaryV1 = {
     type: "object",
     additionalProperties: false,
@@ -6031,6 +6114,24 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/.well-known/agent-locator/{agentId}": {
+        get: {
+          summary: "Resolve and publish deterministic AgentLocator.v1 by agentId",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: AgentLocatorV1 } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/jobs": {
         post: {
           summary: "Create job",
@@ -7784,6 +7885,34 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/v1/public/agents/resolve": {
+        get: {
+          summary: "Resolve a public agent reference into deterministic AgentLocator.v1",
+          parameters: [ProtocolHeader, RequestIdHeader, { name: "agent", in: "query", required: true, schema: { type: "string" } }],
+          security: [],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      locator: AgentLocatorV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
