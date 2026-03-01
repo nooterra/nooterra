@@ -7,6 +7,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- Execution attestation evidence binding across work-order lifecycle contracts: new `ExecutionAttestation.v1` public spec/schema, API support for `executionAttestation` on work-order accept/complete, deterministic canonical hashing in receipts/work-order verification, and updated OpenAPI surfaces for auditable third-party verifier parity.
 - Agent locator public resolution surface: `AgentLocator.v1` spec/schema plus deterministic resolver APIs (`GET /v1/public/agents/resolve`, `GET /.well-known/agent-locator/:agentId`), CLI (`nooterra agent resolve`), and MCP tool mapping (`nooterra.agent_resolve`) with fail-closed ambiguity/malformed reason codes.
 - Durable agent inbox core primitive: `AgentInbox.v1` public spec/schema and deterministic core semantics for ordered publish/pull, idempotency-key dedupe, cursor resume, and fail-closed out-of-order ack handling.
 - Intent contract primitive: `IntentContract.v1` and `IntentNegotiationEvent.v1` specs/schemas plus deterministic canonical hashing and fail-closed negotiate/verify helpers for propose/counter/accept flows.
