@@ -600,6 +600,93 @@ test("API e2e: x402 authorize fails closed when authority grant is expired", asy
   assert.equal(blocked.json?.details?.expiresAt ?? blocked.json?.details?.details?.expiresAt, "2024-12-31T00:00:00.000Z");
 });
 
+test("API e2e: x402 authorize fails closed when authority grant ref is not found", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_not_found_payer_1";
+  const payeeAgentId = "agt_auth_not_found_payee_1";
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_authorize_not_found_create_1" },
+    body: {
+      gateId: "x402gate_auth_not_found_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      autoFundPayerCents: 5_000
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_not_found_blocked_1" },
+    body: {
+      gateId: "x402gate_auth_not_found_1",
+      authorityGrantRef: "agrant_missing_authority_ref_1"
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_GRANT_NOT_FOUND");
+  assert.equal(
+    blocked.json?.details?.authorityGrantRef ?? blocked.json?.details?.details?.authorityGrantRef,
+    "agrant_missing_authority_ref_1"
+  );
+});
+
+test("API e2e: x402 authorize fails closed when authority grant grantee does not match payer", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_actor_mismatch_payer_1";
+  const payeeAgentId = "agt_auth_actor_mismatch_payee_1";
+  const otherAgentId = "agt_auth_actor_mismatch_other_1";
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await registerAgent(setupApi, { agentId: otherAgentId });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_authorize_actor_mismatch_create_1" },
+    body: {
+      gateId: "x402gate_auth_actor_mismatch_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      autoFundPayerCents: 5_000
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const grant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_actor_mismatch_1",
+    granteeAgentId: otherAgentId
+  });
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_actor_mismatch_blocked_1" },
+    body: {
+      gateId: "x402gate_auth_actor_mismatch_1",
+      authorityGrantRef: grant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_GRANT_ACTOR_MISMATCH");
+  assert.equal(blocked.json?.details?.granteeAgentId ?? blocked.json?.details?.details?.granteeAgentId, otherAgentId);
+  assert.equal(blocked.json?.details?.payerAgentId ?? blocked.json?.details?.details?.payerAgentId, payerAgentId);
+});
+
 test("API e2e: x402 authorize fails closed when authority grant grantee signer lifecycle is non-active", async () => {
   const api = createApi({ x402RequireAuthorityGrant: true, opsToken: "tok_ops" });
   const payer = await registerAgentWithKey(api, { agentId: "agt_auth_signer_authorize_payer_1" });
