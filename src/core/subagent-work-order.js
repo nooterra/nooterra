@@ -5,6 +5,7 @@ export const SUB_AGENT_WORK_ORDER_SCHEMA_VERSION = "SubAgentWorkOrder.v1";
 export const SUB_AGENT_COMPLETION_RECEIPT_SCHEMA_VERSION = "SubAgentCompletionReceipt.v1";
 export const SUB_AGENT_WORK_ORDER_EVIDENCE_POLICY_SCHEMA_VERSION = "WorkOrderSettlementEvidencePolicy.v1";
 export const SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION = "WorkOrderIntentBinding.v1";
+export const SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION = "ExecutionAttestation.v1";
 
 export const SUB_AGENT_WORK_ORDER_STATUS = Object.freeze({
   CREATED: "created",
@@ -30,7 +31,8 @@ export const SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS = Object.freeze({
 export const SUB_AGENT_WORK_ORDER_EVIDENCE_KIND = Object.freeze({
   ARTIFACT: "artifact",
   HASH: "hash",
-  VERIFICATION_REPORT: "verification_report"
+  VERIFICATION_REPORT: "verification_report",
+  EXECUTION_ATTESTATION: "execution_attestation"
 });
 
 const TERMINAL_WORK_ORDER_STATUSES = new Set([
@@ -62,6 +64,12 @@ function normalizeOptionalString(value, name, { max = 2000 } = {}) {
 function normalizeIsoDateTime(value, name) {
   const normalized = assertNonEmptyString(value, name, { max: 128 });
   if (!Number.isFinite(Date.parse(normalized))) throw new TypeError(`${name} must be an ISO date-time`);
+  return normalized;
+}
+
+function assertSha256Hex(value, name) {
+  const normalized = assertNonEmptyString(value, name, { max: 64 }).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new TypeError(`${name} must be sha256 hex`);
   return normalized;
 }
 
@@ -450,6 +458,107 @@ function buildSubAgentCompletionReceiptHash(receipt) {
   return sha256Hex(canonical);
 }
 
+function buildExecutionAttestationHash(attestation) {
+  const canonical = canonicalJsonStringify({
+    ...attestation,
+    attestationHash: null
+  });
+  return sha256Hex(canonical);
+}
+
+function normalizeExecutionAttestation(
+  executionAttestation,
+  { fieldPath = "$.executionAttestation", expectedWorkOrderId = null, allowNull = true } = {}
+) {
+  if (executionAttestation === null || executionAttestation === undefined) {
+    if (allowNull) return null;
+    throw new TypeError(`${fieldPath} is required`);
+  }
+  assertPlainObject(executionAttestation, fieldPath);
+  const schemaVersion = assertNonEmptyString(
+    executionAttestation.schemaVersion ?? SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION,
+    `${fieldPath}.schemaVersion`,
+    { max: 128 }
+  );
+  if (schemaVersion !== SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION) {
+    throw new TypeError(`${fieldPath}.schemaVersion must be ${SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION}`);
+  }
+  const normalizedWorkOrderId = assertNonEmptyString(executionAttestation.workOrderId, `${fieldPath}.workOrderId`, { max: 200 });
+  if (expectedWorkOrderId !== null && expectedWorkOrderId !== undefined && String(expectedWorkOrderId) !== normalizedWorkOrderId) {
+    throw new TypeError(`${fieldPath}.workOrderId must match workOrder.workOrderId`);
+  }
+  const attestationBase = normalizeForCanonicalJson(
+    {
+      schemaVersion: SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION,
+      attestationId: assertNonEmptyString(executionAttestation.attestationId, `${fieldPath}.attestationId`, { max: 200 }),
+      workOrderId: normalizedWorkOrderId,
+      executionId: assertNonEmptyString(executionAttestation.executionId, `${fieldPath}.executionId`, { max: 200 }),
+      attester: assertNonEmptyString(executionAttestation.attester, `${fieldPath}.attester`, { max: 200 }),
+      evidenceHash: assertSha256Hex(executionAttestation.evidenceHash, `${fieldPath}.evidenceHash`),
+      attestedAt: normalizeIsoDateTime(executionAttestation.attestedAt, `${fieldPath}.attestedAt`),
+      runtime:
+        executionAttestation.runtime && typeof executionAttestation.runtime === "object" && !Array.isArray(executionAttestation.runtime)
+          ? normalizeForCanonicalJson(executionAttestation.runtime, { path: `${fieldPath}.runtime` })
+          : null,
+      signerKeyId: normalizeOptionalString(executionAttestation.signerKeyId, `${fieldPath}.signerKeyId`, { max: 200 }),
+      signature: normalizeOptionalString(executionAttestation.signature, `${fieldPath}.signature`, { max: 8192 }),
+      metadata:
+        executionAttestation.metadata && typeof executionAttestation.metadata === "object" && !Array.isArray(executionAttestation.metadata)
+          ? normalizeForCanonicalJson(executionAttestation.metadata, { path: `${fieldPath}.metadata` })
+          : null,
+      attestationHash: null
+    },
+    { path: fieldPath }
+  );
+  const computedHash = buildExecutionAttestationHash(attestationBase);
+  const providedHash =
+    executionAttestation.attestationHash === null ||
+    executionAttestation.attestationHash === undefined ||
+    String(executionAttestation.attestationHash).trim() === ""
+      ? null
+      : assertSha256Hex(executionAttestation.attestationHash, `${fieldPath}.attestationHash`);
+  if (providedHash && providedHash !== computedHash) {
+    throw new TypeError(`${fieldPath}.attestationHash mismatch`);
+  }
+  return normalizeForCanonicalJson(
+    {
+      ...attestationBase,
+      attestationHash: computedHash
+    },
+    { path: fieldPath }
+  );
+}
+
+export function buildExecutionAttestationV1({
+  attestationId,
+  workOrderId,
+  executionId,
+  attester,
+  evidenceHash,
+  attestedAt = new Date().toISOString(),
+  runtime = null,
+  signerKeyId = null,
+  signature = null,
+  metadata = null
+} = {}) {
+  return normalizeExecutionAttestation(
+    {
+      schemaVersion: SUB_AGENT_EXECUTION_ATTESTATION_SCHEMA_VERSION,
+      attestationId,
+      workOrderId,
+      executionId,
+      attester,
+      evidenceHash,
+      attestedAt,
+      runtime,
+      signerKeyId,
+      signature,
+      metadata
+    },
+    { fieldPath: "$.executionAttestation", expectedWorkOrderId: workOrderId, allowNull: false }
+  );
+}
+
 export function buildSubAgentCompletionReceiptV1({
   receiptId,
   tenantId,
@@ -458,6 +567,7 @@ export function buildSubAgentCompletionReceiptV1({
   outputs = null,
   metrics = null,
   evidenceRefs = [],
+  executionAttestation = null,
   amountCents = null,
   currency = null,
   traceId = null,
@@ -494,6 +604,11 @@ export function buildSubAgentCompletionReceiptV1({
           : null,
     metrics: metrics && typeof metrics === "object" && !Array.isArray(metrics) ? normalizeForCanonicalJson(metrics, { path: "$.metrics" }) : null,
     evidenceRefs: normalizeStringArray(evidenceRefs, "evidenceRefs", { max: 500 }),
+    executionAttestation: normalizeExecutionAttestation(executionAttestation, {
+      fieldPath: "$.executionAttestation",
+      expectedWorkOrderId: workOrder.workOrderId,
+      allowNull: true
+    }),
     settlementQuote: {
       amountCents: resolvedAmountCents,
       currency: resolvedCurrency
@@ -537,6 +652,13 @@ export function validateSubAgentCompletionReceiptV1(receipt) {
   normalizeSafeInteger(receipt.settlementQuote.amountCents, "receipt.settlementQuote.amountCents", { min: 0 });
   normalizeCurrency(receipt.settlementQuote.currency, "receipt.settlementQuote.currency");
   normalizeStringArray(receipt.evidenceRefs ?? [], "receipt.evidenceRefs", { max: 500 });
+  if (receipt.executionAttestation !== null && receipt.executionAttestation !== undefined) {
+    normalizeExecutionAttestation(receipt.executionAttestation, {
+      fieldPath: "$.executionAttestation",
+      expectedWorkOrderId: receipt.workOrderId,
+      allowNull: true
+    });
+  }
   const expectedHash = buildSubAgentCompletionReceiptHash(receipt);
   const actualHash = assertNonEmptyString(receipt.receiptHash, "receipt.receiptHash", { max: 64 }).toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(actualHash)) throw new TypeError("receipt.receiptHash must be sha256 hex");

@@ -1243,9 +1243,10 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       toolRequiresEvidenceKindFilter !== null &&
       toolRequiresEvidenceKindFilter !== "artifact" &&
       toolRequiresEvidenceKindFilter !== "hash" &&
-      toolRequiresEvidenceKindFilter !== "verification_report"
+      toolRequiresEvidenceKindFilter !== "verification_report" &&
+      toolRequiresEvidenceKindFilter !== "execution_attestation"
     ) {
-      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report|execution_attestation");
     }
     const hasToolDescriptorFilter =
       toolIdFilter !== null ||

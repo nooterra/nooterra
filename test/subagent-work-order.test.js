@@ -7,6 +7,7 @@ import {
   SUB_AGENT_WORK_ORDER_STATUS,
   acceptSubAgentWorkOrderV1,
   appendSubAgentWorkOrderProgressV1,
+  buildExecutionAttestationV1,
   buildSubAgentCompletionReceiptV1,
   buildSubAgentWorkOrderV1,
   completeSubAgentWorkOrderV1,
@@ -259,4 +260,51 @@ test("sub-agent work order: completion receipt hash binds optional intent bindin
     }
   };
   assert.throws(() => validateSubAgentCompletionReceiptV1(tampered), /receipt\.receipthash mismatch/i);
+});
+
+test("sub-agent work order: execution attestation is hash-bound and validated fail-closed", () => {
+  const workOrder = buildSubAgentWorkOrderV1({
+    workOrderId: "workord_execatt_1",
+    tenantId: "tenant_default",
+    principalAgentId: "agt_principal_execatt_1",
+    subAgentId: "agt_worker_execatt_1",
+    requiredCapability: "code.generation",
+    specification: { prompt: "emit deterministic attestations" },
+    pricing: { model: "fixed", amountCents: 333, currency: "USD" },
+    createdAt: "2026-03-01T00:00:00.000Z"
+  });
+
+  const executionAttestation = buildExecutionAttestationV1({
+    attestationId: "execatt_1",
+    workOrderId: workOrder.workOrderId,
+    executionId: "exec_1",
+    attester: "agent://agt_worker_execatt_1",
+    evidenceHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    attestedAt: "2026-03-01T00:00:30.000Z",
+    signerKeyId: "key_execatt_1",
+    signature: "sig_execatt_1"
+  });
+
+  const receipt = buildSubAgentCompletionReceiptV1({
+    receiptId: "worec_execatt_1",
+    tenantId: "tenant_default",
+    workOrder,
+    status: SUB_AGENT_COMPLETION_STATUS.SUCCESS,
+    outputs: { artifactRef: "artifact://result/execatt/1" },
+    evidenceRefs: ["artifact://result/execatt/1", "report://verification/execatt/1"],
+    executionAttestation,
+    deliveredAt: "2026-03-01T00:01:00.000Z"
+  });
+  assert.equal(receipt.executionAttestation?.schemaVersion, "ExecutionAttestation.v1");
+  assert.equal(receipt.executionAttestation?.attestationHash?.length, 64);
+  assert.equal(validateSubAgentCompletionReceiptV1(receipt), true);
+
+  const tampered = {
+    ...receipt,
+    executionAttestation: {
+      ...receipt.executionAttestation,
+      evidenceHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  };
+  assert.throws(() => validateSubAgentCompletionReceiptV1(tampered), /executionAttestation\.attestationHash mismatch/i);
 });

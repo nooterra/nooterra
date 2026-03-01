@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.dev/spec/schemas/ExecutionAttestation.v1.schema.json",
+  "title": "ExecutionAttestation.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "attestationId",
+    "workOrderId",
+    "executionId",
+    "attester",
+    "evidenceHash",
+    "attestedAt",
+    "attestationHash"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "ExecutionAttestation.v1" },
+    "attestationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "workOrderId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "executionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "attester": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "evidenceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "attestedAt": { "type": "string", "format": "date-time" },
+    "runtime": { "type": ["object", "null"], "additionalProperties": true },
+    "signerKeyId": { "type": ["string", "null"], "maxLength": 200 },
+    "signature": { "type": ["string", "null"], "maxLength": 8192 },
+    "metadata": { "type": ["object", "null"], "additionalProperties": true },
+    "attestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
