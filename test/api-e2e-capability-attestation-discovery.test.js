@@ -6,6 +6,13 @@ import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
+const CAPABILITY_NAMESPACE_ERROR_PATTERN = Object.freeze({
+  scheme: /(CAPABILITY_[A-Z0-9_]*SCHEME[A-Z0-9_]*|scheme)/i,
+  format: /(CAPABILITY_[A-Z0-9_]*(FORMAT|NAMESPACE)[A-Z0-9_]*|format|lowercase|namespace)/i,
+  reserved: /(CAPABILITY_[A-Z0-9_]*RESERVED[A-Z0-9_]*|reserved)/i,
+  segmentLength: /(CAPABILITY_[A-Z0-9_]*(SEGMENT|LENGTH)[A-Z0-9_]*|segment|length)/i
+});
+
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
   const response = await request(api, {
@@ -21,6 +28,12 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+function assertCapabilityNamespaceErrorResponse(response, expectedPattern) {
+  assert.equal(response.statusCode, 400, response.body);
+  assert.equal(response.json?.code, "SCHEMA_INVALID");
+  assert.match(String(response.json?.details?.message ?? ""), expectedPattern);
 }
 
 async function upsertAgentCard(api, { agentId, runtime = "openclaw", capability = "travel.booking", idem }) {
@@ -149,6 +162,160 @@ test("API e2e: capability attestation registry + discovery filter with exclusion
   const excludedAfterRevoke = discoverAfterRevoke.json?.excludedAttestationCandidates ?? [];
   assert.equal(excludedAfterRevoke.some((entry) => entry.agentId === attestedAgentId && entry.reasonCode === "CAPABILITY_ATTESTATION_REVOKED"), true);
   assert.equal(excludedAfterRevoke.some((entry) => entry.agentId === plainAgentId && entry.reasonCode === "CAPABILITY_ATTESTATION_MISSING"), true);
+});
+
+test("API e2e: capability attestation accepts legacy + capability URI forms", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const subjectAgentId = "agt_cap_ns_subject_1";
+  const issuerAgentId = "agt_cap_ns_issuer_1";
+
+  await registerAgent(api, {
+    agentId: subjectAgentId,
+    capabilities: ["travel.booking", "capability://travel.booking", "capability://travel.booking@v2"]
+  });
+  await registerAgent(api, {
+    agentId: issuerAgentId,
+    capabilities: ["attestation.issue"]
+  });
+
+  const legacy = await request(api, {
+    method: "POST",
+    path: "/capability-attestations",
+    headers: { "x-idempotency-key": "capability_attest_cap_ns_legacy_1" },
+    body: {
+      attestationId: "catt_cap_ns_legacy_1",
+      subjectAgentId,
+      capability: "travel.booking",
+      level: "attested",
+      issuerAgentId,
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      },
+      signature: {
+        keyId: `key_${issuerAgentId}`,
+        signature: "sig_cap_ns_legacy_1"
+      }
+    }
+  });
+  assert.equal(legacy.statusCode, 201, legacy.body);
+  assert.equal(legacy.json?.capabilityAttestation?.capability, "travel.booking");
+
+  const uriVersioned = await request(api, {
+    method: "POST",
+    path: "/capability-attestations",
+    headers: { "x-idempotency-key": "capability_attest_cap_ns_uri_1" },
+    body: {
+      attestationId: "catt_cap_ns_uri_1",
+      subjectAgentId,
+      capability: "capability://travel.booking@v2",
+      level: "attested",
+      issuerAgentId,
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      },
+      signature: {
+        keyId: `key_${issuerAgentId}`,
+        signature: "sig_cap_ns_uri_1"
+      }
+    }
+  });
+  assert.equal(uriVersioned.statusCode, 201, uriVersioned.body);
+  assert.equal(uriVersioned.json?.capabilityAttestation?.capability, "capability://travel.booking@v2");
+
+  const listedUriVersioned = await request(api, {
+    method: "GET",
+    path:
+      `/capability-attestations?subjectAgentId=${encodeURIComponent(subjectAgentId)}` +
+      `&capability=${encodeURIComponent("capability://travel.booking@v2")}&status=valid&limit=10&offset=0`
+  });
+  assert.equal(listedUriVersioned.statusCode, 200, listedUriVersioned.body);
+  assert.equal(listedUriVersioned.json?.attestations?.length, 1);
+  assert.equal(listedUriVersioned.json?.attestations?.[0]?.capabilityAttestation?.attestationId, "catt_cap_ns_uri_1");
+});
+
+test("API e2e: capability attestation capability namespace validation fails closed deterministically", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const subjectAgentId = "agt_cap_ns_invalid_subject_1";
+  const issuerAgentId = "agt_cap_ns_invalid_issuer_1";
+
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
+
+  const invalidCases = [
+    {
+      name: "scheme",
+      capability: "https://travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.scheme
+    },
+    {
+      name: "format",
+      capability: "capability://Travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.format
+    },
+    {
+      name: "reserved",
+      capability: "capability://reserved.travel",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.reserved
+    },
+    {
+      name: "segment-length",
+      capability: `capability://travel.${"a".repeat(80)}`,
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.segmentLength
+    }
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const first = await request(api, {
+      method: "POST",
+      path: "/capability-attestations",
+      headers: { "x-idempotency-key": `capability_attest_cap_ns_invalid_${invalidCase.name}_1` },
+      body: {
+        attestationId: `catt_cap_ns_invalid_${invalidCase.name}_1`,
+        subjectAgentId,
+        capability: invalidCase.capability,
+        level: "attested",
+        issuerAgentId,
+        validity: {
+          issuedAt: "2026-02-23T00:00:00.000Z",
+          notBefore: "2026-02-23T00:00:00.000Z",
+          expiresAt: "2027-02-23T00:00:00.000Z"
+        },
+        signature: {
+          keyId: `key_${issuerAgentId}`,
+          signature: `sig_cap_ns_invalid_${invalidCase.name}_1`
+        }
+      }
+    });
+    assertCapabilityNamespaceErrorResponse(first, invalidCase.pattern);
+
+    const second = await request(api, {
+      method: "POST",
+      path: "/capability-attestations",
+      headers: { "x-idempotency-key": `capability_attest_cap_ns_invalid_${invalidCase.name}_2` },
+      body: {
+        attestationId: `catt_cap_ns_invalid_${invalidCase.name}_2`,
+        subjectAgentId,
+        capability: invalidCase.capability,
+        level: "attested",
+        issuerAgentId,
+        validity: {
+          issuedAt: "2026-02-23T00:00:00.000Z",
+          notBefore: "2026-02-23T00:00:00.000Z",
+          expiresAt: "2027-02-23T00:00:00.000Z"
+        },
+        signature: {
+          keyId: `key_${issuerAgentId}`,
+          signature: `sig_cap_ns_invalid_${invalidCase.name}_2`
+        }
+      }
+    });
+    assertCapabilityNamespaceErrorResponse(second, invalidCase.pattern);
+    assert.equal(first.json?.details?.message, second.json?.details?.message);
+  }
 });
 
 test("API e2e: public agent-card publish fails closed without required capability attestations", async () => {

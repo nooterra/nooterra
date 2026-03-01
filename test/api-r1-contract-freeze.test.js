@@ -39,12 +39,20 @@ test("R1 API contract freeze: required operations remain published", () => {
 
   assertOperation(spec, "/runs/{runId}/settlement", "get");
   assertOperation(spec, "/runs/{runId}/settlement/policy-replay", "get");
+  assertOperation(spec, "/runs/{runId}/settlement/explainability", "get");
   assertOperation(spec, "/runs/{runId}/settlement/resolve", "post");
   assertOperation(spec, "/runs/{runId}/dispute/open", "post");
   assertOperation(spec, "/runs/{runId}/dispute/close", "post");
   assertOperation(spec, "/runs/{runId}/dispute/evidence", "post");
   assertOperation(spec, "/runs/{runId}/dispute/escalate", "post");
   assertOperation(spec, "/ops/tool-calls/replay-evaluate", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/ops/routines", "get", { scopes: ["ops_read", "ops_write"] });
+  assertOperation(spec, "/ops/routines", "post", { scopes: ["ops_write"] });
+  assertOperation(spec, "/ops/routines/{routineId}", "get", { scopes: ["ops_read", "ops_write"] });
+  assertOperation(spec, "/ops/routines/{routineId}/kill-switch", "post", { scopes: ["ops_write"] });
+  assertOperation(spec, "/ops/routines/{routineId}/execute", "post", { scopes: ["ops_write"] });
+  assertOperation(spec, "/ops/routines/{routineId}/executions", "get", { scopes: ["ops_read", "ops_write"] });
+  assertOperation(spec, "/ops/routines/{routineId}/incidents", "get", { scopes: ["ops_read", "ops_write"] });
   assertOperation(spec, "/public/agent-cards/discover", "get");
   assertOperation(spec, "/v1/federation/invoke", "post", { scopes: ["ops_write"] });
   assertOperation(spec, "/v1/federation/result", "post", { scopes: ["ops_read", "ops_write"] });

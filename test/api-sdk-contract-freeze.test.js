@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { NooterraClient, NooterraHttpParityAdapter, NooterraMcpParityAdapter } from "../packages/api-sdk/src/index.js";
+import {
+  NooterraClient,
+  NooterraHttpParityAdapter,
+  NooterraMcpParityAdapter,
+  canonicalJsonStringifyDeterministic,
+  computeCanonicalSha256,
+  buildCanonicalEnvelope
+} from "../packages/api-sdk/src/index.js";
 
 function readFile(relativePath) {
   return fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
@@ -63,6 +70,14 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   const parityMcp = client.createMcpParityAdapter({ callTool: async () => ({ ok: true, status: 200, body: {} }) });
   assert.equal(typeof parityHttp.invoke, "function");
   assert.equal(typeof parityMcp.invoke, "function");
+  assert.equal(typeof canonicalJsonStringifyDeterministic, "function");
+  assert.equal(typeof computeCanonicalSha256, "function");
+  assert.equal(typeof buildCanonicalEnvelope, "function");
+
+  const deterministicCanonical = canonicalJsonStringifyDeterministic({ b: 2, a: 1 });
+  assert.equal(deterministicCanonical, "{\"a\":1,\"b\":2}");
+  assert.equal(computeCanonicalSha256({ b: 2, a: 1 }), computeCanonicalSha256({ a: 1, b: 2 }));
+  assert.equal(buildCanonicalEnvelope({ b: 2, a: 1 }).canonicalJson, deterministicCanonical);
 
   const dts = readFile("packages/api-sdk/src/index.d.ts");
   assert.match(dts, /manual_review_required/);
@@ -116,6 +131,16 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.match(dts, /PARITY_IDEMPOTENCY_KEY_REQUIRED/);
   assert.match(dts, /NooterraParityReasonCode/);
   assert.match(dts, /NooterraMcpCallTool/);
+  assert.match(dts, /canonicalJsonStringifyDeterministic/);
+  assert.match(dts, /computeCanonicalSha256/);
+  assert.match(dts, /buildCanonicalEnvelope/);
+  assert.match(dts, /type SessionV1/);
+  assert.match(dts, /type SessionEventV1/);
+  assert.match(dts, /type SessionReplayPackV1/);
+  assert.match(dts, /type DelegationGrantV1/);
+  assert.match(dts, /type AuthorityGrantV1/);
+  assert.match(dts, /type SubAgentWorkOrderV1/);
+  assert.match(dts, /type SubAgentCompletionReceiptV1/);
 
   const jsClient = readFile("packages/api-sdk/src/client.js");
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/settlement\/policy-replay/);
@@ -139,6 +164,9 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.match(jsClient, /PARITY_IDEMPOTENCY_KEY_REQUIRED/);
   assert.match(jsClient, /PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED/);
   assert.match(jsClient, /retryStatusCodes/);
+  assert.match(jsClient, /export function canonicalJsonStringifyDeterministic/);
+  assert.match(jsClient, /export function computeCanonicalSha256/);
+  assert.match(jsClient, /export function buildCanonicalEnvelope/);
 
   const readme = readFile("packages/api-sdk/README.md");
   assert.match(readme, /Transport Parity Adapters \(HTTP \+ MCP\)/);

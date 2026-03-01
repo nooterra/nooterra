@@ -7,6 +7,9 @@ const FED_ENV_KEYS = [
   "COORDINATOR_DID",
   "PROXY_COORDINATOR_DID",
   "PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS",
+  "COORDINATOR_SIGNING_PRIVATE_KEY_PEM",
+  "COORDINATOR_SIGNING_KEY_ID",
+  "COORDINATOR_SIGNING_KEY",
   "PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM",
   "PROXY_COORDINATOR_SIGNING_KEY_ID",
 ];
@@ -107,8 +110,44 @@ test("config federation: fails closed when signing private key is set without si
     () => {
       assert.throws(
         () => loadConfig({ mode: "api" }),
-        /requires PROXY_COORDINATOR_SIGNING_KEY_ID/i
+        /requires COORDINATOR_SIGNING_KEY_ID/i
       );
+    }
+  );
+});
+
+test("config federation: supports non-proxy signing env aliases", () => {
+  withFederationEnv(
+    {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      COORDINATOR_SIGNING_PRIVATE_KEY_PEM: "-----BEGIN PRIVATE KEY-----\\nmock\\n-----END PRIVATE KEY-----",
+      COORDINATOR_SIGNING_KEY_ID: "key_coord_alpha_alias_1"
+    },
+    () => {
+      const cfg = loadConfig({ mode: "api" });
+      assert.equal(cfg.federation?.enabled, true);
+      assert.equal(cfg.federation?.coordinatorDid, "did:nooterra:coord_alpha");
+      assert.equal(cfg.federation?.signing?.enabled, true);
+      assert.equal(cfg.federation?.signing?.keyId, "key_coord_alpha_alias_1");
+      assert.equal(
+        cfg.federation?.signing?.privateKeyPem,
+        "-----BEGIN PRIVATE KEY-----\\nmock\\n-----END PRIVATE KEY-----"
+      );
+    }
+  );
+});
+
+test("config federation: COORDINATOR_SIGNING_KEY alias is accepted for key id", () => {
+  withFederationEnv(
+    {
+      COORDINATOR_DID: "did:nooterra:coord_alpha",
+      COORDINATOR_SIGNING_PRIVATE_KEY_PEM: "-----BEGIN PRIVATE KEY-----\\nmock\\n-----END PRIVATE KEY-----",
+      COORDINATOR_SIGNING_KEY: "key_coord_alpha_alias_2"
+    },
+    () => {
+      const cfg = loadConfig({ mode: "api" });
+      assert.equal(cfg.federation?.signing?.enabled, true);
+      assert.equal(cfg.federation?.signing?.keyId, "key_coord_alpha_alias_2");
     }
   );
 });

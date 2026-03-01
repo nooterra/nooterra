@@ -118,7 +118,7 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
       },
       body: {
         topUpId: "topup_pg_meter_1",
-        amountCents: 120,
+        amountCents: 50,
         quantity: 1,
         currency: "USD",
         eventKey: `work_order_topup:${workOrderId}:topup_pg_meter_1:duplicate`,
@@ -176,7 +176,7 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
       },
       body: {
         topUpId: "topup_pg_meter_1",
-        amountCents: 120,
+        amountCents: 50,
         quantity: 1,
         currency: "USD",
         eventKey: `work_order_topup:${workOrderId}:topup_pg_meter_1:duplicate_after_restart`,

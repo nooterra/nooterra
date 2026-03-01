@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
+
 function usage() {
   // eslint-disable-next-line no-console
   console.error(
@@ -79,6 +81,172 @@ async function assertFileSha256({ dir, checksumFile, targetName }) {
   if (expected !== actual) throw new Error(`${targetName} sha256 mismatch expected=${expected} actual=${actual}`);
 }
 
+function assertHexSha256(value, context) {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {
+    throw new Error(`${context} must be a lowercase/uppercase 64-char sha256 hex string`);
+  }
+  return value.toLowerCase();
+}
+
+function normalizeManifestEntry(entry, indexContext) {
+  const rel = typeof entry?.path === "string" && entry.path.trim() ? entry.path.trim() : null;
+  const sha256 = typeof entry?.sha256 === "string" ? entry.sha256.toLowerCase() : null;
+  const sizeBytes = entry?.sizeBytes;
+  if (!rel) throw new Error(`audit packet manifest entry ${indexContext} missing path`);
+  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new Error(`audit packet manifest entry ${indexContext} has invalid sha256`);
+  }
+  if (!Number.isInteger(sizeBytes) || sizeBytes < 0) {
+    throw new Error(`audit packet manifest entry ${indexContext} has invalid sizeBytes`);
+  }
+  return { path: rel, sha256, sizeBytes };
+}
+
+function readZipManifestEntries({ dir, zipName }) {
+  const script = `
+import hashlib, json, sys, zipfile
+
+zip_path = sys.argv[1]
+out = []
+with zipfile.ZipFile(zip_path, "r") as zf:
+  for info in sorted(zf.infolist(), key=lambda row: row.filename):
+    name = info.filename
+    if name.endswith("/"):
+      continue
+    blob = zf.read(name)
+    out.append({
+      "path": name,
+      "sha256": hashlib.sha256(blob).hexdigest(),
+      "sizeBytes": len(blob),
+    })
+print(json.dumps(out, separators=(",", ":")))
+`;
+  const fp = path.join(dir, zipName);
+  const res = spawnSync("python3", ["-c", script, fp], { encoding: "utf8" });
+  if (res.status !== 0) {
+    const msg = String(res.stderr || res.stdout || "").trim();
+    throw new Error(`unable to inspect ${zipName}: ${msg || `python3 exited ${res.status}`}`);
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(res.stdout ?? ""));
+  } catch (e) {
+    throw new Error(`unable to parse ${zipName} manifest json: ${e?.message ?? String(e)}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error(`unable to parse ${zipName} manifest json: expected array`);
+  return parsed.map((entry, idx) => normalizeManifestEntry(entry, `zip[${idx}]`));
+}
+
+async function assertAuditPacketReport({ dir, zipName, zipChecksumName, reportName }) {
+  const reportPath = path.join(dir, reportName);
+  const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  if (report?.schemaVersion !== "AuditPacket.v1") {
+    throw new Error(`${reportName} must use schemaVersion AuditPacket.v1`);
+  }
+
+  const packet = report?.packet ?? null;
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) throw new Error(`${reportName} missing packet object`);
+  if (packet.zipPath !== zipName) throw new Error(`${reportName} packet.zipPath mismatch`);
+  if (packet.zipSha256Path !== zipChecksumName) throw new Error(`${reportName} packet.zipSha256Path mismatch`);
+  const packetZipSha256 = assertHexSha256(packet.zipSha256, `${reportName} packet.zipSha256`);
+  const actualZipSha256 = sha256Hex(await fs.readFile(path.join(dir, zipName)));
+  if (packetZipSha256 !== actualZipSha256) {
+    throw new Error(`${reportName} packet.zipSha256 mismatch expected=${packetZipSha256} actual=${actualZipSha256}`);
+  }
+
+  const metadata = report?.metadata ?? null;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error(`${reportName} missing metadata object`);
+  if (metadata.schemaVersion !== "AuditPacketMetadata.v1") {
+    throw new Error(`${reportName} metadata.schemaVersion must be AuditPacketMetadata.v1`);
+  }
+  if (metadata.zipPath !== zipName) throw new Error(`${reportName} metadata.zipPath mismatch`);
+  if (metadata.zipSha256Path !== zipChecksumName) throw new Error(`${reportName} metadata.zipSha256Path mismatch`);
+  if (assertHexSha256(metadata.zipSha256, `${reportName} metadata.zipSha256`) !== actualZipSha256) {
+    throw new Error(`${reportName} metadata.zipSha256 mismatch`);
+  }
+
+  const metadataHash = sha256Hex(canonicalJsonStringify(metadata));
+  const signing = report?.signing ?? null;
+  if (!signing || typeof signing !== "object" || Array.isArray(signing)) throw new Error(`${reportName} missing signing object`);
+  if (signing.requested === true) {
+    if (signing.signed !== true) throw new Error(`${reportName} signing.requested=true requires signing.signed=true`);
+    if (signing.algorithm !== "ed25519-sha256") throw new Error(`${reportName} signing.algorithm must be ed25519-sha256`);
+    const messageSha256 = assertHexSha256(signing.messageSha256, `${reportName} signing.messageSha256`);
+    if (messageSha256 !== metadataHash) throw new Error(`${reportName} signing.messageSha256 does not match metadata hash`);
+    const publicKeyPem = typeof signing.publicKeyPem === "string" && signing.publicKeyPem.trim() ? signing.publicKeyPem : null;
+    const signatureBase64 = typeof signing.signatureBase64 === "string" && signing.signatureBase64.trim() ? signing.signatureBase64 : null;
+    const keyId = typeof signing.keyId === "string" && signing.keyId.trim() ? signing.keyId.trim() : null;
+    if (!publicKeyPem || !signatureBase64 || !keyId) {
+      throw new Error(`${reportName} signing.requested=true requires publicKeyPem/signatureBase64/keyId`);
+    }
+    const derivedKeyId = `key_${sha256Hex(publicKeyPem).slice(0, 24)}`;
+    if (derivedKeyId !== keyId) throw new Error(`${reportName} signing.keyId mismatch derived key id`);
+    let signatureValid = false;
+    try {
+      signatureValid = crypto.verify(null, Buffer.from(messageSha256, "hex"), publicKeyPem, Buffer.from(signatureBase64, "base64"));
+    } catch (e) {
+      throw new Error(`${reportName} signing verification error: ${e?.message ?? String(e)}`);
+    }
+    if (!signatureValid) throw new Error(`${reportName} signing signature verification failed`);
+  } else {
+    if (signing.requested !== false) throw new Error(`${reportName} signing.requested must be boolean`);
+    if (signing.signed !== false) throw new Error(`${reportName} signing.signed must be false when not requested`);
+    if (signing.algorithm !== null || signing.keyId !== null || signing.publicKeyPem !== null || signing.signatureBase64 !== null) {
+      throw new Error(`${reportName} signing fields must be null when signing is not requested`);
+    }
+  }
+
+  const manifest = report?.manifest ?? null;
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error(`${reportName} missing manifest object`);
+  if (manifest.schemaVersion !== "AuditPacketManifest.v1") {
+    throw new Error(`${reportName} manifest.schemaVersion must be AuditPacketManifest.v1`);
+  }
+  if (manifest.hashAlgorithm !== "sha256") throw new Error(`${reportName} manifest.hashAlgorithm must be sha256`);
+  if (manifest.canonicalization !== "RFC8785") throw new Error(`${reportName} manifest.canonicalization must be RFC8785`);
+
+  const entries = Array.isArray(manifest.entries) ? manifest.entries.map((entry, idx) => normalizeManifestEntry(entry, idx)) : null;
+  if (!entries || !entries.length) throw new Error(`${reportName} manifest.entries must be a non-empty array`);
+  if (manifest.entryCount !== entries.length) throw new Error(`${reportName} manifest.entryCount mismatch`);
+
+  const seenPaths = new Set();
+  for (let i = 0; i < entries.length; i += 1) {
+    const row = entries[i];
+    if (seenPaths.has(row.path)) throw new Error(`${reportName} manifest has duplicate path: ${row.path}`);
+    seenPaths.add(row.path);
+    if (i > 0 && entries[i - 1].path >= row.path) {
+      throw new Error(`${reportName} manifest entries must be sorted by path`);
+    }
+  }
+
+  const manifestSha256 = assertHexSha256(manifest.manifestSha256, `${reportName} manifest.manifestSha256`);
+  const computedManifestSha256 = sha256Hex(canonicalJsonStringify(entries));
+  if (manifestSha256 !== computedManifestSha256) {
+    throw new Error(`${reportName} manifest.manifestSha256 mismatch expected=${manifestSha256} actual=${computedManifestSha256}`);
+  }
+
+  const zipEntries = readZipManifestEntries({ dir, zipName });
+  if (zipEntries.length !== entries.length) throw new Error(`${reportName} manifest entry count does not match ${zipName}`);
+  for (let i = 0; i < zipEntries.length; i += 1) {
+    const expected = entries[i];
+    const actual = zipEntries[i];
+    if (expected.path !== actual.path || expected.sha256 !== actual.sha256 || expected.sizeBytes !== actual.sizeBytes) {
+      throw new Error(`${reportName} manifest mismatch at index ${i}`);
+    }
+  }
+
+  for (const must of [
+    "README.md",
+    "spec/THREAT_MODEL.md",
+    "conformance/conformance-v1.tar.gz",
+    "conformance/conformance-v1-SHA256SUMS",
+    "protocol-vectors/v1.json",
+    "tool.json",
+    "SHA256SUMS"
+  ]) {
+    if (!seenPaths.has(must)) throw new Error(`${zipName} missing expected entry: ${must}`);
+  }
+}
+
 async function main() {
   const { dir, releaseTrust } = parseArgs(process.argv.slice(2));
 
@@ -89,6 +257,7 @@ async function main() {
     "release_index_v1.sig",
     "nooterra-audit-packet-v1.zip",
     "nooterra-audit-packet-v1.zip.sha256",
+    "nooterra-audit-packet-v1.report.json",
     "npm-SHA256SUMS",
     "python-SHA256SUMS"
   ];
@@ -143,19 +312,12 @@ async function main() {
   for (const must of ["conformance-v1/README.md", "conformance-v1/cases.json", "conformance-v1/expected/"]) {
     if (!conformanceListing.includes(must)) throw new Error(`conformance-v1.tar.gz missing expected entry: ${must}`);
   }
-  const auditListing = sh("unzip", ["-l", "nooterra-audit-packet-v1.zip"], { cwd: dir });
-  const auditExpectedEntries = [
-    // Current audit packet layout (scripts/audit/build-audit-packet.mjs)
-    "spec/THREAT_MODEL.md",
-    "conformance/conformance-v1.tar.gz",
-    "conformance/conformance-v1-SHA256SUMS",
-    "protocol-vectors/v1.json",
-    "tool.json",
-    "SHA256SUMS"
-  ];
-  for (const must of auditExpectedEntries) {
-    if (!auditListing.includes(must)) throw new Error(`nooterra-audit-packet-v1.zip missing expected entry: ${must}`);
-  }
+  await assertAuditPacketReport({
+    dir,
+    zipName: "nooterra-audit-packet-v1.zip",
+    zipChecksumName: "nooterra-audit-packet-v1.zip.sha256",
+    reportName: "nooterra-audit-packet-v1.report.json"
+  });
 
   // Verify signed ReleaseIndex and ensure artifacts match its hashes.
   const verifyArgs = ["scripts/release/verify-release.mjs", "--dir", dir, "--format", "json"];

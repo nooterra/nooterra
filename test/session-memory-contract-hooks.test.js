@@ -181,3 +181,74 @@ test("memory hooks: import fails closed on rotated signer lifecycle for signed r
   assert.equal(imported.code, SESSION_MEMORY_CONTRACT_REASON_CODES.REPLAY_PACK_SIGNER_LIFECYCLE_INVALID);
   assert.equal(imported.details?.signerStatus, "rotated");
 });
+
+test("memory hooks: workspace ownership + migration contract verifies deterministically", () => {
+  const { replayPack, transcript } = buildFixtureSessionArtifacts();
+  const built = buildSessionMemoryContractHooksV1({
+    replayPack,
+    transcript,
+    exportId: "exp_memory_workspace_1",
+    workspace: {
+      workspaceId: "ws_personal_1",
+      ownerAgentId: "agt_memory_owner_1",
+      domainId: "personal_primary",
+      host: "host_a",
+      revokedAt: null,
+      revocationReasonCode: null
+    },
+    migration: {
+      migrationId: "mig_personal_1",
+      sourceHost: "host_a",
+      targetHost: "host_b",
+      migratedAt: "2026-02-20T00:00:04.000Z"
+    }
+  });
+
+  const imported = verifySessionMemoryContractImportV1({
+    memoryExport: built.memoryExport,
+    replayPack,
+    transcript,
+    expectedMemoryExportRef: built.memoryExportRef,
+    expectedWorkspace: {
+      workspaceId: "ws_personal_1",
+      ownerAgentId: "agt_memory_owner_1",
+      domainId: "personal_primary",
+      host: "host_a",
+      revokedAt: null,
+      revocationReasonCode: null
+    },
+    expectedMigration: {
+      migrationId: "mig_personal_1",
+      sourceHost: "host_a",
+      targetHost: "host_b",
+      migratedAt: "2026-02-20T00:00:04.000Z"
+    }
+  });
+  assert.equal(imported.ok, true, imported.error ?? imported.code ?? "workspace migration import should verify");
+});
+
+test("memory hooks: import fails closed when workspace boundary is revoked", () => {
+  const { replayPack, transcript } = buildFixtureSessionArtifacts();
+  const built = buildSessionMemoryContractHooksV1({
+    replayPack,
+    transcript,
+    exportId: "exp_memory_workspace_revoked_1",
+    workspace: {
+      workspaceId: "ws_personal_revoked_1",
+      ownerAgentId: "agt_memory_owner_1",
+      domainId: "personal_primary",
+      host: "host_a",
+      revokedAt: "2026-02-20T00:00:05.000Z",
+      revocationReasonCode: "WORKSPACE_MANUAL_REVOKE"
+    }
+  });
+
+  const imported = verifySessionMemoryContractImportV1({
+    memoryExport: built.memoryExport,
+    replayPack,
+    transcript,
+    expectedMemoryExportRef: built.memoryExportRef
+  });
+  assert.equal(imported.ok, false);
+  assert.equal(imported.code, SESSION_MEMORY_CONTRACT_REASON_CODES.WORKSPACE_ACCESS_REVOKED);
+});

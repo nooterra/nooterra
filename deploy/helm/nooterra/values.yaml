@@ -11,6 +11,25 @@ api:
   service:
     type: ClusterIP
     port: 3000
+  readinessProbe:
+    path: /healthz
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
   resources:
     requests:
       cpu: 100m
@@ -73,6 +92,21 @@ store:
     name: nooterra-db # required when store.mode=pg
     key: DATABASE_URL
 
+# API evidence/artifact store wiring.
+evidenceStore:
+  mode: fs # fs|s3
+  s3:
+    endpoint: ""
+    region: us-east-1
+    bucket: ""
+    forcePathStyle: true
+    accessKeyIdSecret:
+      name: "" # required when evidenceStore.mode=s3
+      key: ACCESS_KEY_ID
+    secretAccessKeySecret:
+      name: "" # required when evidenceStore.mode=s3
+      key: SECRET_ACCESS_KEY
+
 # Non-secret config env (e.g. export destinations) stored as a ConfigMap key.
 config:
   exportDestinationsJson: "" # e.g. {"tenant_default":[{"destinationId":"dst","kind":"webhook","url":"https://...","secretRef":"file:/var/run/secrets/webhook_secret"}]}
@@ -92,6 +126,25 @@ receiver:
   service:
     type: ClusterIP
     port: 4000
+  readinessProbe:
+    path: /ready
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
   resources:
     requests:
       cpu: 50m

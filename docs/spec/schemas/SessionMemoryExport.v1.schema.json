@@ -36,6 +36,30 @@
     "lastEventId": { "type": ["string", "null"] },
     "firstPrevChainHash": { "type": ["string", "null"] },
     "headChainHash": { "type": ["string", "null"] },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ownerAgentId", "domainId", "host", "revokedAt", "revocationReasonCode"],
+      "properties": {
+        "workspaceId": { "type": ["string", "null"] },
+        "ownerAgentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "domainId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "host": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "revokedAt": { "type": ["string", "null"], "format": "date-time" },
+        "revocationReasonCode": { "type": ["string", "null"], "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["migrationId", "sourceHost", "targetHost", "migratedAt"],
+      "properties": {
+        "migrationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "sourceHost": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "targetHost": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "migratedAt": { "type": "string", "format": "date-time" }
+      }
+    },
     "continuity": {
       "type": "object",
       "additionalProperties": false,

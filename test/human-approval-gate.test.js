@@ -122,3 +122,97 @@ test("human approval gate: deterministic approval request binds to action hash",
   assert.deepEqual(requestA, requestB);
 });
 
+test("human approval gate: decision timeout fails closed when no decision is present", () => {
+  const action = {
+    actionId: "act_timeout_1",
+    actionType: "funds_transfer",
+    actorId: "agent.wallet",
+    riskTier: "high",
+    amountCents: 90_000
+  };
+  const check = enforceHighRiskApproval({
+    action,
+    approvalPolicy: {
+      requireApprovalAboveCents: 10_000,
+      decisionTimeoutAt: "2026-02-01T00:10:00.000Z"
+    },
+    nowIso: () => "2026-02-01T00:11:00.000Z"
+  });
+  assert.equal(check.approved, false);
+  assert.equal(check.blockingIssues[0]?.code, "HUMAN_APPROVAL_TIMEOUT");
+});
+
+test("human approval gate: context binding mismatch fails closed", () => {
+  const action = {
+    actionId: "act_binding_ctx_1",
+    actionType: "funds_transfer",
+    actorId: "agent.wallet",
+    riskTier: "high",
+    amountCents: 120_000
+  };
+  const check = enforceHighRiskApproval({
+    action,
+    approvalPolicy: {
+      requireApprovalAboveCents: 100_000,
+      requireContextBinding: true
+    },
+    approvalDecision: {
+      schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+      decisionId: "dec_binding_ctx_1",
+      actionId: "act_binding_ctx_1",
+      actionSha256: hashActionForApproval(action),
+      decidedBy: "human.finance",
+      decidedAt: "2026-02-01T00:00:00.000Z",
+      approved: true,
+      evidenceRefs: ["ticket:NOO-266"],
+      binding: {
+        gateId: "gate_mismatch"
+      }
+    },
+    contextBinding: {
+      gateId: "gate_expected",
+      runId: "x402_gate_expected"
+    },
+    nowIso: () => "2026-02-01T00:01:00.000Z"
+  });
+  assert.equal(check.approved, false);
+  assert.equal(check.blockingIssues[0]?.code, "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH");
+});
+
+test("human approval gate: context binding match passes", () => {
+  const action = {
+    actionId: "act_binding_ctx_2",
+    actionType: "funds_transfer",
+    actorId: "agent.wallet",
+    riskTier: "high",
+    amountCents: 120_000
+  };
+  const check = enforceHighRiskApproval({
+    action,
+    approvalPolicy: {
+      requireApprovalAboveCents: 100_000,
+      requireContextBinding: true
+    },
+    approvalDecision: {
+      schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+      decisionId: "dec_binding_ctx_2",
+      actionId: "act_binding_ctx_2",
+      actionSha256: hashActionForApproval(action),
+      decidedBy: "human.finance",
+      decidedAt: "2026-02-01T00:00:00.000Z",
+      approved: true,
+      evidenceRefs: ["ticket:NOO-266"],
+      binding: {
+        gateId: "gate_expected",
+        runId: "x402_gate_expected"
+      }
+    },
+    contextBinding: {
+      gateId: "gate_expected",
+      runId: "x402_gate_expected"
+    },
+    nowIso: () => "2026-02-01T00:01:00.000Z"
+  });
+  assert.equal(check.approved, true);
+  assert.deepEqual(check.blockingIssues, []);
+});

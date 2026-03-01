@@ -800,6 +800,31 @@ test("API e2e: x402 authorize-payment fails closed without S8 approval and succe
     }
   };
 
+  const blockedBinding = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_s8_approval_binding_mismatch_1" },
+    body: {
+      gateId,
+      s8ApprovalDecision: {
+        schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+        decisionId: "dec_x402_s8_approval_binding_mismatch_1",
+        actionId: approvalAction.actionId,
+        actionSha256: hashActionForApproval(approvalAction),
+        decidedBy: "human.finance",
+        decidedAt: "2026-02-01T00:10:00.000Z",
+        approved: true,
+        evidenceRefs: ["ticket:NOO-266"],
+        binding: {
+          gateId: "gate_mismatch",
+          runId: `x402_${gateId}`
+        }
+      }
+    }
+  });
+  assert.equal(blockedBinding.statusCode, 409, blockedBinding.body);
+  assert.equal(blockedBinding.json?.code, "HUMAN_APPROVAL_CONTEXT_BINDING_MISMATCH");
+
   const approved = await request(api, {
     method: "POST",
     path: "/x402/gate/authorize-payment",
@@ -814,7 +839,11 @@ test("API e2e: x402 authorize-payment fails closed without S8 approval and succe
         decidedBy: "human.finance",
         decidedAt: "2026-02-01T00:10:00.000Z",
         approved: true,
-        evidenceRefs: ["ticket:NOO-244"]
+        evidenceRefs: ["ticket:NOO-244"],
+        binding: {
+          gateId,
+          runId: `x402_${gateId}`
+        }
       }
     }
   });
@@ -822,6 +851,218 @@ test("API e2e: x402 authorize-payment fails closed without S8 approval and succe
   assert.equal(approved.json?.gateId, gateId);
   assert.equal(approved.json?.reserve?.status, "reserved");
   assert.ok(typeof approved.json?.token === "string" && approved.json.token.length > 0);
+});
+
+test("API e2e: delegated budget envelope enforces approval threshold, audit binding, and cumulative cap", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_budget_env_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_budget_env_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_budget_env_1" });
+
+  const delegatedBudgetEnvelope = {
+    schemaVersion: "X402DelegatedBudgetEnvelope.v1",
+    envelopeId: "env_team_ops_1",
+    teamId: "team_ops",
+    policyRef: "policy_ops_budget_1",
+    currency: "USD",
+    maxTotalCents: 700,
+    approvalThresholdCents: 500,
+    requireEvidenceRefs: true
+  };
+
+  const gateId = "gate_x402_budget_env_1";
+  const amountCents = 600;
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_budget_env_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_budget_env_blocked_1" },
+    body: {
+      gateId,
+      delegatedBudgetEnvelope
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "HUMAN_APPROVAL_REQUIRED");
+
+  const delegatedApprovalAction = {
+    actionId: `x402_budget_envelope_authorize:${gateId}:${delegatedBudgetEnvelope.envelopeId}`,
+    actionType: "delegated_budget_authorize",
+    actorId: payerAgentId,
+    riskTier: "medium",
+    amountCents,
+    metadata: {
+      tenantId: "tenant_default",
+      gateId,
+      runId: `x402_${gateId}`,
+      currency: "USD",
+      payeeProviderId: payeeAgentId,
+      envelopeId: delegatedBudgetEnvelope.envelopeId,
+      teamId: delegatedBudgetEnvelope.teamId
+    }
+  };
+  const approvalDecision = {
+    schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+    decisionId: "dec_x402_budget_env_1",
+    actionId: delegatedApprovalAction.actionId,
+    actionSha256: hashActionForApproval(delegatedApprovalAction),
+    decidedBy: "human.finance.budget",
+    decidedAt: "2026-02-01T00:20:00.000Z",
+    approved: true,
+    evidenceRefs: ["ticket:NOO-259", "policy:budget-envelope"],
+    binding: {
+      gateId,
+      runId: `x402_${gateId}`
+    }
+  };
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_budget_env_1" },
+    body: {
+      gateId,
+      delegatedBudgetEnvelope,
+      delegatedApprovalDecision: approvalDecision
+    }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+  assert.equal(authorized.json?.governance?.budgetEnvelope?.envelopeId, delegatedBudgetEnvelope.envelopeId);
+  assert.equal(authorized.json?.governance?.budgetEnvelope?.projectedCents, 600);
+  assert.equal(authorized.json?.governance?.approvals?.[0]?.profile, "delegated_budget_threshold");
+
+  const authorizedRetry = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_budget_env_1" },
+    body: {
+      gateId,
+      delegatedBudgetEnvelope,
+      delegatedApprovalDecision: approvalDecision
+    }
+  });
+  assert.equal(authorizedRetry.statusCode, 200, authorizedRetry.body);
+  assert.equal(authorizedRetry.json?.token, authorized.json?.token);
+  assert.equal(authorizedRetry.json?.governance?.budgetEnvelope?.envelopeId, delegatedBudgetEnvelope.envelopeId);
+
+  const requestSha256 = sha256Hex("GET\nexample.com\n/tools/ops?task=sync\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  const responseSha256 = sha256Hex("{\"ok\":true,\"ops\":\"done\"}");
+  const verified = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_budget_env_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${requestSha256}`, `http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verified.statusCode, 200, verified.body);
+  assert.equal(verified.json?.settlement?.status, "released");
+  assert.equal(
+    verified.json?.decisionRecord?.bindings?.governance?.budgetEnvelope?.envelopeId,
+    delegatedBudgetEnvelope.envelopeId
+  );
+  assert.equal(
+    verified.json?.decisionRecord?.bindings?.governance?.approvals?.[0]?.decision?.decisionId,
+    approvalDecision.decisionId
+  );
+
+  const gateId2 = "gate_x402_budget_env_2";
+  const created2 = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_budget_env_2" },
+    body: {
+      gateId: gateId2,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 200,
+      currency: "USD"
+    }
+  });
+  assert.equal(created2.statusCode, 201, created2.body);
+
+  const overBudget = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_budget_env_over_1" },
+    body: {
+      gateId: gateId2,
+      delegatedBudgetEnvelope
+    }
+  });
+  assert.equal(overBudget.statusCode, 409, overBudget.body);
+  assert.equal(overBudget.json?.code, "X402_DELEGATED_BUDGET_ENVELOPE_EXCEEDED");
+  assert.equal(overBudget.json?.details?.currentUsedCents, 600);
+  assert.equal(overBudget.json?.details?.projectedCents, 800);
+});
+
+test("API e2e: delegated budget envelope emergency stop fails closed for authorization", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_budget_env_stop_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_budget_env_stop_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 3000, idempotencyKey: "wallet_credit_x402_budget_env_stop_1" });
+
+  const gateId = "gate_x402_budget_env_stop_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_budget_env_stop_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 200,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_budget_env_stop_1" },
+    body: {
+      gateId,
+      delegatedBudgetEnvelope: {
+        schemaVersion: "X402DelegatedBudgetEnvelope.v1",
+        envelopeId: "env_team_ops_stop_1",
+        currency: "USD",
+        maxTotalCents: 1000,
+        emergencyStop: true
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATED_EXECUTION_STOPPED");
 });
 
 test("API e2e: x402 authorize-payment is idempotent and token verifies via keyset", async () => {

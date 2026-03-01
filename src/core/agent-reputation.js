@@ -99,7 +99,8 @@ function settlementObservationAtMs(settlement) {
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
-function shouldIncludeByWindow({ observedAtMs, cutoffMs }) {
+function shouldIncludeByWindow({ observedAtMs, cutoffMs, asOfMs }) {
+  if (Number.isFinite(asOfMs) && Number.isFinite(observedAtMs) && observedAtMs > asOfMs) return false;
   if (cutoffMs === null) return true;
   if (!Number.isFinite(observedAtMs)) return false;
   return observedAtMs >= cutoffMs;
@@ -110,7 +111,8 @@ function computeReputationSummary({
   agentId,
   runs = [],
   settlements = [],
-  cutoffMs = null
+  cutoffMs = null,
+  asOfMs = Number.NaN
 } = {}) {
   const normalizedTenantId = String(tenantId);
   const normalizedAgentId = String(agentId);
@@ -134,7 +136,7 @@ function computeReputationSummary({
     if (String(row.tenantId ?? "") !== normalizedTenantId) continue;
     if (String(row.agentId ?? "") !== normalizedAgentId) continue;
     const observedAtMs = runObservationAtMs(row);
-    if (!shouldIncludeByWindow({ observedAtMs, cutoffMs })) continue;
+    if (!shouldIncludeByWindow({ observedAtMs, cutoffMs, asOfMs })) continue;
 
     totalRuns += 1;
     const status = String(row.status ?? "").toLowerCase();
@@ -168,7 +170,7 @@ function computeReputationSummary({
     if (String(row.tenantId ?? "") !== normalizedTenantId) continue;
     if (String(row.agentId ?? "") !== normalizedAgentId) continue;
     const observedAtMs = settlementObservationAtMs(row);
-    if (!shouldIncludeByWindow({ observedAtMs, cutoffMs })) continue;
+    if (!shouldIncludeByWindow({ observedAtMs, cutoffMs, asOfMs })) continue;
 
     const status = String(row.status ?? "").toLowerCase();
     if (status === SETTLEMENT_STATUS.LOCKED) lockedSettlements += 1;
@@ -241,8 +243,8 @@ function createReputationWindowSnapshot({ summary, computedAt }) {
 }
 
 export function computeAgentReputation({ tenantId, agentId, runs = [], settlements = [], at = new Date().toISOString() } = {}) {
-  assertIsoDate(at, "at");
-  const summary = computeReputationSummary({ tenantId, agentId, runs, settlements, cutoffMs: null });
+  const asOfMs = parseAtMs(at);
+  const summary = computeReputationSummary({ tenantId, agentId, runs, settlements, cutoffMs: null, asOfMs });
   const reputation = {
     schemaVersion: AGENT_REPUTATION_SCHEMA_VERSION,
     agentId: String(agentId),
@@ -287,7 +289,7 @@ export function computeAgentReputationV2({
   const windows = {};
   for (const [window, durationMs] of Object.entries(WINDOW_DURATION_MS)) {
     const cutoffMs = durationMs === null ? null : nowMs - durationMs;
-    const summary = computeReputationSummary({ tenantId, agentId, runs, settlements, cutoffMs });
+    const summary = computeReputationSummary({ tenantId, agentId, runs, settlements, cutoffMs, asOfMs: nowMs });
     windows[window] = createReputationWindowSnapshot({ summary, computedAt: at });
   }
 

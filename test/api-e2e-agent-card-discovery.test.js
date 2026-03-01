@@ -8,6 +8,13 @@ import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js
 import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 
+const CAPABILITY_NAMESPACE_ERROR_PATTERN = Object.freeze({
+  scheme: /(CAPABILITY_[A-Z0-9_]*SCHEME[A-Z0-9_]*|scheme)/i,
+  format: /(CAPABILITY_[A-Z0-9_]*(FORMAT|NAMESPACE)[A-Z0-9_]*|format|lowercase|namespace)/i,
+  reserved: /(CAPABILITY_[A-Z0-9_]*RESERVED[A-Z0-9_]*|reserved)/i,
+  segmentLength: /(CAPABILITY_[A-Z0-9_]*(SEGMENT|LENGTH)[A-Z0-9_]*|segment|length)/i
+});
+
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
   const response = await request(api, {
@@ -128,13 +135,14 @@ async function openRunDispute({
   assert.equal(opened.statusCode, 200, opened.body);
 }
 
-async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null }) {
+async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null, tenantId = null }) {
   const response = await request(api, {
     method: "POST",
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-nooterra-protocol": "1.0"
+      "x-nooterra-protocol": "1.0",
+      ...(tenantId ? { "x-proxy-tenant-id": tenantId } : {})
     },
     body: {
       status,
@@ -142,6 +150,12 @@ async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, rea
     }
   });
   return response;
+}
+
+function assertCapabilityNamespaceErrorResponse(response, expectedPattern) {
+  assert.equal(response.statusCode, 400, response.body);
+  assert.equal(response.json?.code, "SCHEMA_INVALID");
+  assert.match(String(response.json?.details?.message ?? ""), expectedPattern);
 }
 
 async function upsertAgentSignerKeyLifecycle(
@@ -277,6 +291,130 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   });
   assert.equal(invalidCapability.statusCode, 400, invalidCapability.body);
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: AgentCard capability namespace accepts legacy + capability URI forms", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  await registerAgent(api, {
+    agentId: "agt_card_cap_ns_legacy_1",
+    capabilities: ["travel.booking"]
+  });
+  await registerAgent(api, {
+    agentId: "agt_card_cap_ns_uri_1",
+    capabilities: ["capability://travel.booking@v2"]
+  });
+
+  const upsertLegacy = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_legacy_1" },
+    body: {
+      agentId: "agt_card_cap_ns_legacy_1",
+      displayName: "Capability Namespace Legacy",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-legacy", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertLegacy.statusCode, 201, upsertLegacy.body);
+  assert.equal(upsertLegacy.json?.agentCard?.capabilities?.includes("travel.booking"), true);
+
+  const upsertUri = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_uri_1" },
+    body: {
+      agentId: "agt_card_cap_ns_uri_1",
+      displayName: "Capability Namespace URI",
+      capabilities: ["capability://travel.booking@v2"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-uri", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertUri.statusCode, 201, upsertUri.body);
+  assert.equal(upsertUri.json?.agentCard?.capabilities?.includes("capability://travel.booking@v2"), true);
+
+  const discoverLegacy = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discoverLegacy.statusCode, 200, discoverLegacy.body);
+  assert.equal(discoverLegacy.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_legacy_1"), true);
+  assert.equal(discoverLegacy.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_uri_1"), false);
+
+  const discoverUri = await request(api, {
+    method: "GET",
+    path:
+      `/agent-cards/discover?capability=${encodeURIComponent("capability://travel.booking@v2")}` +
+      "&visibility=public&runtime=openclaw&status=active&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discoverUri.statusCode, 200, discoverUri.body);
+  assert.equal(discoverUri.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_uri_1"), true);
+  assert.equal(discoverUri.json?.results?.some((row) => row?.agentCard?.agentId === "agt_card_cap_ns_legacy_1"), false);
+});
+
+test("API e2e: agent-card discovery capability namespace validation fails closed deterministically", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_card_cap_ns_validation_1", capabilities: ["travel.booking"] });
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_cap_ns_validation_upsert_1" },
+    body: {
+      agentId: "agt_card_cap_ns_validation_1",
+      displayName: "Capability Namespace Validation",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/agents/cap-ns-validation", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const invalidCases = [
+    {
+      name: "scheme",
+      capability: "https://travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.scheme
+    },
+    {
+      name: "format",
+      capability: "capability://Travel.booking",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.format
+    },
+    {
+      name: "reserved",
+      capability: "capability://reserved.travel",
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.reserved
+    },
+    {
+      name: "segment-length",
+      capability: `capability://travel.${"a".repeat(80)}`,
+      pattern: CAPABILITY_NAMESPACE_ERROR_PATTERN.segmentLength
+    }
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const firstTenant = await request(api, {
+      method: "GET",
+      path: `/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}`
+    });
+    assertCapabilityNamespaceErrorResponse(firstTenant, invalidCase.pattern);
+
+    const secondTenant = await request(api, {
+      method: "GET",
+      path: `/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}`
+    });
+    assertCapabilityNamespaceErrorResponse(secondTenant, invalidCase.pattern);
+    assert.equal(firstTenant.json?.details?.message, secondTenant.json?.details?.message);
+
+    const publicResponse = await request(api, {
+      method: "GET",
+      path: `/public/agent-cards/discover?capability=${encodeURIComponent(invalidCase.capability)}&visibility=public`,
+      auth: "none"
+    });
+    assertCapabilityNamespaceErrorResponse(publicResponse, invalidCase.pattern);
+  }
 });
 
 test("API e2e: agent-card discovery filters by executionCoordinatorDid", async () => {
@@ -417,6 +555,87 @@ test("API e2e: /agent-cards/discover supports ToolDescriptor.v1 filters", async 
   assert.equal(filteredAction.statusCode, 200, filteredAction.body);
   assert.equal(filteredAction.json?.results?.length, 1);
   assert.equal(filteredAction.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_1");
+});
+
+test("API e2e: /agent-cards/discover supports policy compatibility filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const compatibleAgentId = "agt_policy_filter_1";
+  const incompatibleAgentId = "agt_policy_filter_2";
+  const policyTemplate = "template://safe-travel.v1";
+  const evidencePack = "evidence://receipt-pack.v1";
+
+  await registerAgent(api, { agentId: compatibleAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: incompatibleAgentId, capabilities: ["travel.booking"] });
+
+  const compatibleUpsert = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_policy_filter_compatible_1" },
+    body: {
+      agentId: compatibleAgentId,
+      displayName: "Compatible Policy Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw" },
+      policyCompatibility: {
+        schemaVersion: "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates: [policyTemplate],
+        supportsEvidencePacks: [evidencePack]
+      }
+    }
+  });
+  assert.equal(compatibleUpsert.statusCode, 201, compatibleUpsert.body);
+  assert.equal(compatibleUpsert.json?.agentCard?.policyCompatibility?.schemaVersion, "AgentCardPolicyCompatibility.v1");
+
+  const incompatibleUpsert = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_policy_filter_incompatible_1" },
+    body: {
+      agentId: incompatibleAgentId,
+      displayName: "Incompatible Policy Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw" },
+      policyCompatibility: {
+        schemaVersion: "AgentCardPolicyCompatibility.v1",
+        supportsPolicyTemplates: ["template://legacy-travel.v1"],
+        supportsEvidencePacks: ["evidence://minimal-pack.v1"]
+      }
+    }
+  });
+  assert.equal(incompatibleUpsert.statusCode, 201, incompatibleUpsert.body);
+
+  const filteredByTemplate = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsPolicyTemplate=${encodeURIComponent(policyTemplate)}`
+  });
+  assert.equal(filteredByTemplate.statusCode, 200, filteredByTemplate.body);
+  assert.equal(filteredByTemplate.json?.results?.length, 1);
+  assert.equal(filteredByTemplate.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
+
+  const filteredByEvidencePack = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsEvidencePack=${encodeURIComponent(evidencePack)}`
+  });
+  assert.equal(filteredByEvidencePack.statusCode, 200, filteredByEvidencePack.body);
+  assert.equal(filteredByEvidencePack.json?.results?.length, 1);
+  assert.equal(filteredByEvidencePack.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
+
+  const filteredPublic = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&status=active&runtime=openclaw&includeReputation=false" +
+      `&supportsPolicyTemplate=${encodeURIComponent(policyTemplate)}` +
+      `&supportsEvidencePack=${encodeURIComponent(evidencePack)}`
+  });
+  assert.equal(filteredPublic.statusCode, 200, filteredPublic.body);
+  assert.equal(filteredPublic.json?.results?.length, 1);
+  assert.equal(filteredPublic.json?.results?.[0]?.agentCard?.agentId, compatibleAgentId);
 });
 
 test("API e2e: /agent-cards/discover rejects invalid boolean tool filters", async () => {
@@ -692,6 +911,88 @@ test("API e2e: /public/agent-cards/discover excludes quarantined agents", async 
   const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(agentIds.has(activeAgentId), true);
   assert.equal(agentIds.has(quarantinedAgentId), false);
+});
+
+test("API e2e: /agent-cards/discover excludes quarantined and throttled agents for tenant scope", async () => {
+  const store = createStore();
+  const api = createApi({ store, opsToken: "tok_ops" });
+  const tenantId = "tenant_discovery_scope_controls_1";
+
+  async function registerTenantAgent(agentId) {
+    const { publicKeyPem } = createEd25519Keypair();
+    const response = await request(api, {
+      method: "POST",
+      path: "/agents/register",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": `agent_register_${tenantId}_${agentId}`
+      },
+      body: {
+        agentId,
+        displayName: `Agent ${agentId}`,
+        owner: { ownerType: "service", ownerId: `svc_${tenantId}` },
+        publicKeyPem,
+        capabilities: ["travel.booking"]
+      }
+    });
+    assert.equal(response.statusCode, 201, response.body);
+  }
+
+  const activeAgentId = "agt_card_tenant_controls_active_1";
+  const quarantinedAgentId = "agt_card_tenant_controls_quarantined_1";
+  const throttledAgentId = "agt_card_tenant_controls_throttled_1";
+  for (const agentId of [activeAgentId, quarantinedAgentId, throttledAgentId]) {
+    await registerTenantAgent(agentId);
+    const upserted = await request(api, {
+      method: "POST",
+      path: "/agent-cards",
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": `agent_card_${tenantId}_${agentId}`
+      },
+      body: {
+        agentId,
+        displayName: `Card ${agentId}`,
+        capabilities: ["travel.booking"],
+        visibility: "public",
+        host: { runtime: "openclaw", endpoint: `https://example.test/tenant/${agentId}`, protocols: ["mcp"] }
+      }
+    });
+    assert.equal(upserted.statusCode, 201, upserted.body);
+  }
+
+  await store.appendEmergencyControlEvent({
+    tenantId,
+    event: {
+      eventId: "evt_agent_card_tenant_scope_quarantine_1",
+      action: "quarantine",
+      controlType: "quarantine",
+      scope: { type: "agent", id: quarantinedAgentId },
+      actor: { type: "operator", id: "ops_tenant_scope_1" },
+      reason: "tenant discovery quarantine exclusion test"
+    }
+  });
+
+  const throttledLifecycle = await setX402AgentLifecycle(api, {
+    tenantId,
+    agentId: throttledAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMIT_EXCEEDED",
+    idempotencyKey: "agent_card_tenant_scope_throttle_1"
+  });
+  assert.equal(throttledLifecycle.statusCode, 200, throttledLifecycle.body);
+  assert.equal(throttledLifecycle.json?.lifecycle?.status, "throttled");
+
+  const tenantDiscover = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    headers: { "x-proxy-tenant-id": tenantId }
+  });
+  assert.equal(tenantDiscover.statusCode, 200, tenantDiscover.body);
+  const agentIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(quarantinedAgentId), false);
+  assert.equal(agentIds.has(throttledAgentId), false);
 });
 
 test("API e2e: /agent-cards/:agentId/abuse-reports suppresses public discovery at threshold", async () => {
