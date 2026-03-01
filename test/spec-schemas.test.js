@@ -238,6 +238,8 @@ test("schema catches missing required fields (smoke)", async () => {
   const validateReleaseTrust = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v1.schema.json");
   const validateReleaseTrustV2 = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v2.schema.json");
   const validateVerifyReleaseOut = ajv.getSchema("https://nooterra.local/schemas/VerifyReleaseOutput.v1.schema.json");
+  const validateAgentInboxMessage = ajv.getSchema("https://nooterra.local/schemas/AgentInboxMessage.v1.schema.json");
+  const validateAgentInboxCursor = ajv.getSchema("https://nooterra.local/schemas/AgentInboxCursor.v1.schema.json");
   assert.ok(validateReport);
   assert.ok(validateVerifyCliOutput);
   assert.ok(validateProduceCliOutput);
@@ -247,6 +249,8 @@ test("schema catches missing required fields (smoke)", async () => {
   assert.ok(validateReleaseTrust);
   assert.ok(validateReleaseTrustV2);
   assert.ok(validateVerifyReleaseOut);
+  assert.ok(validateAgentInboxMessage);
+  assert.ok(validateAgentInboxCursor);
 
   const examplePath = path.resolve(process.cwd(), "docs/spec/examples/verification_report_v1.example.json");
   const example = JSON.parse(await fs.readFile(examplePath, "utf8"));
@@ -280,9 +284,34 @@ test("schema catches missing required fields (smoke)", async () => {
   const releaseTrustV2Example = JSON.parse(await fs.readFile(releaseTrustV2ExamplePath, "utf8"));
   assert.equal(validateReleaseTrustV2(releaseTrustV2Example), true);
 
+  const inboxMessageExample = {
+    schemaVersion: "AgentInboxMessage.v1",
+    channel: "chan.schema",
+    seq: 1,
+    messageId: "aimsg_0123456789abcdef_000000000001",
+    idempotencyKey: "schema_msg_1",
+    publishedAt: "2026-03-01T00:00:00.000Z",
+    payload: { hello: "world" },
+    payloadHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  };
+  assert.equal(validateAgentInboxMessage(inboxMessageExample), true);
+
+  const inboxCursorExample = {
+    schemaVersion: "AgentInboxCursor.v1",
+    channel: "chan.schema",
+    seq: 1,
+    messageId: "aimsg_0123456789abcdef_000000000001",
+    publishedAt: "2026-03-01T00:00:00.000Z"
+  };
+  assert.equal(validateAgentInboxCursor(inboxCursorExample), true);
+
   const broken = { ...example };
   // eslint-disable-next-line no-prototype-builtins
   assert.equal(Object.prototype.hasOwnProperty.call(broken, "subject"), true);
   delete broken.subject;
   assert.equal(validateReport(broken), false);
+
+  const brokenInboxCursor = { ...inboxCursorExample };
+  delete brokenInboxCursor.messageId;
+  assert.equal(validateAgentInboxCursor(brokenInboxCursor), false);
 });
