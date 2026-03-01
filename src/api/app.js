@@ -20252,6 +20252,8 @@ export function createApi({
   function redactArtifactForStateCheckpointPolicy(artifact, { checkpointId, redactionPolicyRef } = {}) {
     const base = artifact && typeof artifact === "object" && !Array.isArray(artifact) ? { ...artifact } : artifact;
     if (!base || typeof base !== "object" || Array.isArray(base)) return base;
+    const sourceArtifactId = typeof base.artifactId === "string" && base.artifactId.trim() !== "" ? base.artifactId.trim() : null;
+    const sourceArtifactHash = normalizeStateCheckpointArtifactHash(base.artifactHash);
     const redactedFields = [];
     for (const field of ARTIFACT_READ_REDACTABLE_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(base, field)) continue;
@@ -20267,6 +20269,8 @@ export function createApi({
         checkpointId: typeof checkpointId === "string" && checkpointId.trim() !== "" ? checkpointId.trim() : null,
         redactionPolicyRef:
           typeof redactionPolicyRef === "string" && redactionPolicyRef.trim() !== "" ? redactionPolicyRef.trim() : null,
+        sourceArtifactId,
+        sourceArtifactHash,
         redactedFields
       },
       { path: "$.readRedaction" }

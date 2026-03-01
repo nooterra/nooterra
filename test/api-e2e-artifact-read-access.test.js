@@ -75,6 +75,8 @@ test("API e2e: finance artifact reads are redacted when checkpoint policy applie
   assert.equal(directRead.json?.artifact?.payload, null);
   assert.equal(directRead.json?.artifact?.metadata, null);
   assert.equal(directRead.json?.artifact?.readRedaction?.schemaVersion, "ArtifactReadRedaction.v1");
+  assert.equal(directRead.json?.artifact?.readRedaction?.sourceArtifactId, artifactId);
+  assert.equal(directRead.json?.artifact?.readRedaction?.sourceArtifactHash, artifactHash);
 
   const listRead = await request(api, {
     method: "GET",
@@ -85,6 +87,8 @@ test("API e2e: finance artifact reads are redacted when checkpoint policy applie
   assert.ok(Array.isArray(listRead.json?.artifacts));
   assert.equal(listRead.json?.artifacts?.[0]?.payload, null);
   assert.equal(listRead.json?.artifacts?.[0]?.readRedaction?.schemaVersion, "ArtifactReadRedaction.v1");
+  assert.equal(listRead.json?.artifacts?.[0]?.readRedaction?.sourceArtifactId, artifactId);
+  assert.equal(listRead.json?.artifacts?.[0]?.readRedaction?.sourceArtifactHash, artifactHash);
 });
 
 test("API e2e: ops_read receives deterministic redacted artifact when checkpoint policy applies", async () => {
@@ -117,7 +121,77 @@ test("API e2e: ops_read receives deterministic redacted artifact when checkpoint
   assert.equal(redacted.json?.artifact?.metadata, null);
   assert.equal(redacted.json?.artifact?.readRedaction?.schemaVersion, "ArtifactReadRedaction.v1");
   assert.equal(redacted.json?.artifact?.readRedaction?.mode, "state_checkpoint_policy");
+  assert.equal(redacted.json?.artifact?.readRedaction?.sourceArtifactId, artifactId);
+  assert.equal(redacted.json?.artifact?.readRedaction?.sourceArtifactHash, artifactHash);
   assert.ok(Array.isArray(redacted.json?.artifact?.readRedaction?.redactedFields));
+});
+
+test("API e2e: state-checkpoint redaction is deterministic and does not leak sensitive payload values", async () => {
+  const api = createApi({
+    opsTokens: "tok_ops:ops_read"
+  });
+  const artifactId = "art_sensitive_deterministic_redaction_1";
+  const artifactHash = "e".repeat(64);
+  const leakedSecret = "super-secret-token-123";
+  await seedArtifact(api, {
+    schemaVersion: "StateSnapshot.v1",
+    artifactType: "StateSnapshot.v1",
+    artifactId,
+    artifactHash,
+    tenantId: TENANT_ID,
+    payload: { state: { token: leakedSecret, nested: { password: "pw-xyz" } } },
+    metadata: { rawSecret: "raw-secret-do-not-leak" },
+    createdAt: "2026-02-01T00:00:00.000Z"
+  });
+  await linkArtifactToSensitiveCheckpoint(api, { artifactId, artifactHash });
+
+  const first = await request(api, {
+    method: "GET",
+    path: `/artifacts/${artifactId}`,
+    headers: { "x-proxy-ops-token": "tok_ops" }
+  });
+  const second = await request(api, {
+    method: "GET",
+    path: `/artifacts/${artifactId}`,
+    headers: { "x-proxy-ops-token": "tok_ops" }
+  });
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(second.statusCode, 200, second.body);
+  assert.deepEqual(second.json?.artifact, first.json?.artifact);
+  assert.equal(first.json?.artifact?.readRedaction?.sourceArtifactId, artifactId);
+  assert.equal(first.json?.artifact?.readRedaction?.sourceArtifactHash, artifactHash);
+  const redactedText = JSON.stringify(first.json?.artifact ?? {});
+  assert.equal(redactedText.includes(leakedSecret), false);
+  assert.equal(redactedText.includes("raw-secret-do-not-leak"), false);
+  assert.equal(redactedText.includes("pw-xyz"), false);
+});
+
+test("API e2e: artifact reads fail closed when scoped token lacks ops_read and audit_read", async () => {
+  const api = createApi({
+    opsTokens: "tok_fin_only:finance_read"
+  });
+  const artifactId = "art_sensitive_scope_denied_1";
+  const artifactHash = "f".repeat(64);
+  await seedArtifact(api, {
+    schemaVersion: "StateSnapshot.v1",
+    artifactType: "StateSnapshot.v1",
+    artifactId,
+    artifactHash,
+    tenantId: TENANT_ID,
+    payload: { state: { token: "restricted" } },
+    metadata: { classification: "restricted" },
+    createdAt: "2026-02-01T00:00:00.000Z"
+  });
+  await linkArtifactToSensitiveCheckpoint(api, { artifactId, artifactHash });
+
+  const denied = await request(api, {
+    method: "GET",
+    path: `/artifacts/${artifactId}`,
+    headers: { "x-proxy-ops-token": "tok_fin_only" }
+  });
+  assert.equal(denied.statusCode, 403, denied.body);
+  const denyCode = denied.json?.error?.code ?? denied.json?.code ?? null;
+  assert.ok(denyCode === "ARTIFACT_ACCESS_DENIED" || denyCode === "FORBIDDEN", denied.body);
 });
 
 test("API e2e: audit_read receives full artifact body and non-sensitive finance reads stay allowed", async () => {
