@@ -2364,6 +2364,124 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const IdentityLogCheckpointV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "tenantId", "treeSize", "rootHash", "headEntryId", "headEntryHash", "generatedAt", "checkpointHash"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["IdentityLogCheckpoint.v1"] },
+      tenantId: { type: "string" },
+      treeSize: { type: "integer", minimum: 0 },
+      rootHash: { type: "string", nullable: true, pattern: "^[0-9a-f]{64}$" },
+      headEntryId: { type: "string", nullable: true },
+      headEntryHash: { type: "string", nullable: true, pattern: "^[0-9a-f]{64}$" },
+      generatedAt: { type: "string", format: "date-time" },
+      checkpointHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const IdentityLogEntryV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "entryId",
+      "tenantId",
+      "agentId",
+      "eventType",
+      "logIndex",
+      "prevEntryHash",
+      "keyIdBefore",
+      "keyIdAfter",
+      "statusBefore",
+      "statusAfter",
+      "capabilitiesBefore",
+      "capabilitiesAfter",
+      "reasonCode",
+      "reason",
+      "occurredAt",
+      "recordedAt",
+      "metadata",
+      "entryHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["IdentityLogEntry.v1"] },
+      entryId: { type: "string" },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      eventType: { type: "string", enum: ["create", "rotate", "revoke", "capability-claim-change"] },
+      logIndex: { type: "integer", minimum: 0 },
+      prevEntryHash: { type: "string", nullable: true, pattern: "^[0-9a-f]{64}$" },
+      keyIdBefore: { type: "string", nullable: true },
+      keyIdAfter: { type: "string", nullable: true },
+      statusBefore: { type: "string", nullable: true, enum: ["active", "suspended", "revoked", null] },
+      statusAfter: { type: "string", nullable: true, enum: ["active", "suspended", "revoked", null] },
+      capabilitiesBefore: { type: "array", items: { type: "string" } },
+      capabilitiesAfter: { type: "array", items: { type: "string" } },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      occurredAt: { type: "string", format: "date-time" },
+      recordedAt: { type: "string", format: "date-time" },
+      metadata: { type: "object", nullable: true, additionalProperties: true },
+      entryHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const IdentityLogProofV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "entryId",
+      "entry",
+      "treeSize",
+      "leafIndex",
+      "leafHash",
+      "siblings",
+      "rootHash",
+      "checkpoint",
+      "generatedAt",
+      "trustedCheckpoint",
+      "proofHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["IdentityLogProof.v1"] },
+      tenantId: { type: "string" },
+      entryId: { type: "string" },
+      entry: IdentityLogEntryV1,
+      treeSize: { type: "integer", minimum: 1 },
+      leafIndex: { type: "integer", minimum: 0 },
+      leafHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      siblings: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["position", "hash"],
+          properties: {
+            position: { type: "string", enum: ["left", "right"] },
+            hash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+          }
+        }
+      },
+      rootHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      checkpoint: IdentityLogCheckpointV1,
+      generatedAt: { type: "string", format: "date-time" },
+      trustedCheckpoint: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        required: ["treeSize", "checkpointHash"],
+        properties: {
+          treeSize: { type: "integer", minimum: 0 },
+          checkpointHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+        }
+      },
+      proofHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
   const InteractionGraphSummaryV1 = {
     type: "object",
     additionalProperties: false,
@@ -7911,6 +8029,110 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/v1/public/identity-log/entries": {
+        get: {
+          summary: "List public identity transparency-log entries",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "eventType", in: "query", required: false, schema: { type: "string", enum: ["create", "rotate", "revoke", "capability-claim-change"] } },
+            { name: "entryId", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 1000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      entries: { type: "array", items: IdentityLogEntryV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      checkpoint: IdentityLogCheckpointV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/v1/public/identity-log/proof": {
+        get: {
+          summary: "Fetch public identity transparency-log Merkle proof for an entry",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "entry", in: "query", required: true, schema: { type: "string" } },
+            { name: "trustedCheckpointHash", in: "query", required: false, schema: { type: "string", pattern: "^[0-9a-f]{64}$" } },
+            { name: "trustedTreeSize", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      proof: IdentityLogProofV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/v1/public/identity-log/checkpoint": {
+        get: {
+          summary: "Fetch latest public identity transparency-log checkpoint",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "trustedCheckpointHash", in: "query", required: false, schema: { type: "string", pattern: "^[0-9a-f]{64}$" } },
+            { name: "trustedTreeSize", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      checkpoint: IdentityLogCheckpointV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
             501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
           }

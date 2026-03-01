@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/IdentityLogCheckpoint.v1.schema.json",
+  "title": "IdentityLogCheckpoint.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "treeSize",
+    "rootHash",
+    "headEntryId",
+    "headEntryHash",
+    "generatedAt",
+    "checkpointHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "IdentityLogCheckpoint.v1"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "treeSize": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rootHash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "headEntryId": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "headEntryHash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checkpointHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

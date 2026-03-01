@@ -10,6 +10,7 @@ They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cu
 - `AgentCardStreamEvent.v1.md`
 - `AgentInbox.v1.md`
 - `AgentLocator.v1.md`
+- `IdentityTransparencyLog.v1.md`
 - `Session.v1.md`
 - `SessionEvent.v1.md`
 - `SessionEventProvenance.v1.md`
