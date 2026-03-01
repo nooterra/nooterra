@@ -869,6 +869,24 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   });
   assert.equal(second.statusCode, 201, second.body);
 
+  const missingCheckpointRead = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent("relay_consumer_missing_1")}`
+  });
+  assert.equal(missingCheckpointRead.statusCode, 409, missingCheckpointRead.body);
+  assert.equal(missingCheckpointRead.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCheckpointRead.json?.details?.phase, "checkpoint_read");
+  assert.equal(missingCheckpointRead.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_NOT_FOUND");
+
+  const missingCheckpointResume = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent("relay_consumer_missing_1")}`
+  });
+  assert.equal(missingCheckpointResume.statusCode, 409, missingCheckpointResume.body);
+  assert.equal(missingCheckpointResume.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCheckpointResume.json?.details?.phase, "list");
+  assert.equal(missingCheckpointResume.json?.details?.reasonCode, "SESSION_EVENT_CHECKPOINT_NOT_FOUND");
+
   const ackFirst = await request(api, {
     method: "POST",
     path: `/sessions/${sessionId}/events/checkpoint`,
