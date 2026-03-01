@@ -55385,15 +55385,35 @@ export function createApi({
           }
 
           const quoteBinding = resolveX402GateQuoteBinding({ gate, settlement });
+          const existingReversal =
+            gate?.reversal && typeof gate.reversal === "object" && !Array.isArray(gate.reversal) ? gate.reversal : null;
+          const priorReversalRequestEvidence = parseEvidenceRefSha256Selection(existingReversal?.evidenceRefs ?? [], "http:request_sha256:");
+          const priorReversalRequestSha256 = priorReversalRequestEvidence.requestSha256;
+          const expectedReversalRequestSha256 = quoteBinding.requestSha256 ?? (action === "resolve_refund" ? priorReversalRequestSha256 : null);
+          if (action === "resolve_refund" && quoteBinding.requestSha256 && priorReversalRequestSha256 && priorReversalRequestSha256 !== quoteBinding.requestSha256) {
+            return sendError(
+              res,
+              409,
+              "reversal request hash evidence does not match gate binding",
+              {
+                gateId,
+                action,
+                requestSha256: priorReversalRequestSha256,
+                requestSha256Values: [priorReversalRequestSha256, quoteBinding.requestSha256].sort(),
+                expectedRequestSha256: quoteBinding.requestSha256
+              },
+              { code: "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH" }
+            );
+          }
           const reversalRequestEvidence = parseEvidenceRefSha256Selection(reversalEvidenceRefs, "http:request_sha256:");
           const reversalRequestSha256 = reversalRequestEvidence.requestSha256;
-          if (quoteBinding.requestSha256) {
+          if (expectedReversalRequestSha256) {
             if (!reversalRequestSha256) {
               return sendError(
                 res,
                 409,
                 "reversal requires request hash evidence",
-                { gateId, action, expectedRequestSha256: quoteBinding.requestSha256 },
+                { gateId, action, expectedRequestSha256: expectedReversalRequestSha256 },
                 { code: "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED" }
               );
             }
@@ -55407,12 +55427,12 @@ export function createApi({
                   action,
                   requestSha256: reversalRequestSha256,
                   requestSha256Values: reversalRequestEvidence.requestSha256Values,
-                  expectedRequestSha256: quoteBinding.requestSha256
+                  expectedRequestSha256: expectedReversalRequestSha256
                 },
                 { code: "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH" }
               );
             }
-            if (reversalRequestSha256 !== quoteBinding.requestSha256) {
+            if (reversalRequestSha256 !== expectedReversalRequestSha256) {
               return sendError(
                 res,
                 409,
@@ -55421,7 +55441,7 @@ export function createApi({
                   gateId,
                   action,
                   requestSha256: reversalRequestSha256,
-                  expectedRequestSha256: quoteBinding.requestSha256
+                  expectedRequestSha256: expectedReversalRequestSha256
                 },
                 { code: "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH" }
               );
@@ -55499,7 +55519,7 @@ export function createApi({
             expectedGateId: gateId,
             expectedReceiptId: reversalReceiptId,
             expectedQuoteId: quoteBinding.quoteId,
-            expectedRequestSha256: quoteBinding.requestSha256
+            expectedRequestSha256: expectedReversalRequestSha256
           });
           if (commandVerification.ok !== true) {
             const statusCode = String(commandVerification.code ?? "").endsWith("_SCHEMA_INVALID") ? 400 : 409;
@@ -55587,8 +55607,6 @@ export function createApi({
             { path: "$" }
           );
 
-          const existingReversal =
-            gate?.reversal && typeof gate.reversal === "object" && !Array.isArray(gate.reversal) ? gate.reversal : null;
           const baseBindings =
             settlement?.decisionTrace?.bindings && typeof settlement.decisionTrace.bindings === "object" && !Array.isArray(settlement.decisionTrace.bindings)
               ? settlement.decisionTrace.bindings
@@ -55605,7 +55623,7 @@ export function createApi({
               expectedReceiptId: reversalReceiptId,
               expectedGateId: gateId,
               expectedQuoteId: quoteBinding.quoteId,
-              expectedRequestSha256: quoteBinding.requestSha256,
+              expectedRequestSha256: expectedReversalRequestSha256,
               expectedDecision: providerDecision
             });
             if (decisionArtifactVerification.ok !== true) {

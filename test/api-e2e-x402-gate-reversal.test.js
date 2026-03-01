@@ -241,6 +241,54 @@ function overwriteSettlementDisputeEvidenceRefs(api, { runId, evidenceRefs }) {
   api.store.agentRunSettlements.set(scopedSettlementKey, next);
 }
 
+function overwriteSettlementRequestBindingSha256(api, { runId, requestSha256 = null }) {
+  assert.ok(api?.store?.agentRunSettlements instanceof Map, "agentRunSettlements map is required for test setup");
+  let scopedSettlementKey = null;
+  for (const [candidateKey, row] of api.store.agentRunSettlements.entries()) {
+    if (row && typeof row === "object" && String(row.runId ?? "") === String(runId)) {
+      scopedSettlementKey = candidateKey;
+      break;
+    }
+  }
+  assert.ok(scopedSettlementKey, `run settlement not found for setup: ${runId}`);
+  const prior = api.store.agentRunSettlements.get(scopedSettlementKey);
+  const priorDecisionTrace =
+    prior?.decisionTrace && typeof prior.decisionTrace === "object" && !Array.isArray(prior.decisionTrace) ? prior.decisionTrace : {};
+  const priorBindings =
+    priorDecisionTrace?.bindings && typeof priorDecisionTrace.bindings === "object" && !Array.isArray(priorDecisionTrace.bindings)
+      ? priorDecisionTrace.bindings
+      : {};
+  const nextBindings = { ...priorBindings };
+  if (requestSha256 === null) {
+    const priorRequestBinding =
+      nextBindings.request && typeof nextBindings.request === "object" && !Array.isArray(nextBindings.request) ? nextBindings.request : null;
+    if (priorRequestBinding) {
+      const nextRequestBinding = { ...priorRequestBinding };
+      delete nextRequestBinding.sha256;
+      if (Object.keys(nextRequestBinding).length === 0) {
+        delete nextBindings.request;
+      } else {
+        nextBindings.request = nextRequestBinding;
+      }
+    }
+  } else {
+    const priorRequestBinding =
+      nextBindings.request && typeof nextBindings.request === "object" && !Array.isArray(nextBindings.request) ? nextBindings.request : {};
+    nextBindings.request = { ...priorRequestBinding, sha256: String(requestSha256).trim().toLowerCase() };
+  }
+  const next = normalizeForCanonicalJson(
+    {
+      ...prior,
+      decisionTrace: {
+        ...priorDecisionTrace,
+        bindings: nextBindings
+      }
+    },
+    { path: "$" }
+  );
+  api.store.agentRunSettlements.set(scopedSettlementKey, next);
+}
+
 test("API e2e: x402 reversal void_authorization refunds locked gate before execution", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const payer = await registerAgent(api, { agentId: "agt_x402_void_payer_1" });
@@ -892,6 +940,182 @@ test("API e2e: x402 reversal request_refund fails closed when provider reserve c
   assert.equal(gateRead.statusCode, 200, gateRead.body);
   assert.equal(gateRead.json?.settlement?.status, "released");
   assert.equal(gateRead.json?.gate?.reversal ?? null, null);
+});
+
+test("API e2e: x402 reversal resolve_refund fails closed when settlement binding is missing and pending reversal evidence is not replayed", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_refund_fallback_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_refund_fallback_binding_payee_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 6000, idempotencyKey: "wallet_credit_x402_refund_fallback_binding_1" });
+
+  const gateId = "x402gate_refund_fallback_binding_1";
+  const amountCents = 700;
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_refund_fallback_binding_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_refund_fallback_binding_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_refund_fallback_binding_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"7".repeat(64)}`, `http:response_sha256:${"8".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  assert.equal(verify.json?.settlement?.status, "released");
+  const runId = String(verify.json?.settlement?.runId ?? "");
+  assert.ok(runId.length > 0);
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  const refundRequestCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_refund_fallback_binding_request_1",
+    idempotencyKey: "idem_refund_fallback_binding_request_1",
+    nonce: "nonce_refund_fallback_binding_request_1"
+  });
+  const requested = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_fallback_binding_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "provider_review",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:fallback_binding"],
+      command: refundRequestCommand
+    }
+  });
+  assert.equal(requested.statusCode, 202, requested.body);
+
+  // Simulate binding drift: request hash binding disappears from settlement after refund request.
+  overwriteSettlementRequestBindingSha256(api, { runId, requestSha256: null });
+
+  const resolveCommandMissingEvidence = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "resolve_refund",
+    commandId: "cmd_refund_fallback_binding_resolve_missing_1",
+    idempotencyKey: "idem_refund_fallback_binding_resolve_missing_1",
+    nonce: "nonce_refund_fallback_binding_resolve_missing_1"
+  });
+  const providerDecisionArtifact = signProviderRefundDecision({
+    payee,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    decision: "accepted",
+    reason: "provider_acknowledged"
+  });
+  const missingEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_resolve_refund_fallback_binding_missing_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: ["provider:decision:accepted"],
+      command: resolveCommandMissingEvidence,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(missingEvidence.statusCode, 409, missingEvidence.body);
+  assert.equal(missingEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_REQUIRED");
+
+  const resolveCommandMismatchedEvidence = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "resolve_refund",
+    commandId: "cmd_refund_fallback_binding_resolve_mismatch_1",
+    idempotencyKey: "idem_refund_fallback_binding_resolve_mismatch_1",
+    nonce: "nonce_refund_fallback_binding_resolve_mismatch_1"
+  });
+  const mismatchedEvidence = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_resolve_refund_fallback_binding_mismatch_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${"9".repeat(64)}`, "provider:decision:accepted"],
+      command: resolveCommandMismatchedEvidence,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(mismatchedEvidence.statusCode, 409, mismatchedEvidence.body);
+  assert.equal(mismatchedEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
+
+  const resolveCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "resolve_refund",
+    commandId: "cmd_refund_fallback_binding_resolve_success_1",
+    idempotencyKey: "idem_refund_fallback_binding_resolve_success_1",
+    nonce: "nonce_refund_fallback_binding_resolve_success_1"
+  });
+  const resolved = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_resolve_refund_fallback_binding_success_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
+      command: resolveCommand,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.reversal?.status, "refunded");
 });
 
 test("API e2e: x402 reversal fails closed when request-hash evidence is missing or mismatched", async () => {
