@@ -37,7 +37,7 @@ When tool descriptors are used with capability-filtered discovery, capability va
 
 - `toolId` MUST be non-empty.
 - `riskClass`, if set, MUST be one of `read|compute|action|financial`.
-- `requiresEvidenceKinds[]`, if set, MUST be from `artifact|hash|verification_report`.
+- `requiresEvidenceKinds[]`, if set, MUST be from `artifact|hash|verification_report|execution_attestation`.
 - `pricing.amountCents`, if set, MUST be a non-negative safe integer.
 
 ## Discovery filters

@@ -57,6 +57,7 @@ When settled, binding includes:
 
 - terminal work orders reject new progress events.
 - settlement requires an existing completion receipt.
+- evidence policy `requiredKinds` may include `execution_attestation`; when required, settlement fails closed unless completion receipt carries a valid `ExecutionAttestation.v1`.
 - when `x402ToolId`/`x402ProviderId` are set, settlement must use an `x402Gate` with matching tool/provider binding.
 - completion and settlement trace lineage must be consistent when `traceId` is present.
 - revision increments with each state mutation.

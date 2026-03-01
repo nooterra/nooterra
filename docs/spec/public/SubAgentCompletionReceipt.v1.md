@@ -27,6 +27,7 @@ This receipt proves completion output, metrics, and evidence for a delegated tas
 - `outputs` (object, optional)
 - `metrics` (object, optional)
 - `evidenceRefs` (array, optional)
+- `executionAttestation` (optional `ExecutionAttestation.v1`; deterministic runtime proof bound into `receiptHash`)
 - `amountCents` (optional)
 - `currency` (optional)
 - `metadata` (optional)
