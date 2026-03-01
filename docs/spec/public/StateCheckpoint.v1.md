@@ -23,7 +23,7 @@ Capture durable state snapshots and diffs as hash-bound references so agents can
 
 ## Key optional fields
 
-- `projectId`
+- `projectId` (optional link to `Project.v1.projectId`)
 - `sessionId`
 - `traceId`
 - `parentCheckpointId`
