@@ -970,6 +970,58 @@ test("API e2e: SessionEvent inbox relay checkpoint supports durable ack/read and
   assert.equal(ackMissing.json?.details?.phase, "checkpoint_write");
   assert.equal(ackMissing.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
 
+  const requeueFirst = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: first.json?.event?.id
+    }
+  });
+  assert.equal(requeueFirst.statusCode, 200, requeueFirst.body);
+  assert.equal(requeueFirst.json?.checkpoint?.schemaVersion, "SessionEventInboxRelayCheckpoint.v1");
+  assert.equal(requeueFirst.json?.checkpoint?.sinceEventId, first.json?.event?.id);
+  assert.equal(requeueFirst.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
+  assert.equal(requeueFirst.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+
+  const resumedAfterRequeue = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?checkpointConsumerId=${encodeURIComponent(checkpointConsumerId)}`
+  });
+  assert.equal(resumedAfterRequeue.statusCode, 200, resumedAfterRequeue.body);
+  assert.equal(resumedAfterRequeue.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
+  assert.equal(resumedAfterRequeue.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+  assert.equal(resumedAfterRequeue.json?.events?.length, 1);
+  assert.equal(resumedAfterRequeue.json?.events?.[0]?.id, second.json?.event?.id);
+
+  const requeueForwardBlocked = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: second.json?.event?.id
+    }
+  });
+  assert.equal(requeueForwardBlocked.statusCode, 409, requeueForwardBlocked.body);
+  assert.equal(requeueForwardBlocked.json?.code, "SESSION_EVENT_CURSOR_CONFLICT");
+  assert.equal(requeueForwardBlocked.json?.details?.phase, "checkpoint_requeue");
+  assert.equal(requeueForwardBlocked.json?.details?.reasonCode, "SESSION_EVENT_REQUEUE_CURSOR_ADVANCE");
+  assert.equal(requeueForwardBlocked.json?.details?.existingSinceEventId, first.json?.event?.id);
+  assert.equal(requeueForwardBlocked.json?.details?.requestedSinceEventId, second.json?.event?.id);
+
+  const requeueMissing = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    body: {
+      checkpointConsumerId,
+      sinceEventId: "evt_missing_cursor_for_requeue"
+    }
+  });
+  assert.equal(requeueMissing.statusCode, 409, requeueMissing.body);
+  assert.equal(requeueMissing.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(requeueMissing.json?.details?.phase, "checkpoint_requeue");
+  assert.equal(requeueMissing.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+
   if (!(api.store.sessionRelayStates instanceof Map)) api.store.sessionRelayStates = new Map();
   const checkpointId = `session_inbox_relay:${sessionId}:${checkpointConsumerId}`;
   const existingRelayEntry = Array.from(api.store.sessionRelayStates.entries()).find(([, row]) => String(row?.checkpointId ?? "") === checkpointId) ?? null;
