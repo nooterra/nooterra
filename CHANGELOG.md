@@ -8,6 +8,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ### Added
 - Agent bootstrap CLI surface: `nooterra agent init`, `nooterra agent dev`, and `nooterra agent publish` for deterministic local scaffold generation, fail-closed conformance bundle gating, and local registry publication.
+- Signer lifecycle conformance pack (`conformance/signer-lifecycle-v1`) with deterministic vectors for fail-closed `validAt`/`validNow` outcomes, including `KEY_CHAIN_GAP` and historical-valid/current-invalid replay semantics.
 - Execution attestation evidence binding across work-order lifecycle contracts: new `ExecutionAttestation.v1` public spec/schema, API support for `executionAttestation` on work-order accept/complete, deterministic canonical hashing in receipts/work-order verification, and updated OpenAPI surfaces for auditable third-party verifier parity.
 - Agent locator public resolution surface: `AgentLocator.v1` spec/schema plus deterministic resolver APIs (`GET /v1/public/agents/resolve`, `GET /.well-known/agent-locator/:agentId`), CLI (`nooterra agent resolve`), and MCP tool mapping (`nooterra.agent_resolve`) with fail-closed ambiguity/malformed reason codes.
 - Durable agent inbox core primitive: `AgentInbox.v1` public spec/schema and deterministic core semantics for ordered publish/pull, idempotency-key dedupe, cursor resume, and fail-closed out-of-order ack handling.
