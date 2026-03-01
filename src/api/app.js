@@ -17355,6 +17355,150 @@ export function createApi({
     return allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.ACTION) || allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.FINANCIAL);
   }
 
+  async function resolveDelegationGrantForWorkOrderBinding({
+    tenantId,
+    delegationGrantRef,
+    principalAgentId = null,
+    subAgentId = null,
+    nowAt,
+    operation = "work_order"
+  } = {}) {
+    const explicitRef =
+      typeof delegationGrantRef === "string" && delegationGrantRef.trim() !== ""
+        ? delegationGrantRef.trim()
+        : null;
+    if (!explicitRef) return { delegationGrant: null, delegationGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(explicitRef, "delegationGrantRef", { allowNull: false, max: 200 });
+    if (typeof store.getDelegationGrant !== "function") {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_RESOLVER_UNAVAILABLE",
+        "delegation grant resolver is unavailable for this store",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getDelegationGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_FOUND", "delegation grant was not found", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateDelegationGrantV1(grant);
+    } catch (err) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SCHEMA_INVALID", "delegation grant failed schema validation", {
+        delegationGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TIME_INVALID", "work order delegation timestamp must be an ISO timestamp");
+    }
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation.revokedAt : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_REVOKED", "delegation grant is revoked", {
+          delegationGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_VALIDITY_INVALID", "delegation grant validity window is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_ACTIVE", "delegation grant is not active yet", {
+        delegationGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_EXPIRED", "delegation grant is expired", {
+        delegationGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [
+        { role: "delegator", agentId: grant?.delegatorAgentId ?? null },
+        { role: "delegatee", agentId: grant?.delegateeAgentId ?? null }
+      ],
+      at: atIso,
+      operation,
+      errorCode: "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402DelegationGrantError(
+        signerLifecycleGuard.code ?? "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID",
+        "delegation grant signer lifecycle blocked work order binding",
+        normalizeForCanonicalJson(
+          {
+            delegationGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
+    }
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_DEPTH_INVALID", "delegation grant chain depth exceeds max depth", {
+        delegationGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+    const scope = grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope : {};
+    if (scope.sideEffectingAllowed !== true) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SIDE_EFFECTING_DENIED", "delegation grant does not allow side-effecting execution", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (!grantAllowsSubstrateWriteRisk(scope)) {
+      const allowedRiskClasses = Array.isArray(scope.allowedRiskClasses) ? scope.allowedRiskClasses.map((row) => String(row).toLowerCase()) : [];
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_RISK_CLASS_DENIED", "delegation grant does not allow substrate write risk class", {
+        delegationGrantRef: normalizedGrantId,
+        allowedRiskClasses
+      });
+    }
+    const normalizedPrincipalAgentId = typeof principalAgentId === "string" && principalAgentId.trim() !== "" ? principalAgentId.trim() : null;
+    const normalizedSubAgentId = typeof subAgentId === "string" && subAgentId.trim() !== "" ? subAgentId.trim() : null;
+    const delegateeAgentId = typeof grant?.delegateeAgentId === "string" && grant.delegateeAgentId.trim() !== "" ? grant.delegateeAgentId.trim() : null;
+    if (
+      delegateeAgentId &&
+      ((normalizedPrincipalAgentId && delegateeAgentId !== normalizedPrincipalAgentId) ||
+        (normalizedSubAgentId && delegateeAgentId !== normalizedSubAgentId)) &&
+      !(normalizedPrincipalAgentId && normalizedSubAgentId && (delegateeAgentId === normalizedPrincipalAgentId || delegateeAgentId === normalizedSubAgentId))
+    ) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_ACTOR_MISMATCH", "delegation grant delegatee does not match work order participants", {
+        delegationGrantRef: normalizedGrantId,
+        delegateeAgentId,
+        principalAgentId: normalizedPrincipalAgentId,
+        subAgentId: normalizedSubAgentId
+      });
+    }
+    const allowedProviders = Array.isArray(scope.allowedProviderIds) ? scope.allowedProviderIds.filter(Boolean).map((row) => String(row).trim()) : [];
+    if (allowedProviders.length > 0 && normalizedSubAgentId && !allowedProviders.includes(normalizedSubAgentId)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_PROVIDER_DENIED", "sub-agent is not allowlisted by delegation grant", {
+        delegationGrantRef: normalizedGrantId,
+        subAgentId: normalizedSubAgentId,
+        allowedProviderIds: allowedProviders
+      });
+    }
+    return { delegationGrant: grant, delegationGrantRef: normalizedGrantId };
+  }
+
   async function resolveDelegationGrantForStateCheckpointWrite({
     tenantId,
     delegationGrantRef,
@@ -60579,30 +60723,41 @@ export function createApi({
           dispatchPlan
         });
 
-        const delegationGrantRef =
-          typeof body?.delegationGrantRef === "string" && body.delegationGrantRef.trim() !== "" ? body.delegationGrantRef.trim() : null;
+        let delegationGrantRef = null;
+        try {
+          delegationGrantRef = normalizeOptionalX402RefInput(body?.delegationGrantRef ?? null, "delegationGrantRef", {
+            allowNull: true,
+            max: 200
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
         let resolvedDelegationGrantForWorkOrder = null;
         if (delegationGrantRef) {
-          if (typeof store.getDelegationGrant !== "function") {
-            return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
-          }
-          const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
-          if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
           try {
-            validateDelegationGrantV1(delegationGrant);
+            const delegationResolution = await resolveDelegationGrantForWorkOrderBinding({
+              tenantId,
+              delegationGrantRef,
+              principalAgentId,
+              subAgentId,
+              nowAt,
+              operation: "work_order.create"
+            });
+            resolvedDelegationGrantForWorkOrder = delegationResolution?.delegationGrant ?? null;
+            delegationGrantRef = delegationResolution?.delegationGrantRef ?? delegationGrantRef;
           } catch (err) {
             return sendError(
               res,
               409,
               "work order delegation grant blocked",
               {
-                reasonCode: "X402_DELEGATION_GRANT_INVALID",
-                message: err?.message ?? null
+                reasonCode: err?.code ?? "X402_DELEGATION_GRANT_INVALID",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
               },
-              { code: "X402_DELEGATION_GRANT_INVALID" }
+              { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
             );
           }
-          resolvedDelegationGrantForWorkOrder = delegationGrant;
         }
         const authorityGrantRef =
           typeof body?.authorityGrantRef === "string" && body.authorityGrantRef.trim() !== "" ? body.authorityGrantRef.trim() : null;
@@ -62445,7 +62600,7 @@ export function createApi({
 		              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
 		            );
 		          }
-		          const effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
+		          let effectiveDelegationGrantRef = workOrderDelegationGrantRef ?? gateDelegationGrantRef ?? null;
 		          const workOrderAuthorityGrantRef =
 		            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
 		              ? existingWorkOrder.authorityGrantRef.trim()
@@ -62523,38 +62678,30 @@ export function createApi({
           const grantValidationAt = nowIso();
           let resolvedDelegationGrant = null;
           if (effectiveDelegationGrantRef) {
-            if (typeof store.getDelegationGrant !== "function") {
-              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
-            }
-            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: effectiveDelegationGrantRef });
-            if (!delegationGrant) {
-              return sendError(
-                res,
-                409,
-                "work order settlement blocked",
-                {
-                  reasonCode: "X402_DELEGATION_GRANT_NOT_FOUND",
-                  message: "delegation grant was not found",
-                  delegationGrantRef: effectiveDelegationGrantRef
-                },
-                { code: "X402_DELEGATION_GRANT_NOT_FOUND" }
-              );
-            }
             try {
-              validateDelegationGrantV1(delegationGrant);
+              const delegationResolution = await resolveDelegationGrantForWorkOrderBinding({
+                tenantId,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+                subAgentId: existingWorkOrder?.subAgentId ?? null,
+                nowAt: grantValidationAt,
+                operation: "work_order.settle"
+              });
+              resolvedDelegationGrant = delegationResolution?.delegationGrant ?? null;
+              effectiveDelegationGrantRef = delegationResolution?.delegationGrantRef ?? effectiveDelegationGrantRef;
             } catch (err) {
               return sendError(
                 res,
                 409,
                 "work order settlement blocked",
                 {
-                  reasonCode: "X402_DELEGATION_GRANT_INVALID",
-                  message: err?.message ?? null
+                  reasonCode: err?.code ?? "X402_DELEGATION_GRANT_INVALID",
+                  message: err?.message ?? null,
+                  ...(err?.details && typeof err.details === "object" ? err.details : {})
                 },
-                { code: "X402_DELEGATION_GRANT_INVALID" }
+                { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
               );
             }
-            resolvedDelegationGrant = delegationGrant;
           }
           let resolvedAuthorityGrant = null;
           if (effectiveAuthorityGrantRef) {

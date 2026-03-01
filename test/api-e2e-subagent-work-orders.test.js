@@ -494,6 +494,184 @@ test("API e2e: work-order routes fail closed when principal or sub-agent lifecyc
   assert.equal(settleBlockedPrincipal.json?.details?.operation, "work_order.settle");
 });
 
+test("API e2e: work-order create fails closed when delegation grant is revoked", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_workord_revoked_principal_1";
+  const subAgentId = "agt_workord_revoked_worker_1";
+  const delegationGrantId = "dgrant_workord_revoked_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const issuedGrant = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "dgrant_workord_revoked_issue_1" },
+    body: {
+      grantId: delegationGrantId,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: subAgentId,
+      scope: {
+        sideEffectingAllowed: true,
+        allowedRiskClasses: ["financial"]
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 1_000,
+        maxTotalCents: 10_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issuedGrant.statusCode, 201, issuedGrant.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/delegation-grants/${encodeURIComponent(delegationGrantId)}/revoke`,
+    headers: { "x-idempotency-key": "dgrant_workord_revoked_revoke_1" },
+    body: {
+      revocationReasonCode: "MANUAL_REVOKE"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+
+  const blockedCreate = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_revoked_create_blocked_1" },
+    body: {
+      workOrderId: "workord_revoked_create_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 250, currency: "USD" },
+      delegationGrantRef: delegationGrantId
+    }
+  });
+  assert.equal(blockedCreate.statusCode, 409, blockedCreate.body);
+  assert.equal(blockedCreate.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
+test("API e2e: work-order settle fails closed when delegation grant is revoked after completion", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_workord_settle_revoked_principal_1";
+  const subAgentId = "agt_workord_settle_revoked_worker_1";
+  const delegationGrantId = "dgrant_workord_settle_revoked_1";
+  const workOrderId = "workord_settle_revoked_1";
+  const receiptId = "worec_settle_revoked_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const issuedGrant = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "dgrant_workord_settle_revoked_issue_1" },
+    body: {
+      grantId: delegationGrantId,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: subAgentId,
+      scope: {
+        sideEffectingAllowed: true,
+        allowedRiskClasses: ["financial"]
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 1_000,
+        maxTotalCents: 10_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-02-23T00:00:00.000Z",
+        notBefore: "2026-02-23T00:00:00.000Z",
+        expiresAt: "2027-02-23T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issuedGrant.statusCode, 201, issuedGrant.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_settle_revoked_create_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 250, currency: "USD" },
+      delegationGrantRef: delegationGrantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/accept`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/complete`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_complete_1" },
+    body: {
+      receiptId,
+      status: "success",
+      outputs: { artifactRef: "artifact://code/workord-settle-revoked" },
+      evidenceRefs: ["artifact://code/workord-settle-revoked", "report://verification/workord-settle-revoked"],
+      amountCents: 250,
+      currency: "USD",
+      deliveredAt: "2026-02-23T00:20:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  const completionReceiptHash = completed.json?.completionReceipt?.receiptHash;
+  assert.equal(typeof completionReceiptHash, "string");
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/delegation-grants/${encodeURIComponent(delegationGrantId)}/revoke`,
+    headers: { "x-idempotency-key": "dgrant_workord_settle_revoked_revoke_1" },
+    body: {
+      revocationReasonCode: "MANUAL_REVOKE"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+
+  const blockedSettle = await request(api, {
+    method: "POST",
+    path: `/work-orders/${workOrderId}/settle`,
+    headers: { "x-idempotency-key": "workord_settle_revoked_settle_blocked_1" },
+    body: {
+      completionReceiptId: receiptId,
+      completionReceiptHash,
+      status: "released",
+      x402GateId: "x402gate_workord_settle_revoked_1",
+      x402RunId: "run_workord_settle_revoked_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_workord_settle_revoked_1"
+    }
+  });
+  assert.equal(blockedSettle.statusCode, 409, blockedSettle.body);
+  assert.equal(blockedSettle.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
 test("API e2e: work-order metering snapshot returns Meter.v1 events with deterministic coverage", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
