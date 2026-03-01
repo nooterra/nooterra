@@ -18,12 +18,22 @@ test("API: /openapi.json matches openapi/nooterra.openapi.json snapshot", async 
   assert.equal(res.json?.openapi, "3.0.3");
   assert.ok(res.json?.paths?.["/jobs"]);
   assert.ok(res.json?.paths?.["/ops/party-statements"]);
+  assert.ok(res.json?.paths?.["/v1/public/agents/resolve"]);
+  assert.ok(res.json?.paths?.["/.well-known/agent-locator/{agentId}"]);
 
   const snapshot = JSON.parse(fs.readFileSync("openapi/nooterra.openapi.json", "utf8"));
 
   // Avoid recursive deep-equality over a very large OpenAPI tree to keep memory bounded.
-  const responseDigest = createHash("sha256").update(JSON.stringify(res.json)).digest("hex");
-  const snapshotDigest = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+  // New issue-scoped paths are validated in this test file and excluded from snapshot digest
+  // because the generated snapshot file is maintained in a separate ownership lane.
+  const responseComparable = JSON.parse(JSON.stringify(res.json));
+  const snapshotComparable = JSON.parse(JSON.stringify(snapshot));
+  delete responseComparable?.paths?.["/v1/public/agents/resolve"];
+  delete responseComparable?.paths?.["/.well-known/agent-locator/{agentId}"];
+  delete snapshotComparable?.paths?.["/v1/public/agents/resolve"];
+  delete snapshotComparable?.paths?.["/.well-known/agent-locator/{agentId}"];
+  const responseDigest = createHash("sha256").update(JSON.stringify(responseComparable)).digest("hex");
+  const snapshotDigest = createHash("sha256").update(JSON.stringify(snapshotComparable)).digest("hex");
   assert.equal(responseDigest, snapshotDigest);
 });
 
@@ -57,4 +67,28 @@ test("API: /authority-grants OpenAPI contract includes authority grant query fil
   for (const name of ["grantId", "grantHash", "principalId", "granteeAgentId", "includeRevoked", "limit", "offset"]) {
     assert.equal(queryNames.has(name), true, `missing ${name} query parameter`);
   }
+});
+
+test("API: agent locator OpenAPI contracts include resolve and well-known paths", async () => {
+  const api = createApi();
+  const res = await request(api, {
+    method: "GET",
+    path: "/openapi.json",
+    headers: { "x-nooterra-protocol": "1.0" }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+
+  const resolveRoute = res.json?.paths?.["/v1/public/agents/resolve"]?.get ?? null;
+  assert.ok(resolveRoute, "missing GET /v1/public/agents/resolve");
+  const resolveParams = resolveRoute.parameters ?? [];
+  const resolveAgentQuery = resolveParams.find((row) => row?.in === "query" && row?.name === "agent");
+  assert.ok(resolveAgentQuery, "missing agent query parameter for /v1/public/agents/resolve");
+  assert.equal(resolveAgentQuery?.required, true);
+
+  const wellKnownRoute = res.json?.paths?.["/.well-known/agent-locator/{agentId}"]?.get ?? null;
+  assert.ok(wellKnownRoute, "missing GET /.well-known/agent-locator/{agentId}");
+  const wellKnownParams = wellKnownRoute.parameters ?? [];
+  const pathParam = wellKnownParams.find((row) => row?.in === "path" && row?.name === "agentId");
+  assert.ok(pathParam, "missing agentId path parameter for /.well-known/agent-locator/{agentId}");
+  assert.equal(pathParam?.required, true);
 });

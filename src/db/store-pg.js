@@ -5037,6 +5037,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   };
 
   store.listAgentCardsPublic = async function listAgentCardsPublic({
+    agentId = null,
     status = null,
     visibility = "public",
     capability = null,
@@ -5053,8 +5054,12 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   } = {}) {
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) {
+      throw new TypeError("agentId must be null or a non-empty string");
+    }
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
+    const agentIdFilter = agentId === null || agentId === undefined || String(agentId).trim() === "" ? null : String(agentId).trim();
     const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
@@ -5156,6 +5161,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       for (const row of rows) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
         if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
+        if (agentIdFilter !== null && String(row.agentId ?? "") !== agentIdFilter) continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
         if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
@@ -5183,6 +5189,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     try {
       const params = [];
       const where = ["aggregate_type = 'agent_card'"];
+      if (agentIdFilter !== null) {
+        params.push(agentIdFilter);
+        where.push(`aggregate_id = $${params.length}`);
+      }
       params.push("public");
       where.push(`lower(coalesce(snapshot_json->>'visibility', '')) = $${params.length}`);
       if (statusFilter !== null) {
