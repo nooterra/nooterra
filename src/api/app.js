@@ -34455,7 +34455,7 @@ export function createApi({
               limit: safeLimit,
               offset: safeOffset
             });
-            checkpoint = await getIdentityLogCheckpointRecord({ tenantId, generatedAt: nowIso() });
+            checkpoint = await getIdentityLogCheckpointRecord({ tenantId });
           } catch (err) {
             if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
               return sendError(res, 409, "identity log equivocation detected", { message: err?.message, details: err?.details ?? null }, { code: err.code });
@@ -34498,7 +34498,7 @@ export function createApi({
 
           let checkpoint = null;
           try {
-            checkpoint = await getIdentityLogCheckpointRecord({ tenantId, generatedAt: nowIso() });
+            checkpoint = await getIdentityLogCheckpointRecord({ tenantId });
             if (trustedCheckpointHash !== null && trustedTreeSize !== null) {
               assertIdentityLogNoEquivocation({
                 trustedCheckpoint: {
@@ -34557,7 +34557,6 @@ export function createApi({
             proof = buildIdentityLogProof({
               entries: rows,
               entryId,
-              generatedAt: nowIso(),
               trustedCheckpoint:
                 trustedCheckpointHash !== null && trustedTreeSize !== null
                   ? {

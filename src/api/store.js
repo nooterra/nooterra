@@ -1012,8 +1012,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
   store.getIdentityLogCheckpoint = async function getIdentityLogCheckpoint({ tenantId = DEFAULT_TENANT_ID, generatedAt = null } = {}) {
     tenantId = normalizeTenantId(tenantId);
     const entries = collectIdentityLogEntriesFromOpsAudit({ tenantId });
-    const at = generatedAt === null ? (typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString()) : generatedAt;
-    return buildIdentityLogCheckpoint({ tenantId, entries, generatedAt: at });
+    return buildIdentityLogCheckpoint({ tenantId, entries, generatedAt });
   };
 
   store.appendIdentityLogEntry = async function appendIdentityLogEntry({ tenantId = DEFAULT_TENANT_ID, entry, audit = null } = {}) {

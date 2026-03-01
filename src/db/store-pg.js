@@ -6325,8 +6325,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   store.getIdentityLogCheckpoint = async function getIdentityLogCheckpoint({ tenantId = DEFAULT_TENANT_ID, generatedAt = null } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     const entries = await loadIdentityLogEntries({ tenantId });
-    const at = generatedAt === null ? (typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString()) : generatedAt;
-    return buildIdentityLogCheckpoint({ tenantId, entries, generatedAt: at });
+    return buildIdentityLogCheckpoint({ tenantId, entries, generatedAt });
   };
 
   store.appendIdentityLogEntry = async function appendIdentityLogEntry({ tenantId = DEFAULT_TENANT_ID, entry, audit = null } = {}) {
