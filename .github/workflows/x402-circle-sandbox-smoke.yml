@@ -31,7 +31,7 @@ jobs:
       CIRCLE_BATCH_E2E_AMOUNT_CENTS: "100"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
