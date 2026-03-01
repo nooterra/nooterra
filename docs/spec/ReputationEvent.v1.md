@@ -21,6 +21,10 @@ Required:
   - `dispute_opened`
   - `verdict_issued`
   - `adjustment_applied`
+  - `penalty_dispute_lost`
+  - `penalty_chargeback`
+  - `penalty_invalid_signature`
+  - `penalty_sybil`
 - `subject`
   - `agentId` (reputation subject)
   - optional `toolId`

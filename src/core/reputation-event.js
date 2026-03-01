@@ -12,7 +12,8 @@ export const REPUTATION_EVENT_KIND = Object.freeze({
   ADJUSTMENT_APPLIED: "adjustment_applied",
   PENALTY_DISPUTE_LOST: "penalty_dispute_lost",
   PENALTY_CHARGEBACK: "penalty_chargeback",
-  PENALTY_INVALID_SIGNATURE: "penalty_invalid_signature"
+  PENALTY_INVALID_SIGNATURE: "penalty_invalid_signature",
+  PENALTY_SYBIL: "penalty_sybil"
 });
 
 export const REPUTATION_EVENT_ROLE = Object.freeze({

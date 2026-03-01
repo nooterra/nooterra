@@ -134,3 +134,39 @@ test("reputation event schema rejects invalid occurredAt date-time", async () =>
   assert.equal(validate(invalid), false);
   assert.match(JSON.stringify(validate.errors ?? []), /"format":"date-time"/);
 });
+
+test("reputation event schema accepts sybil penalty event kind", async () => {
+  const ajv = createAjv2020();
+  for (const schema of await loadSchemas()) {
+    if (schema && typeof schema === "object" && typeof schema.$id === "string") {
+      ajv.addSchema(schema, schema.$id);
+    }
+  }
+
+  const validate = ajv.getSchema("https://nooterra.local/schemas/ReputationEvent.v1.schema.json");
+  assert.ok(validate);
+
+  const event = buildReputationEventV1({
+    eventId: "rep_pen_sybil_d1f4c4f3d8f49a3b934390d2f04d8c8f7419f44b85d1bc7f6b5f6b16f45a0001",
+    tenantId: "tenant_default",
+    occurredAt: "2026-02-13T11:00:00.000Z",
+    eventKind: "penalty_sybil",
+    subject: {
+      agentId: "agt_sybil_subject",
+      counterpartyAgentId: "agt_sybil_reporter",
+      role: "system",
+      toolId: "agent_card"
+    },
+    sourceRef: {
+      kind: "agent_card_abuse_report",
+      sourceId: "acabr_sybil_1"
+    },
+    facts: {
+      reasonCode: "PENALTY_SYBIL",
+      amountPenalizedCents: 300
+    }
+  });
+
+  assert.equal(validate(event), true, JSON.stringify(validate.errors ?? [], null, 2));
+  assert.equal(validateReputationEventV1(event), true);
+});

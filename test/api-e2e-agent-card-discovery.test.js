@@ -1205,6 +1205,74 @@ test("API e2e: abuse report resolution unsuppresses public discovery", async () 
   assert.equal(allowedIds.has(subjectAgentId), true);
 });
 
+test("API e2e: sybil abuse reports emit penalty signals and quarantine discovery", async () => {
+  const api = createApi({
+    agentCardPublicAbuseSuppressionThreshold: 10
+  });
+  const subjectAgentId = "agt_card_sybil_penalty_subject_1";
+  const reporterAgentId = "agt_card_sybil_penalty_reporter_1";
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterAgentId });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_sybil_penalty_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Sybil Penalty Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/sybil-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const report = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_sybil_penalty_report_1" },
+    body: {
+      reportId: "acabr_sybil_penalty_1",
+      reporterAgentId,
+      reasonCode: "SYBIL_COLLUSION",
+      severity: 4,
+      notes: "deterministic sybil signal"
+    }
+  });
+  assert.equal(report.statusCode, 201, report.body);
+  const reportCreatedAt = String(report.json?.report?.createdAt ?? "");
+  assert.ok(reportCreatedAt);
+
+  const reputation = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(subjectAgentId)}/reputation?reputationVersion=v2&reputationWindow=allTime&asOf=${encodeURIComponent(reportCreatedAt)}`
+  });
+  assert.equal(reputation.statusCode, 200, reputation.body);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.evaluationStatus, "ok");
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.sybilCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.counts?.totalPenaltyCount, 1);
+  assert.equal(reputation.json?.reputation?.penaltySignal?.quarantineRecommended, true);
+  assert.ok(
+    Array.isArray(reputation.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputation.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_SYBIL_THRESHOLD")
+  );
+
+  const discovery = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discovery.statusCode, 200, discovery.body);
+  const resultAgentIds = new Set((discovery.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(resultAgentIds.has(subjectAgentId), false);
+  const excluded = Array.isArray(discovery.json?.excludedQuarantineCandidates)
+    ? discovery.json.excludedQuarantineCandidates.find((row) => String(row?.agentId ?? "") === subjectAgentId)
+    : null;
+  assert.ok(excluded);
+  assert.ok(Array.isArray(excluded?.reasonCodes) && excluded.reasonCodes.includes("REPUTATION_QUARANTINE_SYBIL_THRESHOLD"));
+});
+
 test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 

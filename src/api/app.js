@@ -9403,6 +9403,13 @@ export function createApi({
     return value;
   }
 
+  function isSybilAbuseReasonCode(reasonCode) {
+    const normalized = parseAgentCardAbuseReasonCode(reasonCode, { allowNull: true });
+    if (!normalized) return false;
+    if (normalized.startsWith("SYBIL")) return true;
+    return normalized === RELATIONSHIP_ANTI_GAMING_REASON_CODE.RECIPROCAL_COLLUSION_PATTERN;
+  }
+
   function parseAgentCardAbuseSeverity(rawValue, { fieldPath = "severity", defaultValue = 1 } = {}) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultValue;
     const value = Number(rawValue);
@@ -10241,12 +10248,14 @@ export function createApi({
   const REPUTATION_PENALTY_REASON_CODE = Object.freeze({
     DISPUTE_LOST: "PENALTY_DISPUTE_LOST",
     CHARGEBACK: "PENALTY_CHARGEBACK",
-    INVALID_SIGNATURE: "PENALTY_INVALID_SIGNATURE"
+    INVALID_SIGNATURE: "PENALTY_INVALID_SIGNATURE",
+    SYBIL: "PENALTY_SYBIL"
   });
   const REPUTATION_QUARANTINE_REASON_CODE = Object.freeze({
     DISPUTE_LOST_THRESHOLD: "REPUTATION_QUARANTINE_DISPUTE_LOST_THRESHOLD",
     CHARGEBACK_THRESHOLD: "REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD",
     INVALID_SIGNATURE_THRESHOLD: "REPUTATION_QUARANTINE_INVALID_SIGNATURE_THRESHOLD",
+    SYBIL_THRESHOLD: "REPUTATION_QUARANTINE_SYBIL_THRESHOLD",
     TOTAL_PENALTY_THRESHOLD: "REPUTATION_QUARANTINE_TOTAL_PENALTY_THRESHOLD",
     SIGNAL_UNAVAILABLE: "REPUTATION_QUARANTINE_SIGNAL_UNAVAILABLE"
   });
@@ -10254,6 +10263,7 @@ export function createApi({
     disputeLostCount: 1,
     chargebackCount: 1,
     invalidSignatureCount: 1,
+    sybilCount: 1,
     totalPenaltyCount: 2
   });
 
@@ -10271,6 +10281,9 @@ export function createApi({
     }
     if ((counts?.invalidSignatureCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.invalidSignatureCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.INVALID_SIGNATURE_THRESHOLD);
+    }
+    if ((counts?.sybilCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.sybilCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.SYBIL_THRESHOLD);
     }
     if ((counts?.totalPenaltyCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.totalPenaltyCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.TOTAL_PENALTY_THRESHOLD);
@@ -10291,6 +10304,7 @@ export function createApi({
           disputeLostCount: 0,
           chargebackCount: 0,
           invalidSignatureCount: 0,
+          sybilCount: 0,
           totalPenaltyCount: 0
         },
         quarantineRecommended: true,
@@ -10315,6 +10329,7 @@ export function createApi({
       disputeLostCount: 0,
       chargebackCount: 0,
       invalidSignatureCount: 0,
+      sybilCount: 0,
       totalPenaltyCount: 0
     };
 
@@ -10329,9 +10344,10 @@ export function createApi({
       if (kind === REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST) counts.disputeLostCount += 1;
       else if (kind === REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK) counts.chargebackCount += 1;
       else if (kind === REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE) counts.invalidSignatureCount += 1;
+      else if (kind === REPUTATION_EVENT_KIND.PENALTY_SYBIL) counts.sybilCount += 1;
     }
 
-    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount;
+    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount + counts.sybilCount;
     const reasonCodes = derivePenaltyQuarantineReasonCodes(counts);
     return normalizeForCanonicalJson(
       {
@@ -24732,6 +24748,31 @@ export function createApi({
     return null;
   }
 
+  async function resolveMoneyRailPenaltySubjectAgentId({ tenantId, operation } = {}) {
+    const metadata = operation?.metadata && typeof operation.metadata === "object" && !Array.isArray(operation.metadata) ? operation.metadata : null;
+    const candidateAgentIds = [
+      normalizeNonEmptyStringOrNull(metadata?.agentId),
+      normalizeNonEmptyStringOrNull(metadata?.payeeAgentId),
+      normalizeNonEmptyStringOrNull(metadata?.subjectAgentId),
+      (() => {
+        const counterpartyRef = normalizeNonEmptyStringOrNull(operation?.counterpartyRef);
+        if (!counterpartyRef || !counterpartyRef.startsWith("agent:")) return null;
+        return normalizeNonEmptyStringOrNull(counterpartyRef.slice("agent:".length));
+      })(),
+      normalizeMoneyRailOperationPartyId(operation)
+    ].filter(Boolean);
+    for (const candidate of candidateAgentIds) {
+      try {
+        // Fail closed: only emit penalties for known agent identities.
+        const identity = await getAgentIdentityRecord({ tenantId, agentId: candidate });
+        if (identity) return candidate;
+      } catch {
+        // best-effort lookup
+      }
+    }
+    return null;
+  }
+
   function listMoneyRailOperationsChronological(operations) {
     const list = Array.isArray(operations) ? operations.filter((row) => row && typeof row === "object" && !Array.isArray(row)) : [];
     const keyed = list.map((row, idx) => ({ row, idx }));
@@ -26562,7 +26603,8 @@ export function createApi({
     if (
       penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST &&
       penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK &&
-      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE &&
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_SYBIL
     ) {
       return null;
     }
@@ -26712,6 +26754,38 @@ export function createApi({
       amountPenalizedCents,
       extraFacts,
       context: context ?? "reputation.penalty.chargeback"
+    });
+  }
+
+  async function emitSybilPenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = "agent_card",
+    role = "system",
+    sourceRef = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    occurredAt = nowIso(),
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_SYBIL,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.SYBIL,
+      reasonMessage,
+      amountPenalizedCents,
+      extraFacts,
+      context: context ?? "reputation.penalty.sybil"
     });
   }
 
@@ -39171,41 +39245,72 @@ export function createApi({
                 // best-effort
               }
             }
-            if (
-              responseBody.applied === true &&
-              eventType === MONEY_RAIL_PROVIDER_EVENT_TYPE.REVERSED &&
-              typeof store.appendOpsAudit === "function"
-            ) {
+            if (responseBody.applied === true && eventType === MONEY_RAIL_PROVIDER_EVENT_TYPE.REVERSED) {
               try {
                 const operation = responseBody.operation ?? null;
                 const partyId = normalizeMoneyRailOperationPartyId(operation);
                 const amountCents = Number.isSafeInteger(Number(operation?.amountCents)) ? Number(operation.amountCents) : null;
+                const normalizedReversalReasonCode = typeof reasonCode === "string" ? reasonCode.trim().toLowerCase() : "";
+                const isChargebackReversal =
+                  normalizedReversalReasonCode === "chargeback" ||
+                  normalizedReversalReasonCode.startsWith("chargeback_") ||
+                  normalizedReversalReasonCode.endsWith("_chargeback");
+                const subjectAgentId = await resolveMoneyRailPenaltySubjectAgentId({ tenantId, operation });
                 let outstandingAfterCents = null;
                 if (partyId && typeof adapter.listOperations === "function") {
                   const allOperations = await adapter.listOperations({ tenantId });
                   const exposureByParty = deriveMoneyRailChargebackExposureByParty({ operations: allOperations });
                   outstandingAfterCents = Number(exposureByParty.get(partyId)?.outstandingCents ?? 0);
                 }
-                await store.appendOpsAudit({
-                  tenantId,
-                  audit: makeOpsAudit({
-                    action: "MONEY_RAIL_CHARGEBACK_RECORDED",
-                    targetType: "money_rail_operation",
-                    targetId: operationId,
-                    details: {
-                      providerId,
+                if (subjectAgentId && isChargebackReversal) {
+                  await emitChargebackPenaltyBestEffort({
+                    tenantId,
+                    agentId: subjectAgentId,
+                    counterpartyAgentId: null,
+                    toolId: "money_rail",
+                    role: "payee",
+                    sourceRef: {
+                      kind: "money_rail_operation",
+                      sourceId: operationId
+                    },
+                    reasonMessage: "money rail payout reversed with chargeback exposure",
+                    amountPenalizedCents: amountCents,
+                    occurredAt: at,
+                    extraFacts: {
                       operationId,
-                      eventType,
+                      providerId,
                       eventId: eventId ?? null,
-                      partyId,
-                      amountCents,
                       reasonCode: reasonCode ?? null,
+                      partyId,
                       outstandingAfterCents
-                    }
-                  })
-                });
+                    },
+                    context: "reputation.penalty.chargeback.money_rail_reversal"
+                  });
+                }
+                if (typeof store.appendOpsAudit === "function") {
+                  await store.appendOpsAudit({
+                    tenantId,
+                    audit: makeOpsAudit({
+                      action: "MONEY_RAIL_CHARGEBACK_RECORDED",
+                      targetType: "money_rail_operation",
+                      targetId: operationId,
+                      details: {
+                        providerId,
+                        operationId,
+                        eventType,
+                        eventId: eventId ?? null,
+                        partyId,
+                        subjectAgentId,
+                        isChargebackReversal,
+                        amountCents,
+                        reasonCode: reasonCode ?? null,
+                        outstandingAfterCents
+                      }
+                    })
+                  });
+                }
               } catch {
-                // best-effort audit signal
+                // best-effort audit/penalty signal
               }
             }
             if (idemStoreKey) {
@@ -39219,7 +39324,6 @@ export function createApi({
             }
             return sendJson(res, 200, responseBody);
           }
-
           if (
             parts[1] === "money-rails" &&
             parts[2] &&
@@ -58471,6 +58575,29 @@ export function createApi({
               }
             })
           });
+          if (isSybilAbuseReasonCode(reasonCode)) {
+            await emitSybilPenaltyBestEffort({
+              tenantId,
+              agentId: targetAgentId,
+              counterpartyAgentId: reporterAgentId,
+              toolId: "agent_card",
+              role: "system",
+              sourceRef: {
+                kind: "agent_card_abuse_report",
+                sourceId: reportId
+              },
+              reasonMessage: "agent card abuse report flagged as sybil/collusion signal",
+              amountPenalizedCents: Number(severity ?? 0) * 100,
+              occurredAt: createdAt,
+              extraFacts: {
+                reportId,
+                reasonCode,
+                severity,
+                evidenceRefCount: Array.isArray(evidenceRefs) ? evidenceRefs.length : 0
+              },
+              context: "reputation.penalty.sybil.abuse_report"
+            });
+          }
           return sendJson(res, 201, responseBody);
         }
 
