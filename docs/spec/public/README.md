@@ -19,6 +19,7 @@ They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cu
 - `ToolDescriptor.v1.md`
 - `AuthorityGrant.v1.md`
 - `DelegationGrant.v1.md`
+- `IntentContract.v1.md`
 - `TaskQuote.v1.md`
 - `TaskOffer.v1.md`
 - `TaskAcceptance.v1.md`
