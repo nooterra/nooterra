@@ -130,6 +130,7 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("nooterra.agent_card_upsert"));
   assert.ok(names.includes("nooterra.agent_discover"));
   assert.ok(names.includes("nooterra.agent_discover_stream"));
+  assert.ok(names.includes("nooterra.agent_resolve"));
   assert.ok(names.includes("nooterra.capability_attest"));
   assert.ok(names.includes("nooterra.capability_attestation_list"));
   assert.ok(names.includes("nooterra.capability_attestation_revoke"));
@@ -2014,6 +2015,45 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
       return;
     }
 
+    if (req.method === "GET" && req.url === "/v1/public/agents/resolve?agent=agt_card_1") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          locator: {
+            schemaVersion: "AgentLocator.v1",
+            agentRef: "agt_card_1",
+            parsedRef: { kind: "agent_id", value: "agt_card_1" },
+            status: "resolved",
+            reasonCode: null,
+            matchCount: 1,
+            resolved: {
+              tenantId: "tenant_default",
+              agentId: "agt_card_1",
+              displayName: "Card One",
+              executionCoordinatorDid: null,
+              hostEndpoint: null
+            },
+            candidates: [
+              {
+                rank: 1,
+                score: 1000,
+                tieBreakHash: "a".repeat(64),
+                matchReasons: ["AGENT_ID_EXACT"],
+                tenantId: "tenant_default",
+                agentId: "agt_card_1",
+                displayName: "Card One",
+                executionCoordinatorDid: null,
+                hostEndpoint: null
+              }
+            ],
+            deterministicHash: "b".repeat(64)
+          }
+        })
+      );
+      return;
+    }
+
     if (
       req.method === "GET" &&
       req.url ===
@@ -2130,6 +2170,17 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   assert.equal(relationshipsParsed?.tool, "nooterra.relationships_list");
   assert.equal(relationshipsParsed?.result?.relationships?.[0]?.counterpartyAgentId, "agt_card_2");
 
+  const resolved = await rpc("tools/call", {
+    name: "nooterra.agent_resolve",
+    arguments: {
+      agentRef: "agt_card_1"
+    }
+  });
+  assert.equal(resolved.result?.isError, false);
+  const resolvedParsed = JSON.parse(resolved.result?.content?.[0]?.text || "{}");
+  assert.equal(resolvedParsed?.tool, "nooterra.agent_resolve");
+  assert.equal(resolvedParsed?.result?.locator?.resolved?.agentId, "agt_card_1");
+
   const summary = await rpc("tools/call", {
     name: "nooterra.public_reputation_summary_get",
     arguments: {
@@ -2183,6 +2234,7 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   const methodsAndUrls = requests.map((r) => `${r.method} ${r.url}`);
   assert.deepEqual(methodsAndUrls, [
     "GET /relationships?agentId=agt_card_1&counterpartyAgentId=agt_card_2&reputationWindow=30d&visibility=public_summary&limit=10&offset=0",
+    "GET /v1/public/agents/resolve?agent=agt_card_1",
     "GET /public/agents/agt_card_1/reputation-summary?reputationVersion=v2&reputationWindow=30d&includeRelationships=true&relationshipLimit=3",
     "GET /agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=nooterra_test_ed25519&limit=5&offset=0"
   ]);

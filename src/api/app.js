@@ -215,6 +215,11 @@ import {
   AGENT_CARD_PUBLISH_REASON_CODE,
   verifyAgentCardPublishSignatureV1
 } from "../core/agent-card-publish.js";
+import {
+  AGENT_LOCATOR_REASON_CODE,
+  parseAgentLocatorRef,
+  resolveAgentLocator
+} from "../core/agent-locator.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
 import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
 import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
@@ -10886,41 +10891,88 @@ export function createApi({
     };
   }
 
+  async function listPublicAgentLocatorCandidates({ agentRef, status = AGENT_CARD_STATUS.ACTIVE } = {}) {
+    const normalizedAgentRef = String(agentRef ?? "").trim();
+    if (!normalizedAgentRef) throw new TypeError("agentRef is required");
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+
+    let parsedRef = null;
+    try {
+      parsedRef = parseAgentLocatorRef(normalizedAgentRef);
+    } catch {
+      parsedRef = null;
+    }
+    const agentIdFilter = parsedRef?.kind === "agent_id" ? parsedRef.value : null;
+
+    if (typeof store.listAgentCardsPublic === "function") {
+      const rows = await store.listAgentCardsPublic({
+        agentId: agentIdFilter,
+        status: statusFilter,
+        visibility: AGENT_CARD_VISIBILITY.PUBLIC,
+        limit: 10_000,
+        offset: 0
+      });
+      return Array.isArray(rows) ? rows.filter((row) => row && typeof row === "object" && !Array.isArray(row)) : [];
+    }
+    if (!(store.agentCards instanceof Map)) {
+      throw new TypeError("public agent-card discovery is not supported for this store");
+    }
+    const rows = [];
+    for (const row of store.agentCards.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (String(row.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (agentIdFilter && String(row.agentId ?? "") !== agentIdFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const tenantOrder = String(left?.tenantId ?? "").localeCompare(String(right?.tenantId ?? ""));
+      if (tenantOrder !== 0) return tenantOrder;
+      return String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? ""));
+    });
+    return rows;
+  }
+
+  async function resolvePublicAgentLocatorRef({ agentRef, status = AGENT_CARD_STATUS.ACTIVE } = {}) {
+    const rows = await listPublicAgentLocatorCandidates({ agentRef, status });
+    const resolution = resolveAgentLocator({ agentRef, candidates: rows });
+    const resolvedCard =
+      resolution.ok === true
+        ? rows.find(
+            (row) =>
+              String(row?.tenantId ?? "") === String(resolution.resolved?.tenantId ?? "") &&
+              String(row?.agentId ?? "") === String(resolution.resolved?.agentId ?? "")
+          ) ?? null
+        : null;
+    return {
+      ...resolution,
+      rows,
+      resolvedCard
+    };
+  }
+
   async function resolvePublicAgentCardByAgentId({ agentId, status = AGENT_CARD_STATUS.ACTIVE } = {}) {
     const normalizedAgentId = String(agentId ?? "").trim();
     if (!normalizedAgentId) throw new TypeError("agentId is required");
-    if (typeof store.listAgentCardsPublic !== "function") {
-      throw new TypeError("public agent-card discovery is not supported for this store");
+    const resolution = await resolvePublicAgentLocatorRef({ agentRef: normalizedAgentId, status });
+    if (!resolution.ok) {
+      if (resolution.reasonCode === AGENT_LOCATOR_REASON_CODE.AMBIGUOUS) {
+        return {
+          ok: false,
+          code: "PUBLIC_AGENT_AMBIGUOUS",
+          card: null,
+          details: {
+            agentId: normalizedAgentId,
+            matches: Array.isArray(resolution.locator?.candidates)
+              ? resolution.locator.candidates.map((row) => ({ tenantId: row.tenantId, agentId: row.agentId }))
+              : []
+          }
+        };
+      }
+      return { ok: false, code: "NOT_FOUND", card: null };
     }
-    const rows = await store.listAgentCardsPublic({
-      status: status ? String(status).trim().toLowerCase() : null,
-      visibility: AGENT_CARD_VISIBILITY.PUBLIC,
-      limit: 10_000,
-      offset: 0
-    });
-    const cards = Array.isArray(rows)
-      ? rows
-          .filter((row) => row && typeof row === "object" && !Array.isArray(row))
-          .filter((row) => String(row.agentId ?? "") === normalizedAgentId)
-      : [];
-    cards.sort((left, right) => {
-      const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
-      if (tenantOrder !== 0) return tenantOrder;
-      return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
-    });
-    if (cards.length === 0) return { ok: false, code: "NOT_FOUND", card: null };
-    if (cards.length > 1) {
-      return {
-        ok: false,
-        code: "PUBLIC_AGENT_AMBIGUOUS",
-        card: null,
-        details: {
-          agentId: normalizedAgentId,
-          matches: cards.map((row) => ({ tenantId: row.tenantId, agentId: row.agentId }))
-        }
-      };
-    }
-    return { ok: true, code: null, card: cards[0] };
+    if (!resolution.resolvedCard) return { ok: false, code: "NOT_FOUND", card: null };
+    return { ok: true, code: null, card: resolution.resolvedCard };
   }
 
   async function listRelationshipEdgesForAgent({
@@ -33042,6 +33094,8 @@ export function createApi({
     if (m === "GET" && p === "/openapi.json") return "/openapi.json";
     if (m === "GET" && p === "/public/agent-cards/discover") return "/public/agent-cards/discover";
     if (m === "GET" && p === "/public/agent-cards/stream") return "/public/agent-cards/stream";
+    if (m === "GET" && p === "/v1/public/agents/resolve") return "/v1/public/agents/resolve";
+    if (/^\/\.well-known\/agent-locator\/[^/]+$/.test(p)) return "/.well-known/agent-locator/:agentId";
     if (m === "POST" && p === "/sessions") return "/sessions";
     if (m === "GET" && p === "/sessions") return "/sessions";
     if (/^\/sessions\/[^/]+$/.test(p)) return "/sessions/:sessionId";
@@ -33951,7 +34005,9 @@ export function createApi({
           (req.method === "GET" && path === "/capabilities") ||
           (req.method === "GET" && path === "/public/agent-cards/discover") ||
           (req.method === "GET" && path === "/public/agent-cards/stream") ||
+          (req.method === "GET" && path === "/v1/public/agents/resolve") ||
           (req.method === "GET" && /^\/public\/agents\/[^/]+\/reputation-summary$/.test(path)) ||
+          (req.method === "GET" && /^\/\.well-known\/agent-locator\/[^/]+$/.test(path)) ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
           (req.method === "GET" && path === "/.well-known/nooterra-keys.json") ||
           (req.method === "GET" && path === "/openapi.json") ||
@@ -34241,6 +34297,112 @@ export function createApi({
 
         if (req.method === "GET" && path === "/openapi.json") {
           return sendJson(res, 200, buildOpenApiSpec());
+        }
+
+        if (req.method === "GET" && path === "/v1/public/agents/resolve") {
+          const agentRefRaw = url.searchParams.get("agent");
+          const agentRef = typeof agentRefRaw === "string" ? agentRefRaw.trim() : "";
+          if (!agentRef) {
+            return sendError(res, 400, "invalid agent locator query", { message: "agent query parameter is required" }, {
+              code: AGENT_LOCATOR_REASON_CODE.MALFORMED
+            });
+          }
+
+          let resolution = null;
+          try {
+            resolution = await resolvePublicAgentLocatorRef({ agentRef, status: AGENT_CARD_STATUS.ACTIVE });
+          } catch (err) {
+            return sendError(res, 501, "agent locator is not supported for this store", { message: err?.message ?? null }, { code: "NOT_IMPLEMENTED" });
+          }
+
+          if (!resolution?.ok) {
+            if (resolution?.reasonCode === AGENT_LOCATOR_REASON_CODE.MALFORMED) {
+              return sendError(
+                res,
+                400,
+                "invalid agent locator query",
+                { locator: resolution?.locator ?? null },
+                { code: AGENT_LOCATOR_REASON_CODE.MALFORMED }
+              );
+            }
+            if (resolution?.reasonCode === AGENT_LOCATOR_REASON_CODE.AMBIGUOUS) {
+              return sendError(
+                res,
+                409,
+                "agent locator is ambiguous for this reference",
+                { locator: resolution?.locator ?? null },
+                { code: AGENT_LOCATOR_REASON_CODE.AMBIGUOUS }
+              );
+            }
+            return sendError(
+              res,
+              404,
+              "agent locator did not resolve a public agent",
+              { locator: resolution?.locator ?? null },
+              { code: AGENT_LOCATOR_REASON_CODE.NOT_FOUND }
+            );
+          }
+
+          return sendJson(res, 200, { ok: true, locator: resolution.locator });
+        }
+
+        {
+          const parts = path.split("/").filter(Boolean);
+          if (req.method === "GET" && parts[0] === ".well-known" && parts[1] === "agent-locator" && parts[2] && parts.length === 3) {
+            let agentRef = null;
+            try {
+              agentRef = decodeURIComponent(parts[2]);
+            } catch {
+              return sendError(res, 400, "invalid agent locator path", null, { code: AGENT_LOCATOR_REASON_CODE.MALFORMED });
+            }
+
+            let resolution = null;
+            try {
+              resolution = await resolvePublicAgentLocatorRef({ agentRef, status: AGENT_CARD_STATUS.ACTIVE });
+            } catch (err) {
+              return sendError(
+                res,
+                501,
+                "agent locator is not supported for this store",
+                { message: err?.message ?? null },
+                { code: "NOT_IMPLEMENTED" }
+              );
+            }
+
+            if (!resolution?.ok) {
+              if (resolution?.reasonCode === AGENT_LOCATOR_REASON_CODE.MALFORMED) {
+                return sendError(
+                  res,
+                  400,
+                  "invalid agent locator path",
+                  { locator: resolution?.locator ?? null },
+                  { code: AGENT_LOCATOR_REASON_CODE.MALFORMED }
+                );
+              }
+              if (resolution?.reasonCode === AGENT_LOCATOR_REASON_CODE.AMBIGUOUS) {
+                return sendError(
+                  res,
+                  409,
+                  "agent locator is ambiguous for this agentId",
+                  { locator: resolution?.locator ?? null },
+                  { code: AGENT_LOCATOR_REASON_CODE.AMBIGUOUS }
+                );
+              }
+              return sendError(
+                res,
+                404,
+                "agent locator did not resolve a public agent",
+                { locator: resolution?.locator ?? null },
+                { code: AGENT_LOCATOR_REASON_CODE.NOT_FOUND }
+              );
+            }
+            try {
+              res.setHeader("cache-control", "public, max-age=300");
+            } catch {
+              // ignore
+            }
+            return sendJson(res, 200, resolution.locator);
+          }
         }
 
         if (req.method === "GET" && path === "/.well-known/agent.json") {
