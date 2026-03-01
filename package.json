@@ -186,7 +186,7 @@
   "devDependencies": {
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "eslint": "^9.39.3",
+    "eslint": "^10.0.2",
     "globals": "^17.3.0"
   },
   "overrides": {
