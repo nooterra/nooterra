@@ -26,6 +26,7 @@ They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cu
 - `ArtifactRef.v1.md`
 - `AuditPacket.v1.md`
 - `StateCheckpoint.v1.md`
+- `Project.v1.md`
 - `CapabilityAttestation.v1.md`
 - `ReputationEvent.v1.md`
 - `RelationshipEdge.v1.md`
