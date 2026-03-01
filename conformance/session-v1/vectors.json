@@ -279,6 +279,73 @@
           "error": null
         }
       }
+    },
+    "session_vectors_provenance_invalid_1": {
+      "tenantId": "tenant_vectors",
+      "session": {
+        "schemaVersion": "Session.v1",
+        "tenantId": "tenant_vectors",
+        "sessionId": "sess_vectors_provenance_invalid_1",
+        "visibility": "tenant",
+        "participants": [
+          "agt_orchestrator_1",
+          "agt_worker_1"
+        ],
+        "metadata": {
+          "workflowId": "wf_vectors_provenance_invalid_1",
+          "objective": "conformance replay provenance invalid fail-closed"
+        },
+        "createdAt": "2026-02-01T00:00:00.000Z",
+        "updatedAt": "2026-02-01T00:00:01.000Z"
+      },
+      "events": [
+        {
+          "v": 1,
+          "id": "ev_vectors_provenance_invalid_1",
+          "at": "2026-02-01T00:00:01.000Z",
+          "streamId": "sess_vectors_provenance_invalid_1",
+          "type": "TASK_REQUESTED",
+          "actor": {
+            "type": "agent",
+            "id": "agt_orchestrator_1"
+          },
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED",
+            "at": "2026-02-01T00:00:01.000Z",
+            "traceId": "trace_vectors_provenance_invalid_1",
+            "provenance": {
+              "schemaVersion": "SessionEventProvenance.v1",
+              "label": "trusted",
+              "derivedFromEventId": null,
+              "isTainted": false,
+              "taintDepth": 0,
+              "explicitTaint": false,
+              "reasonCodes": []
+            },
+            "body": {
+              "taskId": "task_vectors_provenance_invalid_1",
+              "prompt": "provenance invalid conformance fixture"
+            }
+          },
+          "payloadHash": "dc71a1056f8c88f6caec2f41cfffd8fc9f3e3f18bf18879ecbc25812e6a8d873",
+          "prevChainHash": null,
+          "chainHash": "0ace3b07639d3f1718d3c5de90f2d59f52cc06ff8a1f5ec7f8f3c5d5db8f768f",
+          "signature": "AyPCfdYzAXwl5SfofOsdl6HNMBGweVt1wLs0iC8Sb1Y9AjhWm5sEf9t1aMu5ZzVBtQn2Wg6lkPJs4AMfnBmFAA==",
+          "signerKeyId": "key_9ed38005b42d9364601ffab3"
+        }
+      ],
+      "verification": {
+        "chainOk": true,
+        "verifiedEventCount": 1,
+        "error": null,
+        "provenance": {
+          "ok": false,
+          "verifiedEventCount": 0,
+          "taintedEventCount": 1,
+          "error": "ambiguous provenance trust declaration"
+        }
+      }
     }
   },
   "cases": [
@@ -359,6 +426,23 @@
         "details": {
           "sessionId": "sess_vectors_chain_invalid_1",
           "reason": "chain hash mismatch at ev_vectors_chain_invalid_1"
+        }
+      }
+    },
+    {
+      "id": "session_artifacts_provenance_invalid_fail_closed",
+      "fixtureId": "session_vectors_provenance_invalid_1",
+      "invariantIds": [
+        "ACS-NS2-SESSION-REPLAY-PROVENANCE-INVALID"
+      ],
+      "signing": null,
+      "expected": {
+        "outcome": "fail",
+        "code": "SESSION_REPLAY_PROVENANCE_INVALID",
+        "message": "session replay provenance invalid",
+        "details": {
+          "sessionId": "sess_vectors_provenance_invalid_1",
+          "reason": "ambiguous provenance trust declaration"
         }
       }
     }

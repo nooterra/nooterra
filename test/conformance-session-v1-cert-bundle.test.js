@@ -137,18 +137,64 @@ test("session artifact conformance cert run covers replay determinism variants",
   assert.equal(res.status, 0, `session conformance full pack run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
 
   const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
-  assert.equal(report.reportCore?.summary?.total, 4);
-  assert.equal(report.reportCore?.summary?.pass, 4);
+  assert.equal(report.reportCore?.summary?.total, 5);
+  assert.equal(report.reportCore?.summary?.pass, 5);
   assert.equal(report.reportCore?.summary?.fail, 0);
   assert.equal(report.reportCore?.summary?.ok, true);
   const resultIds = (Array.isArray(report.reportCore?.results) ? report.reportCore.results : []).map((row) => row?.id).sort();
   assert.deepEqual(resultIds, [
     "session_artifacts_acl_denied_fail_closed",
     "session_artifacts_chain_invalid_fail_closed",
+    "session_artifacts_provenance_invalid_fail_closed",
     "session_artifacts_signed_deterministic",
     "session_artifacts_unsigned_deterministic"
   ]);
   assert.equal(report.generatedAt, generatedAt);
+
+  const cert = JSON.parse(await fs.readFile(certPath, "utf8"));
+  assert.equal(cert.certCore?.pack, "conformance/session-v1");
+  assert.equal(cert.certCore?.reportHash, report.reportHash);
+  assert.equal(cert.certHash, sha256Hex(canonicalJsonStringify(cert.certCore)));
+});
+
+test("session artifact conformance cert run covers provenance-invalid fail-closed case", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-provenance-invalid-case-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const reportPath = path.join(tmpRoot, "session-conformance-report.json");
+  const certPath = path.join(tmpRoot, "session-conformance-cert.json");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
+
+  const res = runConformance([
+    ...fullPackRunnerArgs(),
+    "--case",
+    "session_artifacts_provenance_invalid_fail_closed",
+    "--json-out",
+    reportPath,
+    "--cert-bundle-out",
+    certPath,
+    "--generated-at",
+    generatedAt,
+    "--strict-artifacts"
+  ]);
+
+  assert.equal(res.status, 0, `session conformance provenance-invalid run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
+
+  const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  assert.equal(report.reportCore?.summary?.total, 1);
+  assert.equal(report.reportCore?.summary?.pass, 1);
+  assert.equal(report.reportCore?.summary?.fail, 0);
+  assert.equal(report.reportCore?.summary?.ok, true);
+  assert.equal(report.generatedAt, generatedAt);
+  const row = Array.isArray(report.reportCore?.results) ? report.reportCore.results[0] : null;
+  assert.equal(row?.id, "session_artifacts_provenance_invalid_fail_closed");
+  assert.equal(row?.status, "pass");
+  assert.equal(row?.actual?.code, "SESSION_REPLAY_PROVENANCE_INVALID");
+  assert.equal(row?.actual?.message, "session replay provenance invalid");
+  assert.equal(row?.actual?.details?.sessionId, "sess_vectors_provenance_invalid_1");
+  assert.equal(row?.actual?.details?.reason, "ambiguous provenance trust declaration");
 
   const cert = JSON.parse(await fs.readFile(certPath, "utf8"));
   assert.equal(cert.certCore?.pack, "conformance/session-v1");
