@@ -1872,6 +1872,24 @@ export class NooterraClient {
     checkpointId: string,
     opts?: RequestOptions
   ): Promise<NooterraResponse<{ stateCheckpoint: Record<string, unknown> }>>;
+  compactStateCheckpointLineage(
+    body: {
+      checkpoints: Array<Record<string, unknown>>;
+      compactionId?: string | null;
+      retainEvery?: number;
+      retainTail?: number;
+      compactedAt?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<{ stateCheckpointLineageCompaction: Record<string, unknown> }>>;
+  restoreStateCheckpointLineage(
+    body: {
+      compaction: Record<string, unknown>;
+      restoredAt?: string | null;
+    },
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<{ stateCheckpointLineageRestore: Record<string, unknown> }>>;
   createSession(
     body: {
       sessionId?: string;
