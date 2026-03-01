@@ -23,9 +23,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Install Trivy CLI (pinned setup action)
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.5
+        with:
+          version: v0.69.1
+          cache: false
       - name: Trivy filesystem scan (fail on critical)
         uses: aquasecurity/trivy-action@0.34.1
         with:
+          skip-setup-trivy: true
           scan-type: fs
           ignore-unfixed: true
           severity: CRITICAL
@@ -36,13 +42,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Install Trivy CLI (pinned setup action)
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.5
+        with:
+          version: v0.69.1
+          cache: false
       - name: Build image
         run: docker build -t nooterra:ci --build-arg GIT_SHA=${{ github.sha }} --build-arg NOOTERRA_VERSION=ci .
       - name: Trivy image scan (fail on critical)
         uses: aquasecurity/trivy-action@0.34.1
         with:
+          skip-setup-trivy: true
           image-ref: nooterra:ci
           ignore-unfixed: true
           severity: CRITICAL
           exit-code: "1"
-
