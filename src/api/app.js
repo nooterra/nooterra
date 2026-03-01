@@ -20049,7 +20049,7 @@ export function createApi({
       requireReplayPackSignature: replayVerificationInput?.requireReplayPackSignature === true,
       requireTranscriptSignature: replayVerificationInput?.requireTranscriptSignature === true,
       expectedPolicyDecisionHash: replayVerificationInput?.expectedPolicyDecisionHash ?? null,
-      settlement: replayVerificationInput?.settlement ?? null,
+      settlement: replayVerificationInput?.settlement ?? settlement ?? null,
       expectedSettlement: replayVerificationInput?.expectedSettlement ?? buildReplayVerificationExpectedSettlement(settlement)
     });
   }
@@ -55310,6 +55310,8 @@ export function createApi({
           let reversalEvidenceRefs = [];
           let commandEnvelope = null;
           let providerDecisionArtifact = null;
+          let replayVerificationInput = null;
+          let requireReplayVerification = false;
           try {
             action = normalizeX402ReversalActionInput(body?.action);
             providerDecision = normalizeX402ReversalDecisionInput(body?.providerDecision ?? null);
@@ -55317,6 +55319,10 @@ export function createApi({
             reversalEvidenceRefs = normalizeX402ReversalEvidenceRefsInput(body?.evidenceRefs ?? null);
             commandEnvelope = normalizeX402ReversalCommandInput(body?.command);
             providerDecisionArtifact = normalizeX402ProviderRefundDecisionEnvelopeInput(body?.providerDecisionArtifact ?? null);
+            replayVerificationInput = normalizeOptionalReplayVerificationInput(body?.replayVerification, {
+              fieldName: "replayVerification"
+            });
+            requireReplayVerification = body?.requireReplayVerification === true;
           } catch (err) {
             return sendError(res, 400, "invalid reversal request", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
@@ -55326,6 +55332,24 @@ export function createApi({
           const runId = String(gate.runId ?? "");
           const settlement = typeof store.getAgentRunSettlement === "function" ? await store.getAgentRunSettlement({ tenantId, runId }) : null;
           if (!settlement) return sendError(res, 404, "settlement not found for gate", null, { code: "NOT_FOUND" });
+          const settlementDisputeStatus = String(settlement?.disputeStatus ?? "").toLowerCase();
+          if (action === "resolve_refund" && settlementDisputeStatus === AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.OPEN) {
+            requireReplayVerification = true;
+          }
+          if (action === "resolve_refund" && requireReplayVerification && !replayVerificationInput) {
+            return sendError(
+              res,
+              409,
+              "reversal adjudication requires replay verification",
+              {
+                operation: "x402.gate.reversal.resolve_refund",
+                gateId,
+                runId,
+                disputeStatus: settlementDisputeStatus || null
+              },
+              { code: "X402_REVERSAL_REPLAY_VERIFICATION_REQUIRED" }
+            );
+          }
 
           const amountCents = Number(settlement.amountCents ?? gate?.terms?.amountCents ?? 0);
           if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
@@ -55647,6 +55671,7 @@ export function createApi({
           const ops = [];
           let responseStatusCode = 200;
           let kernelRefs = null;
+          let replayVerification = null;
           const reversalEventId = createId("x402rev");
           const settlementStatusBefore = String(settlement.status ?? "").toLowerCase();
 
@@ -56283,6 +56308,28 @@ export function createApi({
               ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: nextGate });
             }
           }
+          if (action === "resolve_refund" && replayVerificationInput) {
+            replayVerification = runReplayVerificationForSettlement({
+              replayVerificationInput,
+              settlement: nextSettlement,
+              tenantId,
+              defaultExpectedSessionId: replayVerificationInput?.memoryExport?.sessionId ?? null
+            });
+            if (replayVerification.ok !== true) {
+              return sendError(
+                res,
+                409,
+                "reversal adjudication replay verification failed",
+                {
+                  operation: "x402.gate.reversal.resolve_refund",
+                  gateId,
+                  runId,
+                  verdict: replayVerification.verdict ?? null
+                },
+                { code: "X402_REVERSAL_REPLAY_VERDICT_INVALID" }
+              );
+            }
+          }
 
           const commandUsageRecord = normalizeForCanonicalJson(
             {
@@ -56360,6 +56407,7 @@ export function createApi({
             settlement: nextSettlement,
             reversal: nextGate?.reversal ?? null,
             reversalEvent: reversalEventRecord,
+            ...(replayVerification ? { replayVerification } : {}),
             ...(kernelRefs?.decisionRecord ? { decisionRecord: kernelRefs.decisionRecord } : {}),
             ...(kernelRefs?.settlementReceipt ? { settlementReceipt: kernelRefs.settlementReceipt } : {})
           };

@@ -289,6 +289,53 @@ function overwriteSettlementRequestBindingSha256(api, { runId, requestSha256 = n
   api.store.agentRunSettlements.set(scopedSettlementKey, next);
 }
 
+async function buildReplayVerificationPayload(api, { sessionId, principalAgentId, prefix }) {
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": `${prefix}_session_create_1`,
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: `/sessions/${encodeURIComponent(sessionId)}/events`,
+    headers: {
+      "x-idempotency-key": `${prefix}_session_append_1`,
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: `${prefix}_task_1` }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const exported = await request(api, {
+    method: "GET",
+    path: `/sessions/${encodeURIComponent(sessionId)}/replay-export?includeTranscript=true`,
+    headers: { "x-proxy-principal-id": principalAgentId }
+  });
+  assert.equal(exported.statusCode, 200, exported.body);
+  return {
+    memoryExport: exported.json?.memoryExport,
+    memoryExportRef: exported.json?.memoryExportRef,
+    replayPack: exported.json?.replayPack,
+    transcript: exported.json?.transcript,
+    expectedTenantId: "tenant_default",
+    expectedSessionId: sessionId
+  };
+}
+
 test("API e2e: x402 reversal void_authorization refunds locked gate before execution", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const payer = await registerAgent(api, { agentId: "agt_x402_void_payer_1" });
@@ -1248,6 +1295,198 @@ test("API e2e: x402 reversal fails closed when request-hash evidence is missing 
   assert.equal(conflictEvidence.statusCode, 409, conflictEvidence.body);
   assert.equal(conflictEvidence.json?.code, "X402_REVERSAL_BINDING_EVIDENCE_MISMATCH");
   assert.deepEqual(conflictEvidence.json?.details?.requestSha256Values, [bindings.requestSha256, "e".repeat(64)]);
+});
+
+test("API e2e: x402 reversal resolve_refund requires replay verification during open dispute and fails closed on tampering", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_reversal_replay_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_reversal_replay_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_reversal_replay_operator_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 8000, idempotencyKey: "wallet_credit_x402_reversal_replay_1" });
+
+  const gateId = "x402gate_reversal_replay_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_reversal_replay_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 650,
+      currency: "USD",
+      toolId: "mock_search",
+      disputeWindowDays: 2
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_reversal_replay_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_reversal_replay_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"f".repeat(64)}`, `http:response_sha256:${"1".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+
+  const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+  assert.equal(gateRead.statusCode, 200, gateRead.body);
+  const runId = gateRead.json?.settlement?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+  assert.ok(bindings.requestSha256);
+
+  const openedDispute = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "x402_dispute_open_reversal_replay_1" },
+    body: {
+      disputeId: "dsp_x402_reversal_replay_1",
+      disputeType: "quality",
+      disputePriority: "high",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: operator.agentId,
+      reason: "require replay proof for reversal adjudication",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "evidence://x402/dispute/reversal_replay_1.json"]
+    }
+  });
+  assert.equal(openedDispute.statusCode, 200, openedDispute.body);
+  assert.equal(openedDispute.json?.settlement?.disputeStatus, "open");
+
+  const requestRefundCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "request_refund",
+    commandId: "cmd_reversal_replay_request_1",
+    idempotencyKey: "idem_reversal_replay_request_1",
+    nonce: "nonce_reversal_replay_request_1"
+  });
+  const requested = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_replay_request_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "open dispute adjudication",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:incident:replay_case"],
+      command: requestRefundCommand
+    }
+  });
+  assert.equal(requested.statusCode, 202, requested.body);
+  assert.equal(requested.json?.reversal?.status, "refund_pending");
+
+  const replayVerification = await buildReplayVerificationPayload(api, {
+    sessionId: "sess_x402_reversal_replay_1",
+    principalAgentId: operator.agentId,
+    prefix: "x402_reversal_replay"
+  });
+
+  const resolveCommand = signReversalCommand({
+    payer,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    sponsorRef: bindings.sponsorRef,
+    action: "resolve_refund",
+    commandId: "cmd_reversal_replay_resolve_1",
+    idempotencyKey: "idem_reversal_replay_resolve_1",
+    nonce: "nonce_reversal_replay_resolve_1"
+  });
+  const providerDecisionArtifact = signProviderRefundDecision({
+    payee,
+    gateId,
+    receiptId: bindings.receiptId,
+    quoteId: bindings.quoteId,
+    requestSha256: bindings.requestSha256,
+    decision: "accepted",
+    reason: "provider_acknowledged"
+  });
+
+  const missingReplay = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_replay_resolve_missing_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
+      command: resolveCommand,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(missingReplay.statusCode, 409, missingReplay.body);
+  assert.equal(missingReplay.json?.code, "X402_REVERSAL_REPLAY_VERIFICATION_REQUIRED");
+
+  const tamperedReplay = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_replay_resolve_tampered_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
+      command: resolveCommand,
+      providerDecisionArtifact,
+      replayVerification: {
+        ...replayVerification,
+        replayPack: {
+          ...replayVerification.replayPack,
+          events: [],
+          signature: null
+        }
+      }
+    }
+  });
+  assert.equal(tamperedReplay.statusCode, 409, tamperedReplay.body);
+  assert.equal(tamperedReplay.json?.code, "X402_REVERSAL_REPLAY_VERDICT_INVALID");
+
+  const resolved = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_replay_resolve_success_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "provider:decision:accepted"],
+      command: resolveCommand,
+      providerDecisionArtifact,
+      replayVerification
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.settlement?.status, "refunded");
+  assert.equal(resolved.json?.settlement?.disputeStatus, "none");
+  assert.equal(resolved.json?.replayVerification?.ok, true);
+  assert.equal(resolved.json?.replayVerification?.verdict?.ok, true);
 });
 
 test("API e2e: run dispute close fails closed on missing or mismatched settlement request-hash evidence", async () => {
