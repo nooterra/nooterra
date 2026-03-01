@@ -9,6 +9,12 @@ function pythonAvailable() {
   return probe.status === 0;
 }
 
+function pythonCryptographyAvailable() {
+  if (!pythonAvailable()) return false;
+  const probe = spawnSync("python3", ["-c", "import cryptography"], { encoding: "utf8" });
+  return probe.status === 0;
+}
+
 function readFile(relativePath) {
   return fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
 }
@@ -326,6 +332,52 @@ test("api-sdk-python contract freeze: tool-call kernel wrappers remain wired", {
   assert.equal(calls[1].idempotencyKey, "py_tool_open_1");
 });
 
+test(
+  "api-sdk-python contract freeze: auto-sign helper paths and fail-closed validation remain stable",
+  { skip: !pythonAvailable() || !pythonCryptographyAvailable() },
+  () => {
+  const script = [
+    "import json, pathlib, sys",
+    "repo = pathlib.Path.cwd()",
+    "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
+    "from nooterra_api_sdk import NooterraClient",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_sdk')",
+    "private_key_pem = '-----BEGIN PRIVATE KEY-----\\nMC4CAQAwBQYDK2VwBCIEIMoDlT2W3lBH5gvYjpAT49u2WjXVn2YcTf6xuzJHrEKA\\n-----END PRIVATE KEY-----\\n'",
+    "agreement = client.create_agreement({'toolId':'cap_demo','manifestHash':'f'*64,'callId':'call_demo_1','input':{'text':'hello'},'createdAt':'2026-02-11T00:00:00.000Z'})",
+    "signed_evidence = client.sign_evidence({'agreement': agreement['agreement'], 'output': {'upper':'HELLO'}, 'startedAt':'2026-02-11T00:00:01.000Z','completedAt':'2026-02-11T00:00:02.000Z','signerKeyId':'key_py_signer_1','signerPrivateKeyPem': private_key_pem})",
+    "signed_envelope = client.build_dispute_open_envelope({'agreementHash': agreement['agreementHash'], 'receiptHash': '1'*64, 'holdHash': '2'*64, 'openedByAgentId':'agt_payee_1', 'signerKeyId':'key_py_signer_1', 'signerPrivateKeyPem': private_key_pem, 'openedAt':'2026-02-11T00:00:03.000Z', 'nonce':'nonce_py_sign_1'})",
+    "errors = {}",
+    "def capture(name, fn):",
+    "    try:",
+    "        fn()",
+    "        errors[name] = None",
+    "    except Exception as exc:",
+    "        errors[name] = str(exc)",
+    "capture('signMissingSignerKeyId', lambda: client.sign_evidence({'agreement': agreement['agreement'], 'output': {'upper':'HELLO'}, 'startedAt':'2026-02-11T00:00:01.000Z','completedAt':'2026-02-11T00:00:02.000Z','signerPrivateKeyPem': private_key_pem}))",
+    "capture('envelopeMissingSignatureOrKey', lambda: client.build_dispute_open_envelope({'agreementHash': agreement['agreementHash'], 'receiptHash': '1'*64, 'holdHash': '2'*64, 'openedByAgentId':'agt_payee_1', 'signerKeyId':'key_py_signer_1'}))",
+    "capture('envelopeMissingSignerKeyId', lambda: client.build_dispute_open_envelope({'agreementHash': agreement['agreementHash'], 'receiptHash': '1'*64, 'holdHash': '2'*64, 'openedByAgentId':'agt_payee_1', 'signerPrivateKeyPem': private_key_pem}))",
+    "print(json.dumps({'evidenceSignatureAlgorithm': signed_evidence.get('evidence', {}).get('signature', {}).get('algorithm'), 'evidenceSignerKeyId': signed_evidence.get('evidence', {}).get('signature', {}).get('signerKeyId'), 'evidenceSignature': signed_evidence.get('evidence', {}).get('signature', {}).get('signature'), 'envelopeSignerKeyId': signed_envelope.get('disputeOpenEnvelope', {}).get('signerKeyId'), 'envelopeSignature': signed_envelope.get('disputeOpenEnvelope', {}).get('signature'), 'errors': errors}))",
+  ].join("\n");
+
+  const run = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+  assert.equal(
+    run.status,
+    0,
+    `python auto-sign helper contract check failed\n\nstdout:\n${run.stdout ?? ""}\n\nstderr:\n${run.stderr ?? ""}`
+  );
+
+  const parsed = JSON.parse(String(run.stdout ?? "{}"));
+  assert.equal(parsed.evidenceSignatureAlgorithm, "ed25519");
+  assert.equal(parsed.evidenceSignerKeyId, "key_py_signer_1");
+  assert.match(String(parsed.evidenceSignature ?? ""), /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.equal(parsed.envelopeSignerKeyId, "key_py_signer_1");
+  assert.match(String(parsed.envelopeSignature ?? ""), /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.match(String(parsed.errors?.signMissingSignerKeyId ?? ""), /signerKeyId/);
+  assert.match(String(parsed.errors?.envelopeMissingSignatureOrKey ?? ""), /signature|signerPrivateKeyPem/);
+  assert.match(String(parsed.errors?.envelopeMissingSignerKeyId ?? ""), /signerKeyId/);
+  }
+);
+
 test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { skip: !pythonAvailable() }, () => {
   const script = [
     "import json, pathlib, sys",
@@ -347,10 +399,10 @@ test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { sk
     "client.upsert_agent_card({'agentId':'agt_alpha'})",
     "client.discover_agent_cards({'capability':'capability://code','includeRoutingFactors':True,'requesterAgentId':'agt_buyer'})",
     "client.discover_public_agent_cards({'capability':'capability://travel','includeReputation':False,'limit':3})",
-    "client.issue_delegation_grant({'grantId':'dg_1'})",
+    "client.issue_delegation_grant({'grantId':'dg_1','delegatorAgentId':'agt_principal','delegateeAgentId':'agt_worker'})",
     "client.get_delegation_grant('dg_1')",
     "client.revoke_delegation_grant('dg_1', {'reasonCode':'REVOKED_BY_PRINCIPAL'})",
-    "client.issue_authority_grant({'grantId':'ag_1'})",
+    "client.issue_authority_grant({'grantId':'ag_1','principalRef':{'principalId':'prn_1'},'granteeAgentId':'agt_worker'})",
     "client.get_authority_grant('ag_1')",
     "client.revoke_authority_grant('ag_1')",
     "client.create_task_quote({'quoteId':'q_1'})",
@@ -371,7 +423,7 @@ test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { sk
     "client.list_work_order_receipts({'workOrderId':'wo_1'})",
     "client.get_work_order_receipt('rcpt_1')",
     "client.create_session({'sessionId':'sess_1'})",
-    "client.append_session_event('sess_1', {'eventType':'message','payload':{'text':'hi'}}, expected_prev_chain_hash='0'*64)",
+    "client.append_session_event('sess_1', {'type':'TASK_REQUESTED','payload':{'text':'hi'}}, expected_prev_chain_hash='0'*64)",
     "client.list_session_events('sess_1', {'eventType':'message','limit':10,'offset':0,'sinceEventId':'evt_prev_1'})",
     "client.get_session_replay_pack('sess_1', {'sign': True, 'signerKeyId': 'key_py_1'})",
     "client.get_session_transcript('sess_1', {'sign': True})",

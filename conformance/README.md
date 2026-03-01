@@ -14,6 +14,7 @@ They are intended for:
 - `conformance/session-v1/` — session replay/transcript interoperability pack for third-party runtime adapters.
 - `conformance/session-stream-v1/` — session inbox stream semantics interoperability pack (cursor conflict, fail-closed cursor invalid, watermark progression, reconnect dedupe).
 - `conformance/federation-v1/` — federation namespace routing, trust boundary, and replay/conflict fail-closed vectors.
+- `conformance/typed-discovery-v1/` — typed discovery fail-closed vectors (tool descriptor schema invalid, capability namespace adversarial input, attestation exclusion reason codes, deterministic typed ordering).
 
 Publication tooling:
 

@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 
 import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
@@ -13,10 +13,6 @@ function futureIso(hours) {
 function generatePublicKeyPem() {
   const { publicKey } = generateKeyPairSync("ed25519");
   return publicKey.export({ format: "pem", type: "spki" }).toString("utf8");
-}
-
-function sha256HexFromString(value) {
-  return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
 function requireBody(response, label) {
@@ -348,9 +344,15 @@ async function main() {
   requireBody(await client.getSessionTranscript(sessionId, {}, { principalId: principalAgentId }), "get session transcript");
 
   const checkpointTraceId = `trace_checkpoint_${suffix}`;
-  const stateSnapshot = JSON.stringify({ itineraryOptions: 3, preferredClass: "economy", budgetCents: 150000 });
-  const diffA = JSON.stringify({ field: "itineraryOptions", previous: 0, next: 3 });
-  const diffB = JSON.stringify({ field: "budgetCents", previous: 0, next: 150000 });
+  const checkpointArtifactSeed = requireBody(
+    await client.request("POST", "/ops/finance/billing/period-close", {
+      body: { dryRun: false }
+    }),
+    "seed state checkpoint artifact"
+  );
+  const checkpointArtifact = requireObject(checkpointArtifactSeed.artifact, "checkpointArtifact");
+  const checkpointArtifactId = requireString(checkpointArtifact.artifactId, "checkpointArtifact.artifactId");
+  const checkpointArtifactHash = requireString(checkpointArtifact.artifactHash, "checkpointArtifact.artifactHash");
   const stateCheckpointBody = requireBody(
     await client.createStateCheckpoint({
       ownerAgentId: principalAgentId,
@@ -360,25 +362,12 @@ async function main() {
       delegationGrantRef: checkpointDelegationGrantId,
       authorityGrantRef: authorityGrantId,
       stateRef: {
-        artifactId: `art_state_${suffix}`,
-        artifactHash: sha256HexFromString(stateSnapshot),
+        artifactId: checkpointArtifactId,
+        artifactHash: checkpointArtifactHash,
         contentType: "application/json",
-        uri: `memory://state/${suffix}`
+        uri: `/artifacts/${encodeURIComponent(checkpointArtifactId)}`
       },
-      diffRefs: [
-        {
-          artifactId: `art_diff_a_${suffix}`,
-          artifactHash: sha256HexFromString(diffA),
-          contentType: "application/json",
-          uri: `memory://diff/a/${suffix}`
-        },
-        {
-          artifactId: `art_diff_b_${suffix}`,
-          artifactHash: sha256HexFromString(diffB),
-          contentType: "application/json",
-          uri: `memory://diff/b/${suffix}`
-        }
-      ],
+      diffRefs: [],
       metadata: { source: "sdk-acs-substrate-smoke-js" }
     }),
     "create state checkpoint"

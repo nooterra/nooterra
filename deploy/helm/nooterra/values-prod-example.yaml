@@ -4,6 +4,21 @@ store:
   databaseUrlSecret:
     name: nooterra-db
 
+# API evidence/artifact store (explicit S3 wiring).
+evidenceStore:
+  mode: s3
+  s3:
+    endpoint: https://s3.us-east-1.amazonaws.com
+    region: us-east-1
+    bucket: nooterra-prod-evidence
+    forcePathStyle: false
+    accessKeyIdSecret:
+      name: nooterra-evidence-s3
+      key: ACCESS_KEY_ID
+    secretAccessKeySecret:
+      name: nooterra-evidence-s3
+      key: SECRET_ACCESS_KEY
+
 maintenance:
   enabled: true
 
@@ -19,4 +34,3 @@ extraSecretMounts:
     items:
       - key: webhook_hmac
         path: webhook_hmac
-

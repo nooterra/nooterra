@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import base64
 import random
 import time
 import uuid
@@ -66,6 +67,24 @@ def _canonical_json_dumps(value: Any) -> str:
 
 def _sha256_hex_utf8(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sign_hash_hex_ed25519_base64(hash_hex: str, signer_private_key_pem: str) -> str:
+    normalized_hash_hex = _assert_sha256_hex(hash_hex, "hash_hex")
+    pem = _assert_non_empty_string(signer_private_key_pem, "signerPrivateKeyPem")
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except Exception as exc:
+        raise ValueError("signerPrivateKeyPem signing requires the cryptography package") from exc
+    try:
+        private_key = serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
+    except Exception as exc:
+        raise ValueError("signerPrivateKeyPem must be a valid Ed25519 private key PEM") from exc
+    if not isinstance(private_key, Ed25519PrivateKey):
+        raise ValueError("signerPrivateKeyPem must be an Ed25519 private key PEM")
+    signature_bytes = private_key.sign(bytes.fromhex(normalized_hash_hex))
+    return base64.b64encode(signature_bytes).decode("ascii")
 
 
 def _normalize_iso_date(value: Any, *, fallback_now: bool = False, name: str = "timestamp") -> str:
@@ -967,7 +986,24 @@ class NooterraClient:
     def list_agent_cards(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         suffix = self._query_suffix(
             query,
-            allowed_keys=["agentId", "capability", "visibility", "executionCoordinatorDid", "runtime", "status", "limit", "offset"],
+            allowed_keys=[
+                "agentId",
+                "status",
+                "visibility",
+                "capability",
+                "executionCoordinatorDid",
+                "runtime",
+                "supportsPolicyTemplate",
+                "supportsEvidencePack",
+                "limit",
+                "offset",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+            ],
         )
         return self._request("GET", f"/agent-cards{suffix}", **opts)
 
@@ -986,6 +1022,8 @@ class NooterraClient:
                 "toolSideEffecting",
                 "toolMaxPriceCents",
                 "toolRequiresEvidenceKind",
+                "supportsPolicyTemplate",
+                "supportsEvidencePack",
                 "visibility",
                 "executionCoordinatorDid",
                 "runtime",
@@ -1019,6 +1057,8 @@ class NooterraClient:
                 "toolSideEffecting",
                 "toolMaxPriceCents",
                 "toolRequiresEvidenceKind",
+                "supportsPolicyTemplate",
+                "supportsEvidencePack",
                 "visibility",
                 "executionCoordinatorDid",
                 "runtime",
@@ -1227,11 +1267,16 @@ class NooterraClient:
     def issue_delegation_grant(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise ValueError("body is required")
+        _assert_non_empty_string(body.get("delegatorAgentId"), "body.delegatorAgentId")
+        _assert_non_empty_string(body.get("delegateeAgentId"), "body.delegateeAgentId")
         return self._request("POST", "/delegation-grants", body=body, **opts)
 
     def list_delegation_grants(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        normalized_query = query
+        if isinstance(query, dict) and isinstance(query.get("grantHash"), str):
+            normalized_query = {**query, "grantHash": str(query.get("grantHash")).lower()}
         suffix = self._query_suffix(
-            query,
+            normalized_query,
             allowed_keys=["grantId", "grantHash", "delegatorAgentId", "delegateeAgentId", "includeRevoked", "limit", "offset"],
         )
         return self._request("GET", f"/delegation-grants{suffix}", **opts)
@@ -1250,11 +1295,18 @@ class NooterraClient:
     def issue_authority_grant(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise ValueError("body is required")
+        principal_ref = body.get("principalRef")
+        if not isinstance(principal_ref, dict):
+            raise ValueError("body.principalRef is required")
+        _assert_non_empty_string(body.get("granteeAgentId"), "body.granteeAgentId")
         return self._request("POST", "/authority-grants", body=body, **opts)
 
     def list_authority_grants(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        normalized_query = query
+        if isinstance(query, dict) and isinstance(query.get("grantHash"), str):
+            normalized_query = {**query, "grantHash": str(query.get("grantHash")).lower()}
         suffix = self._query_suffix(
-            query,
+            normalized_query,
             allowed_keys=["grantId", "grantHash", "granteeAgentId", "principalId", "includeRevoked", "limit", "offset"],
         )
         return self._request("GET", f"/authority-grants{suffix}", **opts)
@@ -1383,7 +1435,10 @@ class NooterraClient:
         return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/settle", body=payload, **opts)
 
     def list_work_order_receipts(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
-        suffix = self._query_suffix(query, allowed_keys=["workOrderId", "status", "limit", "offset"])
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["receiptId", "workOrderId", "principalAgentId", "subAgentId", "status", "limit", "offset"],
+        )
         return self._request("GET", f"/work-orders/receipts{suffix}", **opts)
 
     def get_work_order_receipt(self, receipt_id: str, **opts: Any) -> Dict[str, Any]:
@@ -1427,7 +1482,7 @@ class NooterraClient:
         return self._request("POST", "/sessions", body=body, **opts)
 
     def list_sessions(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
-        suffix = self._query_suffix(query, allowed_keys=["sessionId", "participantAgentId", "visibility", "limit", "offset"])
+        suffix = self._query_suffix(query, allowed_keys=["sessionId", "participantAgentId", "visibility", "status", "limit", "offset"])
         return self._request("GET", f"/sessions{suffix}", **opts)
 
     def get_session(self, session_id: str, **opts: Any) -> Dict[str, Any]:
@@ -1438,10 +1493,31 @@ class NooterraClient:
         _assert_non_empty_string(session_id, "session_id")
         if not isinstance(body, dict):
             raise ValueError("body is required")
+        resolved_opts = dict(opts)
+        expected_prev_chain_hash = _as_non_empty_string_or_none(resolved_opts.get("expected_prev_chain_hash"))
+        if expected_prev_chain_hash is None:
+            expected_prev_chain_hash = _as_non_empty_string_or_none(resolved_opts.get("expectedPrevChainHash"))
+        if expected_prev_chain_hash is None:
+            raise ValueError("expectedPrevChainHash is required for append_session_event")
+        resolved_type = _as_non_empty_string_or_none(body.get("type"))
+        payload = body
+        if resolved_type is None:
+            legacy_event_type = _as_non_empty_string_or_none(body.get("eventType"))
+            if legacy_event_type is None:
+                raise ValueError("body.type is required")
+            payload = {**body, "type": legacy_event_type}
         # Session event append is fail-closed on idempotency: default one for compatibility.
-        if not opts.get("idempotency_key"):
-            opts = {**opts, "idempotency_key": _random_request_id()}
-        return self._request("POST", f"/sessions/{parse.quote(session_id, safe='')}/events", body=body, **opts)
+        if not resolved_opts.get("idempotency_key"):
+            resolved_opts["idempotency_key"] = _random_request_id()
+        resolved_opts.pop("expected_prev_chain_hash", None)
+        resolved_opts.pop("expectedPrevChainHash", None)
+        return self._request(
+            "POST",
+            f"/sessions/{parse.quote(session_id, safe='')}/events",
+            body=payload,
+            expected_prev_chain_hash=expected_prev_chain_hash,
+            **resolved_opts,
+        )
 
     def list_session_events(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
@@ -1746,7 +1822,21 @@ class NooterraClient:
             }
         )
         evidence_hash = _sha256_hex_utf8(_canonical_json_dumps(evidence_core))
-        evidence = _canonicalize({**evidence_core, "evidenceHash": evidence_hash})
+        signer_private_key_pem = _as_non_empty_string_or_none(params.get("signerPrivateKeyPem"))
+        signer_key_id = _as_non_empty_string_or_none(params.get("signerKeyId"))
+        signature = None
+        if signer_private_key_pem is not None:
+            if signer_key_id is None:
+                raise ValueError("signerKeyId is required when signerPrivateKeyPem is provided")
+            signature = _canonicalize(
+                {
+                    "algorithm": "ed25519",
+                    "signerKeyId": signer_key_id,
+                    "evidenceHash": evidence_hash,
+                    "signature": _sign_hash_hex_ed25519_base64(evidence_hash, signer_private_key_pem),
+                }
+            )
+        evidence = _canonicalize({**evidence_core, "evidenceHash": evidence_hash, **({"signature": signature} if signature is not None else {})})
         return {
             "evidence": evidence,
             "evidenceHash": evidence_hash,
@@ -1862,6 +1952,7 @@ class NooterraClient:
                     "holdHash": hold_hash,
                     "openedByAgentId": opened_by_agent_id,
                     "signerKeyId": params.get("signerKeyId"),
+                    "signerPrivateKeyPem": params.get("signerPrivateKeyPem"),
                     "signature": params.get("signature"),
                     "caseId": params.get("caseId"),
                     "envelopeId": params.get("envelopeId"),
@@ -1895,7 +1986,7 @@ class NooterraClient:
         hold_hash = _assert_sha256_hex(params.get("holdHash"), "holdHash")
         opened_by_agent_id = _assert_non_empty_string(params.get("openedByAgentId"), "openedByAgentId")
         signer_key_id = _assert_non_empty_string(params.get("signerKeyId"), "signerKeyId")
-        signature = _assert_non_empty_string(params.get("signature"), "signature")
+        signature = _as_non_empty_string_or_none(params.get("signature"))
         case_id = _as_non_empty_string_or_none(params.get("caseId")) or f"arb_case_tc_{agreement_hash}"
         envelope_id = _as_non_empty_string_or_none(params.get("envelopeId")) or f"dopen_tc_{agreement_hash}"
         tenant_id = _as_non_empty_string_or_none(params.get("tenantId")) or self.tenant_id
@@ -1921,6 +2012,11 @@ class NooterraClient:
             }
         )
         envelope_hash = _sha256_hex_utf8(_canonical_json_dumps(core))
+        if signature is None:
+            signer_private_key_pem = _as_non_empty_string_or_none(params.get("signerPrivateKeyPem"))
+            if signer_private_key_pem is None:
+                raise ValueError("signature or signerPrivateKeyPem is required")
+            signature = _sign_hash_hex_ed25519_base64(envelope_hash, signer_private_key_pem)
         dispute_open_envelope = _canonicalize({**core, "envelopeHash": envelope_hash, "signature": signature})
         return {
             "disputeOpenEnvelope": dispute_open_envelope,

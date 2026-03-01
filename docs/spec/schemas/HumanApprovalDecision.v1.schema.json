@@ -50,7 +50,49 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gateId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "settlementId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delegationGrantRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorityGrantRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policyHashSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "policyVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "anyOf": [
+        { "required": ["gateId"] },
+        { "required": ["runId"] },
+        { "required": ["settlementId"] },
+        { "required": ["delegationGrantRef"] },
+        { "required": ["authorityGrantRef"] },
+        { "required": ["policyHashSha256"] },
+        { "required": ["policyVersion"] }
+      ]
     }
   }
 }
-

@@ -14,6 +14,9 @@ export const SESSION_MEMORY_IMPORT_REASON_CODES = Object.freeze({
   SCHEMA_INVALID: "SESSION_MEMORY_IMPORT_SCHEMA_INVALID",
   TENANT_MISMATCH: "SESSION_MEMORY_IMPORT_TENANT_MISMATCH",
   SESSION_MISMATCH: "SESSION_MEMORY_IMPORT_SESSION_MISMATCH",
+  WORKSPACE_BOUNDARY_MISMATCH: "SESSION_MEMORY_IMPORT_WORKSPACE_BOUNDARY_MISMATCH",
+  WORKSPACE_ACCESS_REVOKED: "SESSION_MEMORY_IMPORT_WORKSPACE_ACCESS_REVOKED",
+  MIGRATION_MISMATCH: "SESSION_MEMORY_IMPORT_MIGRATION_MISMATCH",
   REPLAY_PACK_HASH_MISMATCH: "SESSION_MEMORY_IMPORT_REPLAY_PACK_HASH_MISMATCH",
   REPLAY_PACK_REF_MISMATCH: "SESSION_MEMORY_IMPORT_REPLAY_PACK_REF_MISMATCH",
   EVENT_COUNT_MISMATCH: "SESSION_MEMORY_IMPORT_EVENT_COUNT_MISMATCH",
@@ -68,6 +71,56 @@ function normalizeOptionalSha256Hex(value, name) {
 function normalizeOptionalReference(value, name, { max = 200 } = {}) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   return assertNonEmptyString(value, name, { max });
+}
+
+function normalizeSessionMemoryWorkspace(value, { name = "workspace", allowNull = true } = {}) {
+  if (value === null || value === undefined) {
+    if (allowNull) return null;
+    throw new TypeError(`${name} is required`);
+  }
+  assertPlainObject(value, name);
+  const revokedAt =
+    value.revokedAt === null || value.revokedAt === undefined || String(value.revokedAt).trim() === ""
+      ? null
+      : normalizeIsoDateTime(value.revokedAt, `${name}.revokedAt`);
+  const revocationReasonCode =
+    value.revocationReasonCode === null || value.revocationReasonCode === undefined || String(value.revocationReasonCode).trim() === ""
+      ? null
+      : assertNonEmptyString(value.revocationReasonCode, `${name}.revocationReasonCode`, { max: 120 });
+  if (revokedAt !== null && revocationReasonCode === null) {
+    throw new TypeError(`${name}.revocationReasonCode is required when ${name}.revokedAt is set`);
+  }
+  if (revokedAt === null && revocationReasonCode !== null) {
+    throw new TypeError(`${name}.revocationReasonCode cannot be set when ${name}.revokedAt is null`);
+  }
+  return normalizeForCanonicalJson(
+    {
+      workspaceId: normalizeOptionalReference(value.workspaceId, `${name}.workspaceId`, { max: 200 }),
+      ownerAgentId: assertNonEmptyString(value.ownerAgentId, `${name}.ownerAgentId`, { max: 200 }),
+      domainId: assertNonEmptyString(value.domainId, `${name}.domainId`, { max: 200 }),
+      host: assertNonEmptyString(value.host, `${name}.host`, { max: 200 }),
+      revokedAt,
+      revocationReasonCode
+    },
+    { path: `$.${name}` }
+  );
+}
+
+function normalizeSessionMemoryMigration(value, { name = "migration", allowNull = true } = {}) {
+  if (value === null || value === undefined) {
+    if (allowNull) return null;
+    throw new TypeError(`${name} is required`);
+  }
+  assertPlainObject(value, name);
+  return normalizeForCanonicalJson(
+    {
+      migrationId: assertNonEmptyString(value.migrationId, `${name}.migrationId`, { max: 200 }),
+      sourceHost: assertNonEmptyString(value.sourceHost, `${name}.sourceHost`, { max: 200 }),
+      targetHost: assertNonEmptyString(value.targetHost, `${name}.targetHost`, { max: 200 }),
+      migratedAt: normalizeIsoDateTime(value.migratedAt, `${name}.migratedAt`)
+    },
+    { path: `$.${name}` }
+  );
 }
 
 function normalizeEvents(events) {
@@ -264,6 +317,14 @@ function normalizeSessionMemoryExportV1(value = {}) {
   if ((transcriptHash === null) !== (transcriptRef === null)) {
     throw new TypeError("memoryExport.transcriptHash and memoryExport.transcriptRef must both be set or both be null");
   }
+  const workspace = normalizeSessionMemoryWorkspace(value.workspace ?? null, {
+    name: "memoryExport.workspace",
+    allowNull: true
+  });
+  const migration = normalizeSessionMemoryMigration(value.migration ?? null, {
+    name: "memoryExport.migration",
+    allowNull: true
+  });
   return normalizeForCanonicalJson(
     {
       schemaVersion: SESSION_MEMORY_EXPORT_SCHEMA_VERSION,
@@ -290,7 +351,9 @@ function normalizeSessionMemoryExportV1(value = {}) {
           value.continuity?.previousPackHash,
           "memoryExport.continuity.previousPackHash"
         )
-      }
+      },
+      ...(workspace ? { workspace } : {}),
+      ...(migration ? { migration } : {})
     },
     { path: "$.memoryExport" }
   );
@@ -351,7 +414,9 @@ export function buildSessionMemoryExportV1({
   exportedAt = null,
   exportId = null,
   previousHeadChainHash = null,
-  previousPackHash = null
+  previousPackHash = null,
+  workspace = null,
+  migration = null
 } = {}) {
   const normalizedReplayPack = normalizeReplayPackV1FromUnknown(replayPack);
   const replayRange = deriveReplayPackRange(normalizedReplayPack);
@@ -401,7 +466,9 @@ export function buildSessionMemoryExportV1({
             { max: 128 }
           ),
           previousPackHash: normalizeOptionalSha256Hex(previousPackHash, "previousPackHash")
-        }
+        },
+        ...(workspace ? { workspace: normalizeSessionMemoryWorkspace(workspace, { name: "workspace", allowNull: false }) } : {}),
+        ...(migration ? { migration: normalizeSessionMemoryMigration(migration, { name: "migration", allowNull: false }) } : {})
       },
       { path: "$.memoryExport" }
     )
@@ -414,6 +481,8 @@ export function verifySessionMemoryImportV1({
   transcript = null,
   expectedTenantId = null,
   expectedSessionId = null,
+  expectedWorkspace = null,
+  expectedMigration = null,
   expectedPreviousHeadChainHash = null,
   expectedPreviousPackHash = null,
   replayPackPublicKeyPem = null,
@@ -443,6 +512,61 @@ export function verifySessionMemoryImportV1({
           code: SESSION_MEMORY_IMPORT_REASON_CODES.SESSION_MISMATCH,
           error: "memory export sessionId mismatch"
         };
+      }
+    }
+    const normalizedExpectedWorkspace =
+      expectedWorkspace === null || expectedWorkspace === undefined
+        ? null
+        : normalizeSessionMemoryWorkspace(expectedWorkspace, { name: "expectedWorkspace", allowNull: false });
+    if (normalizedExpectedWorkspace) {
+      if (!normalizedMemoryExport.workspace) {
+        return {
+          ok: false,
+          code: SESSION_MEMORY_IMPORT_REASON_CODES.WORKSPACE_BOUNDARY_MISMATCH,
+          error: "workspace boundary missing from memory export"
+        };
+      }
+      const keys = ["workspaceId", "ownerAgentId", "domainId", "host"];
+      for (const key of keys) {
+        const expectedValue = normalizedExpectedWorkspace[key];
+        if (expectedValue === null) continue;
+        if (normalizedMemoryExport.workspace[key] !== expectedValue) {
+          return {
+            ok: false,
+            code: SESSION_MEMORY_IMPORT_REASON_CODES.WORKSPACE_BOUNDARY_MISMATCH,
+            error: `workspace ${key} mismatch`
+          };
+        }
+      }
+    }
+    if (normalizedMemoryExport.workspace?.revokedAt) {
+      return {
+        ok: false,
+        code: SESSION_MEMORY_IMPORT_REASON_CODES.WORKSPACE_ACCESS_REVOKED,
+        error: "workspace memory access is revoked"
+      };
+    }
+    const normalizedExpectedMigration =
+      expectedMigration === null || expectedMigration === undefined
+        ? null
+        : normalizeSessionMemoryMigration(expectedMigration, { name: "expectedMigration", allowNull: false });
+    if (normalizedExpectedMigration) {
+      if (!normalizedMemoryExport.migration) {
+        return {
+          ok: false,
+          code: SESSION_MEMORY_IMPORT_REASON_CODES.MIGRATION_MISMATCH,
+          error: "migration metadata missing from memory export"
+        };
+      }
+      const migrationKeys = ["migrationId", "sourceHost", "targetHost", "migratedAt"];
+      for (const key of migrationKeys) {
+        if (normalizedMemoryExport.migration[key] !== normalizedExpectedMigration[key]) {
+          return {
+            ok: false,
+            code: SESSION_MEMORY_IMPORT_REASON_CODES.MIGRATION_MISMATCH,
+            error: `migration ${key} mismatch`
+          };
+        }
       }
     }
     if (normalizedMemoryExport.tenantId !== normalizedReplayPack.tenantId) {
