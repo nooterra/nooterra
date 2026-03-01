@@ -3472,6 +3472,9 @@ test("API e2e: signed marketplace agreement acceptance fails closed on rotated s
   assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.reason, "acceptance_signature_signer_key_invalid");
   assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.signerStatus, "rotated");
+  assert.equal(typeof agreementReadAfterRotate.json?.acceptanceSignatureVerification?.validAt?.ok, "boolean");
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.validNow?.ok, false);
+  assert.equal(agreementReadAfterRotate.json?.acceptanceSignatureVerification?.validNow?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
 
   const createTask2 = await request(api, {
     method: "POST",
@@ -3548,6 +3551,9 @@ test("API e2e: signed marketplace agreement acceptance fails closed on rotated s
   assert.equal(blocked.json?.code, "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID");
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.signerStatus, "rotated");
+  assert.equal(typeof blocked.json?.details?.validAt?.ok, "boolean");
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
 });
 
 test("API e2e: delegated acceptance fails closed when delegation signer key is rotated", async () => {
@@ -3684,6 +3690,9 @@ test("API e2e: delegated acceptance fails closed when delegation signer key is r
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.signerStatus, "rotated");
   assert.equal(blocked.json?.details?.fieldPath, "acceptanceSignature.actingOnBehalfOf.delegationChain[0]");
+  assert.equal(typeof blocked.json?.details?.validAt?.ok, "boolean");
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
 });
 
 test("API e2e: ops delegation traces and emergency revoke disable delegated acceptance", async () => {

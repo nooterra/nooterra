@@ -1183,6 +1183,9 @@ test("API e2e: Session signer lifecycle gates append and replay materialization"
   assert.equal(replayAfterRevoke.statusCode, 409, replayAfterRevoke.body);
   assert.equal(replayAfterRevoke.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
   assert.equal(replayAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+  assert.equal(replayAfterRevoke.json?.details?.validAt?.ok, false);
+  assert.equal(replayAfterRevoke.json?.details?.validNow?.ok, false);
+  assert.equal(replayAfterRevoke.json?.details?.validNow?.reasonCode, "SIGNER_KEY_REVOKED");
 
   const transcriptAfterRevoke = await request(api, {
     method: "GET",
@@ -1191,6 +1194,7 @@ test("API e2e: Session signer lifecycle gates append and replay materialization"
   assert.equal(transcriptAfterRevoke.statusCode, 409, transcriptAfterRevoke.body);
   assert.equal(transcriptAfterRevoke.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
   assert.equal(transcriptAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+  assert.equal(transcriptAfterRevoke.json?.details?.validNow?.ok, false);
 
   const appendAfterRevoke = await request(api, {
     method: "POST",
@@ -1208,6 +1212,73 @@ test("API e2e: Session signer lifecycle gates append and replay materialization"
   assert.equal(appendAfterRevoke.statusCode, 409, appendAfterRevoke.body);
   assert.equal(appendAfterRevoke.json?.code, "SESSION_EVENT_SIGNER_KEY_INVALID");
   assert.equal(appendAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+  assert.equal(appendAfterRevoke.json?.details?.validNow?.ok, false);
+});
+
+test("API e2e: session replay signer lifecycle reports validAt/validNow when revoke happens after signed event", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_signer_dual_state_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: api.store.serverSigner.keyId,
+      publicKeyPem: api.store.serverSigner.publicKeyPem,
+      purpose: "server",
+      status: "active",
+      description: "session signer dual-state lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_signer_dual_state_1" },
+    body: {
+      sessionId: "sess_signer_dual_state_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_signer_dual_state_1/events",
+    headers: {
+      "x-idempotency-key": "session_signer_dual_state_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      at: "2020-01-01T00:00:00.000Z",
+      payload: { taskId: "task_signer_dual_state_1" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(api.store.serverSigner.keyId)}/revoke`,
+    body: {}
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(revoked.json?.signerKey?.status, "revoked");
+
+  const replayAfterRevoke = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_dual_state_1/replay-pack"
+  });
+  assert.equal(replayAfterRevoke.statusCode, 409, replayAfterRevoke.body);
+  assert.equal(replayAfterRevoke.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
+  assert.equal(replayAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+  assert.equal(replayAfterRevoke.json?.details?.validAt?.ok, true);
+  assert.equal(replayAfterRevoke.json?.details?.validAt?.reasonCode, null);
+  assert.equal(replayAfterRevoke.json?.details?.validNow?.ok, false);
+  assert.equal(replayAfterRevoke.json?.details?.validNow?.reasonCode, "SIGNER_KEY_REVOKED");
 });
 
 test("API e2e: Session signer rotation fails closed with deterministic lifecycle reason codes", async () => {
@@ -1277,6 +1348,7 @@ test("API e2e: Session signer rotation fails closed with deterministic lifecycle
   assert.equal(replayAfterRotate.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
   assert.equal(replayAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(replayAfterRotate.json?.details?.signerStatus, "rotated");
+  assert.equal(replayAfterRotate.json?.details?.validNow?.ok, false);
 
   const transcriptAfterRotate = await request(api, {
     method: "GET",
@@ -1286,6 +1358,7 @@ test("API e2e: Session signer rotation fails closed with deterministic lifecycle
   assert.equal(transcriptAfterRotate.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
   assert.equal(transcriptAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(transcriptAfterRotate.json?.details?.signerStatus, "rotated");
+  assert.equal(transcriptAfterRotate.json?.details?.validNow?.ok, false);
 
   const appendAfterRotate = await request(api, {
     method: "POST",
@@ -1304,6 +1377,7 @@ test("API e2e: Session signer rotation fails closed with deterministic lifecycle
   assert.equal(appendAfterRotate.json?.code, "SESSION_EVENT_SIGNER_KEY_INVALID");
   assert.equal(appendAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(appendAfterRotate.json?.details?.signerStatus, "rotated");
+  assert.equal(appendAfterRotate.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {

@@ -442,6 +442,8 @@ test("API e2e: authority grant issue fails closed when grantee signer lifecycle 
   assert.equal(blocked.json?.details?.role, "grantee");
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
   assert.equal(blocked.json?.details?.signerStatus, "revoked");
+  assert.equal(blocked.json?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 authorize fails closed without authority grant when required", async () => {
@@ -1286,6 +1288,8 @@ test("API e2e: x402 authorize fails closed when authority grant grantee signer l
   assert.equal(blocked.json?.details?.details?.role, "grantee");
   assert.equal(blocked.json?.details?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 authorize fails closed when delegation scope exceeds authority scope", async () => {
