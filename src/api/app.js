@@ -220,6 +220,13 @@ import {
   parseAgentLocatorRef,
   resolveAgentLocator
 } from "../core/agent-locator.js";
+import {
+  buildIdentityLogCheckpoint,
+  buildIdentityLogProof,
+  deriveIdentityLogEventTypes,
+  buildIdentityLogEventContext,
+  assertIdentityLogNoEquivocation
+} from "../core/identity-transparency-log.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
 import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
 import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
@@ -20530,6 +20537,75 @@ export function createApi({
     throw new TypeError("state checkpoints not supported for this store");
   }
 
+  async function listIdentityLogEntriesRecords({
+    tenantId,
+    agentId = null,
+    eventType = null,
+    entryId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (typeof store.listIdentityLogEntries === "function") {
+      return store.listIdentityLogEntries({ tenantId, agentId, eventType, entryId, limit, offset });
+    }
+    throw new TypeError("identity log not supported for this store");
+  }
+
+  async function getIdentityLogEntryRecord({ tenantId, entryId }) {
+    if (typeof store.getIdentityLogEntry === "function") return store.getIdentityLogEntry({ tenantId, entryId });
+    throw new TypeError("identity log not supported for this store");
+  }
+
+  async function getIdentityLogCheckpointRecord({ tenantId, generatedAt = null } = {}) {
+    if (typeof store.getIdentityLogCheckpoint === "function") {
+      return store.getIdentityLogCheckpoint({ tenantId, generatedAt });
+    }
+    const entries = await listIdentityLogEntriesRecords({ tenantId, limit: 10_000, offset: 0 });
+    return buildIdentityLogCheckpoint({
+      tenantId,
+      entries,
+      generatedAt: generatedAt ?? nowIso()
+    });
+  }
+
+  async function appendIdentityLogEventsForIdentityTransition({
+    tenantId,
+    beforeIdentity = null,
+    afterIdentity,
+    reasonCode = null,
+    reason = null,
+    metadata = null,
+    audit = null
+  } = {}) {
+    if (typeof store.appendIdentityLogEvent !== "function") {
+      throw new TypeError("identity log append not supported for this store");
+    }
+    const eventTypes = deriveIdentityLogEventTypes({ beforeIdentity, afterIdentity });
+    const appended = [];
+    for (const eventType of eventTypes) {
+      const context = buildIdentityLogEventContext({ eventType, beforeIdentity, afterIdentity });
+      // eslint-disable-next-line no-await-in-loop
+      const entry = await store.appendIdentityLogEvent({
+        tenantId,
+        agentId: afterIdentity?.agentId,
+        eventType,
+        beforeIdentity,
+        afterIdentity,
+        reasonCode,
+        reason,
+        metadata: {
+          ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}),
+          context
+        },
+        occurredAt: afterIdentity?.updatedAt ?? nowIso(),
+        recordedAt: nowIso(),
+        audit
+      });
+      appended.push(entry);
+    }
+    return appended;
+  }
+
   function normalizeStateCheckpointArtifactHash(value) {
     if (typeof value !== "string") return null;
     const normalized = value.trim().toLowerCase();
@@ -33095,6 +33171,9 @@ export function createApi({
     if (m === "GET" && p === "/public/agent-cards/discover") return "/public/agent-cards/discover";
     if (m === "GET" && p === "/public/agent-cards/stream") return "/public/agent-cards/stream";
     if (m === "GET" && p === "/v1/public/agents/resolve") return "/v1/public/agents/resolve";
+    if (m === "GET" && p === "/v1/public/identity-log/entries") return "/v1/public/identity-log/entries";
+    if (m === "GET" && p === "/v1/public/identity-log/proof") return "/v1/public/identity-log/proof";
+    if (m === "GET" && p === "/v1/public/identity-log/checkpoint") return "/v1/public/identity-log/checkpoint";
     if (/^\/\.well-known\/agent-locator\/[^/]+$/.test(p)) return "/.well-known/agent-locator/:agentId";
     if (m === "POST" && p === "/sessions") return "/sessions";
     if (m === "GET" && p === "/sessions") return "/sessions";
@@ -34006,6 +34085,9 @@ export function createApi({
           (req.method === "GET" && path === "/public/agent-cards/discover") ||
           (req.method === "GET" && path === "/public/agent-cards/stream") ||
           (req.method === "GET" && path === "/v1/public/agents/resolve") ||
+          (req.method === "GET" && path === "/v1/public/identity-log/entries") ||
+          (req.method === "GET" && path === "/v1/public/identity-log/proof") ||
+          (req.method === "GET" && path === "/v1/public/identity-log/checkpoint") ||
           (req.method === "GET" && /^\/public\/agents\/[^/]+\/reputation-summary$/.test(path)) ||
           (req.method === "GET" && /^\/\.well-known\/agent-locator\/[^/]+$/.test(path)) ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
@@ -34344,6 +34426,159 @@ export function createApi({
           }
 
           return sendJson(res, 200, { ok: true, locator: resolution.locator });
+        }
+
+        if (req.method === "GET" && path === "/v1/public/identity-log/entries") {
+          const agentIdRaw = url.searchParams.get("agentId");
+          const eventTypeRaw = url.searchParams.get("eventType");
+          const entryIdRaw = url.searchParams.get("entryId");
+          const limitRaw = url.searchParams.get("limit");
+          const offsetRaw = url.searchParams.get("offset");
+          const agentId = typeof agentIdRaw === "string" && agentIdRaw.trim() !== "" ? agentIdRaw.trim() : null;
+          const eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? eventTypeRaw.trim().toLowerCase() : null;
+          const entryId = typeof entryIdRaw === "string" && entryIdRaw.trim() !== "" ? entryIdRaw.trim() : null;
+          const limit = limitRaw ? Number(limitRaw) : 200;
+          const offset = offsetRaw ? Number(offsetRaw) : 0;
+          if (!Number.isSafeInteger(limit) || limit <= 0) return sendError(res, 400, "limit must be a positive safe integer");
+          if (!Number.isSafeInteger(offset) || offset < 0) return sendError(res, 400, "offset must be a non-negative safe integer");
+          const safeLimit = Math.min(1000, limit);
+          const safeOffset = offset;
+
+          let entries = [];
+          let checkpoint = null;
+          try {
+            entries = await listIdentityLogEntriesRecords({
+              tenantId,
+              agentId,
+              eventType,
+              entryId,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+            checkpoint = await getIdentityLogCheckpointRecord({ tenantId });
+          } catch (err) {
+            if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
+              return sendError(res, 409, "identity log equivocation detected", { message: err?.message, details: err?.details ?? null }, { code: err.code });
+            }
+            if (String(err?.message ?? "").includes("identity log not supported")) {
+              return sendError(res, 501, "identity log is not supported for this store");
+            }
+            return sendError(res, 400, "invalid identity log query", { message: err?.message ?? String(err) }, { code: "SCHEMA_INVALID" });
+          }
+
+          return sendJson(res, 200, {
+            ok: true,
+            entries,
+            limit: safeLimit,
+            offset: safeOffset,
+            checkpoint
+          });
+        }
+
+        if (req.method === "GET" && path === "/v1/public/identity-log/checkpoint") {
+          const trustedCheckpointHashRaw = url.searchParams.get("trustedCheckpointHash");
+          const trustedTreeSizeRaw = url.searchParams.get("trustedTreeSize");
+          const trustedCheckpointHash =
+            typeof trustedCheckpointHashRaw === "string" && trustedCheckpointHashRaw.trim() !== ""
+              ? trustedCheckpointHashRaw.trim().toLowerCase()
+              : null;
+          const trustedTreeSize =
+            typeof trustedTreeSizeRaw === "string" && trustedTreeSizeRaw.trim() !== ""
+              ? Number(trustedTreeSizeRaw)
+              : null;
+          if ((trustedCheckpointHash === null) !== (trustedTreeSize === null)) {
+            return sendError(res, 400, "trustedCheckpointHash and trustedTreeSize must be provided together");
+          }
+          if (trustedCheckpointHash !== null && !/^[0-9a-f]{64}$/.test(trustedCheckpointHash)) {
+            return sendError(res, 400, "trustedCheckpointHash must be a sha256 hex string");
+          }
+          if (trustedTreeSize !== null && (!Number.isSafeInteger(trustedTreeSize) || trustedTreeSize < 0)) {
+            return sendError(res, 400, "trustedTreeSize must be a non-negative safe integer");
+          }
+
+          let checkpoint = null;
+          try {
+            checkpoint = await getIdentityLogCheckpointRecord({ tenantId });
+            if (trustedCheckpointHash !== null && trustedTreeSize !== null) {
+              assertIdentityLogNoEquivocation({
+                trustedCheckpoint: {
+                  treeSize: trustedTreeSize,
+                  checkpointHash: trustedCheckpointHash
+                },
+                observedCheckpoint: checkpoint
+              });
+            }
+          } catch (err) {
+            if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
+              return sendError(res, 409, "identity log equivocation detected", { message: err?.message, details: err?.details ?? null }, { code: err.code });
+            }
+            if (String(err?.message ?? "").includes("identity log not supported")) {
+              return sendError(res, 501, "identity log is not supported for this store");
+            }
+            return sendError(res, 400, "invalid identity log checkpoint query", { message: err?.message ?? String(err) }, { code: "SCHEMA_INVALID" });
+          }
+
+          return sendJson(res, 200, { ok: true, checkpoint });
+        }
+
+        if (req.method === "GET" && path === "/v1/public/identity-log/proof") {
+          const entryIdRaw = url.searchParams.get("entry") ?? url.searchParams.get("entryId");
+          const trustedCheckpointHashRaw = url.searchParams.get("trustedCheckpointHash");
+          const trustedTreeSizeRaw = url.searchParams.get("trustedTreeSize");
+          const entryId = typeof entryIdRaw === "string" && entryIdRaw.trim() !== "" ? entryIdRaw.trim() : null;
+          if (!entryId) return sendError(res, 400, "entry query parameter is required");
+
+          const trustedCheckpointHash =
+            typeof trustedCheckpointHashRaw === "string" && trustedCheckpointHashRaw.trim() !== ""
+              ? trustedCheckpointHashRaw.trim().toLowerCase()
+              : null;
+          const trustedTreeSize =
+            typeof trustedTreeSizeRaw === "string" && trustedTreeSizeRaw.trim() !== ""
+              ? Number(trustedTreeSizeRaw)
+              : null;
+          if ((trustedCheckpointHash === null) !== (trustedTreeSize === null)) {
+            return sendError(res, 400, "trustedCheckpointHash and trustedTreeSize must be provided together");
+          }
+          if (trustedCheckpointHash !== null && !/^[0-9a-f]{64}$/.test(trustedCheckpointHash)) {
+            return sendError(res, 400, "trustedCheckpointHash must be a sha256 hex string");
+          }
+          if (trustedTreeSize !== null && (!Number.isSafeInteger(trustedTreeSize) || trustedTreeSize < 0)) {
+            return sendError(res, 400, "trustedTreeSize must be a non-negative safe integer");
+          }
+
+          let entry = null;
+          let rows = [];
+          let proof = null;
+          try {
+            entry = await getIdentityLogEntryRecord({ tenantId, entryId });
+            if (!entry) return sendError(res, 404, "identity log entry not found", null, { code: "NOT_FOUND" });
+            rows = await listIdentityLogEntriesRecords({ tenantId, limit: 10_000, offset: 0 });
+            if (!rows.length) return sendError(res, 404, "identity log is empty", null, { code: "NOT_FOUND" });
+            proof = buildIdentityLogProof({
+              entries: rows,
+              entryId,
+              trustedCheckpoint:
+                trustedCheckpointHash !== null && trustedTreeSize !== null
+                  ? {
+                      treeSize: trustedTreeSize,
+                      checkpointHash: trustedCheckpointHash
+                    }
+                  : null
+            });
+          } catch (err) {
+            if (String(err?.code ?? "") === "IDENTITY_LOG_ENTRY_NOT_FOUND") {
+              return sendError(res, 404, "identity log entry not found", null, { code: "NOT_FOUND" });
+            }
+            if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
+              return sendError(res, 409, "identity log equivocation detected", { message: err?.message, details: err?.details ?? null }, { code: err.code });
+            }
+            if (String(err?.message ?? "").includes("identity log not supported")) {
+              return sendError(res, 501, "identity log is not supported for this store");
+            }
+            return sendError(res, 400, "invalid identity log proof query", { message: err?.message ?? String(err) }, { code: "SCHEMA_INVALID" });
+          }
+
+          return sendJson(res, 200, { ok: true, proof });
         }
 
         {
@@ -43382,6 +43617,49 @@ export function createApi({
                 updatedAt: nowAt
               };
               await commitTx([{ kind: "AGENT_IDENTITY_UPSERT", tenantId, agentIdentity: nextIdentity }]);
+              try {
+                await appendIdentityLogEventsForIdentityTransition({
+                  tenantId,
+                  beforeIdentity: existingIdentity,
+                  afterIdentity: nextIdentity,
+                  reasonCode: "DELEGATION_EMERGENCY_REVOKE",
+                  reason,
+                  metadata: {
+                    source: "ops.delegation.emergency-revoke",
+                    selectors: {
+                      runId,
+                      chainHash,
+                      delegationId,
+                      signerKeyId: signerKeyIdInput,
+                      signerAgentId: signerAgentIdInput,
+                      authKeyId: authKeyIdInput,
+                      agentId: agentIdInput
+                    }
+                  },
+                  audit: makeOpsAudit({
+                    action: "DELEGATION_EMERGENCY_REVOKE",
+                    targetType: "agent_identity",
+                    targetId: targetAgentId,
+                    details: {
+                      source: "ops.delegation.emergency-revoke"
+                    }
+                  })
+                });
+              } catch (err) {
+                if (String(err?.message ?? "").includes("identity log append not supported")) {
+                  return sendError(res, 501, "identity transparency log is not supported for this store");
+                }
+                if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
+                  return sendError(
+                    res,
+                    409,
+                    "identity transparency log equivocation detected",
+                    { message: err?.message, details: err?.details ?? null },
+                    { code: err.code }
+                  );
+                }
+                return sendError(res, 409, "identity transparency log append failed", { message: err?.message ?? String(err) }, { code: "IDENTITY_LOG_APPEND_FAILED" });
+              }
               revoked.agents.push({
                 agentId: targetAgentId,
                 status: nextIdentity.status,
@@ -63637,6 +63915,29 @@ export function createApi({
         } catch (err) {
           if (err?.code === "AGENT_IDENTITY_EXISTS") return sendError(res, 409, "agent identity already exists");
           return sendError(res, 400, "invalid agent identity", { message: err?.message });
+        }
+
+        try {
+          await appendIdentityLogEventsForIdentityTransition({
+            tenantId,
+            beforeIdentity: null,
+            afterIdentity: persisted,
+            metadata: { source: "agents.register" },
+            audit: makeOpsAudit({
+              action: "AGENT_IDENTITY_REGISTERED",
+              targetType: "agent_identity",
+              targetId: persisted.agentId,
+              details: { source: "agents.register" }
+            })
+          });
+        } catch (err) {
+          if (String(err?.message ?? "").includes("identity log append not supported")) {
+            return sendError(res, 501, "identity transparency log is not supported for this store");
+          }
+          if (String(err?.code ?? "") === "IDENTITY_LOG_EQUIVOCATION" || String(err?.code ?? "") === "IDENTITY_LOG_CHECKPOINT_ROLLBACK") {
+            return sendError(res, 409, "identity transparency log equivocation detected", { message: err?.message, details: err?.details ?? null }, { code: err.code });
+          }
+          return sendError(res, 409, "identity transparency log append failed", { message: err?.message ?? String(err) }, { code: "IDENTITY_LOG_APPEND_FAILED" });
         }
 
         const responseBody = { agentIdentity: persisted, keyId };

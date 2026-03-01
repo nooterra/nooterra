@@ -16,6 +16,11 @@ import { computeArtifactHash } from "../src/core/artifacts.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { buildIntentContractV1 } from "../src/core/intent-contract.js";
 import { INTENT_NEGOTIATION_EVENT_TYPE, buildIntentNegotiationEventV1 } from "../src/core/intent-negotiation.js";
+import {
+  buildIdentityLogEntry,
+  buildIdentityLogCheckpoint,
+  buildIdentityLogProof
+} from "../src/core/identity-transparency-log.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -191,6 +196,9 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   const validateGovernancePolicy = ajv.getSchema("https://nooterra.local/schemas/GovernancePolicy.v2.schema.json");
   const validateRevocationList = ajv.getSchema("https://nooterra.local/schemas/RevocationList.v1.schema.json");
   const validateVerifyCliOutput = ajv.getSchema("https://nooterra.local/schemas/VerifyCliOutput.v1.schema.json");
+  const validateIdentityLogEntry = ajv.getSchema("https://nooterra.local/schemas/IdentityLogEntry.v1.schema.json");
+  const validateIdentityLogCheckpoint = ajv.getSchema("https://nooterra.local/schemas/IdentityLogCheckpoint.v1.schema.json");
+  const validateIdentityLogProof = ajv.getSchema("https://nooterra.local/schemas/IdentityLogProof.v1.schema.json");
 
   assert.ok(validateReport);
   assert.ok(validateAttestation);
@@ -200,6 +208,9 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   assert.ok(validateGovernancePolicy);
   assert.ok(validateRevocationList);
   assert.ok(validateVerifyCliOutput);
+  assert.ok(validateIdentityLogEntry);
+  assert.ok(validateIdentityLogCheckpoint);
+  assert.ok(validateIdentityLogProof);
 
   const { job, month, finance } = await buildMinimalBundles();
 
@@ -224,6 +235,63 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   assert.equal(validateReport(parseJson(finance.files.get("verify/verification_report.json"))), true);
   assert.equal(validateGovernancePolicy(parseJson(finance.files.get("governance/policy.json"))), true);
   assert.equal(validateRevocationList(parseJson(finance.files.get("governance/revocations.json"))), true);
+
+  const identityTenantId = "tenant_schema_test";
+  const identityNowAt = "2026-02-01T00:00:00.000Z";
+  const identityEntryCreate = buildIdentityLogEntry({
+    entryId: "idlog_schema_0001",
+    tenantId: identityTenantId,
+    agentId: "agt_schema_1",
+    eventType: "create",
+    logIndex: 0,
+    prevEntryHash: null,
+    keyIdBefore: null,
+    keyIdAfter: "key_schema_1",
+    statusBefore: null,
+    statusAfter: "active",
+    capabilitiesBefore: [],
+    capabilitiesAfter: ["run.inference"],
+    reasonCode: null,
+    reason: null,
+    occurredAt: identityNowAt,
+    recordedAt: identityNowAt,
+    metadata: { source: "schema-test" }
+  });
+  const identityEntryCapability = buildIdentityLogEntry({
+    entryId: "idlog_schema_0002",
+    tenantId: identityTenantId,
+    agentId: "agt_schema_1",
+    eventType: "capability-claim-change",
+    logIndex: 1,
+    prevEntryHash: identityEntryCreate.entryHash,
+    keyIdBefore: "key_schema_1",
+    keyIdAfter: "key_schema_1",
+    statusBefore: "active",
+    statusAfter: "active",
+    capabilitiesBefore: ["run.inference"],
+    capabilitiesAfter: ["run.inference", "fetch.web"],
+    reasonCode: "SCHEMA_TEST",
+    reason: "capability profile update",
+    occurredAt: identityNowAt,
+    recordedAt: identityNowAt,
+    metadata: { source: "schema-test" }
+  });
+  const identityEntries = [identityEntryCreate, identityEntryCapability];
+  const identityCheckpoint = buildIdentityLogCheckpoint({
+    tenantId: identityTenantId,
+    entries: identityEntries,
+    generatedAt: identityNowAt
+  });
+  const identityProof = buildIdentityLogProof({
+    entries: identityEntries,
+    entryId: identityEntryCapability.entryId,
+    checkpoint: identityCheckpoint,
+    generatedAt: identityNowAt
+  });
+
+  assert.equal(validateIdentityLogEntry(identityEntryCreate), true);
+  assert.equal(validateIdentityLogCheckpoint(identityCheckpoint), true);
+  assert.equal(validateIdentityLogProof(identityProof), true);
 });
 
 test("schema catches missing required fields (smoke)", async () => {

@@ -21,6 +21,15 @@ import { validateAgentCardV1 } from "../core/agent-card.js";
 import { validateSessionV1 } from "../core/session-collab.js";
 import { validateStateCheckpointV1 } from "../core/state-checkpoint.js";
 import { normalizeCapabilityIdentifier } from "../core/capability-attestation.js";
+import { makeOpsAuditRecord } from "../core/ops-audit.js";
+import {
+  buildIdentityLogEntry,
+  buildIdentityLogCheckpoint,
+  parseIdentityLogEntryFromAuditDetails,
+  validateIdentityLogEntry,
+  validateIdentityLogEntriesAppendOnly,
+  IDENTITY_LOG_OPS_AUDIT_ACTION
+} from "../core/identity-transparency-log.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const NOOTERRA_PAY_KEYSET_STORE_FILENAME = "nooterra-pay-keyset-store.json";
@@ -924,6 +933,186 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
     return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  function assertIdentityLogAuditObject(value, name) {
+    if (value === null || value === undefined) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
+    return value;
+  }
+
+  function collectIdentityLogEntriesFromOpsAudit({ tenantId = DEFAULT_TENANT_ID } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    const rows = [];
+    if (!(store.opsAudit instanceof Map)) return rows;
+    for (const row of store.opsAudit.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (String(row.action ?? "") !== IDENTITY_LOG_OPS_AUDIT_ACTION) continue;
+      let entry = null;
+      try {
+        entry = parseIdentityLogEntryFromAuditDetails(row.details, { allowNull: false });
+      } catch (err) {
+        const wrapped = new Error(`identity log audit entry is invalid: ${err?.message ?? String(err)}`);
+        wrapped.code = "IDENTITY_LOG_AUDIT_INVALID";
+        wrapped.details = { auditId: row.id ?? null };
+        throw wrapped;
+      }
+      if (normalizeTenantId(entry.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) {
+        const wrapped = new Error("identity log entry tenant mismatch");
+        wrapped.code = "IDENTITY_LOG_TENANT_MISMATCH";
+        wrapped.details = { auditId: row.id ?? null, entryId: entry.entryId ?? null };
+        throw wrapped;
+      }
+      rows.push(entry);
+    }
+    return validateIdentityLogEntriesAppendOnly(rows);
+  }
+
+  store.getIdentityLogEntry = async function getIdentityLogEntry({ tenantId = DEFAULT_TENANT_ID, entryId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof entryId !== "string" || entryId.trim() === "") throw new TypeError("entryId is required");
+    const normalizedEntryId = String(entryId).trim();
+    const rows = collectIdentityLogEntriesFromOpsAudit({ tenantId });
+    return rows.find((row) => row.entryId === normalizedEntryId) ?? null;
+  };
+
+  store.listIdentityLogEntries = async function listIdentityLogEntries({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId = null,
+    eventType = null,
+    entryId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) throw new TypeError("agentId must be null or non-empty string");
+    if (eventType !== null && (typeof eventType !== "string" || eventType.trim() === "")) throw new TypeError("eventType must be null or non-empty string");
+    if (entryId !== null && (typeof entryId !== "string" || entryId.trim() === "")) throw new TypeError("entryId must be null or non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const agentFilter = agentId ? String(agentId).trim() : null;
+    const eventFilter = eventType ? String(eventType).trim().toLowerCase() : null;
+    const entryFilter = entryId ? String(entryId).trim() : null;
+
+    const all = collectIdentityLogEntriesFromOpsAudit({ tenantId });
+    const filtered = [];
+    for (const row of all) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (agentFilter && String(row.agentId ?? "") !== agentFilter) continue;
+      if (eventFilter && String(row.eventType ?? "").toLowerCase() !== eventFilter) continue;
+      if (entryFilter && String(row.entryId ?? "") !== entryFilter) continue;
+      filtered.push(row);
+    }
+    return filtered.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getIdentityLogCheckpoint = async function getIdentityLogCheckpoint({ tenantId = DEFAULT_TENANT_ID, generatedAt = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    const entries = collectIdentityLogEntriesFromOpsAudit({ tenantId });
+    return buildIdentityLogCheckpoint({ tenantId, entries, generatedAt });
+  };
+
+  store.appendIdentityLogEntry = async function appendIdentityLogEntry({ tenantId = DEFAULT_TENANT_ID, entry, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new TypeError("entry is required");
+    const normalizedEntry =
+      typeof entry.entryHash === "string" && entry.entryHash.trim() !== ""
+        ? validateIdentityLogEntry({ ...entry, tenantId })
+        : buildIdentityLogEntry({ ...entry, tenantId });
+    const existingEntries = collectIdentityLogEntriesFromOpsAudit({ tenantId });
+    const existingById = existingEntries.find((row) => row.entryId === normalizedEntry.entryId) ?? null;
+    if (existingById) {
+      if (existingById.entryHash === normalizedEntry.entryHash) return existingById;
+      const err = new Error("identity log entry conflict for entryId");
+      err.code = "IDENTITY_LOG_ENTRY_CONFLICT";
+      err.details = { entryId: normalizedEntry.entryId };
+      throw err;
+    }
+    const expectedLogIndex = existingEntries.length;
+    if (normalizedEntry.logIndex !== expectedLogIndex) {
+      const err = new Error("identity log index mismatch");
+      err.code = "IDENTITY_LOG_INDEX_MISMATCH";
+      err.details = { expectedLogIndex, actualLogIndex: normalizedEntry.logIndex };
+      throw err;
+    }
+    const expectedPrevEntryHash = expectedLogIndex === 0 ? null : existingEntries[expectedLogIndex - 1].entryHash;
+    if ((normalizedEntry.prevEntryHash ?? null) !== expectedPrevEntryHash) {
+      const err = new Error("identity log prevEntryHash mismatch");
+      err.code = "IDENTITY_LOG_PREV_HASH_MISMATCH";
+      err.details = { expectedPrevEntryHash, actualPrevEntryHash: normalizedEntry.prevEntryHash ?? null };
+      throw err;
+    }
+
+    const auditInput = assertIdentityLogAuditObject(audit, "audit");
+    const detailsInput =
+      auditInput?.details && typeof auditInput.details === "object" && !Array.isArray(auditInput.details)
+        ? auditInput.details
+        : {};
+    const identityAudit = makeOpsAuditRecord({
+      tenantId,
+      actorKeyId: auditInput?.actorKeyId ?? null,
+      actorPrincipalId: auditInput?.actorPrincipalId ?? null,
+      requestId: auditInput?.requestId ?? null,
+      action: IDENTITY_LOG_OPS_AUDIT_ACTION,
+      targetType: "identity_log_entry",
+      targetId: normalizedEntry.entryId,
+      at: auditInput?.at ?? normalizedEntry.recordedAt,
+      details: {
+        ...detailsInput,
+        entry: normalizedEntry
+      }
+    });
+    await store.appendOpsAudit({ tenantId, audit: identityAudit });
+    return normalizedEntry;
+  };
+
+  store.appendIdentityLogEvent = async function appendIdentityLogEvent({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId,
+    eventType,
+    beforeIdentity = null,
+    afterIdentity = null,
+    reasonCode = null,
+    reason = null,
+    metadata = null,
+    occurredAt = null,
+    recordedAt = null,
+    entryId = null,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    const existingEntries = collectIdentityLogEntriesFromOpsAudit({ tenantId });
+    const logIndex = existingEntries.length;
+    const prevEntryHash = logIndex === 0 ? null : existingEntries[logIndex - 1].entryHash;
+    const normalizedAfterIdentity =
+      afterIdentity && typeof afterIdentity === "object" && !Array.isArray(afterIdentity) ? afterIdentity : {};
+    const normalizedBeforeIdentity =
+      beforeIdentity && typeof beforeIdentity === "object" && !Array.isArray(beforeIdentity) ? beforeIdentity : null;
+
+    const entry = buildIdentityLogEntry({
+      entryId: entryId ?? createId("idlog"),
+      tenantId,
+      agentId: String(agentId).trim(),
+      eventType,
+      logIndex,
+      prevEntryHash,
+      keyIdBefore: normalizedBeforeIdentity?.keys?.keyId ?? null,
+      keyIdAfter: normalizedAfterIdentity?.keys?.keyId ?? null,
+      statusBefore: normalizedBeforeIdentity?.status ?? null,
+      statusAfter: normalizedAfterIdentity?.status ?? null,
+      capabilitiesBefore: Array.isArray(normalizedBeforeIdentity?.capabilities) ? normalizedBeforeIdentity.capabilities : [],
+      capabilitiesAfter: Array.isArray(normalizedAfterIdentity?.capabilities) ? normalizedAfterIdentity.capabilities : [],
+      reasonCode,
+      reason,
+      occurredAt: occurredAt ?? normalizedAfterIdentity?.updatedAt ?? new Date().toISOString(),
+      recordedAt: recordedAt ?? new Date().toISOString(),
+      metadata
+    });
+    return await store.appendIdentityLogEntry({ tenantId, entry, audit });
   };
 
   store.getAgentCard = async function getAgentCard({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
