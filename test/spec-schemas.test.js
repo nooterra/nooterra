@@ -14,6 +14,8 @@ import { GOVERNANCE_STREAM_ID } from "../src/core/governance.js";
 import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { computeArtifactHash } from "../src/core/artifacts.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
+import { buildIntentContractV1 } from "../src/core/intent-contract.js";
+import { INTENT_NEGOTIATION_EVENT_TYPE, buildIntentNegotiationEventV1 } from "../src/core/intent-negotiation.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -314,4 +316,59 @@ test("schema catches missing required fields (smoke)", async () => {
   const brokenInboxCursor = { ...inboxCursorExample };
   delete brokenInboxCursor.messageId;
   assert.equal(validateAgentInboxCursor(brokenInboxCursor), false);
+});
+
+test("IntentContract and IntentNegotiationEvent schemas validate helper output", async () => {
+  const ajv = createAjv2020();
+  for (const schema of await loadSchemas()) {
+    if (schema && typeof schema === "object" && typeof schema.$id === "string") {
+      ajv.addSchema(schema, schema.$id);
+    }
+  }
+
+  const validateIntentContract = ajv.getSchema("https://nooterra.local/schemas/IntentContract.v1.schema.json");
+  const validateIntentNegotiationEvent = ajv.getSchema("https://nooterra.local/schemas/IntentNegotiationEvent.v1.schema.json");
+  assert.ok(validateIntentContract);
+  assert.ok(validateIntentNegotiationEvent);
+
+  const intentContract = buildIntentContractV1({
+    intentId: "intent_schema_0001",
+    negotiationId: "nego_schema_0001",
+    tenantId: "tenant_default",
+    proposerAgentId: "agt_proposer_schema_1",
+    responderAgentId: "agt_responder_schema_1",
+    intent: {
+      taskType: "tool_call",
+      capabilityId: "weather.read",
+      riskClass: "read",
+      expectedDeterminism: "deterministic",
+      sideEffecting: false,
+      maxLossCents: 0,
+      spendLimit: { currency: "USD", maxAmountCents: 100 },
+      parametersHash: "1".repeat(64),
+      constraints: { region: "us" }
+    },
+    idempotencyKey: "intent_schema_idem_0001",
+    nonce: "intent_schema_nonce_0001",
+    expiresAt: "2026-03-01T00:20:00.000Z",
+    metadata: { source: "schema-test" },
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: "2026-03-01T00:00:00.000Z"
+  });
+
+  const propose = buildIntentNegotiationEventV1({
+    eventId: "inev_schema_0001",
+    eventType: INTENT_NEGOTIATION_EVENT_TYPE.PROPOSE,
+    actorAgentId: "agt_proposer_schema_1",
+    intentContract,
+    at: "2026-03-01T00:01:00.000Z",
+    metadata: { phase: "propose" }
+  });
+
+  assert.equal(validateIntentContract(intentContract), true, JSON.stringify(validateIntentContract.errors ?? [], null, 2));
+  assert.equal(
+    validateIntentNegotiationEvent(propose),
+    true,
+    JSON.stringify(validateIntentNegotiationEvent.errors ?? [], null, 2)
+  );
 });
