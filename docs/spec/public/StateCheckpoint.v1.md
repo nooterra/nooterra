@@ -41,6 +41,20 @@ Capture durable state snapshots and diffs as hash-bound references so agents can
 - checkpoints are immutable by id in API v1 (create-once semantics; duplicate id conflicts).
 - identity continuity paths must fail closed when signer lifecycle is non-active (`rotated`, `revoked`) for portability-linked artifacts.
 
+## Lineage Compaction And Restore
+
+For large checkpoint timelines, runtime provides deterministic lineage compaction and restore helpers:
+
+- `StateCheckpointLineageCompaction.v1`: hash-bound lineage summary with retained checkpoints plus dropped checkpoint ids.
+- `StateCheckpointLineageRestore.v1`: deterministic replay/restore material reconstructed from compaction artifacts.
+
+Compaction/restore invariants:
+
+- lineage must resolve to a single linear root->head chain (branching/cycles/disconnected graphs fail closed).
+- compaction and restore artifacts are canonical-hash bound (`sha256`) and tamper-evident.
+- retained checkpoint hashes must match lineage entries exactly.
+- restore output is deterministic for identical compaction input + `restoredAt`.
+
 ## API surface
 
 - `POST /state-checkpoints`

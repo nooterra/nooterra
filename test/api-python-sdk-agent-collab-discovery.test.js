@@ -354,3 +354,229 @@ except NooterraApiError as err:
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("api-sdk-python: list filters keep parity for agent cards, work-order receipts, and grant hashes", { skip: !pythonAvailable() }, async (t) => {
+  const seen = [];
+
+  const server = http.createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url ?? null });
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "x-request-id": "req_py_filters_1",
+    });
+    res.end(JSON.stringify({ ok: true }));
+  });
+
+  let port = null;
+  try {
+    ({ port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] }));
+  } catch (err) {
+    const cause = err?.cause ?? err;
+    if (cause?.code === "EPERM" || cause?.code === "EACCES") {
+      t.skip(`loopback listen not permitted (${cause.code})`);
+      return;
+    }
+    throw err;
+  }
+
+  try {
+    const pythonScript = `
+import os
+import pathlib
+import sys
+
+repo_root = pathlib.Path(os.environ["NOOTERRA_REPO_ROOT"])
+sys.path.insert(0, str(repo_root / "packages" / "api-sdk-python"))
+
+from nooterra_api_sdk import NooterraClient
+
+client = NooterraClient(
+    base_url=os.environ["NOOTERRA_BASE_URL"],
+    tenant_id="tenant_py_filters",
+    api_key="sk_test_py_filters",
+)
+
+client.list_agent_cards(
+    {
+        "agentId": "agt_demo",
+        "status": "active",
+        "visibility": "public",
+        "capability": "travel.booking",
+        "executionCoordinatorDid": "did:nooterra:coord_alpha",
+        "runtime": "openclaw",
+        "supportsPolicyTemplate": "template://safe-travel.v1",
+        "supportsEvidencePack": "evidence://settlement-receipt.v1",
+        "toolId": "travel.book_flight",
+        "toolMcpName": "TRAVEL_BOOK_FLIGHT",
+        "toolRiskClass": "action",
+        "toolSideEffecting": True,
+        "toolMaxPriceCents": 2500,
+        "toolRequiresEvidenceKind": "artifact",
+        "limit": 10,
+        "offset": 0,
+    },
+)
+
+client.list_work_order_receipts(
+    {
+        "receiptId": "rcpt_1",
+        "workOrderId": "wo_1",
+        "principalAgentId": "agt_principal",
+        "subAgentId": "agt_sub",
+        "status": "released",
+        "limit": 5,
+        "offset": 1,
+    },
+)
+
+client.list_delegation_grants(
+    {
+        "grantId": "dg_1",
+        "grantHash": "A" * 64,
+        "delegatorAgentId": "agt_principal",
+        "delegateeAgentId": "agt_sub",
+        "includeRevoked": True,
+        "limit": 5,
+        "offset": 1,
+    },
+)
+
+client.list_authority_grants(
+    {
+        "grantId": "ag_1",
+        "grantHash": "B" * 64,
+        "principalId": "prn_1",
+        "granteeAgentId": "agt_sub",
+        "includeRevoked": False,
+        "limit": 5,
+        "offset": 1,
+    },
+)
+`;
+    const run = await new Promise((resolve, reject) => {
+      const child = spawn("python3", ["-c", pythonScript], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PYTHONDONTWRITEBYTECODE: "1",
+          NOOTERRA_REPO_ROOT: REPO_ROOT,
+          NOOTERRA_BASE_URL: `http://127.0.0.1:${port}`,
+        },
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+      child.on("error", reject);
+      child.on("close", (status) => resolve({ status: status ?? 1, stdout, stderr }));
+    });
+
+    assert.equal(run.status, 0, `python list filters parity failed\nstdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
+    assert.equal(seen.length, 4);
+    assert.ok(seen.every((entry) => entry.method === "GET"));
+
+    const agentCardsUrl = new URL(String(seen[0]?.url ?? "/"), "http://127.0.0.1");
+    assert.equal(agentCardsUrl.pathname, "/agent-cards");
+    assert.deepEqual(Object.fromEntries(agentCardsUrl.searchParams.entries()), {
+      agentId: "agt_demo",
+      status: "active",
+      visibility: "public",
+      capability: "travel.booking",
+      executionCoordinatorDid: "did:nooterra:coord_alpha",
+      runtime: "openclaw",
+      supportsPolicyTemplate: "template://safe-travel.v1",
+      supportsEvidencePack: "evidence://settlement-receipt.v1",
+      toolId: "travel.book_flight",
+      toolMcpName: "TRAVEL_BOOK_FLIGHT",
+      toolRiskClass: "action",
+      toolSideEffecting: "true",
+      toolMaxPriceCents: "2500",
+      toolRequiresEvidenceKind: "artifact",
+      limit: "10",
+      offset: "0",
+    });
+
+    const workOrderReceiptsUrl = new URL(String(seen[1]?.url ?? "/"), "http://127.0.0.1");
+    assert.equal(workOrderReceiptsUrl.pathname, "/work-orders/receipts");
+    assert.deepEqual(Object.fromEntries(workOrderReceiptsUrl.searchParams.entries()), {
+      receiptId: "rcpt_1",
+      workOrderId: "wo_1",
+      principalAgentId: "agt_principal",
+      subAgentId: "agt_sub",
+      status: "released",
+      limit: "5",
+      offset: "1",
+    });
+
+    const delegationUrl = new URL(String(seen[2]?.url ?? "/"), "http://127.0.0.1");
+    assert.equal(delegationUrl.pathname, "/delegation-grants");
+    assert.deepEqual(Object.fromEntries(delegationUrl.searchParams.entries()), {
+      grantId: "dg_1",
+      grantHash: "a".repeat(64),
+      delegatorAgentId: "agt_principal",
+      delegateeAgentId: "agt_sub",
+      includeRevoked: "true",
+      limit: "5",
+      offset: "1",
+    });
+
+    const authorityUrl = new URL(String(seen[3]?.url ?? "/"), "http://127.0.0.1");
+    assert.equal(authorityUrl.pathname, "/authority-grants");
+    assert.deepEqual(Object.fromEntries(authorityUrl.searchParams.entries()), {
+      grantId: "ag_1",
+      grantHash: "b".repeat(64),
+      principalId: "prn_1",
+      granteeAgentId: "agt_sub",
+      includeRevoked: "false",
+      limit: "5",
+      offset: "1",
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("api-sdk-python: issue delegation/authority grant wrappers fail closed on missing required fields", { skip: !pythonAvailable() }, () => {
+  const script = [
+    "import json, pathlib, sys",
+    "repo = pathlib.Path.cwd()",
+    "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
+    "from nooterra_api_sdk import NooterraClient",
+    "calls = []",
+    "def fake(method, path, **kwargs):",
+    "    calls.append({'method': method, 'path': path})",
+    "    return {'ok': True, 'status': 200, 'requestId': 'req_py_grant_missing_1', 'body': {'ok': True}}",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_grant_missing')",
+    "client._request = fake",
+    "errors = {}",
+    "def capture(name, fn):",
+    "    try:",
+    "        fn()",
+    "        errors[name] = None",
+    "    except Exception as exc:",
+    "        errors[name] = str(exc)",
+    "capture('delegationMissingDelegator', lambda: client.issue_delegation_grant({'grantId':'dg_1','delegateeAgentId':'agt_sub'}))",
+    "capture('delegationMissingDelegatee', lambda: client.issue_delegation_grant({'grantId':'dg_1','delegatorAgentId':'agt_principal'}))",
+    "capture('authorityMissingPrincipalRef', lambda: client.issue_authority_grant({'grantId':'ag_1','granteeAgentId':'agt_sub'}))",
+    "capture('authorityMissingGrantee', lambda: client.issue_authority_grant({'grantId':'ag_1','principalRef':{'principalId':'prn_1'}}))",
+    "print(json.dumps({'errors': errors, 'calls': calls}))",
+  ].join("\n");
+
+  const run = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+  assert.equal(
+    run.status,
+    0,
+    `python grant required field fail-closed check failed\n\nstdout:\n${run.stdout ?? ""}\n\nstderr:\n${run.stderr ?? ""}`
+  );
+
+  const parsed = JSON.parse(String(run.stdout ?? "{}"));
+  assert.deepEqual(parsed.calls, []);
+  assert.match(String(parsed.errors?.delegationMissingDelegator ?? ""), /delegatorAgentId/);
+  assert.match(String(parsed.errors?.delegationMissingDelegatee ?? ""), /delegateeAgentId/);
+  assert.match(String(parsed.errors?.authorityMissingPrincipalRef ?? ""), /principalRef/);
+  assert.match(String(parsed.errors?.authorityMissingGrantee ?? ""), /granteeAgentId/);
+});

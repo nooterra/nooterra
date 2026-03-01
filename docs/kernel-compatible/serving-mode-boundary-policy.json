@@ -1,0 +1,243 @@
+{
+  "schemaVersion": "NooterraServingModeBoundaryPolicy.v1",
+  "policyId": "nooterra-serving-mode-boundary-policy",
+  "updatedAt": "2026-02-28T00:00:00.000Z",
+  "modeField": "servingMode",
+  "failClosedOnContractMismatch": true,
+  "allowedModes": [
+    "hosted",
+    "self-host",
+    "local-dev"
+  ],
+  "globalChecks": [
+    {
+      "checkId": "serving_mode_declared",
+      "requiredReasonCodes": [
+        "SERVING_MODE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "SERVING_MODE_UNKNOWN"
+      ]
+    },
+    {
+      "checkId": "serving_mode_policy_binding",
+      "requiredReasonCodes": [
+        "SERVING_MODE_POLICY_REFERENCE_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "SERVING_MODE_POLICY_REFERENCE_MISMATCH"
+      ]
+    },
+    {
+      "checkId": "serving_mode_contract_match",
+      "requiredReasonCodes": [
+        "SERVING_MODE_CONTRACT_REQUIRED"
+      ],
+      "mismatchReasonCodes": [
+        "SERVING_MODE_CONTRACT_MISMATCH"
+      ]
+    }
+  ],
+  "modes": [
+    {
+      "mode": "hosted",
+      "summary": "Nooterra-operated production control plane for customer traffic.",
+      "trustBoundary": {
+        "operator": "nooterra",
+        "mustNeverBeOnlyJudge": true,
+        "offlineVerificationRequired": true
+      },
+      "requiredRuntimeComponents": [
+        "nooterra-api",
+        "nooterra-magic-link",
+        "nooterra-maintenance",
+        "postgres",
+        "x402-gateway",
+        "paid-upstream-tool-api"
+      ],
+      "requiredEvidence": [
+        "HostedBaselineEvidence.v1",
+        "ProductionCutoverGateReport.v1"
+      ],
+      "checks": [
+        {
+          "checkId": "hosted_runtime_components",
+          "requiredReasonCodes": [
+            "SERVING_MODE_HOSTED_RUNTIME_COMPONENT_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_HOSTED_RUNTIME_COMPONENT_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "hosted_baseline_evidence",
+          "requiredReasonCodes": [
+            "SERVING_MODE_HOSTED_BASELINE_EVIDENCE_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_HOSTED_BASELINE_EVIDENCE_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "hosted_production_cutover_gate",
+          "requiredReasonCodes": [
+            "SERVING_MODE_HOSTED_PRODUCTION_CUTOVER_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_HOSTED_PRODUCTION_CUTOVER_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "hosted_offline_verify_reproducibility",
+          "requiredReasonCodes": [
+            "SERVING_MODE_HOSTED_OFFLINE_VERIFY_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_HOSTED_OFFLINE_VERIFY_MISMATCH"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "self-host",
+      "summary": "Customer-operated production control plane with deterministic topology and upgrade gates.",
+      "trustBoundary": {
+        "operator": "customer",
+        "mustNeverBeOnlyJudge": true,
+        "offlineVerificationRequired": true
+      },
+      "requiredRuntimeComponents": [
+        "nooterra-api",
+        "nooterra-magic-link",
+        "nooterra-maintenance",
+        "postgres",
+        "x402-gateway",
+        "paid-upstream-tool-api"
+      ],
+      "requiredEvidence": [
+        "SelfHostTopologyBundleGateReport.v1",
+        "SelfHostUpgradeMigrationGateReport.v1"
+      ],
+      "checks": [
+        {
+          "checkId": "self_host_runtime_components",
+          "requiredReasonCodes": [
+            "SERVING_MODE_SELF_HOST_RUNTIME_COMPONENT_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_SELF_HOST_RUNTIME_COMPONENT_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "self_host_topology_bundle_gate",
+          "requiredReasonCodes": [
+            "SERVING_MODE_SELF_HOST_TOPOLOGY_GATE_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_SELF_HOST_TOPOLOGY_GATE_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "self_host_upgrade_migration_gate",
+          "requiredReasonCodes": [
+            "SERVING_MODE_SELF_HOST_UPGRADE_GATE_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_SELF_HOST_UPGRADE_GATE_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "self_host_offline_verify_reproducibility",
+          "requiredReasonCodes": [
+            "SERVING_MODE_SELF_HOST_OFFLINE_VERIFY_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_SELF_HOST_OFFLINE_VERIFY_MISMATCH"
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "local-dev",
+      "summary": "Single-operator local development mode for non-production testing only.",
+      "trustBoundary": {
+        "operator": "developer",
+        "customerTrafficAllowed": false,
+        "productionCutoverAllowed": false
+      },
+      "requiredRuntimeComponents": [
+        "nooterra-api"
+      ],
+      "requiredEvidence": [
+        "local-targeted-tests"
+      ],
+      "checks": [
+        {
+          "checkId": "local_dev_scope_marker",
+          "requiredReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_SCOPE_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_SCOPE_MISMATCH"
+          ]
+        },
+        {
+          "checkId": "local_dev_customer_traffic_forbidden",
+          "requiredReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_NON_PRODUCTION_REQUIRED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_CUSTOMER_TRAFFIC_FORBIDDEN"
+          ]
+        },
+        {
+          "checkId": "local_dev_production_cutover_forbidden",
+          "requiredReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_RELEASE_EVIDENCE_PROHIBITED"
+          ],
+          "mismatchReasonCodes": [
+            "SERVING_MODE_LOCAL_DEV_PRODUCTION_CUTOVER_FORBIDDEN"
+          ]
+        }
+      ]
+    }
+  ],
+  "parityMatrix": [
+    {
+      "controlId": "kernel_conformance",
+      "hosted": "required",
+      "self-host": "required",
+      "local-dev": "required"
+    },
+    {
+      "controlId": "offline_verify_reproducibility",
+      "hosted": "required",
+      "self-host": "required",
+      "local-dev": "required"
+    },
+    {
+      "controlId": "hosted_baseline_evidence",
+      "hosted": "required",
+      "self-host": "not-applicable",
+      "local-dev": "not-applicable"
+    },
+    {
+      "controlId": "self_host_topology_bundle_gate",
+      "hosted": "not-applicable",
+      "self-host": "required",
+      "local-dev": "not-applicable"
+    },
+    {
+      "controlId": "self_host_upgrade_migration_gate",
+      "hosted": "not-applicable",
+      "self-host": "required",
+      "local-dev": "not-applicable"
+    },
+    {
+      "controlId": "paid_or_high_risk_customer_traffic",
+      "hosted": "required",
+      "self-host": "required",
+      "local-dev": "forbidden"
+    }
+  ]
+}

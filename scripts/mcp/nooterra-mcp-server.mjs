@@ -146,6 +146,47 @@ function asErrorResult(err) {
   return { content: [contentText(JSON.stringify(out, null, 2))], isError: true };
 }
 
+function normalizeToolFailureMessage(value) {
+  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  return null;
+}
+
+function detectToolResultFailure(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(result, key);
+  const rawError = hasOwn("error") ? result.error : null;
+  const hasError =
+    rawError !== null &&
+    rawError !== undefined &&
+    !(typeof rawError === "string" && rawError.trim() === "");
+  const statusCode =
+    Number.isInteger(result.statusCode) ? result.statusCode : Number.isInteger(result.status) ? result.status : null;
+  const okValue = hasOwn("ok") ? result.ok : undefined;
+  const failed = okValue === false || hasError || (Number.isInteger(statusCode) && statusCode >= 400);
+  if (!failed) return null;
+
+  const rawErrorMessage =
+    normalizeToolFailureMessage(rawError) ||
+    (rawError && typeof rawError === "object"
+      ? normalizeToolFailureMessage(rawError.message) || normalizeToolFailureMessage(rawError.error)
+      : null);
+  const message =
+    rawErrorMessage ||
+    normalizeToolFailureMessage(result.message) ||
+    "tool result indicates upstream failure";
+  const code =
+    normalizeToolFailureMessage(result.code) ||
+    (rawError && typeof rawError === "object" ? normalizeToolFailureMessage(rawError.code) : null);
+
+  return {
+    message,
+    code,
+    statusCode: Number.isInteger(statusCode) ? statusCode : null,
+    details: redactSecrets(result)
+  };
+}
+
 function makeIdempotencyKey(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
@@ -1223,6 +1264,29 @@ function buildTools() {
               }
             }
           },
+          policyCompatibility: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              schemaVersion: { type: ["string", "null"], default: "AgentCardPolicyCompatibility.v1" },
+              supportsPolicyTemplates: { type: ["array", "null"], items: { type: "string" }, default: null },
+              supportsEvidencePacks: { type: ["array", "null"], items: { type: "string" }, default: null }
+            }
+          },
+          publish: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              schemaVersion: { type: ["string", "null"], default: "AgentCardPublish.v1" },
+              algorithm: { type: ["string", "null"], default: "ed25519" },
+              signerKeyId: { type: ["string", "null"], default: null },
+              signedAt: { type: ["string", "null"], default: null },
+              payloadHash: { type: ["string", "null"], default: null },
+              signature: { type: ["string", "null"], default: null }
+            }
+          },
           tags: { type: ["array", "null"], items: { type: "string" }, default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -1245,6 +1309,8 @@ function buildTools() {
           toolSideEffecting: { type: ["boolean", "null"], default: null },
           toolMaxPriceCents: { type: ["integer", "null"], minimum: 0, default: null },
           toolRequiresEvidenceKind: { type: ["string", "null"], enum: ["artifact", "hash", "verification_report", null], default: null },
+          supportsPolicyTemplate: { type: ["string", "null"], default: null },
+          supportsEvidencePack: { type: ["string", "null"], default: null },
           status: { type: ["string", "null"], enum: ["active", "suspended", "revoked", "all", null], default: null },
           visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", "all", null], default: null },
           runtime: { type: ["string", "null"], default: null },
@@ -2711,6 +2777,52 @@ async function main() {
             }
             if (Array.isArray(args?.tags)) body.tags = args.tags.map((v) => String(v ?? "").trim()).filter(Boolean);
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            if (args?.policyCompatibility !== null && args?.policyCompatibility !== undefined) {
+              assertPlainObject(args.policyCompatibility, "policyCompatibility");
+              const policyCompatibility = {};
+              const schemaVersion = parseOptionalStringArg(args.policyCompatibility.schemaVersion, "policyCompatibility.schemaVersion", {
+                max: 64
+              });
+              if (schemaVersion) policyCompatibility.schemaVersion = schemaVersion;
+              if (args.policyCompatibility.supportsPolicyTemplates !== null && args.policyCompatibility.supportsPolicyTemplates !== undefined) {
+                if (!Array.isArray(args.policyCompatibility.supportsPolicyTemplates)) {
+                  throw new TypeError("policyCompatibility.supportsPolicyTemplates must be an array");
+                }
+                policyCompatibility.supportsPolicyTemplates = args.policyCompatibility.supportsPolicyTemplates
+                  .map((entry, index) =>
+                    parseOptionalStringArg(entry, `policyCompatibility.supportsPolicyTemplates[${index}]`, { max: 200 })
+                  )
+                  .filter(Boolean);
+              }
+              if (args.policyCompatibility.supportsEvidencePacks !== null && args.policyCompatibility.supportsEvidencePacks !== undefined) {
+                if (!Array.isArray(args.policyCompatibility.supportsEvidencePacks)) {
+                  throw new TypeError("policyCompatibility.supportsEvidencePacks must be an array");
+                }
+                policyCompatibility.supportsEvidencePacks = args.policyCompatibility.supportsEvidencePacks
+                  .map((entry, index) =>
+                    parseOptionalStringArg(entry, `policyCompatibility.supportsEvidencePacks[${index}]`, { max: 200 })
+                  )
+                  .filter(Boolean);
+              }
+              body.policyCompatibility = policyCompatibility;
+            }
+            if (args?.publish !== null && args?.publish !== undefined) {
+              assertPlainObject(args.publish, "publish");
+              const publish = {};
+              const schemaVersion = parseOptionalStringArg(args.publish.schemaVersion, "publish.schemaVersion", { max: 64 });
+              if (schemaVersion) publish.schemaVersion = schemaVersion;
+              const algorithm = parseOptionalStringArg(args.publish.algorithm, "publish.algorithm", { max: 32 });
+              if (algorithm) publish.algorithm = algorithm;
+              const signerKeyId = parseOptionalStringArg(args.publish.signerKeyId, "publish.signerKeyId", { max: 200 });
+              if (signerKeyId) publish.signerKeyId = signerKeyId;
+              const signedAt = parseOptionalStringArg(args.publish.signedAt, "publish.signedAt", { max: 128 });
+              if (signedAt) publish.signedAt = signedAt;
+              const payloadHash = parseOptionalStringArg(args.publish.payloadHash, "publish.payloadHash", { max: 64 });
+              if (payloadHash) publish.payloadHash = payloadHash;
+              const signature = parseOptionalStringArg(args.publish.signature, "publish.signature", { max: 8192 });
+              if (signature) publish.signature = signature;
+              body.publish = publish;
+            }
 
             const out = await client.requestJson("/agent-cards", {
               method: "POST",
@@ -2734,6 +2846,8 @@ async function main() {
                 "toolSideEffecting",
                 "toolMaxPriceCents",
                 "toolRequiresEvidenceKind",
+                "supportsPolicyTemplate",
+                "supportsEvidencePack",
                 "status",
                 "visibility",
                 "runtime",
@@ -2781,6 +2895,10 @@ async function main() {
               "verification_report"
             ]);
             if (toolRequiresEvidenceKind) query.set("toolRequiresEvidenceKind", toolRequiresEvidenceKind);
+            const supportsPolicyTemplate = parseOptionalStringArg(discoverArgs.supportsPolicyTemplate, "supportsPolicyTemplate", { max: 200 });
+            if (supportsPolicyTemplate) query.set("supportsPolicyTemplate", supportsPolicyTemplate);
+            const supportsEvidencePack = parseOptionalStringArg(discoverArgs.supportsEvidencePack, "supportsEvidencePack", { max: 200 });
+            if (supportsEvidencePack) query.set("supportsEvidencePack", supportsEvidencePack);
             const status = parseOptionalEnumArg(discoverArgs.status, "status", ["active", "suspended", "revoked", "all"]);
             if (status) query.set("status", status);
             const visibility = parseOptionalEnumArg(discoverArgs.visibility, "visibility", ["public", "tenant", "private", "all"]);
@@ -4034,6 +4152,14 @@ async function main() {
           }
 
           const durationMs = nowMs() - started;
+          const detectedFailure = detectToolResultFailure(result);
+          if (detectedFailure) {
+            const err = new Error(detectedFailure.message);
+            if (detectedFailure.code) err.code = detectedFailure.code;
+            if (Number.isInteger(detectedFailure.statusCode)) err.statusCode = detectedFailure.statusCode;
+            err.details = detectedFailure.details ?? null;
+            throw err;
+          }
           const toolResult = { ...asTextResult({ tool: name, durationMs, result }), isError: false };
           if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: toolResult });
         } catch (err) {

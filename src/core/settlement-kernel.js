@@ -299,6 +299,9 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
             )
           }
         : null,
+      ...(value.governance && typeof value.governance === "object" && !Array.isArray(value.governance)
+        ? { governance: normalizeForCanonicalJson(value.governance, { path: `${name}.governance` }) }
+        : {}),
       ...(value.metadata && typeof value.metadata === "object" && !Array.isArray(value.metadata)
         ? { metadata: normalizeForCanonicalJson(value.metadata, { path: `${name}.metadata` }) }
         : {})

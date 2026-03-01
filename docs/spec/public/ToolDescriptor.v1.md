@@ -8,6 +8,15 @@ Runtime status: implemented.
 
 `ToolDescriptor.v1` lets discovery/routing systems match on specific tool traits instead of only coarse capability strings.
 
+## Capability namespace interoperability
+
+When tool descriptors are used with capability-filtered discovery, capability values follow the shared policy:
+
+- legacy non-URI capability strings remain accepted for backward safety
+- URI capability form is `capability://<namespace>[@vN]`
+- URI namespaces are lowercase + constrained
+- invalid scheme/format/reserved namespace/segment+length cases fail closed with deterministic reason-code-like messaging
+
 ## Required fields
 
 - `schemaVersion` (const: `ToolDescriptor.v1`)

@@ -20,6 +20,7 @@ import { normalizeBillingPlanId } from "../core/billing-plans.js";
 import { validateAgentCardV1 } from "../core/agent-card.js";
 import { validateSessionV1 } from "../core/session-collab.js";
 import { validateStateCheckpointV1 } from "../core/state-checkpoint.js";
+import { normalizeCapabilityIdentifier } from "../core/capability-attestation.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const NOOTERRA_PAY_KEYSET_STORE_FILENAME = "nooterra-pay-keyset-store.json";
@@ -45,6 +46,16 @@ const EMERGENCY_ACTION = Object.freeze({
   RESUME: "resume"
 });
 const EMERGENCY_ACTIONS = new Set(Object.values(EMERGENCY_ACTION));
+const AUTONOMOUS_ROUTINE_STATUS = Object.freeze({
+  ACTIVE: "active",
+  PAUSED: "paused"
+});
+const AUTONOMOUS_ROUTINE_STATUSES = new Set(Object.values(AUTONOMOUS_ROUTINE_STATUS));
+const AUTONOMOUS_ROUTINE_CONTROL_ACTION = Object.freeze({
+  KILL_SWITCH: "kill-switch",
+  RESUME: "resume"
+});
+const AUTONOMOUS_ROUTINE_CONTROL_ACTIONS = new Set(Object.values(AUTONOMOUS_ROUTINE_CONTROL_ACTION));
 
 function readJsonFileSafe(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -400,6 +411,9 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     x402WebhookEndpoints: new Map(), // `${tenantId}\n${endpointId}` -> X402WebhookEndpoint.v1
     emergencyControlEvents: new Map(), // `${tenantId}\n${eventId}` -> OpsEmergencyControlEvent.v1
     emergencyControlState: new Map(), // `${tenantId}\n${scopeType}::${scopeId}::${controlType}` -> OpsEmergencyControlState.v1
+    autonomousRoutinePolicies: new Map(), // `${tenantId}\n${routineId}` -> AutonomousRoutinePolicy.v1
+    autonomousRoutineControlEvents: new Map(), // `${tenantId}\n${incidentId}` -> AutonomousRoutineControlEvent.v1
+    autonomousRoutineExecutions: new Map(), // `${tenantId}\n${routineId}::${executionId}` -> AutonomousRoutineExecutionReceipt.v1
     toolCallHolds: new Map(), // `${tenantId}\n${holdHash}` -> FundingHold.v1 snapshot
     settlementAdjustments: new Map(), // `${tenantId}\n${adjustmentId}` -> SettlementAdjustment.v1 snapshot
     moneyRailOperations: new Map(), // `${tenantId}\n${providerId}\n${operationId}` -> MoneyRailOperation.v1
@@ -804,9 +818,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
 
     const capabilitiesIn = Array.isArray(agentIdentity.capabilities) ? agentIdentity.capabilities : [];
-    const capabilities = [...new Set(capabilitiesIn.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
-      left.localeCompare(right)
-    );
+    const capabilitySet = new Set();
+    for (let index = 0; index < capabilitiesIn.length; index += 1) {
+      const raw = capabilitiesIn[index];
+      const candidate = String(raw ?? "").trim();
+      if (!candidate) continue;
+      capabilitySet.add(normalizeCapabilityIdentifier(candidate, { name: `agentIdentity.capabilities[${index}]` }));
+    }
+    const capabilities = Array.from(capabilitySet.values()).sort((left, right) => left.localeCompare(right));
 
     const walletPolicyIn = agentIdentity.walletPolicy;
     if (walletPolicyIn !== undefined && walletPolicyIn !== null && (typeof walletPolicyIn !== "object" || Array.isArray(walletPolicyIn))) {
@@ -1130,7 +1149,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const agentFilter = agentId ? String(agentId).trim() : null;
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
@@ -1190,7 +1209,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       throw new TypeError("visibility must be public");
     }
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
@@ -1939,6 +1958,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     const attestationId = capabilityAttestation.attestationId ?? null;
     if (typeof attestationId !== "string" || attestationId.trim() === "") throw new TypeError("capabilityAttestation.attestationId is required");
+    normalizeCapabilityIdentifier(capabilityAttestation.capability, { name: "capabilityAttestation.capability" });
     const at = capabilityAttestation.updatedAt ?? capabilityAttestation.createdAt ?? new Date().toISOString();
     await store.commitTx({
       at,
@@ -1976,7 +1996,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const attestationIdFilter = attestationId ? String(attestationId).trim() : null;
     const subjectAgentIdFilter = subjectAgentId ? String(subjectAgentId).trim() : null;
     const issuerAgentIdFilter = issuerAgentId ? String(issuerAgentId).trim() : null;
-    const capabilityFilter = capability ? String(capability).trim() : null;
+    const capabilityFilter = capability ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
     const safeLimit = Math.min(1000, limit);
 
     const out = [];
@@ -4339,6 +4359,276 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       return String(left?.lastEventId ?? "").localeCompare(String(right?.lastEventId ?? ""));
     });
     return matches[0] ?? null;
+  };
+
+  function normalizeAutonomousRoutineStatus(value, { allowNull = false } = {}) {
+    if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!AUTONOMOUS_ROUTINE_STATUSES.has(normalized)) throw new TypeError("routine.status must be active|paused");
+    return normalized;
+  }
+
+  function normalizeAutonomousRoutineControlAction(value) {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!AUTONOMOUS_ROUTINE_CONTROL_ACTIONS.has(normalized)) throw new TypeError("action must be kill-switch|resume");
+    return normalized;
+  }
+
+  function autonomousRoutinePolicyStoreKey({ tenantId, routineId }) {
+    return makeScopedKey({ tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID), id: assertNonEmptyString(routineId, "routineId") });
+  }
+
+  function autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId }) {
+    return makeScopedKey({
+      tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID),
+      id: `${assertNonEmptyString(routineId, "routineId")}::${assertNonEmptyString(executionId, "executionId")}`
+    });
+  }
+
+  function normalizeAutonomousRoutineSpendLimit(value, fieldPath) {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${fieldPath} must be a non-negative safe integer`);
+    return parsed;
+  }
+
+  store.putAutonomousRoutinePolicy = async function putAutonomousRoutinePolicy({ tenantId = DEFAULT_TENANT_ID, routine, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!routine || typeof routine !== "object" || Array.isArray(routine)) throw new TypeError("routine is required");
+    const routineId = assertNonEmptyString(routine.routineId ?? routine.id ?? null, "routine.routineId");
+    const status = normalizeAutonomousRoutineStatus(routine.status ?? AUTONOMOUS_ROUTINE_STATUS.ACTIVE, { allowNull: false });
+    const spendingLimits =
+      routine.spendingLimits && typeof routine.spendingLimits === "object" && !Array.isArray(routine.spendingLimits)
+        ? routine.spendingLimits
+        : (() => {
+            throw new TypeError("routine.spendingLimits is required");
+          })();
+    const currency = assertNonEmptyString(spendingLimits.currency ?? null, "routine.spendingLimits.currency").toUpperCase();
+    const maxPerExecutionMicros = normalizeAutonomousRoutineSpendLimit(
+      spendingLimits.maxPerExecutionMicros ?? null,
+      "routine.spendingLimits.maxPerExecutionMicros"
+    );
+    const maxPerDayMicros = normalizeAutonomousRoutineSpendLimit(
+      spendingLimits.maxPerDayMicros ?? null,
+      "routine.spendingLimits.maxPerDayMicros"
+    );
+    if (maxPerDayMicros < maxPerExecutionMicros) {
+      throw new TypeError("routine.spendingLimits.maxPerDayMicros must be greater than or equal to maxPerExecutionMicros");
+    }
+    const killSwitch =
+      routine.killSwitch && typeof routine.killSwitch === "object" && !Array.isArray(routine.killSwitch) ? routine.killSwitch : {};
+    if (killSwitch.active !== undefined && typeof killSwitch.active !== "boolean") {
+      throw new TypeError("routine.killSwitch.active must be boolean when provided");
+    }
+    const revision = killSwitch.revision === undefined || killSwitch.revision === null ? 0 : Number(killSwitch.revision);
+    if (!Number.isSafeInteger(revision) || revision < 0) throw new TypeError("routine.killSwitch.revision must be a non-negative safe integer");
+
+    const normalizedRoutine = {
+      ...routine,
+      tenantId,
+      routineId,
+      status,
+      spendingLimits: {
+        ...spendingLimits,
+        currency,
+        maxPerExecutionMicros,
+        maxPerDayMicros
+      },
+      killSwitch: {
+        active: killSwitch.active === true,
+        revision,
+        updatedAt: typeof killSwitch.updatedAt === "string" && killSwitch.updatedAt.trim() !== "" ? killSwitch.updatedAt.trim() : null,
+        reasonCode:
+          killSwitch.reasonCode === null || killSwitch.reasonCode === undefined || String(killSwitch.reasonCode).trim() === ""
+            ? null
+            : String(killSwitch.reasonCode).trim(),
+        reason:
+          killSwitch.reason === null || killSwitch.reason === undefined || String(killSwitch.reason).trim() === ""
+            ? null
+            : String(killSwitch.reason).trim(),
+        lastIncidentId:
+          killSwitch.lastIncidentId === null || killSwitch.lastIncidentId === undefined || String(killSwitch.lastIncidentId).trim() === ""
+            ? null
+            : String(killSwitch.lastIncidentId).trim()
+      }
+    };
+    const at = normalizedRoutine.updatedAt ?? normalizedRoutine.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AUTONOMOUS_ROUTINE_POLICY_UPSERT", tenantId, routine: normalizedRoutine }],
+      audit
+    });
+    return store.autonomousRoutinePolicies.get(autonomousRoutinePolicyStoreKey({ tenantId, routineId })) ?? null;
+  };
+
+  store.getAutonomousRoutinePolicy = async function getAutonomousRoutinePolicy({ tenantId = DEFAULT_TENANT_ID, routineId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    return store.autonomousRoutinePolicies.get(autonomousRoutinePolicyStoreKey({ tenantId, routineId })) ?? null;
+  };
+
+  store.listAutonomousRoutinePolicies = async function listAutonomousRoutinePolicies({
+    tenantId = DEFAULT_TENANT_ID,
+    status = null,
+    killSwitchActive = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (status !== null) status = normalizeAutonomousRoutineStatus(status, { allowNull: false });
+    if (killSwitchActive !== null && typeof killSwitchActive !== "boolean") throw new TypeError("killSwitchActive must be null or boolean");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.autonomousRoutinePolicies.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (status !== null && String(row.status ?? "").toLowerCase() !== status) continue;
+      if (killSwitchActive !== null && Boolean(row?.killSwitch?.active) !== killSwitchActive) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.routineId ?? "").localeCompare(String(right?.routineId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.appendAutonomousRoutineControlEvent = async function appendAutonomousRoutineControlEvent({
+    tenantId = DEFAULT_TENANT_ID,
+    event,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!event || typeof event !== "object" || Array.isArray(event)) throw new TypeError("event is required");
+    const incidentId = assertNonEmptyString(event.incidentId ?? event.eventId ?? event.id ?? null, "event.incidentId");
+    const routineId = assertNonEmptyString(event.routineId ?? null, "event.routineId");
+    const action = normalizeAutonomousRoutineControlAction(event.action ?? null);
+    const existingRoutine = await store.getAutonomousRoutinePolicy({ tenantId, routineId });
+    if (!existingRoutine) throw new TypeError("event.routineId was not found");
+    const nowAt = typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString();
+    const effectiveAt = typeof event.effectiveAt === "string" && event.effectiveAt.trim() !== "" ? event.effectiveAt.trim() : nowAt;
+    const createdAt = typeof event.createdAt === "string" && event.createdAt.trim() !== "" ? event.createdAt.trim() : nowAt;
+    const normalizedEvent = {
+      ...event,
+      schemaVersion:
+        typeof event.schemaVersion === "string" && event.schemaVersion.trim() !== ""
+          ? event.schemaVersion.trim()
+          : "AutonomousRoutineControlEvent.v1",
+      incidentId,
+      tenantId,
+      routineId,
+      action,
+      effectiveAt,
+      createdAt
+    };
+    await store.commitTx({
+      at: effectiveAt,
+      ops: [{ kind: "AUTONOMOUS_ROUTINE_CONTROL_EVENT_APPEND", tenantId, event: normalizedEvent }],
+      audit
+    });
+    return store.autonomousRoutineControlEvents.get(makeScopedKey({ tenantId, id: incidentId })) ?? null;
+  };
+
+  store.listAutonomousRoutineControlEvents = async function listAutonomousRoutineControlEvents({
+    tenantId = DEFAULT_TENANT_ID,
+    routineId = null,
+    action = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (routineId !== null) routineId = assertNonEmptyString(routineId, "routineId");
+    if (action !== null) action = normalizeAutonomousRoutineControlAction(action);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.autonomousRoutineControlEvents.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (routineId !== null && String(row.routineId ?? "") !== routineId) continue;
+      if (action !== null && String(row.action ?? "").toLowerCase() !== action) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.effectiveAt ?? ""))) ? Date.parse(String(left.effectiveAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.effectiveAt ?? ""))) ? Date.parse(String(right.effectiveAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.incidentId ?? "").localeCompare(String(right?.incidentId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.appendAutonomousRoutineExecution = async function appendAutonomousRoutineExecution({
+    tenantId = DEFAULT_TENANT_ID,
+    execution,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!execution || typeof execution !== "object" || Array.isArray(execution)) throw new TypeError("execution is required");
+    const routineId = assertNonEmptyString(execution.routineId ?? null, "execution.routineId");
+    const executionId = assertNonEmptyString(execution.executionId ?? execution.id ?? null, "execution.executionId");
+    const existingRoutine = await store.getAutonomousRoutinePolicy({ tenantId, routineId });
+    if (!existingRoutine) throw new TypeError("execution.routineId was not found");
+    const decision =
+      execution.decision && typeof execution.decision === "object" && !Array.isArray(execution.decision)
+        ? execution.decision
+        : (() => {
+            throw new TypeError("execution.decision is required");
+          })();
+    if (typeof decision.allowed !== "boolean") throw new TypeError("execution.decision.allowed must be boolean");
+    const normalizedExecution = {
+      ...execution,
+      schemaVersion:
+        typeof execution.schemaVersion === "string" && execution.schemaVersion.trim() !== ""
+          ? execution.schemaVersion.trim()
+          : "AutonomousRoutineExecutionReceipt.v1",
+      tenantId,
+      routineId,
+      executionId
+    };
+    const at = normalizedExecution.executedAt ?? normalizedExecution.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AUTONOMOUS_ROUTINE_EXECUTION_APPEND", tenantId, execution: normalizedExecution }],
+      audit
+    });
+    return store.autonomousRoutineExecutions.get(autonomousRoutineExecutionStoreKey({ tenantId, routineId, executionId })) ?? null;
+  };
+
+  store.listAutonomousRoutineExecutions = async function listAutonomousRoutineExecutions({
+    tenantId = DEFAULT_TENANT_ID,
+    routineId = null,
+    allowed = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (routineId !== null) routineId = assertNonEmptyString(routineId, "routineId");
+    if (allowed !== null && typeof allowed !== "boolean") throw new TypeError("allowed must be null or boolean");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(2000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.autonomousRoutineExecutions.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (routineId !== null && String(row.routineId ?? "") !== routineId) continue;
+      if (allowed !== null && Boolean(row?.decision?.allowed) !== allowed) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.executedAt ?? ""))) ? Date.parse(String(left.executedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.executedAt ?? ""))) ? Date.parse(String(right.executedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.executionId ?? "").localeCompare(String(right?.executionId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
   store.getSignerKey = async function getSignerKey({ tenantId = DEFAULT_TENANT_ID, keyId } = {}) {

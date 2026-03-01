@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "TypedDiscoveryConformanceVectors.v1",
+  "packVersion": "1.0.0",
+  "generatedAt": "2026-02-28T00:00:00.000Z",
+  "determinism": {
+    "runtimeNowIso": "2026-02-28T00:00:00.000Z",
+    "tenantId": "tenant_default",
+    "rerunsPerDeterministicCheck": 2,
+    "orderingTieBreak": "rankingScore_desc_then_trustScore_desc_then_runVolume_desc_then_agentId_asc_then_tenantId_asc"
+  },
+  "cases": [
+    {
+      "id": "malformed_tool_descriptor_input_schema_invalid",
+      "kind": "malformed_tool_descriptor_input",
+      "invariantIds": [
+        "fail_closed",
+        "schema_validation",
+        "tool_descriptor"
+      ],
+      "fixture": {
+        "agentId": "agt_td_tool_invalid_1",
+        "capability": "travel.booking"
+      },
+      "expected": {
+        "statusCode": 400,
+        "code": "SCHEMA_INVALID",
+        "detailIncludes": "tools must be an array"
+      }
+    },
+    {
+      "id": "capability_namespace_spam_invalid_uri_fail_closed_deterministic",
+      "kind": "capability_namespace_spam_invalid_uri",
+      "invariantIds": [
+        "fail_closed",
+        "capability_namespace",
+        "deterministic_errors"
+      ],
+      "repeat": 2,
+      "probes": [
+        {
+          "label": "segment_spam",
+          "capability": "capability://travel.one.two.three.four.five.six.seven.eight.nine",
+          "expectedReasonToken": "CAPABILITY_IDENTIFIER_URI_SEGMENT_COUNT_EXCEEDED"
+        },
+        {
+          "label": "invalid_scheme",
+          "capability": "https://travel.booking",
+          "expectedReasonToken": "CAPABILITY_IDENTIFIER_URI_SCHEME_INVALID"
+        }
+      ],
+      "expected": {
+        "statusCode": 400,
+        "code": "SCHEMA_INVALID"
+      }
+    },
+    {
+      "id": "invalid_attestation_reference_excluded_with_reason_code",
+      "kind": "invalid_attestation_reference",
+      "invariantIds": [
+        "fail_closed",
+        "attestation_reference",
+        "explicit_reason_codes"
+      ],
+      "fixture": {
+        "capability": "travel.booking",
+        "attestedAgentId": "agt_td_attested_subject_1",
+        "plainAgentId": "agt_td_plain_subject_1",
+        "issuerAgentId": "agt_td_issuer_a_1",
+        "requestedIssuerAgentId": "agt_td_issuer_b_1",
+        "attestationId": "catt_td_attested_subject_1"
+      },
+      "expected": {
+        "statusCode": 200,
+        "resultCount": 0,
+        "excludedReasonByAgent": {
+          "agt_td_attested_subject_1": "CAPABILITY_ATTESTATION_ISSUER_MISMATCH",
+          "agt_td_plain_subject_1": "CAPABILITY_ATTESTATION_MISSING"
+        }
+      }
+    },
+    {
+      "id": "typed_filter_ordering_is_deterministic_across_reruns",
+      "kind": "typed_filter_ordering",
+      "invariantIds": [
+        "typed_filters",
+        "deterministic_ordering"
+      ],
+      "fixture": {
+        "capability": "travel.booking",
+        "includedAgentIds": [
+          "agt_td_order_a_1",
+          "agt_td_order_b_1"
+        ],
+        "excludedAgentId": "agt_td_order_excluded_1"
+      },
+      "expected": {
+        "statusCode": 200,
+        "orderedAgentIds": [
+          "agt_td_order_a_1",
+          "agt_td_order_b_1"
+        ]
+      }
+    }
+  ]
+}

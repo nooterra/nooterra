@@ -45,6 +45,29 @@ If the request implies spend, delegation, or settlement evidence, prefer Nooterr
 - Nooterra runtime env from setup (`NOOTERRA_API_KEY`, `NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`)
 - Optional paid tools base URL (`NOOTERRA_PAID_TOOLS_BASE_URL`)
 
+## Nooterra Verified Listing Metadata Contract
+
+Use this only for community listings that claim `Nooterra Verified`.
+
+1. Collaboration gate MUST pass before adding a verified listing claim (`NooterraVerifiedGateReport.v1`, `level=collaboration`, `ok=true`).
+2. Use exact listing token in both metadata descriptions: `[Nooterra Verified: collaboration]`.
+3. Keep `SKILL.md` frontmatter and `skill.json` synchronized for:
+   - `name`
+   - `version`
+   - `description` (exact same bytes, including verified token when present)
+4. Do not add custom frontmatter schema keys (for example `verified`, `badge`, `program`).
+
+Deterministic description template for verified listings:
+
+- `OpenClaw skill for Nooterra paid MCP tools with policy decisions and verifiable receipts. [Nooterra Verified: collaboration]`
+
+Minimum runtime behavior required by the listing claim:
+
+- Delegation flow succeeds: `nooterra.delegation_grant_issue` -> `nooterra.delegation_grant_list` -> `nooterra.delegation_grant_revoke`
+- Paid call succeeds through `nooterra_call` with `tool=nooterra.weather_current_paid` or `tool=nooterra.exa_search_paid`
+- Paid call response includes: `x-nooterra-settlement-status`, `x-nooterra-verification-status`, `x-nooterra-policy-decision`, `x-nooterra-policy-hash`, `x-nooterra-decision-id`
+- Receipt/settlement state can be read via `nooterra.x402_gate_get` (or equivalent work-order settle read path)
+
 ## OpenClaw Plugin Registration
 
 Install the Nooterra OpenClaw plugin from npm:

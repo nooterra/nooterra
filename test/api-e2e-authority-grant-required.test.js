@@ -1198,3 +1198,132 @@ test("API e2e: work order settle fails closed without authority grant when requi
   assert.equal(allowed.statusCode, 200, allowed.body);
   assert.equal(allowed.json?.workOrder?.settlement?.authorityGrantRef, grant.grantId);
 });
+
+test("API e2e: work order settle fails closed when authority root grant is revoked", async () => {
+  const api = createApi({ x402RequireAuthorityGrant: true });
+  const principalAgentId = "agt_auth_work_settle_root_revoked_principal_1";
+  const subAgentId = "agt_auth_work_settle_root_revoked_sub_1";
+  await registerAgent(api, { agentId: principalAgentId });
+  await registerAgent(api, { agentId: subAgentId });
+
+  const rootGrant = await issueAuthorityGrant(api, {
+    grantId: "agrant_auth_work_settle_root_revoked_root_1",
+    granteeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: { depth: 0, maxDelegationDepth: 2 },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "agrant_auth_work_settle_root_revoked_child_1",
+    granteeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(api, {
+    grantId: "dgrant_auth_work_settle_root_revoked_1",
+    delegatorAgentId: "agt_auth_work_settle_root_revoked_manager_1",
+    delegateeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_settle_root_revoked_create_1" },
+    body: {
+      workOrderId: "workord_auth_settle_root_revoked_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      specification: { taskType: "codegen", prompt: "implement parser with root-revoked guard" },
+      pricing: { amountCents: 360, currency: "USD" },
+      delegationGrantRef: delegationGrant.grantId,
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_root_revoked_1/accept",
+    headers: { "x-idempotency-key": "work_order_settle_root_revoked_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-25T01:10:00.000Z"
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_root_revoked_1/complete",
+    headers: { "x-idempotency-key": "work_order_settle_root_revoked_complete_1" },
+    body: {
+      receiptId: "worec_auth_settle_root_revoked_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://code/auth-settle-root-revoked-1" },
+      evidenceRefs: ["artifact://code/auth-settle-root-revoked-1", "report://verification/auth-settle-root-revoked-1"],
+      amountCents: 360,
+      currency: "USD",
+      deliveredAt: "2026-02-25T01:20:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  const completionReceiptHash = completed.json?.completionReceipt?.receiptHash;
+  assert.equal(typeof completionReceiptHash, "string");
+
+  const revokedRoot = await request(api, {
+    method: "POST",
+    path: `/authority-grants/${encodeURIComponent(rootGrant.grantId)}/revoke`,
+    headers: { "x-idempotency-key": "work_order_settle_root_revoked_revoke_root_1" },
+    body: { revocationReasonCode: "MANUAL_REVOKE" }
+  });
+  assert.equal(revokedRoot.statusCode, 200, revokedRoot.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_root_revoked_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_root_revoked_blocked_1" },
+    body: {
+      completionReceiptId: "worec_auth_settle_root_revoked_1",
+      completionReceiptHash,
+      status: "released",
+      x402GateId: "x402gate_auth_settle_root_revoked_1",
+      x402RunId: "run_auth_settle_root_revoked_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_auth_settle_root_revoked_1",
+      evidenceRefs: ["artifact://code/auth-settle-root-revoked-1", "report://verification/auth-settle-root-revoked-1"],
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
+  assert.equal(blocked.json?.details?.reasonCode, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
+});

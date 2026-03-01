@@ -139,7 +139,9 @@ async function main() {
   // Audit packet zip (deterministic)
   sh(process.execPath, ["scripts/audit/build-audit-packet.mjs", "--out", outDir, "--packet-version", "v1"]);
   const auditZip = path.join(outDir, "nooterra-audit-packet-v1.zip");
+  const auditReport = path.join(outDir, "nooterra-audit-packet-v1.report.json");
   await fs.access(auditZip);
+  await fs.access(auditReport);
   const auditChecksumsPath = path.join(outDir, "nooterra-audit-packet-v1.zip.sha256");
   await writeSha256File({ outPath: auditChecksumsPath, files: [auditZip] });
 
@@ -151,6 +153,7 @@ async function main() {
     conformanceTgz,
     conformanceChecksumsPath,
     auditZip,
+    auditReport,
     auditChecksumsPath
   ].sort();
   await writeSha256File({
