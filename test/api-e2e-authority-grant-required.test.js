@@ -2369,6 +2369,116 @@ test("API e2e: x402 authorize fails closed when delegation chain depth exceeds a
   assert.equal(blocked.json?.details?.details?.field, "chainBinding.maxDelegationDepth");
 });
 
+test("API e2e: x402 authorize fails closed when delegation parent hash does not match authority grant hash", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_parent_mismatch_payer_1";
+  const payeeAgentId = "agt_auth_parent_mismatch_payee_1";
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_parent_mismatch_1"
+  });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_parent_mismatch_root_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      depth: 0,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_parent_mismatch_child_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_parent_mismatch_1",
+    delegatorAgentId: "agt_auth_parent_mismatch_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_parent_mismatch_create_1" },
+    body: {
+      gateId: "x402gate_auth_parent_mismatch_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_parent_mismatch_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_parent_mismatch_1",
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH");
+  assert.equal(blocked.json?.details?.details?.field, "chainBinding.parentGrantHash");
+});
+
 test("API e2e: work order create fails closed without authority grant when required", async () => {
   const api = createApi({ x402RequireAuthorityGrant: true });
   const principalAgentId = "agt_auth_required_work_create_principal_1";
@@ -2691,4 +2801,126 @@ test("API e2e: work order settle fails closed when authority root grant is revok
   assert.equal(blocked.statusCode, 409, blocked.body);
   assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
   assert.equal(blocked.json?.details?.reasonCode, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
+});
+
+test("API e2e: work order settle fails closed when delegation parent hash does not match authority grant hash", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const principalAgentId = "agt_auth_work_settle_parent_mismatch_principal_1";
+  const subAgentId = "agt_auth_work_settle_parent_mismatch_sub_1";
+  await registerAgent(setupApi, { agentId: principalAgentId });
+  await registerAgent(setupApi, { agentId: subAgentId });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_work_settle_parent_mismatch_root_1",
+    granteeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: { depth: 0, maxDelegationDepth: 2 },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_work_settle_parent_mismatch_child_1",
+    granteeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_work_settle_parent_mismatch_1",
+    delegatorAgentId: "agt_auth_work_settle_parent_mismatch_manager_1",
+    delegateeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_settle_parent_mismatch_create_1" },
+    body: {
+      workOrderId: "workord_auth_settle_parent_mismatch_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      specification: { taskType: "codegen", prompt: "implement parser with parent-mismatch guard" },
+      pricing: { amountCents: 360, currency: "USD" },
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(setupApi, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_parent_mismatch_1/accept",
+    headers: { "x-idempotency-key": "work_order_settle_parent_mismatch_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-25T01:10:00.000Z"
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(setupApi, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_parent_mismatch_1/complete",
+    headers: { "x-idempotency-key": "work_order_settle_parent_mismatch_complete_1" },
+    body: {
+      receiptId: "worec_auth_settle_parent_mismatch_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://code/auth-settle-parent-mismatch-1" },
+      evidenceRefs: ["artifact://code/auth-settle-parent-mismatch-1", "report://verification/auth-settle-parent-mismatch-1"],
+      amountCents: 360,
+      currency: "USD",
+      deliveredAt: "2026-02-25T01:20:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  const completionReceiptHash = completed.json?.completionReceipt?.receiptHash;
+  assert.equal(typeof completionReceiptHash, "string");
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/work-orders/workord_auth_settle_parent_mismatch_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_parent_mismatch_blocked_1" },
+    body: {
+      completionReceiptId: "worec_auth_settle_parent_mismatch_1",
+      completionReceiptHash,
+      status: "released",
+      x402GateId: "x402gate_auth_settle_parent_mismatch_1",
+      x402RunId: "run_auth_settle_parent_mismatch_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_auth_settle_parent_mismatch_1",
+      evidenceRefs: ["artifact://code/auth-settle-parent-mismatch-1", "report://verification/auth-settle-parent-mismatch-1"],
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH");
+  assert.equal(blocked.json?.details?.reasonCode, "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH");
 });
