@@ -496,6 +496,110 @@ test("API e2e: x402 authorize fails closed without authority grant when required
   assert.equal(allowed.json?.authorityGrantRef, grant.grantId);
 });
 
+test("API e2e: x402 authorize fails closed when authority grant is not active yet", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_not_active_payer_1";
+  const payeeAgentId = "agt_auth_not_active_payee_1";
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_authorize_not_active_create_1" },
+    body: {
+      gateId: "x402gate_auth_not_active_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      autoFundPayerCents: 5_000
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const grant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_not_active_1",
+    granteeAgentId: payerAgentId,
+    validity: {
+      issuedAt: "2030-01-01T00:00:00.000Z",
+      notBefore: "2030-01-01T00:00:00.000Z",
+      expiresAt: "2031-01-01T00:00:00.000Z"
+    }
+  });
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_not_active_blocked_1" },
+    body: {
+      gateId: "x402gate_auth_not_active_1",
+      authorityGrantRef: grant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_GRANT_NOT_ACTIVE");
+  assert.equal(
+    blocked.json?.details?.authorityGrantRef ?? blocked.json?.details?.details?.authorityGrantRef,
+    grant.grantId
+  );
+  assert.equal(blocked.json?.details?.notBefore ?? blocked.json?.details?.details?.notBefore, "2030-01-01T00:00:00.000Z");
+});
+
+test("API e2e: x402 authorize fails closed when authority grant is expired", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_expired_payer_1";
+  const payeeAgentId = "agt_auth_expired_payee_1";
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_authorize_expired_create_1" },
+    body: {
+      gateId: "x402gate_auth_expired_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      autoFundPayerCents: 5_000
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const grant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_expired_1",
+    granteeAgentId: payerAgentId,
+    validity: {
+      issuedAt: "2024-01-01T00:00:00.000Z",
+      notBefore: "2024-01-01T00:00:00.000Z",
+      expiresAt: "2024-12-31T00:00:00.000Z"
+    }
+  });
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_expired_blocked_1" },
+    body: {
+      gateId: "x402gate_auth_expired_1",
+      authorityGrantRef: grant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_GRANT_EXPIRED");
+  assert.equal(
+    blocked.json?.details?.authorityGrantRef ?? blocked.json?.details?.details?.authorityGrantRef,
+    grant.grantId
+  );
+  assert.equal(blocked.json?.details?.expiresAt ?? blocked.json?.details?.details?.expiresAt, "2024-12-31T00:00:00.000Z");
+});
+
 test("API e2e: x402 authorize fails closed when authority grant grantee signer lifecycle is non-active", async () => {
   const api = createApi({ x402RequireAuthorityGrant: true, opsToken: "tok_ops" });
   const payer = await registerAgentWithKey(api, { agentId: "agt_auth_signer_authorize_payer_1" });
