@@ -523,6 +523,23 @@ test("API e2e: session participant ACL fails closed for session reads and append
   assert.equal(deniedCheckpointWrite.json?.details?.sessionId, sessionId);
   assert.equal(deniedCheckpointWrite.json?.details?.principalId, deniedPrincipalId);
 
+  const deniedCheckpointRequeue = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint/requeue`,
+    headers: {
+      "x-idempotency-key": "session_acl_checkpoint_requeue_denied_1",
+      "x-proxy-principal-id": deniedPrincipalId
+    },
+    body: {
+      checkpointConsumerId: "acl_denied_consumer_1",
+      sinceEventId: seeded.json?.event?.id
+    }
+  });
+  assert.equal(deniedCheckpointRequeue.statusCode, 403, deniedCheckpointRequeue.body);
+  assert.equal(deniedCheckpointRequeue.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointRequeue.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointRequeue.json?.details?.principalId, deniedPrincipalId);
+
   const allowedGet = await request(api, {
     method: "GET",
     path: `/sessions/${sessionId}`,
