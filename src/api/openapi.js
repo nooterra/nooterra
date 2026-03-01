@@ -1223,6 +1223,24 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const WorkOrderIntentBindingV1 = {
+    type: "object",
+    additionalProperties: false,
+    nullable: true,
+    required: ["schemaVersion", "negotiationId", "intentId", "intentHash"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["WorkOrderIntentBinding.v1"] },
+      negotiationId: { type: "string" },
+      intentId: { type: "string" },
+      intentHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      acceptedEventId: { type: "string", nullable: true },
+      acceptedEventHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      acceptanceId: { type: "string", nullable: true },
+      acceptanceHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      acceptedAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
   const SubAgentWorkOrderV1 = {
     type: "object",
     additionalProperties: false,
@@ -1269,6 +1287,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       completedAt: { type: "string", format: "date-time", nullable: true },
       completionReceiptId: { type: "string", nullable: true },
       settlement: SubAgentWorkOrderSettlementV1,
+      intentBinding: WorkOrderIntentBindingV1,
       metadata: { type: "object", additionalProperties: true, nullable: true },
       createdAt: { type: "string", format: "date-time" },
       updatedAt: { type: "string", format: "date-time" },
@@ -1317,6 +1336,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         }
       },
       deliveredAt: { type: "string", format: "date-time" },
+      intentBinding: WorkOrderIntentBindingV1,
       metadata: { type: "object", additionalProperties: true, nullable: true },
       receiptHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
     }
@@ -1345,6 +1365,19 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       attestationIssuerAgentId: { type: "string", nullable: true },
       delegationGrantRef: { type: "string" },
       authorityGrantRef: { type: "string" },
+      requireAcceptedIntentHash: { type: "boolean", nullable: true },
+      intentRef: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        required: ["negotiationId", "intentId", "intentHash"],
+        properties: {
+          negotiationId: { type: "string" },
+          intentId: { type: "string" },
+          intentHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          acceptedEventHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true }
+        }
+      },
       metadata: { type: "object", additionalProperties: true }
     }
   };
@@ -1383,6 +1416,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       amountCents: { type: "integer", minimum: 0, nullable: true },
       currency: { type: "string", nullable: true },
       traceId: { type: "string", nullable: true },
+      intentHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
       deliveredAt: { type: "string", format: "date-time" },
       completedAt: { type: "string", format: "date-time" },
       metadata: { type: "object", additionalProperties: true }
@@ -1401,6 +1435,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string" },
       completionReceiptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      intentHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
       traceId: { type: "string", nullable: true },
       authorityGrantRef: { type: "string" },
       settledAt: { type: "string", format: "date-time" }

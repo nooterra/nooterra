@@ -55139,6 +55139,58 @@
                               }
                             }
                           },
+                          "intentBinding": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "nullable": true,
+                            "required": [
+                              "schemaVersion",
+                              "negotiationId",
+                              "intentId",
+                              "intentHash"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "WorkOrderIntentBinding.v1"
+                                ]
+                              },
+                              "negotiationId": {
+                                "type": "string"
+                              },
+                              "intentId": {
+                                "type": "string"
+                              },
+                              "intentHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "acceptedEventId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "acceptedEventHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "nullable": true
+                              },
+                              "acceptanceId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "acceptanceHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "nullable": true
+                              },
+                              "acceptedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              }
+                            }
+                          },
                           "metadata": {
                             "type": "object",
                             "additionalProperties": true,
@@ -55479,6 +55531,37 @@
                   },
                   "authorityGrantRef": {
                     "type": "string"
+                  },
+                  "requireAcceptedIntentHash": {
+                    "type": "boolean",
+                    "nullable": true
+                  },
+                  "intentRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "required": [
+                      "negotiationId",
+                      "intentId",
+                      "intentHash"
+                    ],
+                    "properties": {
+                      "negotiationId": {
+                        "type": "string"
+                      },
+                      "intentId": {
+                        "type": "string"
+                      },
+                      "intentHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "acceptedEventHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                        "nullable": true
+                      }
+                    }
                   },
                   "metadata": {
                     "type": "object",
@@ -55858,6 +55941,58 @@
                             "settledAt": {
                               "type": "string",
                               "format": "date-time"
+                            }
+                          }
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
                             }
                           }
                         },
@@ -56370,6 +56505,58 @@
                             }
                           }
                         },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        },
                         "metadata": {
                           "type": "object",
                           "additionalProperties": true,
@@ -56865,6 +57052,58 @@
                             "settledAt": {
                               "type": "string",
                               "format": "date-time"
+                            }
+                          }
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
                             }
                           }
                         },
@@ -57401,6 +57640,58 @@
                             "settledAt": {
                               "type": "string",
                               "format": "date-time"
+                            }
+                          }
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
                             }
                           }
                         },
@@ -58146,6 +58437,11 @@
                     "type": "string",
                     "nullable": true
                   },
+                  "intentHash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "nullable": true
+                  },
                   "deliveredAt": {
                     "type": "string",
                     "format": "date-time"
@@ -58535,6 +58831,58 @@
                             }
                           }
                         },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        },
                         "metadata": {
                           "type": "object",
                           "additionalProperties": true,
@@ -58650,6 +58998,58 @@
                         "deliveredAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
                         },
                         "metadata": {
                           "type": "object",
@@ -58804,6 +59204,10 @@
                     "type": "string"
                   },
                   "completionReceiptHash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "intentHash": {
                     "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
                   },
@@ -59195,6 +59599,58 @@
                             }
                           }
                         },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        },
                         "metadata": {
                           "type": "object",
                           "additionalProperties": true,
@@ -59310,6 +59766,58 @@
                         "deliveredAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
                         },
                         "metadata": {
                           "type": "object",
@@ -59606,6 +60114,58 @@
                             "type": "string",
                             "format": "date-time"
                           },
+                          "intentBinding": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "nullable": true,
+                            "required": [
+                              "schemaVersion",
+                              "negotiationId",
+                              "intentId",
+                              "intentHash"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "WorkOrderIntentBinding.v1"
+                                ]
+                              },
+                              "negotiationId": {
+                                "type": "string"
+                              },
+                              "intentId": {
+                                "type": "string"
+                              },
+                              "intentHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "acceptedEventId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "acceptedEventHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "nullable": true
+                              },
+                              "acceptanceId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "acceptanceHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "nullable": true
+                              },
+                              "acceptedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              }
+                            }
+                          },
                           "metadata": {
                             "type": "object",
                             "additionalProperties": true,
@@ -59810,6 +60370,58 @@
                         "deliveredAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "intentBinding": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "required": [
+                            "schemaVersion",
+                            "negotiationId",
+                            "intentId",
+                            "intentHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "WorkOrderIntentBinding.v1"
+                              ]
+                            },
+                            "negotiationId": {
+                              "type": "string"
+                            },
+                            "intentId": {
+                              "type": "string"
+                            },
+                            "intentHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "acceptedEventId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptedEventHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptanceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "acceptanceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "nullable": true
+                            },
+                            "acceptedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
                         },
                         "metadata": {
                           "type": "object",

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { buildIntentContractV1 } from "../src/core/intent-contract.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -39,6 +40,48 @@ async function setX402AgentLifecycle(
       ...(reasonCode ? { reasonCode } : {}),
       ...(reasonMessage ? { reasonMessage } : {})
     }
+  });
+}
+
+function buildTaskIntentContractFixture({
+  intentId = "intent_task_1",
+  negotiationId = "nego_task_1",
+  tenantId = "tenant_default",
+  buyerAgentId,
+  sellerAgentId,
+  requiredCapability
+} = {}) {
+  return buildIntentContractV1({
+    intentId,
+    negotiationId,
+    tenantId,
+    proposerAgentId: buyerAgentId,
+    responderAgentId: sellerAgentId,
+    intent: {
+      taskType: "delegated_task",
+      capabilityId: requiredCapability,
+      riskClass: "action",
+      expectedDeterminism: "deterministic",
+      sideEffecting: true,
+      maxLossCents: 500,
+      spendLimit: {
+        currency: "USD",
+        maxAmountCents: 500
+      },
+      parametersHash: "a".repeat(64),
+      constraints: {
+        region: "us",
+        approval: "standard"
+      }
+    },
+    idempotencyKey: `intent_idem_${intentId}`,
+    nonce: `nonce_${intentId}_0001`,
+    expiresAt: "2027-01-01T00:00:00.000Z",
+    metadata: {
+      source: "api-e2e-task-negotiation"
+    },
+    createdAt: "2026-02-24T00:00:00.000Z",
+    updatedAt: "2026-02-24T00:00:00.000Z"
   });
 }
 
@@ -323,6 +366,241 @@ test("API e2e: work-order settlement fails closed when acceptance binding is req
   assert.equal(blocked.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
   assert.equal(blocked.json?.details?.reasonCode, "WORK_ORDER_ACCEPTANCE_BINDING_REQUIRED");
   assert.match(String(blocked.json?.details?.message ?? blocked.json?.message ?? ""), /acceptance binding is required/i);
+});
+
+test("API e2e: intent negotiation handshake binds accepted intent hash into work-order and receipt", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const buyerAgentId = "agt_task_intent_buyer_1";
+  const sellerAgentId = "agt_task_intent_seller_1";
+  const requiredCapability = "analysis.generic";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: [requiredCapability] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: [requiredCapability] });
+
+  const intentContract = buildTaskIntentContractFixture({
+    intentId: "intent_task_bind_1",
+    negotiationId: "nego_task_bind_1",
+    buyerAgentId,
+    sellerAgentId,
+    requiredCapability
+  });
+
+  const quote = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_intent_bind_1" },
+    body: {
+      quoteId: "tquote_intent_bind_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability,
+      pricing: { amountCents: 500, currency: "USD" },
+      intentContract,
+      intentEventId: "inevent_propose_bind_1",
+      intentEventAt: "2026-02-24T00:01:00.000Z"
+    }
+  });
+  assert.equal(quote.statusCode, 201, quote.body);
+  assert.equal(quote.json?.taskQuote?.metadata?.intentNegotiation?.event?.eventType, "propose");
+  assert.equal(quote.json?.taskQuote?.metadata?.intentNegotiation?.intentContract?.intentHash, intentContract.intentHash);
+
+  const offer = await request(api, {
+    method: "POST",
+    path: "/task-offers",
+    headers: { "x-idempotency-key": "task_offer_issue_intent_bind_1" },
+    body: {
+      offerId: "toffer_intent_bind_1",
+      buyerAgentId,
+      sellerAgentId,
+      quoteRef: {
+        quoteId: "tquote_intent_bind_1",
+        quoteHash: quote.json?.taskQuote?.quoteHash
+      },
+      pricing: { amountCents: 500, currency: "USD" },
+      intentContract,
+      intentEventId: "inevent_counter_bind_1",
+      intentEventAt: "2026-02-24T00:02:00.000Z"
+    }
+  });
+  assert.equal(offer.statusCode, 201, offer.body);
+  assert.equal(offer.json?.taskOffer?.metadata?.intentNegotiation?.event?.eventType, "counter");
+
+  const acceptance = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_intent_bind_1" },
+    body: {
+      acceptanceId: "taccept_intent_bind_1",
+      quoteId: "tquote_intent_bind_1",
+      offerId: "toffer_intent_bind_1",
+      acceptedByAgentId: buyerAgentId,
+      intentContract,
+      intentEventId: "inevent_accept_bind_1",
+      intentEventAt: "2026-02-24T00:03:00.000Z"
+    }
+  });
+  assert.equal(acceptance.statusCode, 201, acceptance.body);
+  assert.equal(acceptance.json?.taskAcceptance?.metadata?.intentNegotiation?.event?.eventType, "accept");
+  assert.equal(acceptance.json?.taskAcceptance?.metadata?.intentNegotiation?.transcriptStatus, "accepted");
+
+  const acceptedEventHash = acceptance.json?.taskAcceptance?.metadata?.intentNegotiation?.event?.eventHash;
+  assert.ok(typeof acceptedEventHash === "string" && acceptedEventHash.length === 64);
+
+  const workOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_intent_bind_1" },
+    body: {
+      workOrderId: "workord_intent_bind_1",
+      principalAgentId: buyerAgentId,
+      subAgentId: sellerAgentId,
+      requiredCapability,
+      specification: { taskType: "analysis" },
+      pricing: { amountCents: 500, currency: "USD", quoteId: "tquote_intent_bind_1" },
+      acceptanceRef: {
+        acceptanceId: "taccept_intent_bind_1",
+        acceptanceHash: acceptance.json?.taskAcceptance?.acceptanceHash
+      },
+      requireAcceptedIntentHash: true,
+      intentRef: {
+        negotiationId: intentContract.negotiationId,
+        intentId: intentContract.intentId,
+        intentHash: intentContract.intentHash,
+        acceptedEventHash
+      }
+    }
+  });
+  assert.equal(workOrder.statusCode, 201, workOrder.body);
+  assert.equal(workOrder.json?.workOrder?.intentBinding?.intentHash, intentContract.intentHash);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_intent_bind_1/accept",
+    headers: { "x-idempotency-key": "work_order_accept_intent_bind_1" },
+    body: { acceptedByAgentId: sellerAgentId }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_intent_bind_1/complete",
+    headers: { "x-idempotency-key": "work_order_complete_intent_bind_1" },
+    body: {
+      receiptId: "worec_intent_bind_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://analysis/intent/1" },
+      evidenceRefs: ["artifact://analysis/intent/1"],
+      amountCents: 500,
+      currency: "USD",
+      intentHash: intentContract.intentHash,
+      deliveredAt: "2026-02-24T00:04:00.000Z",
+      completedAt: "2026-02-24T00:05:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  assert.equal(completed.json?.completionReceipt?.intentBinding?.intentHash, intentContract.intentHash);
+
+  const settleMismatch = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_intent_bind_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_intent_bind_mismatch_1" },
+    body: {
+      completionReceiptId: "worec_intent_bind_1",
+      x402GateId: "x402gate_intent_bind_1",
+      x402RunId: "run_intent_bind_1",
+      intentHash: "f".repeat(64)
+    }
+  });
+  assert.equal(settleMismatch.statusCode, 409, settleMismatch.body);
+  assert.equal(settleMismatch.json?.code, "WORK_ORDER_SETTLEMENT_CONFLICT");
+  assert.match(String(settleMismatch.json?.details?.message ?? ""), /intenthash/i);
+
+  const settle = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_intent_bind_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_intent_bind_ok_1" },
+    body: {
+      completionReceiptId: "worec_intent_bind_1",
+      x402GateId: "x402gate_intent_bind_1",
+      x402RunId: "run_intent_bind_1",
+      intentHash: intentContract.intentHash
+    }
+  });
+  assert.equal(settle.statusCode, 200, settle.body);
+});
+
+test("API e2e: work-order creation fails closed when accepted intent hash is required and missing", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const buyerAgentId = "agt_task_intent_required_buyer_1";
+  const sellerAgentId = "agt_task_intent_required_seller_1";
+  const requiredCapability = "analysis.generic";
+  await registerAgent(api, { agentId: buyerAgentId, capabilities: [requiredCapability] });
+  await registerAgent(api, { agentId: sellerAgentId, capabilities: [requiredCapability] });
+
+  const quote = await request(api, {
+    method: "POST",
+    path: "/task-quotes",
+    headers: { "x-idempotency-key": "task_quote_issue_intent_required_1" },
+    body: {
+      quoteId: "tquote_intent_required_1",
+      buyerAgentId,
+      sellerAgentId,
+      requiredCapability,
+      pricing: { amountCents: 250, currency: "USD" }
+    }
+  });
+  assert.equal(quote.statusCode, 201, quote.body);
+
+  const offer = await request(api, {
+    method: "POST",
+    path: "/task-offers",
+    headers: { "x-idempotency-key": "task_offer_issue_intent_required_1" },
+    body: {
+      offerId: "toffer_intent_required_1",
+      buyerAgentId,
+      sellerAgentId,
+      quoteRef: {
+        quoteId: "tquote_intent_required_1",
+        quoteHash: quote.json?.taskQuote?.quoteHash
+      },
+      pricing: { amountCents: 250, currency: "USD" }
+    }
+  });
+  assert.equal(offer.statusCode, 201, offer.body);
+
+  const acceptance = await request(api, {
+    method: "POST",
+    path: "/task-acceptances",
+    headers: { "x-idempotency-key": "task_acceptance_issue_intent_required_1" },
+    body: {
+      acceptanceId: "taccept_intent_required_1",
+      quoteId: "tquote_intent_required_1",
+      offerId: "toffer_intent_required_1",
+      acceptedByAgentId: buyerAgentId
+    }
+  });
+  assert.equal(acceptance.statusCode, 201, acceptance.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_intent_required_1" },
+    body: {
+      workOrderId: "workord_intent_required_1",
+      principalAgentId: buyerAgentId,
+      subAgentId: sellerAgentId,
+      requiredCapability,
+      specification: { taskType: "analysis" },
+      pricing: { amountCents: 250, currency: "USD" },
+      acceptanceRef: {
+        acceptanceId: "taccept_intent_required_1",
+        acceptanceHash: acceptance.json?.taskAcceptance?.acceptanceHash
+      },
+      requireAcceptedIntentHash: true
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "WORK_ORDER_INTENT_BINDING_BLOCKED");
+  assert.equal(blocked.json?.details?.reasonCode, "WORK_ORDER_INTENT_BINDING_REQUIRED");
 });
 
 test("API e2e: task negotiation routes fail closed when participant lifecycle is non-active", async () => {

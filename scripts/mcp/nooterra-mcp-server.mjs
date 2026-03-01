@@ -1443,6 +1443,11 @@ function buildTools() {
           currency: { type: ["string", "null"], default: "USD" },
           constraints: { type: ["object", "null"], additionalProperties: true, default: null },
           attestationRequirement: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentContract: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentActorAgentId: { type: ["string", "null"], default: null },
+          intentEventId: { type: ["string", "null"], default: null },
+          intentEventAt: { type: ["string", "null"], default: null },
+          intentEventMetadata: { type: ["object", "null"], additionalProperties: true, default: null },
           expiresAt: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -1483,6 +1488,12 @@ function buildTools() {
           amountCents: { type: "integer", minimum: 1 },
           currency: { type: ["string", "null"], default: "USD" },
           constraints: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentContract: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentActorAgentId: { type: ["string", "null"], default: null },
+          intentEventId: { type: ["string", "null"], default: null },
+          intentEventAt: { type: ["string", "null"], default: null },
+          intentEventMetadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentPrevEventHash: { type: ["string", "null"], default: null },
           expiresAt: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -1520,6 +1531,12 @@ function buildTools() {
           acceptedByAgentId: { type: "string" },
           traceId: { type: ["string", "null"], default: null },
           acceptedAt: { type: ["string", "null"], default: null },
+          intentContract: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentActorAgentId: { type: ["string", "null"], default: null },
+          intentEventId: { type: ["string", "null"], default: null },
+          intentEventAt: { type: ["string", "null"], default: null },
+          intentEventMetadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          intentPrevEventHash: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
         }
@@ -1617,6 +1634,18 @@ function buildTools() {
           attestationIssuerAgentId: { type: ["string", "null"], default: null },
           delegationGrantRef: { type: ["string", "null"], default: null },
           authorityGrantRef: { type: ["string", "null"], default: null },
+          requireAcceptedIntentHash: { type: ["boolean", "null"], default: null },
+          intentRef: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              negotiationId: { type: "string" },
+              intentId: { type: "string" },
+              intentHash: { type: "string" },
+              acceptedEventHash: { type: ["string", "null"], default: null }
+            }
+          },
           acceptanceRef: {
             type: ["object", "null"],
             additionalProperties: false,
@@ -1716,6 +1745,7 @@ function buildTools() {
           amountCents: { type: ["integer", "null"], minimum: 0, default: null },
           currency: { type: ["string", "null"], default: null },
           traceId: { type: ["string", "null"], default: null },
+          intentHash: { type: ["string", "null"], default: null },
           deliveredAt: { type: ["string", "null"], default: null },
           completedAt: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
@@ -1740,6 +1770,7 @@ function buildTools() {
           x402ReceiptId: { type: ["string", "null"], default: null },
           completionReceiptHash: { type: ["string", "null"], default: null },
           acceptanceHash: { type: ["string", "null"], default: null },
+          intentHash: { type: ["string", "null"], default: null },
           traceId: { type: ["string", "null"], default: null },
           authorityGrantRef: { type: ["string", "null"], default: null },
           settledAt: { type: ["string", "null"], default: null },
@@ -3215,6 +3246,21 @@ async function main() {
             if (args?.attestationRequirement && typeof args.attestationRequirement === "object" && !Array.isArray(args.attestationRequirement)) {
               body.attestationRequirement = args.attestationRequirement;
             }
+            if (args?.intentContract && typeof args.intentContract === "object" && !Array.isArray(args.intentContract)) {
+              body.intentContract = args.intentContract;
+            }
+            if (typeof args?.intentActorAgentId === "string" && args.intentActorAgentId.trim() !== "") {
+              body.intentActorAgentId = args.intentActorAgentId.trim();
+            }
+            if (typeof args?.intentEventId === "string" && args.intentEventId.trim() !== "") {
+              body.intentEventId = args.intentEventId.trim();
+            }
+            if (typeof args?.intentEventAt === "string" && args.intentEventAt.trim() !== "") {
+              body.intentEventAt = args.intentEventAt.trim();
+            }
+            if (args?.intentEventMetadata && typeof args.intentEventMetadata === "object" && !Array.isArray(args.intentEventMetadata)) {
+              body.intentEventMetadata = args.intentEventMetadata;
+            }
             if (typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "") body.expiresAt = args.expiresAt.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
             const out = await client.requestJson("/task-quotes", {
@@ -3267,6 +3313,24 @@ async function main() {
               }
             }
             if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
+            if (args?.intentContract && typeof args.intentContract === "object" && !Array.isArray(args.intentContract)) {
+              body.intentContract = args.intentContract;
+            }
+            if (typeof args?.intentActorAgentId === "string" && args.intentActorAgentId.trim() !== "") {
+              body.intentActorAgentId = args.intentActorAgentId.trim();
+            }
+            if (typeof args?.intentEventId === "string" && args.intentEventId.trim() !== "") {
+              body.intentEventId = args.intentEventId.trim();
+            }
+            if (typeof args?.intentEventAt === "string" && args.intentEventAt.trim() !== "") {
+              body.intentEventAt = args.intentEventAt.trim();
+            }
+            if (args?.intentEventMetadata && typeof args.intentEventMetadata === "object" && !Array.isArray(args.intentEventMetadata)) {
+              body.intentEventMetadata = args.intentEventMetadata;
+            }
+            if (typeof args?.intentPrevEventHash === "string" && args.intentPrevEventHash.trim() !== "") {
+              body.intentPrevEventHash = args.intentPrevEventHash.trim().toLowerCase();
+            }
             if (typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "") body.expiresAt = args.expiresAt.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
             const out = await client.requestJson("/task-offers", {
@@ -3306,6 +3370,24 @@ async function main() {
             if (typeof args?.acceptanceId === "string" && args.acceptanceId.trim() !== "") body.acceptanceId = args.acceptanceId.trim();
             if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.acceptedAt === "string" && args.acceptedAt.trim() !== "") body.acceptedAt = args.acceptedAt.trim();
+            if (args?.intentContract && typeof args.intentContract === "object" && !Array.isArray(args.intentContract)) {
+              body.intentContract = args.intentContract;
+            }
+            if (typeof args?.intentActorAgentId === "string" && args.intentActorAgentId.trim() !== "") {
+              body.intentActorAgentId = args.intentActorAgentId.trim();
+            }
+            if (typeof args?.intentEventId === "string" && args.intentEventId.trim() !== "") {
+              body.intentEventId = args.intentEventId.trim();
+            }
+            if (typeof args?.intentEventAt === "string" && args.intentEventAt.trim() !== "") {
+              body.intentEventAt = args.intentEventAt.trim();
+            }
+            if (args?.intentEventMetadata && typeof args.intentEventMetadata === "object" && !Array.isArray(args.intentEventMetadata)) {
+              body.intentEventMetadata = args.intentEventMetadata;
+            }
+            if (typeof args?.intentPrevEventHash === "string" && args.intentPrevEventHash.trim() !== "") {
+              body.intentPrevEventHash = args.intentPrevEventHash.trim().toLowerCase();
+            }
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
             const out = await client.requestJson("/task-acceptances", {
               method: "POST",
@@ -3384,6 +3466,25 @@ async function main() {
             }
             if (typeof args?.authorityGrantRef === "string" && args.authorityGrantRef.trim() !== "") {
               body.authorityGrantRef = args.authorityGrantRef.trim();
+            }
+            if (typeof args?.requireAcceptedIntentHash === "boolean") {
+              body.requireAcceptedIntentHash = args.requireAcceptedIntentHash;
+            }
+            if (args?.intentRef && typeof args.intentRef === "object" && !Array.isArray(args.intentRef)) {
+              const negotiationId = String(args.intentRef.negotiationId ?? "").trim();
+              const intentId = String(args.intentRef.intentId ?? "").trim();
+              const intentHash = String(args.intentRef.intentHash ?? "").trim().toLowerCase();
+              if (!negotiationId || !intentId || !intentHash) {
+                throw new TypeError("intentRef requires negotiationId, intentId, and intentHash");
+              }
+              body.intentRef = {
+                negotiationId,
+                intentId,
+                intentHash
+              };
+              if (typeof args.intentRef.acceptedEventHash === "string" && args.intentRef.acceptedEventHash.trim() !== "") {
+                body.intentRef.acceptedEventHash = args.intentRef.acceptedEventHash.trim().toLowerCase();
+              }
             }
             if (args?.acceptanceRef && typeof args.acceptanceRef === "object" && !Array.isArray(args.acceptanceRef)) {
               const acceptanceId = String(args.acceptanceRef.acceptanceId ?? "").trim();
@@ -3512,6 +3613,7 @@ async function main() {
             }
             if (typeof args?.currency === "string" && args.currency.trim() !== "") body.currency = args.currency.trim();
             if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
+            if (typeof args?.intentHash === "string" && args.intentHash.trim() !== "") body.intentHash = args.intentHash.trim().toLowerCase();
             if (typeof args?.deliveredAt === "string" && args.deliveredAt.trim() !== "") body.deliveredAt = args.deliveredAt.trim();
             if (typeof args?.completedAt === "string" && args.completedAt.trim() !== "") body.completedAt = args.completedAt.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
@@ -3547,6 +3649,9 @@ async function main() {
             }
             if (typeof args?.acceptanceHash === "string" && args.acceptanceHash.trim() !== "") {
               body.acceptanceHash = args.acceptanceHash.trim().toLowerCase();
+            }
+            if (typeof args?.intentHash === "string" && args.intentHash.trim() !== "") {
+              body.intentHash = args.intentHash.trim().toLowerCase();
             }
             if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.authorityGrantRef === "string" && args.authorityGrantRef.trim() !== "") {

@@ -144,6 +144,7 @@ import {
 } from "../core/capability-attestation.js";
 import {
   SUB_AGENT_COMPLETION_STATUS,
+  SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION,
   SUB_AGENT_WORK_ORDER_SCHEMA_VERSION,
   SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS,
   SUB_AGENT_WORK_ORDER_STATUS,
@@ -175,6 +176,13 @@ import {
   buildTaskOfferV1,
   buildTaskQuoteV1
 } from "../core/task-negotiation.js";
+import { validateIntentContractV1 } from "../core/intent-contract.js";
+import {
+  INTENT_NEGOTIATION_EVENT_TYPE,
+  buildIntentNegotiationEventV1,
+  evaluateIntentNegotiationTranscriptV1,
+  validateIntentNegotiationEventV1
+} from "../core/intent-negotiation.js";
 import {
   SESSION_EVENT_TYPE,
   SESSION_VISIBILITY,
@@ -20527,6 +20535,212 @@ export function createApi({
       return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: String(receiptId) })) ?? null;
     }
     throw new TypeError("sub-agent completion receipts not supported for this store");
+  }
+
+  const TASK_INTENT_NEGOTIATION_BINDING_SCHEMA_VERSION = "TaskIntentNegotiationBinding.v1";
+
+  function normalizeTaskIntentNegotiationBinding(rawValue, { fieldPath = "metadata.intentNegotiation", allowNull = true } = {}) {
+    if (allowNull && (rawValue === null || rawValue === undefined)) return null;
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const schemaVersion =
+      typeof rawValue.schemaVersion === "string" && rawValue.schemaVersion.trim() !== ""
+        ? rawValue.schemaVersion.trim()
+        : TASK_INTENT_NEGOTIATION_BINDING_SCHEMA_VERSION;
+    if (schemaVersion !== TASK_INTENT_NEGOTIATION_BINDING_SCHEMA_VERSION) {
+      throw new TypeError(`${fieldPath}.schemaVersion must be ${TASK_INTENT_NEGOTIATION_BINDING_SCHEMA_VERSION}`);
+    }
+    const intentContract = rawValue.intentContract ?? null;
+    validateIntentContractV1(intentContract);
+    const event = rawValue.event ?? null;
+    validateIntentNegotiationEventV1(event, { intentContract });
+    const transcriptStatusRaw =
+      typeof rawValue.transcriptStatus === "string" && rawValue.transcriptStatus.trim() !== ""
+        ? rawValue.transcriptStatus.trim().toLowerCase()
+        : null;
+    const transcriptStatus =
+      transcriptStatusRaw === null
+        ? null
+        : transcriptStatusRaw === "open" || transcriptStatusRaw === "accepted"
+          ? transcriptStatusRaw
+          : (() => {
+              throw new TypeError(`${fieldPath}.transcriptStatus must be open|accepted`);
+            })();
+    const transcriptHash = normalizeSha256HashInput(rawValue.transcriptHash ?? null, `${fieldPath}.transcriptHash`, { allowNull: true });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion,
+        intentContract: normalizeForCanonicalJson(intentContract, { path: `$.${fieldPath}.intentContract` }),
+        event: normalizeForCanonicalJson(event, { path: `$.${fieldPath}.event` }),
+        transcriptStatus,
+        transcriptHash
+      },
+      { path: `$.${fieldPath}` }
+    );
+  }
+
+  function extractTaskIntentNegotiationBinding(taskRecord, { fieldPath = "taskRecord", allowNull = true } = {}) {
+    if (allowNull && (!taskRecord || typeof taskRecord !== "object" || Array.isArray(taskRecord))) return null;
+    const metadata =
+      taskRecord?.metadata && typeof taskRecord.metadata === "object" && !Array.isArray(taskRecord.metadata)
+        ? taskRecord.metadata
+        : null;
+    if (!metadata) return null;
+    const rawBinding = metadata.intentNegotiation ?? null;
+    return normalizeTaskIntentNegotiationBinding(rawBinding, {
+      fieldPath: `${fieldPath}.metadata.intentNegotiation`,
+      allowNull: true
+    });
+  }
+
+  function mergeTaskIntentNegotiationMetadata({ metadata = null, intentNegotiationBinding = null } = {}) {
+    const metadataSeed =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null;
+    if (!intentNegotiationBinding) return metadataSeed;
+    const merged = metadataSeed && typeof metadataSeed === "object" && !Array.isArray(metadataSeed) ? { ...metadataSeed } : {};
+    merged.intentNegotiation = normalizeTaskIntentNegotiationBinding(intentNegotiationBinding, {
+      fieldPath: "metadata.intentNegotiation",
+      allowNull: false
+    });
+    return normalizeForCanonicalJson(merged, { path: "$.metadata" });
+  }
+
+  function sortIntentNegotiationEvents(events = []) {
+    return [...events].sort((left, right) => {
+      const atOrder = String(left?.at ?? "").localeCompare(String(right?.at ?? ""));
+      if (atOrder !== 0) return atOrder;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+  }
+
+  function buildTaskIntentNegotiationBinding({
+    eventType,
+    tenantId,
+    intentContract,
+    actorAgentId,
+    eventId = null,
+    at = null,
+    eventMetadata = null,
+    prevEventHash = null,
+    priorBindings = []
+  } = {}) {
+    const normalizedEventType = String(eventType ?? "").trim().toLowerCase();
+    if (
+      normalizedEventType !== INTENT_NEGOTIATION_EVENT_TYPE.PROPOSE &&
+      normalizedEventType !== INTENT_NEGOTIATION_EVENT_TYPE.COUNTER &&
+      normalizedEventType !== INTENT_NEGOTIATION_EVENT_TYPE.ACCEPT
+    ) {
+      throw new TypeError("intent negotiation eventType must be propose|counter|accept");
+    }
+    validateIntentContractV1(intentContract);
+    if (String(intentContract.tenantId ?? "") !== String(tenantId ?? "")) {
+      throw new TypeError("intent contract tenantId must match request tenant");
+    }
+    const normalizedActorAgentId =
+      typeof actorAgentId === "string" && actorAgentId.trim() !== ""
+        ? actorAgentId.trim()
+        : normalizedEventType === INTENT_NEGOTIATION_EVENT_TYPE.PROPOSE
+          ? String(intentContract.proposerAgentId ?? "").trim()
+          : String(intentContract.responderAgentId ?? "").trim();
+    if (!normalizedActorAgentId) throw new TypeError("intent negotiation actorAgentId is required");
+    const validActors = new Set([String(intentContract.proposerAgentId), String(intentContract.responderAgentId)]);
+    if (!validActors.has(normalizedActorAgentId)) {
+      throw new TypeError("intent negotiation actorAgentId must match proposer/responder");
+    }
+
+    const normalizedPriorBindings = [];
+    for (const binding of Array.isArray(priorBindings) ? priorBindings : []) {
+      if (!binding) continue;
+      normalizedPriorBindings.push(
+        normalizeTaskIntentNegotiationBinding(binding, {
+          fieldPath: "priorIntentNegotiation",
+          allowNull: false
+        })
+      );
+    }
+    for (const priorBinding of normalizedPriorBindings) {
+      const priorContract = priorBinding.intentContract;
+      if (String(priorContract.negotiationId ?? "") !== String(intentContract.negotiationId ?? "")) {
+        throw new TypeError("intent negotiationId must remain stable across transcript");
+      }
+    }
+    const priorEvents = sortIntentNegotiationEvents(normalizedPriorBindings.map((binding) => binding.event));
+    const lastPriorEvent = priorEvents.length > 0 ? priorEvents[priorEvents.length - 1] : null;
+    const normalizedPrevEventHash = normalizeSha256HashInput(prevEventHash, "intentPrevEventHash", { allowNull: true });
+    if (normalizedPrevEventHash && lastPriorEvent && normalizedPrevEventHash !== String(lastPriorEvent.eventHash ?? "").toLowerCase()) {
+      throw new TypeError("intentPrevEventHash does not match latest negotiation event hash");
+    }
+    const effectivePrevEventHash = normalizedPrevEventHash ?? (lastPriorEvent ? String(lastPriorEvent.eventHash ?? "").toLowerCase() : null);
+    const builtEvent = buildIntentNegotiationEventV1({
+      eventId: typeof eventId === "string" && eventId.trim() !== "" ? eventId.trim() : createId("inevent"),
+      eventType: normalizedEventType,
+      actorAgentId: normalizedActorAgentId,
+      intentContract,
+      prevEventHash: effectivePrevEventHash,
+      at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+      metadata: eventMetadata && typeof eventMetadata === "object" && !Array.isArray(eventMetadata) ? eventMetadata : null
+    });
+    const transcript = evaluateIntentNegotiationTranscriptV1({
+      events: [...priorEvents, builtEvent]
+    });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: TASK_INTENT_NEGOTIATION_BINDING_SCHEMA_VERSION,
+        intentContract,
+        event: builtEvent,
+        transcriptStatus: transcript.status,
+        transcriptHash: transcript.transcriptHash
+      },
+      { path: "$.intentNegotiation" }
+    );
+  }
+
+  function deriveWorkOrderIntentBindingFromTaskAcceptance(taskAcceptance, { fieldPath = "taskAcceptance" } = {}) {
+    const intentNegotiation = extractTaskIntentNegotiationBinding(taskAcceptance, { fieldPath, allowNull: true });
+    if (!intentNegotiation) return null;
+    const eventType = String(intentNegotiation.event?.eventType ?? "").trim().toLowerCase();
+    if (eventType !== INTENT_NEGOTIATION_EVENT_TYPE.ACCEPT) {
+      throw new TypeError(`${fieldPath}.metadata.intentNegotiation.event.eventType must be accept`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION,
+        negotiationId: String(intentNegotiation.intentContract.negotiationId),
+        intentId: String(intentNegotiation.intentContract.intentId),
+        intentHash: String(intentNegotiation.intentContract.intentHash).toLowerCase(),
+        acceptedEventId: String(intentNegotiation.event.eventId),
+        acceptedEventHash: String(intentNegotiation.event.eventHash).toLowerCase(),
+        acceptanceId: String(taskAcceptance.acceptanceId),
+        acceptanceHash: normalizeSha256HashInput(taskAcceptance.acceptanceHash ?? null, `${fieldPath}.acceptanceHash`, { allowNull: true }),
+        acceptedAt: String(intentNegotiation.event.at)
+      },
+      { path: "$.workOrderIntentBinding" }
+    );
+  }
+
+  function normalizeWorkOrderIntentRefInput(rawValue, { fieldPath = "intentRef", allowNull = true } = {}) {
+    if (allowNull && (rawValue === null || rawValue === undefined)) return null;
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const negotiationId =
+      typeof rawValue.negotiationId === "string" && rawValue.negotiationId.trim() !== "" ? rawValue.negotiationId.trim() : null;
+    const intentId = typeof rawValue.intentId === "string" && rawValue.intentId.trim() !== "" ? rawValue.intentId.trim() : null;
+    if (!negotiationId || !intentId) {
+      throw new TypeError(`${fieldPath}.negotiationId and ${fieldPath}.intentId are required`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        negotiationId,
+        intentId,
+        intentHash: normalizeSha256HashInput(rawValue.intentHash, `${fieldPath}.intentHash`, { allowNull: false }),
+        acceptedEventHash: normalizeSha256HashInput(rawValue.acceptedEventHash ?? null, `${fieldPath}.acceptedEventHash`, {
+          allowNull: true
+        })
+      },
+      { path: `$.${fieldPath}` }
+    );
   }
 
   async function getStateCheckpointRecord({ tenantId, checkpointId }) {
@@ -60105,6 +60319,58 @@ export function createApi({
         }
         const currency =
           typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
+        let quoteIntentNegotiationBinding = null;
+        if (body?.intentContract !== undefined && body?.intentContract !== null) {
+          try {
+            quoteIntentNegotiationBinding = buildTaskIntentNegotiationBinding({
+              eventType: INTENT_NEGOTIATION_EVENT_TYPE.PROPOSE,
+              tenantId,
+              intentContract: body.intentContract,
+              actorAgentId:
+                typeof body?.intentActorAgentId === "string" && body.intentActorAgentId.trim() !== ""
+                  ? body.intentActorAgentId.trim()
+                  : buyerAgentId,
+              eventId: typeof body?.intentEventId === "string" && body.intentEventId.trim() !== "" ? body.intentEventId.trim() : null,
+              at: typeof body?.intentEventAt === "string" && body.intentEventAt.trim() !== "" ? body.intentEventAt.trim() : null,
+              eventMetadata:
+                body?.intentEventMetadata && typeof body.intentEventMetadata === "object" && !Array.isArray(body.intentEventMetadata)
+                  ? body.intentEventMetadata
+                  : null
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid task quote intent negotiation", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const quoteIntentContract = quoteIntentNegotiationBinding.intentContract;
+          if (
+            String(quoteIntentContract.proposerAgentId ?? "") !== buyerAgentId ||
+            String(quoteIntentContract.responderAgentId ?? "") !== sellerAgentId
+          ) {
+            return sendError(
+              res,
+              409,
+              "task quote intent negotiation participants mismatch",
+              {
+                proposerAgentId: quoteIntentContract.proposerAgentId ?? null,
+                responderAgentId: quoteIntentContract.responderAgentId ?? null,
+                buyerAgentId,
+                sellerAgentId
+              },
+              { code: "TASK_INTENT_PARTICIPANT_MISMATCH" }
+            );
+          }
+          if (String(quoteIntentContract.intent?.capabilityId ?? "") !== requiredCapability) {
+            return sendError(
+              res,
+              409,
+              "task quote intent capability mismatch",
+              {
+                requiredCapability,
+                intentCapabilityId: quoteIntentContract.intent?.capabilityId ?? null
+              },
+              { code: "TASK_INTENT_CAPABILITY_MISMATCH" }
+            );
+          }
+        }
 
         const buyerIdentity = await getAgentIdentityRecord({ tenantId, agentId: buyerAgentId });
         if (!buyerIdentity) return sendError(res, 404, "buyer agent identity not found", null, { code: "NOT_FOUND" });
@@ -60121,6 +60387,10 @@ export function createApi({
 
         let taskQuote = null;
         try {
+          const quoteMetadata = mergeTaskIntentNegotiationMetadata({
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            intentNegotiationBinding: quoteIntentNegotiationBinding
+          });
           taskQuote = buildTaskQuoteV1({
             quoteId,
             tenantId,
@@ -60140,7 +60410,7 @@ export function createApi({
                 ? body.attestationRequirement
                 : null,
             expiresAt: typeof body?.expiresAt === "string" && body.expiresAt.trim() !== "" ? body.expiresAt.trim() : null,
-            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            metadata: quoteMetadata,
             createdAt: nowIso()
           });
           validateTaskQuoteV1(taskQuote);
@@ -60288,6 +60558,8 @@ export function createApi({
         if (existingTaskOffer) return sendError(res, 409, "task offer already exists", null, { code: "CONFLICT" });
 
         let quoteRef = null;
+        let quoteIntentNegotiationBinding = null;
+        let quoteRecordForOfferIntent = null;
         if (body?.quoteRef !== undefined && body?.quoteRef !== null) {
           if (!body.quoteRef || typeof body.quoteRef !== "object" || Array.isArray(body.quoteRef)) {
             return sendError(res, 400, "quoteRef must be an object", null, { code: "SCHEMA_INVALID" });
@@ -60300,6 +60572,20 @@ export function createApi({
             validateTaskQuoteV1(quote);
           } catch (err) {
             return sendError(res, 409, "task quote is invalid", { message: err?.message }, { code: "TASK_QUOTE_INVALID" });
+          }
+          quoteRecordForOfferIntent = quote;
+          try {
+            quoteIntentNegotiationBinding = extractTaskIntentNegotiationBinding(quote, {
+              fieldPath: "taskQuote"
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "task quote intent negotiation invalid",
+              { message: err?.message },
+              { code: "TASK_QUOTE_INTENT_NEGOTIATION_INVALID" }
+            );
           }
           if (String(quote.buyerAgentId ?? "") !== buyerAgentId || String(quote.sellerAgentId ?? "") !== sellerAgentId) {
             return sendError(
@@ -60337,9 +60623,74 @@ export function createApi({
             );
           }
         }
+        let offerIntentNegotiationBinding = null;
+        const offerIntentContractInput =
+          body?.intentContract !== undefined && body?.intentContract !== null
+            ? body.intentContract
+            : quoteIntentNegotiationBinding?.intentContract ?? null;
+        if (offerIntentContractInput !== null && offerIntentContractInput !== undefined) {
+          try {
+            offerIntentNegotiationBinding = buildTaskIntentNegotiationBinding({
+              eventType: INTENT_NEGOTIATION_EVENT_TYPE.COUNTER,
+              tenantId,
+              intentContract: offerIntentContractInput,
+              actorAgentId:
+                typeof body?.intentActorAgentId === "string" && body.intentActorAgentId.trim() !== ""
+                  ? body.intentActorAgentId.trim()
+                  : sellerAgentId,
+              eventId: typeof body?.intentEventId === "string" && body.intentEventId.trim() !== "" ? body.intentEventId.trim() : null,
+              at: typeof body?.intentEventAt === "string" && body.intentEventAt.trim() !== "" ? body.intentEventAt.trim() : null,
+              eventMetadata:
+                body?.intentEventMetadata && typeof body.intentEventMetadata === "object" && !Array.isArray(body.intentEventMetadata)
+                  ? body.intentEventMetadata
+                  : null,
+              prevEventHash:
+                typeof body?.intentPrevEventHash === "string" && body.intentPrevEventHash.trim() !== ""
+                  ? body.intentPrevEventHash.trim()
+                  : null,
+              priorBindings: quoteIntentNegotiationBinding ? [quoteIntentNegotiationBinding] : []
+            });
+          } catch (err) {
+            return sendError(res, 409, "task offer intent negotiation blocked", { message: err?.message }, { code: "TASK_INTENT_NEGOTIATION_BLOCKED" });
+          }
+          const offerIntentContract = offerIntentNegotiationBinding.intentContract;
+          if (
+            String(offerIntentContract.proposerAgentId ?? "") !== buyerAgentId ||
+            String(offerIntentContract.responderAgentId ?? "") !== sellerAgentId
+          ) {
+            return sendError(
+              res,
+              409,
+              "task offer intent negotiation participants mismatch",
+              {
+                proposerAgentId: offerIntentContract.proposerAgentId ?? null,
+                responderAgentId: offerIntentContract.responderAgentId ?? null,
+                buyerAgentId,
+                sellerAgentId
+              },
+              { code: "TASK_INTENT_PARTICIPANT_MISMATCH" }
+            );
+          }
+          if (quoteRecordForOfferIntent && String(offerIntentContract.intent?.capabilityId ?? "") !== String(quoteRecordForOfferIntent.requiredCapability ?? "")) {
+            return sendError(
+              res,
+              409,
+              "task offer intent capability mismatch",
+              {
+                quoteRequiredCapability: quoteRecordForOfferIntent.requiredCapability ?? null,
+                intentCapabilityId: offerIntentContract.intent?.capabilityId ?? null
+              },
+              { code: "TASK_INTENT_CAPABILITY_MISMATCH" }
+            );
+          }
+        }
 
         let taskOffer = null;
         try {
+          const offerMetadata = mergeTaskIntentNegotiationMetadata({
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            intentNegotiationBinding: offerIntentNegotiationBinding
+          });
           taskOffer = buildTaskOfferV1({
             offerId,
             tenantId,
@@ -60355,7 +60706,7 @@ export function createApi({
             constraints:
               body?.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints) ? body.constraints : null,
             expiresAt: typeof body?.expiresAt === "string" && body.expiresAt.trim() !== "" ? body.expiresAt.trim() : null,
-            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            metadata: offerMetadata,
             createdAt: nowIso()
           });
           validateTaskOfferV1(taskOffer);
@@ -60533,6 +60884,102 @@ export function createApi({
             { code: "TASK_TRACE_ID_MISMATCH" }
           );
         }
+        let quoteIntentNegotiationBinding = null;
+        let offerIntentNegotiationBinding = null;
+        try {
+          quoteIntentNegotiationBinding = extractTaskIntentNegotiationBinding(quote, {
+            fieldPath: "taskQuote"
+          });
+          offerIntentNegotiationBinding = extractTaskIntentNegotiationBinding(offer, {
+            fieldPath: "taskOffer"
+          });
+        } catch (err) {
+          return sendError(
+            res,
+            409,
+            "task acceptance intent negotiation invalid",
+            { message: err?.message },
+            { code: "TASK_INTENT_NEGOTIATION_INVALID" }
+          );
+        }
+        if (
+          quoteIntentNegotiationBinding &&
+          offerIntentNegotiationBinding &&
+          String(quoteIntentNegotiationBinding.intentContract?.negotiationId ?? "") !==
+            String(offerIntentNegotiationBinding.intentContract?.negotiationId ?? "")
+        ) {
+          return sendError(
+            res,
+            409,
+            "task acceptance intent negotiation mismatch",
+            {
+              quoteNegotiationId: quoteIntentNegotiationBinding.intentContract?.negotiationId ?? null,
+              offerNegotiationId: offerIntentNegotiationBinding.intentContract?.negotiationId ?? null
+            },
+            { code: "TASK_INTENT_NEGOTIATION_MISMATCH" }
+          );
+        }
+        let acceptanceIntentNegotiationBinding = null;
+        const acceptanceIntentContractInput =
+          body?.intentContract !== undefined && body?.intentContract !== null
+            ? body.intentContract
+            : offerIntentNegotiationBinding?.intentContract ?? quoteIntentNegotiationBinding?.intentContract ?? null;
+        if (acceptanceIntentContractInput !== null && acceptanceIntentContractInput !== undefined) {
+          try {
+            acceptanceIntentNegotiationBinding = buildTaskIntentNegotiationBinding({
+              eventType: INTENT_NEGOTIATION_EVENT_TYPE.ACCEPT,
+              tenantId,
+              intentContract: acceptanceIntentContractInput,
+              actorAgentId:
+                typeof body?.intentActorAgentId === "string" && body.intentActorAgentId.trim() !== ""
+                  ? body.intentActorAgentId.trim()
+                  : acceptedByAgentId,
+              eventId: typeof body?.intentEventId === "string" && body.intentEventId.trim() !== "" ? body.intentEventId.trim() : null,
+              at: typeof body?.intentEventAt === "string" && body.intentEventAt.trim() !== "" ? body.intentEventAt.trim() : null,
+              eventMetadata:
+                body?.intentEventMetadata && typeof body.intentEventMetadata === "object" && !Array.isArray(body.intentEventMetadata)
+                  ? body.intentEventMetadata
+                  : null,
+              prevEventHash:
+                typeof body?.intentPrevEventHash === "string" && body.intentPrevEventHash.trim() !== ""
+                  ? body.intentPrevEventHash.trim()
+                  : null,
+              priorBindings: [quoteIntentNegotiationBinding, offerIntentNegotiationBinding].filter(Boolean)
+            });
+          } catch (err) {
+            return sendError(res, 409, "task acceptance intent negotiation blocked", { message: err?.message }, { code: "TASK_INTENT_NEGOTIATION_BLOCKED" });
+          }
+          const acceptanceIntentContract = acceptanceIntentNegotiationBinding.intentContract;
+          if (
+            String(acceptanceIntentContract.proposerAgentId ?? "") !== String(quote.buyerAgentId ?? "") ||
+            String(acceptanceIntentContract.responderAgentId ?? "") !== String(quote.sellerAgentId ?? "")
+          ) {
+            return sendError(
+              res,
+              409,
+              "task acceptance intent negotiation participants mismatch",
+              {
+                proposerAgentId: acceptanceIntentContract.proposerAgentId ?? null,
+                responderAgentId: acceptanceIntentContract.responderAgentId ?? null,
+                buyerAgentId: quote.buyerAgentId ?? null,
+                sellerAgentId: quote.sellerAgentId ?? null
+              },
+              { code: "TASK_INTENT_PARTICIPANT_MISMATCH" }
+            );
+          }
+          if (String(acceptanceIntentContract.intent?.capabilityId ?? "") !== String(quote.requiredCapability ?? "")) {
+            return sendError(
+              res,
+              409,
+              "task acceptance intent capability mismatch",
+              {
+                quoteRequiredCapability: quote.requiredCapability ?? null,
+                intentCapabilityId: acceptanceIntentContract.intent?.capabilityId ?? null
+              },
+              { code: "TASK_INTENT_CAPABILITY_MISMATCH" }
+            );
+          }
+        }
         const acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
         if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found", null, { code: "NOT_FOUND" });
         const acceptanceLifecycleGuard = await enforceTaskNegotiationParticipantLifecycleGuards({
@@ -60554,6 +61001,10 @@ export function createApi({
 
         let taskAcceptance = null;
         try {
+          const acceptanceMetadata = mergeTaskIntentNegotiationMetadata({
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            intentNegotiationBinding: acceptanceIntentNegotiationBinding
+          });
           taskAcceptance = buildTaskAcceptanceV1({
             acceptanceId,
             tenantId,
@@ -60570,7 +61021,7 @@ export function createApi({
             acceptedByAgentId,
             traceId: requestedTraceId ?? inheritedTraceId ?? null,
             acceptedAt: typeof body?.acceptedAt === "string" && body.acceptedAt.trim() !== "" ? body.acceptedAt.trim() : nowIso(),
-            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null
+            metadata: acceptanceMetadata
           });
           validateTaskAcceptanceV1(taskAcceptance);
         } catch (err) {
@@ -61631,6 +62082,7 @@ export function createApi({
         }
 
         let acceptanceBinding = null;
+        let acceptedIntentBinding = null;
         if (body?.acceptanceRef !== undefined && body?.acceptanceRef !== null) {
           if (!body.acceptanceRef || typeof body.acceptanceRef !== "object" || Array.isArray(body.acceptanceRef)) {
             return sendError(res, 400, "acceptanceRef must be an object", null, { code: "SCHEMA_INVALID" });
@@ -61646,6 +62098,19 @@ export function createApi({
             validateTaskAcceptanceV1(acceptance);
           } catch (err) {
             return sendError(res, 409, "task acceptance is invalid", { message: err?.message }, { code: "TASK_ACCEPTANCE_INVALID" });
+          }
+          try {
+            acceptedIntentBinding = deriveWorkOrderIntentBindingFromTaskAcceptance(acceptance, {
+              fieldPath: "taskAcceptance"
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "task acceptance intent binding invalid",
+              { message: err?.message },
+              { code: "TASK_ACCEPTANCE_INTENT_BINDING_INVALID" }
+            );
           }
           const providedAcceptanceHash =
             typeof body.acceptanceRef.acceptanceHash === "string" && body.acceptanceRef.acceptanceHash.trim() !== ""
@@ -61757,6 +62222,63 @@ export function createApi({
             { path: "$.acceptanceBinding" }
           );
         }
+        let requestedIntentRef = null;
+        try {
+          requestedIntentRef = normalizeWorkOrderIntentRefInput(body?.intentRef ?? null, {
+            fieldPath: "intentRef",
+            allowNull: true
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid intentRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        if (requestedIntentRef && !acceptedIntentBinding) {
+          return sendError(
+            res,
+            409,
+            "work order intent binding blocked",
+            {
+              reasonCode: "WORK_ORDER_INTENT_BINDING_MISSING_ACCEPTED_NEGOTIATION",
+              message: "intentRef requires acceptanceRef with accepted intent negotiation binding"
+            },
+            { code: "WORK_ORDER_INTENT_BINDING_BLOCKED" }
+          );
+        }
+        if (requestedIntentRef && acceptedIntentBinding) {
+          if (
+            String(requestedIntentRef.negotiationId ?? "") !== String(acceptedIntentBinding.negotiationId ?? "") ||
+            String(requestedIntentRef.intentId ?? "") !== String(acceptedIntentBinding.intentId ?? "") ||
+            String(requestedIntentRef.intentHash ?? "").toLowerCase() !== String(acceptedIntentBinding.intentHash ?? "").toLowerCase() ||
+            (requestedIntentRef.acceptedEventHash &&
+              String(requestedIntentRef.acceptedEventHash).toLowerCase() !== String(acceptedIntentBinding.acceptedEventHash ?? "").toLowerCase())
+          ) {
+            return sendError(
+              res,
+              409,
+              "work order intent binding conflict",
+              {
+                reasonCode: "WORK_ORDER_INTENT_BINDING_MISMATCH",
+                requestedIntentRef,
+                acceptedIntentBinding
+              },
+              { code: "WORK_ORDER_INTENT_BINDING_CONFLICT" }
+            );
+          }
+        }
+        const requireAcceptedIntentHash = body?.requireAcceptedIntentHash === true;
+        if (requireAcceptedIntentHash && !acceptedIntentBinding) {
+          return sendError(
+            res,
+            409,
+            "work order intent binding blocked",
+            {
+              reasonCode: "WORK_ORDER_INTENT_BINDING_REQUIRED",
+              message: "accepted intent hash binding is required before work-order creation",
+              workOrderId
+            },
+            { code: "WORK_ORDER_INTENT_BINDING_BLOCKED" }
+          );
+        }
+        const effectiveIntentBinding = acceptedIntentBinding ?? null;
 
         let workOrder = null;
         try {
@@ -61799,6 +62321,15 @@ export function createApi({
               {
                 ...workOrder,
                 acceptanceBinding
+              },
+              { path: "$" }
+            );
+          }
+          if (effectiveIntentBinding) {
+            workOrder = normalizeForCanonicalJson(
+              {
+                ...workOrder,
+                intentBinding: effectiveIntentBinding
               },
               { path: "$" }
             );
@@ -62534,6 +63065,45 @@ export function createApi({
               { code: "WORK_ORDER_TRACE_ID_MISMATCH" }
             );
           }
+          let requestedIntentHash = null;
+          try {
+            requestedIntentHash = normalizeSha256HashInput(body?.intentHash ?? null, "intentHash", { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid work order completion", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const existingWorkOrderIntentBinding =
+            existingWorkOrder?.intentBinding && typeof existingWorkOrder.intentBinding === "object" && !Array.isArray(existingWorkOrder.intentBinding)
+              ? existingWorkOrder.intentBinding
+              : null;
+          if (requestedIntentHash && !existingWorkOrderIntentBinding) {
+            return sendError(
+              res,
+              409,
+              "work order completion blocked",
+              {
+                reasonCode: "WORK_ORDER_INTENT_BINDING_MISSING",
+                message: "intentHash provided but work order has no accepted intent binding"
+              },
+              { code: "WORK_ORDER_COMPLETION_BLOCKED" }
+            );
+          }
+          if (
+            requestedIntentHash &&
+            existingWorkOrderIntentBinding &&
+            requestedIntentHash !== String(existingWorkOrderIntentBinding.intentHash ?? "").toLowerCase()
+          ) {
+            return sendError(
+              res,
+              409,
+              "work order completion blocked",
+              {
+                reasonCode: "WORK_ORDER_INTENT_HASH_MISMATCH",
+                expectedIntentHash: existingWorkOrderIntentBinding.intentHash ?? null,
+                providedIntentHash: requestedIntentHash
+              },
+              { code: "WORK_ORDER_COMPLETION_BLOCKED" }
+            );
+          }
 
           let completionReceipt = null;
           let nextWorkOrder = null;
@@ -62552,6 +63122,7 @@ export function createApi({
               amountCents: body?.amountCents ?? null,
               currency: typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : null,
               traceId: requestedTraceId ?? workOrderTraceId ?? null,
+              intentBinding: existingWorkOrderIntentBinding,
               deliveredAt: typeof body?.deliveredAt === "string" && body.deliveredAt.trim() !== "" ? body.deliveredAt.trim() : nowIso(),
               metadata: body?.metadata ?? null
             });
@@ -62802,6 +63373,87 @@ export function createApi({
                 "work order settlement conflict",
                 { message: "acceptance hash does not match bound acceptance record" },
                 { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+              );
+            }
+          }
+          let requestedIntentHash = null;
+          try {
+            requestedIntentHash = normalizeSha256HashInput(body?.intentHash ?? null, "intentHash", { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid work order settlement", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const workOrderIntentBinding =
+            existingWorkOrder?.intentBinding && typeof existingWorkOrder.intentBinding === "object" && !Array.isArray(existingWorkOrder.intentBinding)
+              ? existingWorkOrder.intentBinding
+              : null;
+          if (requestedIntentHash && !workOrderIntentBinding) {
+            return sendError(
+              res,
+              409,
+              "work order settlement conflict",
+              { message: "intentHash provided but work order has no accepted intent binding" },
+              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+            );
+          }
+          if (
+            requestedIntentHash &&
+            workOrderIntentBinding &&
+            requestedIntentHash !== String(workOrderIntentBinding.intentHash ?? "").toLowerCase()
+          ) {
+            return sendError(
+              res,
+              409,
+              "work order settlement conflict",
+              {
+                message: "intentHash does not match work order binding",
+                expectedIntentHash: workOrderIntentBinding.intentHash ?? null,
+                providedIntentHash: requestedIntentHash
+              },
+              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+            );
+          }
+          if (workOrderIntentBinding) {
+            const completionIntentBinding =
+              completionReceipt?.intentBinding &&
+              typeof completionReceipt.intentBinding === "object" &&
+              !Array.isArray(completionReceipt.intentBinding)
+                ? completionReceipt.intentBinding
+                : null;
+            if (!completionIntentBinding) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "WORK_ORDER_INTENT_BINDING_MISSING",
+                  message: "completion receipt is missing intent binding required by work order"
+                },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+            const workOrderAcceptedEventHash =
+              typeof workOrderIntentBinding.acceptedEventHash === "string" && workOrderIntentBinding.acceptedEventHash.trim() !== ""
+                ? workOrderIntentBinding.acceptedEventHash.trim().toLowerCase()
+                : null;
+            const completionAcceptedEventHash =
+              typeof completionIntentBinding.acceptedEventHash === "string" && completionIntentBinding.acceptedEventHash.trim() !== ""
+                ? completionIntentBinding.acceptedEventHash.trim().toLowerCase()
+                : null;
+            if (
+              String(workOrderIntentBinding.negotiationId ?? "") !== String(completionIntentBinding.negotiationId ?? "") ||
+              String(workOrderIntentBinding.intentId ?? "") !== String(completionIntentBinding.intentId ?? "") ||
+              String(workOrderIntentBinding.intentHash ?? "").toLowerCase() !== String(completionIntentBinding.intentHash ?? "").toLowerCase() ||
+              (workOrderAcceptedEventHash && completionAcceptedEventHash && workOrderAcceptedEventHash !== completionAcceptedEventHash)
+            ) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "WORK_ORDER_INTENT_BINDING_MISMATCH",
+                  message: "completion receipt intent binding does not match work order intent binding"
+                },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
               );
             }
           }

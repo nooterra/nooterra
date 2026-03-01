@@ -4,6 +4,7 @@ import { sha256Hex } from "./crypto.js";
 export const SUB_AGENT_WORK_ORDER_SCHEMA_VERSION = "SubAgentWorkOrder.v1";
 export const SUB_AGENT_COMPLETION_RECEIPT_SCHEMA_VERSION = "SubAgentCompletionReceipt.v1";
 export const SUB_AGENT_WORK_ORDER_EVIDENCE_POLICY_SCHEMA_VERSION = "WorkOrderSettlementEvidencePolicy.v1";
+export const SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION = "WorkOrderIntentBinding.v1";
 
 export const SUB_AGENT_WORK_ORDER_STATUS = Object.freeze({
   CREATED: "created",
@@ -76,6 +77,13 @@ function normalizeSafeInteger(value, name, { min = null, allowNull = false } = {
   if (!Number.isSafeInteger(n)) throw new TypeError(`${name} must be a safe integer`);
   if (min !== null && n < min) throw new TypeError(`${name} must be >= ${min}`);
   return n;
+}
+
+function normalizeSha256Hex(value, name, { allowNull = false } = {}) {
+  if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+  const normalized = assertNonEmptyString(value, name, { max: 64 }).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new TypeError(`${name} must be sha256 hex`);
+  return normalized;
 }
 
 function normalizeWorkOrderStatus(value, name = "status") {
@@ -226,6 +234,37 @@ function normalizeSettlement(settlement) {
   );
 }
 
+function normalizeIntentBinding(intentBinding, { name = "intentBinding", allowNull = true } = {}) {
+  if (allowNull && (intentBinding === null || intentBinding === undefined)) return null;
+  assertPlainObject(intentBinding, name);
+  const schemaVersion = assertNonEmptyString(
+    intentBinding.schemaVersion ?? SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION,
+    `${name}.schemaVersion`,
+    { max: 64 }
+  );
+  if (schemaVersion !== SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION) {
+    throw new TypeError(`${name}.schemaVersion must be ${SUB_AGENT_WORK_ORDER_INTENT_BINDING_SCHEMA_VERSION}`);
+  }
+  const acceptedAt =
+    intentBinding.acceptedAt === null || intentBinding.acceptedAt === undefined
+      ? null
+      : normalizeIsoDateTime(intentBinding.acceptedAt, `${name}.acceptedAt`);
+  return normalizeForCanonicalJson(
+    {
+      schemaVersion,
+      negotiationId: assertNonEmptyString(intentBinding.negotiationId, `${name}.negotiationId`, { max: 200 }),
+      intentId: assertNonEmptyString(intentBinding.intentId, `${name}.intentId`, { max: 200 }),
+      intentHash: normalizeSha256Hex(intentBinding.intentHash, `${name}.intentHash`),
+      acceptedEventId: normalizeOptionalString(intentBinding.acceptedEventId, `${name}.acceptedEventId`, { max: 200 }),
+      acceptedEventHash: normalizeSha256Hex(intentBinding.acceptedEventHash, `${name}.acceptedEventHash`, { allowNull: true }),
+      acceptanceId: normalizeOptionalString(intentBinding.acceptanceId, `${name}.acceptanceId`, { max: 200 }),
+      acceptanceHash: normalizeSha256Hex(intentBinding.acceptanceHash, `${name}.acceptanceHash`, { allowNull: true }),
+      acceptedAt
+    },
+    { path: `$.${name}` }
+  );
+}
+
 export function buildSubAgentWorkOrderV1({
   workOrderId,
   tenantId,
@@ -240,6 +279,7 @@ export function buildSubAgentWorkOrderV1({
   pricing,
   constraints = null,
   evidencePolicy = null,
+  intentBinding = null,
   delegationGrantRef = null,
   authorityGrantRef = null,
   metadata = null,
@@ -248,36 +288,41 @@ export function buildSubAgentWorkOrderV1({
   const normalizedCreatedAt = normalizeIsoDateTime(createdAt, "createdAt");
   const normalizedSpecification = specification === null || specification === undefined ? {} : specification;
   assertPlainObject(normalizedSpecification, "specification");
+  const normalizedIntentBinding = normalizeIntentBinding(intentBinding, { allowNull: true });
+  const workOrderSeed = {
+    schemaVersion: SUB_AGENT_WORK_ORDER_SCHEMA_VERSION,
+    workOrderId: assertNonEmptyString(workOrderId, "workOrderId", { max: 200 }),
+    tenantId: assertNonEmptyString(tenantId, "tenantId", { max: 128 }),
+    parentTaskId: normalizeOptionalString(parentTaskId, "parentTaskId", { max: 200 }),
+    principalAgentId: assertNonEmptyString(principalAgentId, "principalAgentId", { max: 200 }),
+    subAgentId: assertNonEmptyString(subAgentId, "subAgentId", { max: 200 }),
+    requiredCapability: assertNonEmptyString(requiredCapability, "requiredCapability", { max: 256 }),
+    traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
+    x402ToolId: normalizeOptionalString(x402ToolId, "x402ToolId", { max: 200 }),
+    x402ProviderId: normalizeOptionalString(x402ProviderId, "x402ProviderId", { max: 200 }),
+    specification: normalizeForCanonicalJson(normalizedSpecification, { path: "$.specification" }),
+    pricing: normalizePricing(pricing),
+    constraints: normalizeConstraints(constraints),
+    evidencePolicy: normalizeEvidencePolicy(evidencePolicy),
+    delegationGrantRef: normalizeOptionalString(delegationGrantRef, "delegationGrantRef", { max: 200 }),
+    authorityGrantRef: normalizeOptionalString(authorityGrantRef, "authorityGrantRef", { max: 200 }),
+    status: SUB_AGENT_WORK_ORDER_STATUS.CREATED,
+    progressEvents: [],
+    acceptedByAgentId: null,
+    acceptedAt: null,
+    completedAt: null,
+    completionReceiptId: null,
+    settlement: null,
+    metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
+    createdAt: normalizedCreatedAt,
+    updatedAt: normalizedCreatedAt,
+    revision: 0
+  };
+  if (normalizedIntentBinding) {
+    workOrderSeed.intentBinding = normalizedIntentBinding;
+  }
   const workOrder = normalizeForCanonicalJson(
-    {
-      schemaVersion: SUB_AGENT_WORK_ORDER_SCHEMA_VERSION,
-      workOrderId: assertNonEmptyString(workOrderId, "workOrderId", { max: 200 }),
-      tenantId: assertNonEmptyString(tenantId, "tenantId", { max: 128 }),
-      parentTaskId: normalizeOptionalString(parentTaskId, "parentTaskId", { max: 200 }),
-      principalAgentId: assertNonEmptyString(principalAgentId, "principalAgentId", { max: 200 }),
-      subAgentId: assertNonEmptyString(subAgentId, "subAgentId", { max: 200 }),
-      requiredCapability: assertNonEmptyString(requiredCapability, "requiredCapability", { max: 256 }),
-      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
-      x402ToolId: normalizeOptionalString(x402ToolId, "x402ToolId", { max: 200 }),
-      x402ProviderId: normalizeOptionalString(x402ProviderId, "x402ProviderId", { max: 200 }),
-      specification: normalizeForCanonicalJson(normalizedSpecification, { path: "$.specification" }),
-      pricing: normalizePricing(pricing),
-      constraints: normalizeConstraints(constraints),
-      evidencePolicy: normalizeEvidencePolicy(evidencePolicy),
-      delegationGrantRef: normalizeOptionalString(delegationGrantRef, "delegationGrantRef", { max: 200 }),
-      authorityGrantRef: normalizeOptionalString(authorityGrantRef, "authorityGrantRef", { max: 200 }),
-      status: SUB_AGENT_WORK_ORDER_STATUS.CREATED,
-      progressEvents: [],
-      acceptedByAgentId: null,
-      acceptedAt: null,
-      completedAt: null,
-      completionReceiptId: null,
-      settlement: null,
-      metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
-      createdAt: normalizedCreatedAt,
-      updatedAt: normalizedCreatedAt,
-      revision: 0
-    },
+    workOrderSeed,
     { path: "$" }
   );
   validateSubAgentWorkOrderV1(workOrder);
@@ -312,6 +357,9 @@ export function validateSubAgentWorkOrderV1(workOrder) {
   }
   if (workOrder.authorityGrantRef !== null && workOrder.authorityGrantRef !== undefined) {
     normalizeOptionalString(workOrder.authorityGrantRef, "workOrder.authorityGrantRef", { max: 200 });
+  }
+  if (workOrder.intentBinding !== undefined) {
+    normalizeIntentBinding(workOrder.intentBinding, { name: "workOrder.intentBinding", allowNull: true });
   }
   normalizeIsoDateTime(workOrder.createdAt, "workOrder.createdAt");
   normalizeIsoDateTime(workOrder.updatedAt, "workOrder.updatedAt");
@@ -413,6 +461,7 @@ export function buildSubAgentCompletionReceiptV1({
   amountCents = null,
   currency = null,
   traceId = null,
+  intentBinding = null,
   deliveredAt = new Date().toISOString(),
   metadata = null
 } = {}) {
@@ -424,32 +473,40 @@ export function buildSubAgentCompletionReceiptV1({
       ? normalizeSafeInteger(workOrder?.pricing?.amountCents, "workOrder.pricing.amountCents", { min: 1 })
       : normalizeSafeInteger(amountCents, "amountCents", { min: 0 });
   const resolvedCurrency = normalizeCurrency(currency ?? workOrder?.pricing?.currency ?? "USD", "currency");
-  const receiptBase = normalizeForCanonicalJson(
-    {
-      schemaVersion: SUB_AGENT_COMPLETION_RECEIPT_SCHEMA_VERSION,
-      receiptId: assertNonEmptyString(receiptId, "receiptId", { max: 200 }),
-      tenantId: assertNonEmptyString(tenantId, "tenantId", { max: 128 }),
-      workOrderId: assertNonEmptyString(workOrder.workOrderId, "workOrder.workOrderId", { max: 200 }),
-      principalAgentId: assertNonEmptyString(workOrder.principalAgentId, "workOrder.principalAgentId", { max: 200 }),
-      subAgentId: assertNonEmptyString(workOrder.subAgentId, "workOrder.subAgentId", { max: 200 }),
-      status: normalizedStatus,
-      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
-      outputs:
-        outputs && typeof outputs === "object" && !Array.isArray(outputs)
-          ? normalizeForCanonicalJson(outputs, { path: "$.outputs" })
-          : Array.isArray(outputs)
-            ? outputs.map((entry, index) => normalizeForCanonicalJson(entry, { path: `$.outputs[${index}]` }))
-            : null,
-      metrics: metrics && typeof metrics === "object" && !Array.isArray(metrics) ? normalizeForCanonicalJson(metrics, { path: "$.metrics" }) : null,
-      evidenceRefs: normalizeStringArray(evidenceRefs, "evidenceRefs", { max: 500 }),
-      settlementQuote: {
-        amountCents: resolvedAmountCents,
-        currency: resolvedCurrency
-      },
-      deliveredAt: normalizedDeliveredAt,
-      metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
-      receiptHash: null
+  const resolvedIntentBinding = normalizeIntentBinding(
+    intentBinding === null || intentBinding === undefined ? workOrder?.intentBinding ?? null : intentBinding,
+    { allowNull: true }
+  );
+  const receiptSeed = {
+    schemaVersion: SUB_AGENT_COMPLETION_RECEIPT_SCHEMA_VERSION,
+    receiptId: assertNonEmptyString(receiptId, "receiptId", { max: 200 }),
+    tenantId: assertNonEmptyString(tenantId, "tenantId", { max: 128 }),
+    workOrderId: assertNonEmptyString(workOrder.workOrderId, "workOrder.workOrderId", { max: 200 }),
+    principalAgentId: assertNonEmptyString(workOrder.principalAgentId, "workOrder.principalAgentId", { max: 200 }),
+    subAgentId: assertNonEmptyString(workOrder.subAgentId, "workOrder.subAgentId", { max: 200 }),
+    status: normalizedStatus,
+    traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
+    outputs:
+      outputs && typeof outputs === "object" && !Array.isArray(outputs)
+        ? normalizeForCanonicalJson(outputs, { path: "$.outputs" })
+        : Array.isArray(outputs)
+          ? outputs.map((entry, index) => normalizeForCanonicalJson(entry, { path: `$.outputs[${index}]` }))
+          : null,
+    metrics: metrics && typeof metrics === "object" && !Array.isArray(metrics) ? normalizeForCanonicalJson(metrics, { path: "$.metrics" }) : null,
+    evidenceRefs: normalizeStringArray(evidenceRefs, "evidenceRefs", { max: 500 }),
+    settlementQuote: {
+      amountCents: resolvedAmountCents,
+      currency: resolvedCurrency
     },
+    deliveredAt: normalizedDeliveredAt,
+    metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
+    receiptHash: null
+  };
+  if (resolvedIntentBinding) {
+    receiptSeed.intentBinding = resolvedIntentBinding;
+  }
+  const receiptBase = normalizeForCanonicalJson(
+    receiptSeed,
     { path: "$" }
   );
   const receiptHash = buildSubAgentCompletionReceiptHash(receiptBase);
@@ -473,6 +530,9 @@ export function validateSubAgentCompletionReceiptV1(receipt) {
     normalizeOptionalString(receipt.traceId, "receipt.traceId", { max: 256 });
   }
   normalizeIsoDateTime(receipt.deliveredAt, "receipt.deliveredAt");
+  if (receipt.intentBinding !== undefined) {
+    normalizeIntentBinding(receipt.intentBinding, { name: "receipt.intentBinding", allowNull: true });
+  }
   assertPlainObject(receipt.settlementQuote, "receipt.settlementQuote");
   normalizeSafeInteger(receipt.settlementQuote.amountCents, "receipt.settlementQuote.amountCents", { min: 0 });
   normalizeCurrency(receipt.settlementQuote.currency, "receipt.settlementQuote.currency");
