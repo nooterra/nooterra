@@ -95,8 +95,30 @@ async function revokeSignerKey(api, { keyId }) {
 
 async function issueAuthorityGrant(
   api,
-  { grantId, granteeAgentId, allowedRiskClasses = ["action"], allowedToolIds = ["state_checkpoint_create"] }
+  {
+    grantId,
+    granteeAgentId,
+    allowedRiskClasses = ["action"],
+    allowedToolIds = ["state_checkpoint_create"],
+    chainBinding = null,
+    validity = null
+  }
 ) {
+  const resolvedChainBinding =
+    chainBinding && typeof chainBinding === "object" && !Array.isArray(chainBinding)
+      ? chainBinding
+      : {
+          depth: 0,
+          maxDelegationDepth: 2
+        };
+  const resolvedValidity =
+    validity && typeof validity === "object" && !Array.isArray(validity)
+      ? validity
+      : {
+          issuedAt: "2026-02-01T00:00:00.000Z",
+          notBefore: "2026-02-01T00:00:00.000Z",
+          expiresAt: "2027-02-01T00:00:00.000Z"
+        };
   const response = await request(api, {
     method: "POST",
     path: "/authority-grants",
@@ -118,15 +140,8 @@ async function issueAuthorityGrant(
         maxPerCallCents: 1_000,
         maxTotalCents: 100_000
       },
-      chainBinding: {
-        depth: 0,
-        maxDelegationDepth: 2
-      },
-      validity: {
-        issuedAt: "2026-02-01T00:00:00.000Z",
-        notBefore: "2026-02-01T00:00:00.000Z",
-        expiresAt: "2027-02-01T00:00:00.000Z"
-      }
+      chainBinding: resolvedChainBinding,
+      validity: resolvedValidity
     }
   });
   assert.equal(response.statusCode, 201, response.body);
@@ -511,6 +526,116 @@ test("API e2e: state checkpoint create fails closed on grant actor mismatch and 
   });
   assert.equal(blockedRevoked.statusCode, 409, blockedRevoked.body);
   assert.equal(blockedRevoked.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
+test("API e2e: state checkpoint create fails closed when delegation root hash mismatches authority root hash", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_state_owner_root_mismatch_1";
+  const delegatorAgentId = "agt_state_delegator_root_mismatch_1";
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["state.manage"] });
+  await registerAgent(api, { agentId: delegatorAgentId, capabilities: ["orchestrate"] });
+
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "ag_state_checkpoint_root_mismatch_1",
+    granteeAgentId: ownerAgentId
+  });
+  const delegationGrant = await issueDelegationGrant(api, {
+    grantId: "dg_state_checkpoint_root_mismatch_1",
+    delegatorAgentId,
+    delegateeAgentId: ownerAgentId,
+    chainBinding: {
+      rootGrantHash: "f".repeat(64),
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 1,
+      maxDelegationDepth: 2
+    }
+  });
+  await seedArtifact(api, {
+    artifactId: "art_state_root_mismatch_1",
+    artifactHash: "d".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_root_mismatch_blocked_1" },
+    body: {
+      checkpointId: "chkpt_state_root_mismatch_1",
+      ownerAgentId,
+      delegationGrantRef: delegationGrant.grantId,
+      authorityGrantRef: authorityGrant.grantId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_root_mismatch_1",
+        artifactHash: "d".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_MISMATCH");
+});
+
+test("API e2e: state checkpoint create fails closed when authority/delegation root cannot be resolved", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_state_owner_root_missing_1";
+  const delegatorAgentId = "agt_state_delegator_root_missing_1";
+  const missingRootHash = "e".repeat(64);
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["state.manage"] });
+  await registerAgent(api, { agentId: delegatorAgentId, capabilities: ["orchestrate"] });
+
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "ag_state_checkpoint_root_missing_1",
+    granteeAgentId: ownerAgentId,
+    chainBinding: {
+      rootGrantHash: missingRootHash,
+      parentGrantHash: "c".repeat(64),
+      depth: 1,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const delegationGrant = await issueDelegationGrant(api, {
+    grantId: "dg_state_checkpoint_root_missing_1",
+    delegatorAgentId,
+    delegateeAgentId: ownerAgentId,
+    chainBinding: {
+      rootGrantHash: missingRootHash,
+      parentGrantHash: authorityGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    }
+  });
+  await seedArtifact(api, {
+    artifactId: "art_state_root_missing_1",
+    artifactHash: "e".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_root_missing_blocked_1" },
+    body: {
+      checkpointId: "chkpt_state_root_missing_1",
+      ownerAgentId,
+      delegationGrantRef: delegationGrant.grantId,
+      authorityGrantRef: authorityGrant.grantId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_root_missing_1",
+        artifactHash: "e".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_ROOT_NOT_FOUND");
 });
 
 test("API e2e: state checkpoint create fails closed when delegation grant participant signer lifecycle is non-active", async () => {

@@ -420,6 +420,16 @@ test("API e2e: session participant ACL fails closed for session reads and append
   assert.equal(deniedReplayPack.json?.details?.sessionId, sessionId);
   assert.equal(deniedReplayPack.json?.details?.principalId, deniedPrincipalId);
 
+  const deniedReplayExport = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-export`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedReplayExport.statusCode, 403, deniedReplayExport.body);
+  assert.equal(deniedReplayExport.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedReplayExport.json?.details?.sessionId, sessionId);
+  assert.equal(deniedReplayExport.json?.details?.principalId, deniedPrincipalId);
+
   const deniedTranscript = await request(api, {
     method: "GET",
     path: `/sessions/${sessionId}/transcript`,
@@ -429,6 +439,33 @@ test("API e2e: session participant ACL fails closed for session reads and append
   assert.equal(deniedTranscript.json?.code, "SESSION_ACCESS_DENIED");
   assert.equal(deniedTranscript.json?.details?.sessionId, sessionId);
   assert.equal(deniedTranscript.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedCheckpointRead = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events/checkpoint?checkpointConsumerId=${encodeURIComponent("acl_denied_consumer_1")}`,
+    headers: { "x-proxy-principal-id": deniedPrincipalId }
+  });
+  assert.equal(deniedCheckpointRead.statusCode, 403, deniedCheckpointRead.body);
+  assert.equal(deniedCheckpointRead.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointRead.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointRead.json?.details?.principalId, deniedPrincipalId);
+
+  const deniedCheckpointWrite = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events/checkpoint`,
+    headers: {
+      "x-idempotency-key": "session_acl_checkpoint_denied_1",
+      "x-proxy-principal-id": deniedPrincipalId
+    },
+    body: {
+      checkpointConsumerId: "acl_denied_consumer_1",
+      sinceEventId: seeded.json?.event?.id
+    }
+  });
+  assert.equal(deniedCheckpointWrite.statusCode, 403, deniedCheckpointWrite.body);
+  assert.equal(deniedCheckpointWrite.json?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(deniedCheckpointWrite.json?.details?.sessionId, sessionId);
+  assert.equal(deniedCheckpointWrite.json?.details?.principalId, deniedPrincipalId);
 
   const allowedGet = await request(api, {
     method: "GET",
