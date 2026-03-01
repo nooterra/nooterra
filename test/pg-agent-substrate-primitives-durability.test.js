@@ -313,6 +313,8 @@ async function createTerminalRun({
       }
     });
     assert.equal(issueGrant.statusCode, 201, issueGrant.body);
+    const delegationRootGrantHash = issueGrant.json?.delegationGrant?.chainBinding?.rootGrantHash;
+    assert.match(String(delegationRootGrantHash ?? ""), /^[0-9a-f]{64}$/);
 
     const issueAuthorityGrant = await tenantRequest(apiA, {
       tenantId: tenantA,
@@ -335,6 +337,7 @@ async function createTerminalRun({
           maxTotalCents: 200_000
         },
         chainBinding: {
+          rootGrantHash: delegationRootGrantHash,
           depth: 0,
           maxDelegationDepth: 1
         },
@@ -606,7 +609,10 @@ async function createTerminalRun({
       tenantId: tenantA,
       method: "POST",
       path: "/sessions",
-      headers: { "x-idempotency-key": "pg_sub_session_create_1" },
+      headers: {
+        "x-idempotency-key": "pg_sub_session_create_1",
+        "x-proxy-principal-id": principalA
+      },
       body: {
         sessionId: "pg_sub_session_1",
         visibility: "tenant",
@@ -624,7 +630,8 @@ async function createTerminalRun({
       path: "/sessions/pg_sub_session_1/events",
       headers: {
         "x-idempotency-key": "pg_sub_session_event_append_1",
-        "x-proxy-expected-prev-chain-hash": "null"
+        "x-proxy-expected-prev-chain-hash": "null",
+        "x-proxy-principal-id": principalA
       },
       body: {
         eventType: "TASK_REQUESTED",
@@ -650,7 +657,8 @@ async function createTerminalRun({
       path: "/sessions/pg_sub_session_1/events",
       headers: {
         "x-idempotency-key": "pg_sub_session_event_append_2",
-        "x-proxy-expected-prev-chain-hash": firstSessionEventChainHash
+        "x-proxy-expected-prev-chain-hash": firstSessionEventChainHash,
+        "x-proxy-principal-id": principalA
       },
       body: {
         eventType: "TASK_PROGRESS",
@@ -670,7 +678,8 @@ async function createTerminalRun({
     const replayPackBeforeRestart = await tenantRequest(apiA, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1/replay-pack"
+      path: "/sessions/pg_sub_session_1/replay-pack",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(replayPackBeforeRestart.statusCode, 200, replayPackBeforeRestart.body);
     assert.equal(replayPackBeforeRestart.json?.replayPack?.schemaVersion, "SessionReplayPack.v1");
@@ -682,7 +691,8 @@ async function createTerminalRun({
     const transcriptBeforeRestart = await tenantRequest(apiA, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1/transcript"
+      path: "/sessions/pg_sub_session_1/transcript",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(transcriptBeforeRestart.statusCode, 200, transcriptBeforeRestart.body);
     assert.equal(transcriptBeforeRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");
@@ -875,7 +885,8 @@ async function createTerminalRun({
     const getSession = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1"
+      path: "/sessions/pg_sub_session_1",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(getSession.statusCode, 200, getSession.body);
     assert.equal(getSession.json?.session?.sessionId, "pg_sub_session_1");
@@ -884,7 +895,8 @@ async function createTerminalRun({
     const listSessionEvents = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1/events?eventType=task_requested"
+      path: "/sessions/pg_sub_session_1/events?eventType=task_requested",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(listSessionEvents.statusCode, 200, listSessionEvents.body);
     assert.equal(listSessionEvents.json?.events?.length, 1);
@@ -893,7 +905,8 @@ async function createTerminalRun({
     const resumeSessionEvents = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
-      path: `/sessions/pg_sub_session_1/events?sinceEventId=${encodeURIComponent(firstSessionEventId)}`
+      path: `/sessions/pg_sub_session_1/events?sinceEventId=${encodeURIComponent(firstSessionEventId)}`,
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(resumeSessionEvents.statusCode, 200, resumeSessionEvents.body);
     assert.equal(resumeSessionEvents.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
@@ -908,7 +921,8 @@ async function createTerminalRun({
     const replayPackAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1/replay-pack"
+      path: "/sessions/pg_sub_session_1/replay-pack",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(replayPackAfterRestart.statusCode, 200, replayPackAfterRestart.body);
     assert.equal(replayPackAfterRestart.json?.replayPack?.schemaVersion, "SessionReplayPack.v1");
@@ -917,7 +931,8 @@ async function createTerminalRun({
     const transcriptAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
-      path: "/sessions/pg_sub_session_1/transcript"
+      path: "/sessions/pg_sub_session_1/transcript",
+      headers: { "x-proxy-principal-id": principalA }
     });
     assert.equal(transcriptAfterRestart.statusCode, 200, transcriptAfterRestart.body);
     assert.equal(transcriptAfterRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");

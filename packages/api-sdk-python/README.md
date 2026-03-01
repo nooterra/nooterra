@@ -38,6 +38,23 @@ Example commands:
 - `npm run sdk:first-rfq:py`
 - `npm run sdk:acs-smoke:py`
 
+## ACS parity + fail-closed notes
+
+- `list_agent_cards(...)` supports the full list/discovery filter matrix:
+  `agentId`, `status`, `visibility`, `capability`, `executionCoordinatorDid`, `runtime`,
+  `supportsPolicyTemplate`, `supportsEvidencePack`,
+  `toolId`, `toolMcpName`, `toolRiskClass`, `toolSideEffecting`, `toolMaxPriceCents`, `toolRequiresEvidenceKind`,
+  `limit`, `offset`.
+- `list_work_order_receipts(...)` supports `receiptId`, `workOrderId`, `principalAgentId`, `subAgentId`, `status`, `limit`, `offset`.
+- `list_sessions(...)` supports `status` in addition to `sessionId`, `participantAgentId`, `visibility`, `limit`, `offset`.
+- `append_session_event(...)` is fail-closed: `expected_prev_chain_hash` and `body.type` are required.
+- `issue_delegation_grant(...)` is fail-closed: `body.delegatorAgentId` and `body.delegateeAgentId` are required.
+- `issue_authority_grant(...)` is fail-closed: `body.principalRef` and `body.granteeAgentId` are required.
+- `list_delegation_grants(...)` and `list_authority_grants(...)` normalize `grantHash` to lowercase before dispatch.
+- `sign_evidence(...)` supports auto-sign when `signerPrivateKeyPem` and `signerKeyId` are provided; missing `signerKeyId` in that mode fails closed.
+- Auto-sign mode (`signerPrivateKeyPem`) requires Python `cryptography` to be installed; when unavailable, signing fails closed with an explicit error.
+- `build_dispute_open_envelope(...)` supports either explicit `signature` or auto-sign via `signerPrivateKeyPem` (+ required `signerKeyId`); missing both signature sources fails closed.
+
 ## Transport Parity Adapters (HTTP + MCP)
 
 Use parity adapters when your integration must keep HTTP and MCP behavior aligned:

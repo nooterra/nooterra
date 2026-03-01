@@ -172,3 +172,106 @@ test("API e2e: session replay verify returns deterministic verdicts and fails cl
   assert.equal(verifyTampered.json?.verdict?.ok, false);
   assert.equal(verifyTampered.json?.verdict?.code, "SESSION_REPLAY_VERIFICATION_MEMORY_CONTRACT_INVALID");
 });
+
+test("API e2e: replay export enforces memory scopes and records deterministic audit decisions", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_replay_scope_owner_1";
+  const teamAgentId = "agt_replay_scope_team_1";
+  const delegatedAgentId = "agt_replay_scope_delegate_1";
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: teamAgentId, capabilities: ["analysis"] });
+  await registerAgent(api, { agentId: delegatedAgentId, capabilities: ["delivery"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_create_1",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      sessionId: "sess_replay_scope_1",
+      visibility: "tenant",
+      participants: [ownerAgentId, teamAgentId, delegatedAgentId],
+      metadata: {
+        memoryAccessPolicy: {
+          schemaVersion: "SessionMemoryAccessPolicy.v1",
+          ownerPrincipalId: ownerAgentId,
+          teamPrincipalIds: [teamAgentId],
+          delegatedPrincipalIds: [delegatedAgentId],
+          allowTeamRead: true,
+          allowDelegatedRead: false,
+          allowCrossAgentSharing: false
+        }
+      }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_replay_scope_1/events",
+    headers: {
+      "x-idempotency-key": "session_replay_scope_append_1",
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": ownerAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_replay_scope_1" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const ownerAllowed = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_1/replay-export?memoryScope=personal",
+    headers: { "x-proxy-principal-id": ownerAgentId }
+  });
+  assert.equal(ownerAllowed.statusCode, 200, ownerAllowed.body);
+  assert.equal(ownerAllowed.json?.ok, true);
+
+  const teamAllowed = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_1/replay-export?memoryScope=team",
+    headers: { "x-proxy-principal-id": teamAgentId }
+  });
+  assert.equal(teamAllowed.statusCode, 200, teamAllowed.body);
+  assert.equal(teamAllowed.json?.ok, true);
+
+  const teamDeniedPersonal = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_1/replay-export?memoryScope=personal",
+    headers: { "x-proxy-principal-id": teamAgentId }
+  });
+  assert.equal(teamDeniedPersonal.statusCode, 403, teamDeniedPersonal.body);
+  assert.equal(teamDeniedPersonal.json?.code, "SESSION_MEMORY_ACCESS_PERSONAL_SCOPE_DENIED");
+
+  const delegatedDenied = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_replay_scope_1/replay-export?memoryScope=delegated",
+    headers: { "x-proxy-principal-id": delegatedAgentId }
+  });
+  assert.equal(delegatedDenied.statusCode, 403, delegatedDenied.body);
+  assert.equal(delegatedDenied.json?.code, "SESSION_MEMORY_ACCESS_DELEGATED_SCOPE_DISABLED");
+
+  const audit = await request(api, {
+    method: "GET",
+    path: "/ops/audit?limit=50",
+    headers: { "x-proxy-ops-token": "tok_ops" }
+  });
+  assert.equal(audit.statusCode, 200, audit.body);
+  const memoryAuditRows = (audit.json?.audit ?? []).filter(
+    (row) =>
+      String(row?.targetType ?? "") === "session" &&
+      String(row?.targetId ?? "") === "sess_replay_scope_1" &&
+      (String(row?.action ?? "") === "SESSION_MEMORY_READ_ALLOWED" || String(row?.action ?? "") === "SESSION_MEMORY_READ_DENIED")
+  );
+  assert.ok(memoryAuditRows.length >= 4);
+  const deniedRows = memoryAuditRows.filter((row) => String(row?.action ?? "") === "SESSION_MEMORY_READ_DENIED");
+  const allowedRows = memoryAuditRows.filter((row) => String(row?.action ?? "") === "SESSION_MEMORY_READ_ALLOWED");
+  assert.ok(allowedRows.length >= 2);
+  assert.ok(deniedRows.length >= 2);
+  assert.ok(deniedRows.every((row) => typeof row?.details?.reasonCode === "string" && row.details.reasonCode !== ""));
+  assert.ok(memoryAuditRows.every((row) => typeof row?.details?.policyHash === "string" && row.details.policyHash.length === 64));
+});

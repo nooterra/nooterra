@@ -8,6 +8,8 @@ import { sha256Hex } from "../../src/core/crypto.js";
 import { createFederationReplayLedger } from "../../src/api/federation/replay-ledger.js";
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../../src/federation/proxy-policy.js";
 
+const DEFAULT_CONFORMANCE_AS_OF = "2026-01-01T00:00:00.000Z";
+
 function parseArgs(argv) {
   const out = {
     caseId: null,
@@ -58,15 +60,39 @@ async function loadVectors() {
   return doc;
 }
 
-function buildConformancePolicy() {
+function buildConformancePolicy(policyInput = {}) {
+  const namespaceRoutes =
+    policyInput?.namespaceRoutes && typeof policyInput.namespaceRoutes === "object" && !Array.isArray(policyInput.namespaceRoutes)
+      ? policyInput.namespaceRoutes
+      : {
+          "did:nooterra:coord_bravo": "https://federation-bravo.nooterra.test"
+        };
+  const trustedCoordinatorDids =
+    typeof policyInput?.trustedCoordinatorDids === "string" && policyInput.trustedCoordinatorDids.trim() !== ""
+      ? policyInput.trustedCoordinatorDids.trim()
+      : "did:nooterra:coord_bravo,did:nooterra:coord_charlie";
+  const coordinatorDid =
+    typeof policyInput?.coordinatorDid === "string" && policyInput.coordinatorDid.trim() !== ""
+      ? policyInput.coordinatorDid.trim()
+      : "did:nooterra:coord_alpha";
+  const namespaceRegistry = Array.isArray(policyInput?.namespaceRegistry) ? policyInput.namespaceRegistry : null;
+  const fallbackBaseUrl =
+    typeof policyInput?.fallbackBaseUrl === "string" && policyInput.fallbackBaseUrl.trim() !== ""
+      ? policyInput.fallbackBaseUrl.trim()
+      : null;
+  const namespaceAsOf =
+    typeof policyInput?.namespaceAsOf === "string" && policyInput.namespaceAsOf.trim() !== ""
+      ? policyInput.namespaceAsOf.trim()
+      : DEFAULT_CONFORMANCE_AS_OF;
   return buildFederationProxyPolicy({
     env: {
-      COORDINATOR_DID: "did:nooterra:coord_alpha",
-      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo,did:nooterra:coord_charlie",
-      PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify({
-        "did:nooterra:coord_bravo": "https://federation-bravo.nooterra.test"
-      })
-    }
+      COORDINATOR_DID: coordinatorDid,
+      PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: trustedCoordinatorDids,
+      PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify(namespaceRoutes),
+      ...(namespaceRegistry ? { PROXY_FEDERATION_NAMESPACE_REGISTRY: JSON.stringify(namespaceRegistry) } : {}),
+      PROXY_FEDERATION_NAMESPACE_AS_OF: namespaceAsOf
+    },
+    fallbackBaseUrl
   });
 }
 
@@ -96,11 +122,11 @@ function makeRequestHash(envelope) {
   return sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(envelope, { path: "$" })));
 }
 
-function evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew = false }) {
+function evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew = false, asOf = null }) {
   const valid = validateFederationEnvelope({ endpoint, body: envelope });
   if (!valid.ok) return { accept: false, code: valid.code, phase: "validate" };
 
-  const routed = evaluateFederationTrustAndRoute({ endpoint, envelope: valid.envelope, policy });
+  const routed = evaluateFederationTrustAndRoute({ endpoint, envelope: valid.envelope, policy, asOf });
   if (!routed.ok) return { accept: false, code: routed.code, phase: "trust" };
 
   const replayKey = makeReplayKey(endpoint, valid.envelope);
@@ -108,7 +134,16 @@ function evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOn
   const replay = replayLedger.claim({ key: replayKey, requestHash });
   if (replay.type === "conflict") return { accept: false, code: "FEDERATION_ENVELOPE_CONFLICT", phase: "replay" };
   if (replay.type === "in_flight") return { accept: false, code: "FEDERATION_ENVELOPE_IN_FLIGHT", phase: "replay" };
-  if (replay.type === "replay") return { accept: true, duplicateReplayHeader: "x-federation-replay=duplicate", namespaceDid: routed.namespaceDid };
+  if (replay.type === "replay") {
+    return {
+      accept: true,
+      duplicateReplayHeader: "x-federation-replay=duplicate",
+      namespaceDid: routed.namespaceDid,
+      resolvedCoordinatorDid: routed.resolvedCoordinatorDid ?? null,
+      routingReasonCode: routed.routingReasonCode ?? null,
+      namespaceDecisionId: routed.namespaceLineage?.decisionId ?? null
+    };
+  }
   if (completeOnNew) {
     replayLedger.complete({
       key: replayKey,
@@ -120,18 +155,32 @@ function evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOn
       }
     });
   }
-  return { accept: true, namespaceDid: routed.namespaceDid };
+  return {
+    accept: true,
+    namespaceDid: routed.namespaceDid,
+    resolvedCoordinatorDid: routed.resolvedCoordinatorDid ?? null,
+    routingReasonCode: routed.routingReasonCode ?? null,
+    namespaceDecisionId: routed.namespaceLineage?.decisionId ?? null
+  };
 }
 
 function compareExpected({ expected, actual }) {
   const checks = [];
   for (const [key, expectedValue] of Object.entries(expected ?? {})) {
     const actualValue = actual?.[key];
+    let ok = false;
+    if (expectedValue === "$nonEmptyString") {
+      ok = typeof actualValue === "string" && actualValue.trim() !== "";
+    } else if (expectedValue === "$present") {
+      ok = actualValue !== null && actualValue !== undefined;
+    } else {
+      ok = Object.is(expectedValue, actualValue);
+    }
     checks.push({
       field: key,
       expected: expectedValue,
       actual: actualValue,
-      ok: Object.is(expectedValue, actualValue)
+      ok
     });
   }
   return checks;
@@ -141,19 +190,20 @@ function runCase(testCase) {
   const endpoint = String(testCase?.endpoint ?? "");
   const envelope = testCase?.envelope;
   const expected = testCase?.expected ?? {};
-  const policy = buildConformancePolicy();
+  const policy = buildConformancePolicy(testCase?.policy ?? {});
   const replayLedger = createFederationReplayLedger();
+  const asOf = typeof testCase?.asOf === "string" && testCase.asOf.trim() !== "" ? testCase.asOf.trim() : DEFAULT_CONFORMANCE_AS_OF;
 
   let actual = null;
   if (String(expected?.duplicateReplayHeader ?? "").toLowerCase() === "x-federation-replay=duplicate") {
-    evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true });
-    actual = evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: false });
+    evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true, asOf });
+    actual = evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: false, asOf });
   } else if (String(expected?.code ?? "") === "FEDERATION_ENVELOPE_CONFLICT" && Array.isArray(testCase?.mutations) && testCase.mutations.length > 0) {
     const mutated = applyMutation(envelope, testCase.mutations[0]);
-    evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true });
-    actual = evaluateEnvelope({ endpoint, envelope: mutated, policy, replayLedger, completeOnNew: false });
+    evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true, asOf });
+    actual = evaluateEnvelope({ endpoint, envelope: mutated, policy, replayLedger, completeOnNew: false, asOf });
   } else {
-    actual = evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true });
+    actual = evaluateEnvelope({ endpoint, envelope, policy, replayLedger, completeOnNew: true, asOf });
   }
 
   const checks = compareExpected({ expected, actual });

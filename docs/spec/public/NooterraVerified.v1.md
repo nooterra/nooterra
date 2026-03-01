@@ -14,6 +14,52 @@ This program evaluates operational conformance for:
 
 It does not certify legal/compliance posture.
 
+## Community-facing acceptance (explicit)
+
+For community-facing claims of `Nooterra Verified`, the minimum accepted level is `collaboration`.
+
+Run the gate:
+
+- `npm run -s test:ops:nooterra-verified-gate -- --level collaboration --out artifacts/gates/nooterra-verified-collaboration-gate.json`
+- optional PG durability (explicit DB): `NOOTERRA_VERIFIED_INCLUDE_PG=1 DATABASE_URL=postgres://... npm run -s test:ops:nooterra-verified-gate -- --level collaboration --out artifacts/gates/nooterra-verified-collaboration-gate.json`
+- optional PG durability (local Docker bootstrap): `npm run -s test:ops:nooterra-verified-gate -- --level collaboration --include-pg --bootstrap-local --out artifacts/gates/nooterra-verified-collaboration-gate.json`
+
+Passing is explicit only when all are true:
+
+1. Gate command exits with status `0`.
+2. Report `artifacts/gates/nooterra-verified-collaboration-gate.json` contains:
+   - `schemaVersion: "NooterraVerifiedGateReport.v1"`
+   - `level: "collaboration"`
+   - `ok: true`
+   - `summary.failedChecks: 0`
+   - `blockingIssues: []`
+3. `checks[]` contains `ok: true` rows for:
+   - `mcp_probe_x402_smoke`
+   - `e2e_x402_delegation_grants`
+   - `e2e_authority_grant_required`
+   - `e2e_subagent_work_orders`
+   - `e2e_trace_id_propagation`
+
+Deterministic verifier (fails closed):
+
+```bash
+node -e 'const fs=require("node:fs");const p="artifacts/gates/nooterra-verified-collaboration-gate.json";const r=JSON.parse(fs.readFileSync(p,"utf8"));const req=["mcp_probe_x402_smoke","e2e_x402_delegation_grants","e2e_authority_grant_required","e2e_subagent_work_orders","e2e_trace_id_propagation"];const checkOk=id=>Array.isArray(r.checks)&&r.checks.some(c=>c&&c.id===id&&c.ok===true);const ok=r.schemaVersion==="NooterraVerifiedGateReport.v1"&&r.level==="collaboration"&&r.ok===true&&Number(r?.summary?.failedChecks)===0&&Array.isArray(r?.blockingIssues)&&r.blockingIssues.length===0&&req.every(checkOk);if(!ok){console.error("Nooterra Verified collaboration acceptance FAILED");process.exit(1)}console.log("Nooterra Verified collaboration acceptance PASSED");'
+```
+
+## Minimum paid delegation + receipt requirements (community listing)
+
+Community listing claims MUST satisfy all minimums below:
+
+1. Paid delegation path:
+   - Delegation grant lifecycle succeeds (`issue + list + revoke`), covered by `e2e_x402_delegation_grants`.
+   - Authority-grant-required mode fails closed on missing/mismatched authority refs, covered by `e2e_authority_grant_required`.
+2. Paid receipt path:
+   - Work-order flow reaches settle with receipt linkage (`create -> accept -> progress -> complete -> settle`), covered by `e2e_subagent_work_orders`.
+   - `traceId` binds negotiation, completion receipt, and settlement deterministically, covered by `e2e_trace_id_propagation`.
+3. Paid call verification metadata:
+   - Paid call responses include: `x-nooterra-settlement-status`, `x-nooterra-verification-status`, `x-nooterra-policy-decision`, `x-nooterra-policy-hash`, `x-nooterra-decision-id`.
+   - Missing/invalid policy runtime metadata fails closed, covered by `mcp_probe_x402_smoke`.
+
 ## Badge levels
 
 ## Level 1: Core
@@ -103,8 +149,10 @@ Suggested checks:
 Any checker used for badge issuance MUST emit:
 
 - `schemaVersion`
+- `level`
 - `generatedAt`
 - `ok`
+- `summary`
 - `checks[]`
 - `blockingIssues[]`
 

@@ -76,16 +76,29 @@ spec:
             {{- end }}
           readinessProbe:
             httpGet:
-              path: /ready
+              path: {{ .Values.receiver.readinessProbe.path | quote }}
               port: http
-            initialDelaySeconds: 2
-            periodSeconds: 5
+            initialDelaySeconds: {{ .Values.receiver.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.receiver.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.receiver.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.receiver.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.receiver.readinessProbe.successThreshold }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: {{ .Values.receiver.livenessProbe.path | quote }}
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.receiver.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.receiver.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.receiver.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.receiver.livenessProbe.failureThreshold }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.receiver.startupProbe.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.receiver.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.receiver.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.receiver.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.receiver.startupProbe.failureThreshold }}
           resources:
             {{- toYaml .Values.receiver.resources | nindent 12 }}
       volumes:

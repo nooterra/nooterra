@@ -74,6 +74,35 @@ node scripts/ops/openclaw-operator-readiness-gate.mjs \
 ```
 
 Fail-closed behavior: this gate blocks if hosted evidence is missing/invalid/non-pass or if required self-host runtime keys are unresolved (`NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`).
+5. Run the self-host topology bundle gate path from `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md`:
+
+```bash
+npm run -s test:ops:self-host-topology-bundle-gate
+```
+
+Expected report path:
+
+`artifacts/gates/self-host-topology-bundle-gate.json`
+
+6. Run the ACS self-host upgrade/migration gate path from `docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`:
+
+```bash
+npm run -s test:ops:self-host-upgrade-migration-gate
+```
+
+Expected report path:
+
+`artifacts/gates/self-host-upgrade-migration-gate.json`
+
+7. Run serving mode boundary gate path from `docs/ops/SERVING_MODES_BOUNDARY.md`:
+
+```bash
+npm run -s test:ops:serving-mode-boundary-gate
+```
+
+Expected report path:
+
+`artifacts/gates/serving-mode-boundary-gate.json`
 
 ## Phase 4: MCP compatibility verification
 
@@ -99,12 +128,19 @@ This emits a machine-readable report at:
 
 `artifacts/ops/mcp-host-smoke.json`
 
-3. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
+3. Run MCP host cert matrix report:
+
+```bash
+npm run test:ci:mcp-host-cert-matrix -- \
+  --report artifacts/ops/mcp-host-cert-matrix.json
+```
+
+4. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
    Claude, Cursor, Nooterra, and OpenClaw.
 
-4. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
+5. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
 
-5. Run clean-env onboarding host success gate:
+6. Run clean-env onboarding host success gate:
 
 ```bash
 npm run test:ops:onboarding-host-success-gate -- \
@@ -133,6 +169,14 @@ npm run demo:mcp-paid-exa
 
 Ship only when all are true:
 
+Run ACS-E10 readiness summary after upstream artifacts are present:
+
+`npm run test:ops:acs-e10-readiness-gate`
+
+Expected report path:
+
+`artifacts/gates/acs-e10-readiness-gate.json`
+
 1. Kernel v0 ship gate, production cutover gate, and NOO-50 parity gate are green.
 2. Onboarding/policy SLO gate is green (`artifacts/gates/onboarding-policy-slo-gate.json`).
 3. Onboarding host success gate is green (`artifacts/gates/onboarding-host-success-gate.json`).
@@ -145,8 +189,12 @@ Ship only when all are true:
 6. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
 7. MCP compatibility matrix is green for supported hosts.
 8. Paid MCP run artifacts verify cleanly.
-9. Rollback runbook has been rehearsed.
+9. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
 10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
+11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
+12. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
+13. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
+14. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 

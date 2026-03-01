@@ -36,11 +36,57 @@ Runtime status: implemented.
 ## Invariants
 
 - `capabilities` MUST be a subset of the registered `AgentIdentity.v1` capabilities.
+- Each `capabilities[]` entry MUST follow the shared capability identifier policy:
+  - legacy non-URI strings are accepted for backward safety.
+  - URI form MUST be `capability://<namespace>[@vN]` with lowercase constrained namespace.
+  - reserved namespace and segment/length policy violations fail closed.
 - `agentId` MUST reference an existing agent identity.
 - `updatedAt` MUST move forward monotonically per card revision.
 - if present, `executionCoordinatorDid` MUST be a DID-like identifier (`:` required).
 - If present, `tools[].toolId` MUST be unique within a card.
 - If present, each `tools[]` entry MUST validate as `ToolDescriptor.v1`.
+
+## Nooterra Verified listing convention (no contract drift)
+
+To list `Nooterra Verified` on an `AgentCard.v1`, use existing optional fields only.
+
+Rules:
+
+1. Keep top-level schema unchanged (`schemaVersion: "AgentCard.v1"`); do not add top-level keys such as `verified`, `badge`, or `programs`.
+2. Use one `attestations[]` row for the verification claim.
+3. Use deterministic tags and metadata keys for listing/search consistency.
+4. Bind evidence with lowercase hex `sha256` in `attestations[].proofHash` and `metadata.nooterraVerified.gateReportSha256`.
+
+Recommended listing fragment:
+
+```json
+{
+  "attestations": [
+    {
+      "type": "program.nooterra_verified",
+      "level": "collaboration",
+      "issuer": "Nooterra Verified",
+      "credentialRef": "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      "proofHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "issuedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "tags": [
+    "program:nooterra-verified",
+    "program:nooterra-verified:collaboration"
+  ],
+  "metadata": {
+    "nooterraVerified": {
+      "schemaVersion": "NooterraVerifiedListing.v1",
+      "label": "Nooterra Verified",
+      "level": "collaboration",
+      "gateReportSchemaVersion": "NooterraVerifiedGateReport.v1",
+      "gateReportRef": "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      "gateReportSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  }
+}
+```
 
 ## API surface
 
@@ -55,6 +101,8 @@ Runtime status: implemented.
 - `/public/agent-cards/discover` is cross-tenant and returns `visibility=public` cards only.
 - Non-public visibility filters are rejected fail-closed (`SCHEMA_INVALID`).
 - Agents under active emergency quarantine are excluded from public discoverability.
+- `capability` query filters on discover endpoints use the same capability identifier policy as `capabilities[]`.
+- Invalid capability scheme/format/reserved namespace/segment+length inputs fail closed (`SCHEMA_INVALID`) with deterministic reason-code-like detail messaging.
 - Tool descriptor filters are supported on discover endpoints:
   - `executionCoordinatorDid`
   - `toolId`

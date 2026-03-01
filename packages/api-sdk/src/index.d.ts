@@ -87,6 +87,10 @@ export declare function fetchWithNooterraAutopay(
   opts?: NooterraAutopayFetchOptions
 ): Promise<Response>;
 
+export declare function canonicalJsonStringifyDeterministic(value: unknown): string;
+export declare function computeCanonicalSha256(value: unknown): string;
+export declare function buildCanonicalEnvelope(value: unknown): { canonicalJson: string; sha256: string };
+
 export type NooterraWebhookSignatureVerifyOptions = {
   toleranceSeconds?: number;
   timestamp?: string | number | null;
@@ -1002,6 +1006,90 @@ export type VerifiedInteractionGraphPack = {
   signature?: InteractionGraphPackSignature;
 };
 
+export type SessionParticipantV1 = {
+  agentId: string;
+  role?: string | null;
+  displayName?: string | null;
+  [key: string]: unknown;
+};
+
+export type SessionV1 = {
+  schemaVersion?: "Session.v1";
+  sessionId: string;
+  tenantId?: string;
+  participants?: SessionParticipantV1[];
+  visibility?: "public" | "tenant" | "private";
+  status?: "open" | "closed";
+  title?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
+export type SessionEventV1 = {
+  schemaVersion?: "SessionEvent.v1";
+  eventId?: string;
+  sessionId: string;
+  type: string;
+  at: string;
+  actor?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  provenance?: Record<string, unknown> | null;
+  prevChainHash?: string | null;
+  chainHash?: string | null;
+  [key: string]: unknown;
+};
+
+export type SessionReplayPackV1 = {
+  schemaVersion?: "SessionReplayPack.v1";
+  sessionId: string;
+  transcriptHash?: string | null;
+  events: SessionEventV1[];
+  [key: string]: unknown;
+};
+
+export type DelegationGrantV1 = {
+  schemaVersion?: "DelegationGrant.v1";
+  grantId?: string;
+  grantHash?: string;
+  delegatorAgentId: string;
+  delegateeAgentId: string;
+  status?: "active" | "revoked" | "expired" | (string & {});
+  [key: string]: unknown;
+};
+
+export type AuthorityGrantV1 = {
+  schemaVersion?: "AuthorityGrant.v1";
+  grantId?: string;
+  grantHash?: string;
+  granteeAgentId: string;
+  principalRef?: {
+    principalType: "human" | "org" | "service" | "agent";
+    principalId: string;
+  };
+  status?: "active" | "revoked" | "expired" | (string & {});
+  [key: string]: unknown;
+};
+
+export type SubAgentWorkOrderV1 = {
+  schemaVersion?: "SubAgentWorkOrder.v1";
+  workOrderId: string;
+  principalAgentId?: string;
+  subAgentId?: string;
+  acceptanceId?: string | null;
+  status?: "created" | "accepted" | "working" | "completed" | "failed" | "settled" | "cancelled" | "disputed" | (string & {});
+  [key: string]: unknown;
+};
+
+export type SubAgentCompletionReceiptV1 = {
+  schemaVersion?: "SubAgentCompletionReceipt.v1";
+  receiptId: string;
+  workOrderId: string;
+  status?: "success" | "failed" | (string & {});
+  completedAt?: string;
+  [key: string]: unknown;
+};
+
 export type NooterraParityTransport = "http" | "mcp";
 
 export type NooterraParityReasonCode =
@@ -1130,6 +1218,8 @@ export class NooterraClient {
       capability?: string;
       executionCoordinatorDid?: string;
       runtime?: string;
+      supportsPolicyTemplate?: string;
+      supportsEvidencePack?: string;
       toolId?: string;
       toolMcpName?: string;
       toolRiskClass?: "read" | "compute" | "action" | "financial";
@@ -1148,6 +1238,8 @@ export class NooterraClient {
       capability?: string;
       executionCoordinatorDid?: string;
       runtime?: string;
+      supportsPolicyTemplate?: string;
+      supportsEvidencePack?: string;
       toolId?: string;
       toolMcpName?: string;
       toolRiskClass?: "read" | "compute" | "action" | "financial";
@@ -1665,7 +1757,7 @@ export class NooterraClient {
   createWorkOrder(
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1 }>>;
   listWorkOrders(
     params?: {
       workOrderId?: string;
@@ -1676,21 +1768,21 @@ export class NooterraClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrders: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ workOrders: Array<SubAgentWorkOrderV1>; limit: number; offset: number }>>;
   getWorkOrder(
     workOrderId: string,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1 }>>;
   acceptWorkOrder(
     workOrderId: string,
     body?: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1 }>>;
   progressWorkOrder(
     workOrderId: string,
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1 }>>;
   topUpWorkOrder(
     workOrderId: string,
     body: Record<string, unknown>,
@@ -1709,12 +1801,12 @@ export class NooterraClient {
     workOrderId: string,
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1; completionReceipt: SubAgentCompletionReceiptV1 }>>;
   settleWorkOrder(
     workOrderId: string,
     body?: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: SubAgentWorkOrderV1; completionReceipt: SubAgentCompletionReceiptV1 }>>;
   listWorkOrderReceipts(
     params?: {
       receiptId?: string;
@@ -1726,11 +1818,11 @@ export class NooterraClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ receipts: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ receipts: Array<SubAgentCompletionReceiptV1>; limit: number; offset: number }>>;
   getWorkOrderReceipt(
     receiptId: string,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ completionReceipt: SubAgentCompletionReceiptV1 }>>;
   createStateCheckpoint(
     body: {
       checkpointId?: string;
@@ -1791,7 +1883,7 @@ export class NooterraClient {
       metadata?: Record<string, unknown> | null;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ session: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ session: SessionV1 }>>;
   listSessions(
     params?: {
       sessionId?: string;
@@ -1802,13 +1894,13 @@ export class NooterraClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ sessions: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
-  getSession(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ session: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ sessions: Array<SessionV1>; total: number; limit: number; offset: number }>>;
+  getSession(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ session: SessionV1 }>>;
   listSessionEvents(
     sessionId: string,
     params?: { eventType?: string; sinceEventId?: string; limit?: number; offset?: number },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ sessionId: string; events: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ sessionId: string; events: Array<SessionEventV1>; limit: number; offset: number }>>;
   appendSessionEvent(
     sessionId: string,
     body: {
@@ -1819,8 +1911,8 @@ export class NooterraClient {
       provenance?: Record<string, unknown>;
     },
     opts: RequestOptions
-  ): Promise<NooterraResponse<{ sessionId: string; event: Record<string, unknown>; currentPrevChainHash: string | null }>>;
-  getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ replayPack: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ sessionId: string; event: SessionEventV1; currentPrevChainHash: string | null }>>;
+  getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ replayPack: SessionReplayPackV1 }>>;
   getSessionTranscript(
     sessionId: string,
     opts?: RequestOptions
@@ -1834,11 +1926,11 @@ export class NooterraClient {
   createDelegationGrant(
     body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: DelegationGrantV1 }>>;
   issueDelegationGrant(
     body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: DelegationGrantV1 }>>;
   listDelegationGrants(
     params?: {
       grantId?: string;
@@ -1850,13 +1942,13 @@ export class NooterraClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
-  getDelegationGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ grants: Array<DelegationGrantV1>; limit: number; offset: number }>>;
+  getDelegationGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ delegationGrant: DelegationGrantV1 }>>;
   revokeDelegationGrant(
     grantId: string,
     body?: { revocationReasonCode?: string; reasonCode?: string } & Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: DelegationGrantV1 }>>;
   createAuthorityGrant(
     body: {
       grantId?: string;
@@ -1893,7 +1985,7 @@ export class NooterraClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ authorityGrant: AuthorityGrantV1 }>>;
   listAuthorityGrants(
     params?: {
       grantId?: string;
@@ -1905,13 +1997,13 @@ export class NooterraClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
-  getAuthorityGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ grants: Array<AuthorityGrantV1>; limit: number; offset: number }>>;
+  getAuthorityGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ authorityGrant: AuthorityGrantV1 }>>;
   revokeAuthorityGrant(
     grantId: string,
     body?: { revocationReasonCode?: string },
     opts?: RequestOptions
-  ): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ authorityGrant: AuthorityGrantV1 }>>;
   creditAgentWallet(
     agentId: string,
     body: { amountCents: number; currency?: string },

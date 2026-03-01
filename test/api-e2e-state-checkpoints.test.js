@@ -5,6 +5,23 @@ import { createApi } from "../src/api/app.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
+const TEST_TENANT_ID = "tenant_default";
+const TEST_ARTIFACT_CREATED_AT = "2026-02-01T00:00:00.000Z";
+
+async function seedArtifact(api, { artifactId, artifactHash, artifactType = "StateSnapshot.v1" }) {
+  await api.store.putArtifact({
+    tenantId: TEST_TENANT_ID,
+    artifact: {
+      schemaVersion: artifactType,
+      artifactType,
+      artifactId,
+      artifactHash,
+      tenantId: TEST_TENANT_ID,
+      createdAt: TEST_ARTIFACT_CREATED_AT
+    }
+  });
+}
+
 async function registerAgent(api, { agentId, capabilities = [] }) {
   const { publicKeyPem } = createEd25519Keypair();
   const response = await request(api, {
@@ -168,6 +185,21 @@ test("API e2e: state checkpoint create/list/get lifecycle", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const ownerAgentId = "agt_state_owner_1";
   await registerAgent(api, { agentId: ownerAgentId, capabilities: ["state.manage"] });
+  await seedArtifact(api, {
+    artifactId: "art_state_root_1",
+    artifactHash: "1".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+  await seedArtifact(api, {
+    artifactId: "art_diff_a",
+    artifactHash: "a".repeat(64),
+    artifactType: "StateDiff.v1"
+  });
+  await seedArtifact(api, {
+    artifactId: "art_diff_b",
+    artifactHash: "b".repeat(64),
+    artifactType: "StateDiff.v1"
+  });
 
   const created = await request(api, {
     method: "POST",
@@ -255,6 +287,76 @@ test("API e2e: state checkpoint fail-closed behaviors", async () => {
   assert.equal(badHash.statusCode, 400, badHash.body);
   assert.equal(badHash.json?.code, "SCHEMA_INVALID");
 
+  const missingArtifact = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_missing_artifact_1" },
+    body: {
+      checkpointId: "chkpt_state_missing_artifact_1",
+      ownerAgentId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_missing_1",
+        artifactHash: "d".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(missingArtifact.statusCode, 409, missingArtifact.body);
+  assert.equal(missingArtifact.json?.code, "STATE_CHECKPOINT_ARTIFACT_NOT_FOUND");
+
+  await seedArtifact(api, {
+    artifactId: "art_state_mismatch_1",
+    artifactHash: "f".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+  const mismatchedArtifactHash = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_mismatch_hash_1" },
+    body: {
+      checkpointId: "chkpt_state_mismatch_hash_1",
+      ownerAgentId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_mismatch_1",
+        artifactHash: "e".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(mismatchedArtifactHash.statusCode, 409, mismatchedArtifactHash.body);
+  assert.equal(mismatchedArtifactHash.json?.code, "STATE_CHECKPOINT_ARTIFACT_HASH_MISMATCH");
+
+  await seedArtifact(api, {
+    artifactId: "art_state_parent_missing_1",
+    artifactHash: "c".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+  const missingParent = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_parent_missing_1" },
+    body: {
+      checkpointId: "chkpt_state_parent_missing_1",
+      ownerAgentId,
+      parentCheckpointId: "chkpt_state_parent_unknown_1",
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_parent_missing_1",
+        artifactHash: "c".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(missingParent.statusCode, 409, missingParent.body);
+  assert.equal(missingParent.json?.code, "STATE_CHECKPOINT_PARENT_NOT_FOUND");
+
+  await seedArtifact(api, {
+    artifactId: "art_state_ok_1",
+    artifactHash: "2".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
   const created = await request(api, {
     method: "POST",
     path: "/state-checkpoints",
@@ -315,6 +417,11 @@ test("API e2e: state checkpoint create enforces delegation/authority grant chain
   });
   assert.equal(delegationGrant.chainBinding.rootGrantHash, authorityGrant.chainBinding.rootGrantHash);
   assert.equal(delegationGrant.chainBinding.parentGrantHash, authorityGrant.grantHash);
+  await seedArtifact(api, {
+    artifactId: "art_state_with_grants_1",
+    artifactHash: "4".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
 
   const created = await request(api, {
     method: "POST",
@@ -521,6 +628,11 @@ test("API e2e: state checkpoint create fails closed without authority grant when
   const authorityGrant = await issueAuthorityGrant(api, {
     grantId: "ag_state_checkpoint_required_1",
     granteeAgentId: ownerAgentId
+  });
+  await seedArtifact(api, {
+    artifactId: "art_state_auth_required_allowed_1",
+    artifactHash: "8".repeat(64),
+    artifactType: "StateSnapshot.v1"
   });
   const allowed = await request(api, {
     method: "POST",

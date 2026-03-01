@@ -586,6 +586,373 @@ test("API e2e: work-order metering snapshot returns Meter.v1 events with determi
   assert.equal(invalidQuery.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: work-order metering and settlement adversarial paths fail closed deterministically", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const principalAgentId = "agt_workord_meter_adv_principal_1";
+  const subAgentId = "agt_workord_meter_adv_worker_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const createdDuplicate = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_meter_adv_duplicate_create_1" },
+    body: {
+      workOrderId: "workord_meter_adv_duplicate_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: {
+        amountCents: 300,
+        currency: "USD"
+      },
+      constraints: {
+        maxCostCents: 650
+      },
+      metering: {
+        mode: "metered",
+        requireFinalMeterEvidence: true,
+        enforceFinalReconcile: true,
+        maxTopUpCents: 400,
+        unit: "usd_cents"
+      }
+    }
+  });
+  assert.equal(createdDuplicate.statusCode, 201, createdDuplicate.body);
+
+  const firstTopup = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_duplicate_1/topup",
+    headers: {
+      "x-idempotency-key": "work_order_meter_adv_duplicate_topup_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      topUpId: "topup_meter_adv_duplicate_1",
+      amountCents: 100,
+      quantity: 1,
+      currency: "USD",
+      eventKey: "work_order_topup:workord_meter_adv_duplicate_1:event_dup",
+      occurredAt: "2026-02-26T01:00:00.000Z"
+    }
+  });
+  assert.equal(firstTopup.statusCode, 201, firstTopup.body);
+
+  const meteringBeforeBlockedDuplicate = await request(api, {
+    method: "GET",
+    path: "/work-orders/workord_meter_adv_duplicate_1/metering?includeMeters=true"
+  });
+  assert.equal(meteringBeforeBlockedDuplicate.statusCode, 200, meteringBeforeBlockedDuplicate.body);
+  assert.equal(meteringBeforeBlockedDuplicate.json?.metering?.summary?.topUpTotalCents, 100);
+  assert.equal(meteringBeforeBlockedDuplicate.json?.metering?.summary?.coveredAmountCents, 400);
+  assert.equal(meteringBeforeBlockedDuplicate.json?.totalMeters, 1);
+
+  const duplicateTopupConflict = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_duplicate_1/topup",
+    headers: {
+      "x-idempotency-key": "work_order_meter_adv_duplicate_topup_conflict_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      topUpId: "topup_meter_adv_duplicate_2",
+      amountCents: 140,
+      quantity: 1,
+      currency: "USD",
+      eventKey: "work_order_topup:workord_meter_adv_duplicate_1:event_dup",
+      occurredAt: "2026-02-26T01:01:00.000Z"
+    }
+  });
+  assert.equal(duplicateTopupConflict.statusCode, 409, duplicateTopupConflict.body);
+  assert.equal(duplicateTopupConflict.json?.code, "WORK_ORDER_TOPUP_BLOCKED");
+  assert.equal(duplicateTopupConflict.json?.details?.reasonCode, "WORK_ORDER_TOPUP_EVENT_CONFLICT");
+
+  const meteringAfterBlockedDuplicate = await request(api, {
+    method: "GET",
+    path: "/work-orders/workord_meter_adv_duplicate_1/metering?includeMeters=true"
+  });
+  assert.equal(meteringAfterBlockedDuplicate.statusCode, 200, meteringAfterBlockedDuplicate.body);
+  assert.equal(
+    meteringAfterBlockedDuplicate.json?.metering?.summary?.topUpTotalCents,
+    meteringBeforeBlockedDuplicate.json?.metering?.summary?.topUpTotalCents
+  );
+  assert.equal(
+    meteringAfterBlockedDuplicate.json?.metering?.summary?.coveredAmountCents,
+    meteringBeforeBlockedDuplicate.json?.metering?.summary?.coveredAmountCents
+  );
+  assert.equal(meteringAfterBlockedDuplicate.json?.totalMeters, meteringBeforeBlockedDuplicate.json?.totalMeters);
+  assert.equal(
+    meteringAfterBlockedDuplicate.json?.metering?.meterDigest,
+    meteringBeforeBlockedDuplicate.json?.metering?.meterDigest
+  );
+
+  const createdEnvelope = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_meter_adv_envelope_create_1" },
+    body: {
+      workOrderId: "workord_meter_adv_envelope_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: {
+        amountCents: 300,
+        currency: "USD"
+      },
+      constraints: {
+        maxCostCents: 320
+      },
+      metering: {
+        mode: "metered",
+        requireFinalMeterEvidence: true,
+        enforceFinalReconcile: true,
+        maxTopUpCents: 300,
+        unit: "usd_cents"
+      }
+    }
+  });
+  assert.equal(createdEnvelope.statusCode, 201, createdEnvelope.body);
+
+  const envelopeExceeded = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_envelope_1/topup",
+    headers: {
+      "x-idempotency-key": "work_order_meter_adv_envelope_topup_exceeded_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      topUpId: "topup_meter_adv_envelope_1",
+      amountCents: 30,
+      quantity: 1,
+      currency: "USD",
+      eventKey: "work_order_topup:workord_meter_adv_envelope_1:topup_meter_adv_envelope_1",
+      occurredAt: "2026-02-26T01:05:00.000Z"
+    }
+  });
+  assert.equal(envelopeExceeded.statusCode, 409, envelopeExceeded.body);
+  assert.equal(envelopeExceeded.json?.code, "WORK_ORDER_TOPUP_BLOCKED");
+  assert.equal(envelopeExceeded.json?.details?.reasonCode, "WORK_ORDER_TOPUP_ENVELOPE_EXCEEDED");
+
+  const createdSplit = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_meter_adv_split_create_1" },
+    body: {
+      workOrderId: "workord_meter_adv_split_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: {
+        amountCents: 450,
+        currency: "USD"
+      },
+      settlementSplitPolicy: {
+        schemaVersion: "WorkOrderSettlementSplitPolicy.v1",
+        mode: "deterministic",
+        requireAtSettle: true,
+        requiredRoles: ["provider_payout", "router_fee"]
+      }
+    }
+  });
+  assert.equal(createdSplit.statusCode, 201, createdSplit.body);
+
+  const acceptedSplit = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_split_1/accept",
+    headers: { "x-idempotency-key": "work_order_meter_adv_split_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-26T01:10:00.000Z"
+    }
+  });
+  assert.equal(acceptedSplit.statusCode, 200, acceptedSplit.body);
+
+  const completedSplit = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_split_1/complete",
+    headers: { "x-idempotency-key": "work_order_meter_adv_split_complete_1" },
+    body: {
+      receiptId: "worec_meter_adv_split_1",
+      status: "success",
+      outputs: {
+        artifactRef: "artifact://code/workord/meter/adv/split/1"
+      },
+      evidenceRefs: ["artifact://code/workord/meter/adv/split/1", "report://verification/workord/meter/adv/split/1"],
+      amountCents: 450,
+      currency: "USD",
+      deliveredAt: "2026-02-26T01:20:00.000Z",
+      completedAt: "2026-02-26T01:21:00.000Z"
+    }
+  });
+  assert.equal(completedSplit.statusCode, 200, completedSplit.body);
+
+  const splitInvalidSettlementBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_split_1/settle",
+    headers: { "x-idempotency-key": "work_order_meter_adv_split_settle_invalid_1" },
+    body: {
+      completionReceiptId: "worec_meter_adv_split_1",
+      completionReceiptHash: completedSplit.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_meter_adv_split_1",
+      x402RunId: "run_meter_adv_split_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_meter_adv_split_1",
+      settlementSplit: {
+        schemaVersion: "WorkOrderSettlementSplit.v1",
+        settlementAmountCents: 450,
+        currency: "USD",
+        allocations: [
+          { role: "provider_payout", amountCents: 320, recipientRef: "agent://sub/agt_workord_meter_adv_worker_1" },
+          { role: "router_fee", amountCents: 100, recipientRef: "agent://router/platform" }
+        ]
+      },
+      settledAt: "2026-02-26T01:30:00.000Z"
+    }
+  });
+  assert.equal(splitInvalidSettlementBlocked.statusCode, 409, splitInvalidSettlementBlocked.body);
+  assert.equal(splitInvalidSettlementBlocked.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(splitInvalidSettlementBlocked.json?.details?.reasonCode, "WORK_ORDER_SETTLEMENT_SPLIT_INVALID");
+
+  const createdMeterSettle = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_create_1" },
+    body: {
+      workOrderId: "workord_meter_adv_settle_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: {
+        amountCents: 300,
+        currency: "USD"
+      },
+      constraints: {
+        maxCostCents: 500
+      },
+      metering: {
+        mode: "metered",
+        requireFinalMeterEvidence: true,
+        enforceFinalReconcile: true,
+        maxTopUpCents: 250,
+        unit: "usd_cents"
+      }
+    }
+  });
+  assert.equal(createdMeterSettle.statusCode, 201, createdMeterSettle.body);
+
+  const acceptedMeterSettle = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/accept",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_accept_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-26T01:40:00.000Z"
+    }
+  });
+  assert.equal(acceptedMeterSettle.statusCode, 200, acceptedMeterSettle.body);
+
+  const completedMeterSettle = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/complete",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_complete_1" },
+    body: {
+      receiptId: "worec_meter_adv_settle_1",
+      status: "success",
+      outputs: {
+        artifactRef: "artifact://code/workord/meter/adv/settle/1"
+      },
+      evidenceRefs: ["artifact://code/workord/meter/adv/settle/1", "report://verification/workord/meter/adv/settle/1"],
+      amountCents: 300,
+      currency: "USD",
+      deliveredAt: "2026-02-26T01:50:00.000Z",
+      completedAt: "2026-02-26T01:51:00.000Z"
+    }
+  });
+  assert.equal(completedMeterSettle.statusCode, 200, completedMeterSettle.body);
+
+  const settleMissingMeterEvidence = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/settle",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_missing_meter_evidence_1" },
+    body: {
+      completionReceiptId: "worec_meter_adv_settle_1",
+      completionReceiptHash: completedMeterSettle.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_meter_adv_settle_missing_1",
+      x402RunId: "run_meter_adv_settle_missing_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_meter_adv_settle_missing_1",
+      settledAt: "2026-02-26T01:52:00.000Z"
+    }
+  });
+  assert.equal(settleMissingMeterEvidence.statusCode, 409, settleMissingMeterEvidence.body);
+  assert.equal(settleMissingMeterEvidence.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(settleMissingMeterEvidence.json?.details?.reasonCode, "WORK_ORDER_SETTLEMENT_METER_EVIDENCE_REQUIRED");
+
+  const settleInvalidMeterEvidence = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/settle",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_invalid_meter_evidence_1" },
+    body: {
+      completionReceiptId: "worec_meter_adv_settle_1",
+      completionReceiptHash: completedMeterSettle.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_meter_adv_settle_invalid_1",
+      x402RunId: "run_meter_adv_settle_invalid_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_meter_adv_settle_invalid_1",
+      meteringEventKeys: ["work_order_topup:workord_meter_adv_settle_1:missing"],
+      settledAt: "2026-02-26T01:53:00.000Z"
+    }
+  });
+  assert.equal(settleInvalidMeterEvidence.statusCode, 409, settleInvalidMeterEvidence.body);
+  assert.equal(settleInvalidMeterEvidence.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(settleInvalidMeterEvidence.json?.details?.reasonCode, "WORK_ORDER_SETTLEMENT_METER_EVIDENCE_REQUIRED");
+  assert.deepEqual(settleInvalidMeterEvidence.json?.details?.missingMeterEventKeys, [
+    "work_order_topup:workord_meter_adv_settle_1:missing"
+  ]);
+
+  const topupForReconcileMismatch = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/topup",
+    headers: {
+      "x-idempotency-key": "work_order_meter_adv_settle_topup_for_reconcile_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      topUpId: "topup_meter_adv_settle_1",
+      amountCents: 120,
+      quantity: 1,
+      currency: "USD",
+      eventKey: "work_order_topup:workord_meter_adv_settle_1:topup_meter_adv_settle_1",
+      occurredAt: "2026-02-26T01:54:00.000Z"
+    }
+  });
+  assert.equal(topupForReconcileMismatch.statusCode, 201, topupForReconcileMismatch.body);
+
+  const settleReconcileMismatch = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_adv_settle_1/settle",
+    headers: { "x-idempotency-key": "work_order_meter_adv_settle_reconcile_mismatch_1" },
+    body: {
+      completionReceiptId: "worec_meter_adv_settle_1",
+      completionReceiptHash: completedMeterSettle.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_meter_adv_settle_reconcile_1",
+      x402RunId: "run_meter_adv_settle_reconcile_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_meter_adv_settle_reconcile_1",
+      meteringEventKeys: ["work_order_topup:workord_meter_adv_settle_1:topup_meter_adv_settle_1"],
+      settledAt: "2026-02-26T01:55:00.000Z"
+    }
+  });
+  assert.equal(settleReconcileMismatch.statusCode, 409, settleReconcileMismatch.body);
+  assert.equal(settleReconcileMismatch.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(settleReconcileMismatch.json?.details?.reasonCode, "WORK_ORDER_SETTLEMENT_METER_RECONCILE_MISMATCH");
+});
+
 test("API e2e: work-order attestation requirement is enforced on create and accept", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 

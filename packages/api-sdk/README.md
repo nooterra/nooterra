@@ -78,6 +78,27 @@ Both adapters fail with a stable `error.nooterra` shape that includes:
 - `status`, `code`, `message`, `details`, `requestId`
 - `retryable`, `attempts`, `transport`, `operationId`
 
+## Deterministic Helpers
+
+Use deterministic helpers for canonical payload hashing and reproducible signatures:
+
+- `canonicalJsonStringifyDeterministic(value)`
+- `computeCanonicalSha256(value)`
+- `buildCanonicalEnvelope(value)`
+
+```js
+import { canonicalJsonStringifyDeterministic, computeCanonicalSha256, buildCanonicalEnvelope } from "nooterra-api-sdk";
+
+const canonicalJson = canonicalJsonStringifyDeterministic({ b: 2, a: 1 });
+// canonicalJson === '{"a":1,"b":2}'
+
+const sha256 = computeCanonicalSha256({ b: 2, a: 1 });
+const envelope = buildCanonicalEnvelope({ b: 2, a: 1 });
+// envelope => { canonicalJson: '{"a":1,"b":2}', sha256: <hex> }
+```
+
+These helpers are transport-neutral and align with SDK core object builders (`createAgreement`, `signEvidence`, `buildDisputeOpenEnvelope`).
+
 Safety caveats for integration:
 - Treat `PARITY_*` validation errors as hard-stop conditions. Do not bypass them.
 - Idempotency is fail-closed by default (`idempotencyRequired: true`). Set `idempotencyRequired: false` only for explicitly safe read operations.
