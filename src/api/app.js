@@ -10256,6 +10256,8 @@ export function createApi({
     CHARGEBACK_THRESHOLD: "REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD",
     INVALID_SIGNATURE_THRESHOLD: "REPUTATION_QUARANTINE_INVALID_SIGNATURE_THRESHOLD",
     SYBIL_THRESHOLD: "REPUTATION_QUARANTINE_SYBIL_THRESHOLD",
+    WASH_LOOP_THRESHOLD: "REPUTATION_QUARANTINE_WASH_LOOP_THRESHOLD",
+    COLLUSION_THRESHOLD: "REPUTATION_QUARANTINE_COLLUSION_THRESHOLD",
     TOTAL_PENALTY_THRESHOLD: "REPUTATION_QUARANTINE_TOTAL_PENALTY_THRESHOLD",
     SIGNAL_UNAVAILABLE: "REPUTATION_QUARANTINE_SIGNAL_UNAVAILABLE"
   });
@@ -10264,8 +10266,22 @@ export function createApi({
     chargebackCount: 1,
     invalidSignatureCount: 1,
     sybilCount: 1,
+    washLoopRelationshipCount: Math.max(1, parseNonNegativeIntEnv("PROXY_RELATIONSHIP_WASH_LOOP_QUARANTINE_COUNT", 1)),
+    collusionRelationshipCount: Math.max(1, parseNonNegativeIntEnv("PROXY_RELATIONSHIP_COLLUSION_QUARANTINE_COUNT", 1)),
     totalPenaltyCount: 2
   });
+
+  function buildPenaltySignalCounts() {
+    return {
+      disputeLostCount: 0,
+      chargebackCount: 0,
+      invalidSignatureCount: 0,
+      sybilCount: 0,
+      washLoopRelationshipCount: 0,
+      collusionRelationshipCount: 0,
+      totalPenaltyCount: 0
+    };
+  }
 
   function isLikelySignerIssueMessage(message) {
     return /signature|signer.?key|invalid signer|openedbyagentid/i.test(String(message ?? ""));
@@ -10285,6 +10301,12 @@ export function createApi({
     if ((counts?.sybilCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.sybilCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.SYBIL_THRESHOLD);
     }
+    if ((counts?.washLoopRelationshipCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.washLoopRelationshipCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.WASH_LOOP_THRESHOLD);
+    }
+    if ((counts?.collusionRelationshipCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.collusionRelationshipCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.COLLUSION_THRESHOLD);
+    }
     if ((counts?.totalPenaltyCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.totalPenaltyCount) {
       reasons.push(REPUTATION_QUARANTINE_REASON_CODE.TOTAL_PENALTY_THRESHOLD);
     }
@@ -10300,13 +10322,7 @@ export function createApi({
         asOf: asOfValue,
         evaluationStatus: "unavailable",
         thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
-        counts: {
-          disputeLostCount: 0,
-          chargebackCount: 0,
-          invalidSignatureCount: 0,
-          sybilCount: 0,
-          totalPenaltyCount: 0
-        },
+        counts: buildPenaltySignalCounts(),
         quarantineRecommended: true,
         reasonCodes: [String(reasonCode ?? REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE)]
       },
@@ -10318,20 +10334,15 @@ export function createApi({
     events = [],
     agentId,
     asOf,
-    windowStartAt = null
+    windowStartAt = null,
+    antiGamingCounts = null
   } = {}) {
     const normalizedAgentId = String(agentId ?? "").trim();
     if (!normalizedAgentId) throw new TypeError("agentId is required");
     const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
     const asOfMs = Date.parse(asOfValue);
     const windowStartMs = windowStartAt ? Date.parse(String(windowStartAt)) : Number.NaN;
-    const counts = {
-      disputeLostCount: 0,
-      chargebackCount: 0,
-      invalidSignatureCount: 0,
-      sybilCount: 0,
-      totalPenaltyCount: 0
-    };
+    const counts = buildPenaltySignalCounts();
 
     for (const event of Array.isArray(events) ? events : []) {
       if (!event || typeof event !== "object" || Array.isArray(event)) continue;
@@ -10347,7 +10358,17 @@ export function createApi({
       else if (kind === REPUTATION_EVENT_KIND.PENALTY_SYBIL) counts.sybilCount += 1;
     }
 
-    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount + counts.sybilCount;
+    const antiGaming =
+      antiGamingCounts && typeof antiGamingCounts === "object" && !Array.isArray(antiGamingCounts) ? antiGamingCounts : {};
+    counts.washLoopRelationshipCount = toSafeNonNegativeInt(antiGaming.washLoopRelationshipCount) ?? 0;
+    counts.collusionRelationshipCount = toSafeNonNegativeInt(antiGaming.collusionRelationshipCount) ?? 0;
+    counts.totalPenaltyCount =
+      counts.disputeLostCount +
+      counts.chargebackCount +
+      counts.invalidSignatureCount +
+      counts.sybilCount +
+      counts.washLoopRelationshipCount +
+      counts.collusionRelationshipCount;
     const reasonCodes = derivePenaltyQuarantineReasonCodes(counts);
     return normalizeForCanonicalJson(
       {
@@ -10618,6 +10639,70 @@ export function createApi({
       },
       { path: "$" }
     );
+  }
+
+  async function computeRelationshipAntiGamingPenaltyCounts({
+    tenantId,
+    agentId,
+    events = [],
+    occurredAtGte = null,
+    occurredAtLte = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const subjectAgentId = String(agentId ?? "").trim();
+    if (!subjectAgentId) throw new TypeError("agentId is required");
+
+    const groupedByCounterparty = new Map();
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      if (!subject || String(subject.agentId ?? "").trim() !== subjectAgentId) continue;
+      const counterparty = typeof subject.counterpartyAgentId === "string" ? subject.counterpartyAgentId.trim() : "";
+      if (!counterparty) continue;
+      const bucket = groupedByCounterparty.get(counterparty) ?? [];
+      bucket.push(event);
+      groupedByCounterparty.set(counterparty, bucket);
+    }
+
+    const counts = {
+      washLoopRelationshipCount: 0,
+      collusionRelationshipCount: 0
+    };
+    const counterparties = Array.from(groupedByCounterparty.keys()).sort((left, right) => left.localeCompare(right));
+    for (const counterparty of counterparties) {
+      const counterpartyEvents = groupedByCounterparty.get(counterparty) ?? [];
+      const forwardStats = computeRoutingReputationEventStats({
+        events: counterpartyEvents,
+        counterpartyAgentId: counterparty
+      });
+      if (forwardStats.lowValueLoopCandidate === true) counts.washLoopRelationshipCount += 1;
+
+      const shouldCheckReciprocalCollusion =
+        forwardStats.lowValueLoopCandidate === true &&
+        Number(forwardStats.decisionsTotal ?? 0) >= RELATIONSHIP_COLLUSION_MIN_RECIPROCAL_DECISIONS &&
+        Number(forwardStats.microLoopRate ?? 0) >= 0.75 &&
+        Number(forwardStats.economicWeightCents ?? 0) <= RELATIONSHIP_COLLUSION_MAX_ECONOMIC_WEIGHT_CENTS;
+      if (!shouldCheckReciprocalCollusion) continue;
+
+      const reciprocalEvents = await listRoutingReputationEvents({
+        tenantId: t,
+        agentId: counterparty,
+        occurredAtGte,
+        occurredAtLte,
+        pageSize: 5000
+      });
+      const reciprocalStats = computeRoutingReputationEventStats({
+        events: reciprocalEvents,
+        counterpartyAgentId: subjectAgentId
+      });
+      const antiGamingSignals = computeRelationshipAntiGamingSignals({
+        forwardStats,
+        reciprocalStats
+      });
+      if (antiGamingSignals.collusionSuspected === true) counts.collusionRelationshipCount += 1;
+    }
+
+    return counts;
   }
 
   function computeTrustWeightedRoutingScore({
@@ -11494,11 +11579,19 @@ export function createApi({
           occurredAtLte: asOf,
           pageSize: 5000
         });
+        const antiGamingCounts = await computeRelationshipAntiGamingPenaltyCounts({
+          tenantId: t,
+          agentId: a,
+          events,
+          occurredAtGte: windowStartAt,
+          occurredAtLte: asOf
+        });
         penaltySignal = computeReputationPenaltySignal({
           events,
           agentId: a,
           asOf,
-          windowStartAt
+          windowStartAt,
+          antiGamingCounts
         });
       } catch (err) {
         if (failClosed) {
