@@ -9171,13 +9171,13 @@ export function createApi({
   function normalizeWorkOrderEvidenceKinds(value, { fieldName = "evidenceKinds" } = {}) {
     if (value === null || value === undefined) return [];
     if (!Array.isArray(value)) throw new TypeError(`${fieldName} must be an array`);
-    const allowed = new Set(["artifact", "hash", "verification_report"]);
+    const allowed = new Set(["artifact", "hash", "verification_report", "execution_attestation"]);
     const out = [];
     const seen = new Set();
     for (let index = 0; index < value.length; index += 1) {
       const raw = String(value[index] ?? "").trim().toLowerCase();
       if (!raw) continue;
-      if (!allowed.has(raw)) throw new TypeError(`${fieldName}[${index}] must be artifact|hash|verification_report`);
+      if (!allowed.has(raw)) throw new TypeError(`${fieldName}[${index}] must be artifact|hash|verification_report|execution_attestation`);
       if (seen.has(raw)) continue;
       seen.add(raw);
       out.push(raw);
@@ -9290,7 +9290,7 @@ export function createApi({
     );
   }
 
-  function classifyEvidenceRefKinds(evidenceRefs = []) {
+  function classifyEvidenceRefKinds({ evidenceRefs = [], executionAttestation = null } = {}) {
     const kinds = new Set();
     if (!Array.isArray(evidenceRefs)) return kinds;
     for (const row of evidenceRefs) {
@@ -9313,6 +9313,17 @@ export function createApi({
       ) {
         kinds.add("verification_report");
       }
+      if (ref.startsWith("attestation://execution/")) {
+        kinds.add("execution_attestation");
+      }
+    }
+    if (
+      executionAttestation &&
+      typeof executionAttestation === "object" &&
+      !Array.isArray(executionAttestation) &&
+      String(executionAttestation.schemaVersion ?? "").trim() === "ExecutionAttestation.v1"
+    ) {
+      kinds.add("execution_attestation");
     }
     return kinds;
   }
@@ -9330,7 +9341,10 @@ export function createApi({
     });
     const rule = normalizedStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED ? policy.release : policy.refund;
     const evidenceRefs = Array.isArray(completionReceipt?.evidenceRefs) ? completionReceipt.evidenceRefs.map((row) => String(row ?? "").trim()).filter(Boolean) : [];
-    const evidenceKinds = classifyEvidenceRefKinds(evidenceRefs);
+    const evidenceKinds = classifyEvidenceRefKinds({
+      evidenceRefs,
+      executionAttestation: completionReceipt?.executionAttestation ?? null
+    });
 
     if (evidenceRefs.length < Number(rule.minEvidenceRefs ?? 0)) {
       return {
@@ -9636,8 +9650,8 @@ export function createApi({
       throw new TypeError("toolRequiresEvidenceKind is required");
     }
     const value = String(rawValue).trim().toLowerCase();
-    if (value !== "artifact" && value !== "hash" && value !== "verification_report") {
-      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    if (value !== "artifact" && value !== "hash" && value !== "verification_report" && value !== "execution_attestation") {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report|execution_attestation");
     }
     return value;
   }
@@ -63340,6 +63354,10 @@ export function createApi({
               outputs: body?.outputs ?? null,
               metrics: body?.metrics ?? null,
               evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
+              executionAttestation:
+                body?.executionAttestation && typeof body.executionAttestation === "object" && !Array.isArray(body.executionAttestation)
+                  ? body.executionAttestation
+                  : null,
               amountCents: body?.amountCents ?? null,
               currency: typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : null,
               traceId: requestedTraceId ?? workOrderTraceId ?? null,

@@ -24,7 +24,8 @@ export const TOOL_DESCRIPTOR_RISK_CLASS = Object.freeze({
 const TOOL_DESCRIPTOR_EVIDENCE_KIND = Object.freeze({
   ARTIFACT: "artifact",
   HASH: "hash",
-  VERIFICATION_REPORT: "verification_report"
+  VERIFICATION_REPORT: "verification_report",
+  EXECUTION_ATTESTATION: "execution_attestation"
 });
 
 function assertPlainObject(value, name) {
@@ -158,7 +159,7 @@ function normalizeToolDescriptorEvidenceKinds(value, name) {
     if (!entry) continue;
     const parsed = entry.toLowerCase();
     if (!allowedKinds.has(parsed)) {
-      throw new TypeError(`${name}[${index}] must be artifact|hash|verification_report`);
+      throw new TypeError(`${name}[${index}] must be artifact|hash|verification_report|execution_attestation`);
     }
     if (seen.has(parsed)) continue;
     seen.add(parsed);

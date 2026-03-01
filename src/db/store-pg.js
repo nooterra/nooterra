@@ -4799,9 +4799,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       toolRequiresEvidenceKindFilter !== null &&
       toolRequiresEvidenceKindFilter !== "artifact" &&
       toolRequiresEvidenceKindFilter !== "hash" &&
-      toolRequiresEvidenceKindFilter !== "verification_report"
+      toolRequiresEvidenceKindFilter !== "verification_report" &&
+      toolRequiresEvidenceKindFilter !== "execution_attestation"
     ) {
-      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report|execution_attestation");
     }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
     const hasToolDescriptorFilter =
@@ -5174,9 +5175,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       toolRequiresEvidenceKindFilter !== null &&
       toolRequiresEvidenceKindFilter !== "artifact" &&
       toolRequiresEvidenceKindFilter !== "hash" &&
-      toolRequiresEvidenceKindFilter !== "verification_report"
+      toolRequiresEvidenceKindFilter !== "verification_report" &&
+      toolRequiresEvidenceKindFilter !== "execution_attestation"
     ) {
-      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report|execution_attestation");
     }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
     const hasToolDescriptorFilter =

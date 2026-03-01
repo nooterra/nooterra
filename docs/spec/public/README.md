@@ -26,6 +26,7 @@ They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cu
 - `TaskAcceptance.v1.md`
 - `SubAgentWorkOrder.v1.md`
 - `SubAgentCompletionReceipt.v1.md`
+- `ExecutionAttestation.v1.md`
 - `Meter.v1.md`
 - `ArtifactRef.v1.md`
 - `AuditPacket.v1.md`

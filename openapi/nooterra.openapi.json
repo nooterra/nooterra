@@ -42456,7 +42456,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -42847,7 +42848,8 @@
                             "enum": [
                               "artifact",
                               "hash",
-                              "verification_report"
+                              "verification_report",
+                              "execution_attestation"
                             ]
                           }
                         },
@@ -43164,7 +43166,8 @@
                                   "enum": [
                                     "artifact",
                                     "hash",
-                                    "verification_report"
+                                    "verification_report",
+                                    "execution_attestation"
                                   ]
                                 }
                               },
@@ -43510,7 +43513,8 @@
                                   "enum": [
                                     "artifact",
                                     "hash",
-                                    "verification_report"
+                                    "verification_report",
+                                    "execution_attestation"
                                   ]
                                 }
                               },
@@ -45007,7 +45011,8 @@
               "enum": [
                 "artifact",
                 "hash",
-                "verification_report"
+                "verification_report",
+                "execution_attestation"
               ]
             }
           },
@@ -45504,7 +45509,8 @@
                                         "enum": [
                                           "artifact",
                                           "hash",
-                                          "verification_report"
+                                          "verification_report",
+                                          "execution_attestation"
                                         ]
                                       }
                                     },
@@ -46728,7 +46734,8 @@
               "enum": [
                 "artifact",
                 "hash",
-                "verification_report"
+                "verification_report",
+                "execution_attestation"
               ]
             }
           },
@@ -47235,7 +47242,8 @@
                                         "enum": [
                                           "artifact",
                                           "hash",
-                                          "verification_report"
+                                          "verification_report",
+                                          "execution_attestation"
                                         ]
                                       }
                                     },
@@ -48631,7 +48639,8 @@
                                   "enum": [
                                     "artifact",
                                     "hash",
-                                    "verification_report"
+                                    "verification_report",
+                                    "execution_attestation"
                                   ]
                                 }
                               },
@@ -54934,7 +54943,8 @@
                                       "enum": [
                                         "artifact",
                                         "hash",
-                                        "verification_report"
+                                        "verification_report",
+                                        "execution_attestation"
                                       ]
                                     }
                                   },
@@ -54963,7 +54973,8 @@
                                       "enum": [
                                         "artifact",
                                         "hash",
-                                        "verification_report"
+                                        "verification_report",
+                                        "execution_attestation"
                                       ]
                                     }
                                   },
@@ -55434,7 +55445,8 @@
                               "enum": [
                                 "artifact",
                                 "hash",
-                                "verification_report"
+                                "verification_report",
+                                "execution_attestation"
                               ]
                             }
                           },
@@ -55463,7 +55475,8 @@
                               "enum": [
                                 "artifact",
                                 "hash",
-                                "verification_report"
+                                "verification_report",
+                                "execution_attestation"
                               ]
                             }
                           },
@@ -55739,7 +55752,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -55768,7 +55782,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -56300,7 +56315,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -56329,7 +56345,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -56850,7 +56867,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -56879,7 +56897,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -57438,7 +57457,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -57467,7 +57487,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -58424,6 +58445,71 @@
                       "type": "string"
                     }
                   },
+                  "executionAttestation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "attestationId",
+                      "workOrderId",
+                      "executionId",
+                      "attester",
+                      "evidenceHash",
+                      "attestedAt",
+                      "attestationHash"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "type": "string",
+                        "enum": [
+                          "ExecutionAttestation.v1"
+                        ]
+                      },
+                      "attestationId": {
+                        "type": "string"
+                      },
+                      "workOrderId": {
+                        "type": "string"
+                      },
+                      "executionId": {
+                        "type": "string"
+                      },
+                      "attester": {
+                        "type": "string"
+                      },
+                      "evidenceHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "attestedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "runtime": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "nullable": true
+                      },
+                      "signerKeyId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "signature": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "metadata": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "nullable": true
+                      },
+                      "attestationHash": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "nullable": true
+                  },
                   "amountCents": {
                     "type": "integer",
                     "minimum": 0,
@@ -58626,7 +58712,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -58655,7 +58742,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -58977,6 +59065,71 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "executionAttestation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "attestationId",
+                            "workOrderId",
+                            "executionId",
+                            "attester",
+                            "evidenceHash",
+                            "attestedAt",
+                            "attestationHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "ExecutionAttestation.v1"
+                              ]
+                            },
+                            "attestationId": {
+                              "type": "string"
+                            },
+                            "workOrderId": {
+                              "type": "string"
+                            },
+                            "executionId": {
+                              "type": "string"
+                            },
+                            "attester": {
+                              "type": "string"
+                            },
+                            "evidenceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "attestedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "runtime": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "signerKeyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "signature": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "attestationHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            }
+                          },
+                          "nullable": true
                         },
                         "settlementQuote": {
                           "type": "object",
@@ -59394,7 +59547,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -59423,7 +59577,8 @@
                                     "enum": [
                                       "artifact",
                                       "hash",
-                                      "verification_report"
+                                      "verification_report",
+                                      "execution_attestation"
                                     ]
                                   }
                                 },
@@ -59745,6 +59900,71 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "executionAttestation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "attestationId",
+                            "workOrderId",
+                            "executionId",
+                            "attester",
+                            "evidenceHash",
+                            "attestedAt",
+                            "attestationHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "ExecutionAttestation.v1"
+                              ]
+                            },
+                            "attestationId": {
+                              "type": "string"
+                            },
+                            "workOrderId": {
+                              "type": "string"
+                            },
+                            "executionId": {
+                              "type": "string"
+                            },
+                            "attester": {
+                              "type": "string"
+                            },
+                            "evidenceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "attestedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "runtime": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "signerKeyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "signature": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "attestationHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            }
+                          },
+                          "nullable": true
                         },
                         "settlementQuote": {
                           "type": "object",
@@ -60093,6 +60313,71 @@
                               "type": "string"
                             }
                           },
+                          "executionAttestation": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "attestationId",
+                              "workOrderId",
+                              "executionId",
+                              "attester",
+                              "evidenceHash",
+                              "attestedAt",
+                              "attestationHash"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "ExecutionAttestation.v1"
+                                ]
+                              },
+                              "attestationId": {
+                                "type": "string"
+                              },
+                              "workOrderId": {
+                                "type": "string"
+                              },
+                              "executionId": {
+                                "type": "string"
+                              },
+                              "attester": {
+                                "type": "string"
+                              },
+                              "evidenceHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "attestedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "runtime": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "nullable": true
+                              },
+                              "signerKeyId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "signature": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "nullable": true
+                              },
+                              "attestationHash": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              }
+                            },
+                            "nullable": true
+                          },
                           "settlementQuote": {
                             "type": "object",
                             "additionalProperties": false,
@@ -60349,6 +60634,71 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "executionAttestation": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "attestationId",
+                            "workOrderId",
+                            "executionId",
+                            "attester",
+                            "evidenceHash",
+                            "attestedAt",
+                            "attestationHash"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "ExecutionAttestation.v1"
+                              ]
+                            },
+                            "attestationId": {
+                              "type": "string"
+                            },
+                            "workOrderId": {
+                              "type": "string"
+                            },
+                            "executionId": {
+                              "type": "string"
+                            },
+                            "attester": {
+                              "type": "string"
+                            },
+                            "evidenceHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "attestedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "runtime": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "signerKeyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "signature": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "metadata": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "nullable": true
+                            },
+                            "attestationHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            }
+                          },
+                          "nullable": true
                         },
                         "settlementQuote": {
                           "type": "object",

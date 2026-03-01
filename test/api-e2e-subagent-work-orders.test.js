@@ -1600,6 +1600,178 @@ test("API e2e: work-order settlement evidence binding blocks missing/mismatched 
   assert.equal(settleValid.json?.workOrder?.settlement?.status, "released");
 });
 
+test("API e2e: settlement evidence policy can require execution attestation fail-closed", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_workord_execatt_principal_1";
+  const subAgentId = "agt_workord_execatt_worker_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["code.generation", "orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const createBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_execatt_1" },
+    body: {
+      workOrderId: "workord_execatt_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 940, currency: "USD" },
+      evidencePolicy: {
+        schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+        workOrderType: "code_generation",
+        release: {
+          minEvidenceRefs: 1,
+          requiredKinds: ["artifact", "execution_attestation"],
+          requireReceiptHashBinding: false
+        },
+        refund: {
+          minEvidenceRefs: 1,
+          requiredKinds: ["artifact"],
+          requireReceiptHashBinding: false
+        }
+      }
+    }
+  });
+  assert.equal(createBlocked.statusCode, 201, createBlocked.body);
+
+  const acceptBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_1/accept",
+    headers: { "x-idempotency-key": "work_order_accept_execatt_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-03-01T01:00:00.000Z"
+    }
+  });
+  assert.equal(acceptBlocked.statusCode, 200, acceptBlocked.body);
+
+  const completeMissingExecutionAttestation = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_1/complete",
+    headers: { "x-idempotency-key": "work_order_complete_execatt_missing_1" },
+    body: {
+      receiptId: "worec_execatt_missing_1",
+      status: "success",
+      outputs: { artifactRef: "artifact://code/execatt/missing/1" },
+      evidenceRefs: ["artifact://code/execatt/missing/1"],
+      amountCents: 940,
+      currency: "USD",
+      deliveredAt: "2026-03-01T01:10:00.000Z",
+      completedAt: "2026-03-01T01:11:00.000Z"
+    }
+  });
+  assert.equal(completeMissingExecutionAttestation.statusCode, 200, completeMissingExecutionAttestation.body);
+
+  const settleBlocked = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_1/settle",
+    headers: { "x-idempotency-key": "work_order_settle_execatt_blocked_1" },
+    body: {
+      completionReceiptId: "worec_execatt_missing_1",
+      completionReceiptHash: completeMissingExecutionAttestation.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_execatt_blocked_1",
+      x402RunId: "run_execatt_blocked_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_execatt_blocked_1",
+      settledAt: "2026-03-01T01:20:00.000Z"
+    }
+  });
+  assert.equal(settleBlocked.statusCode, 409, settleBlocked.body);
+  assert.equal(settleBlocked.json?.code, "WORK_ORDER_EVIDENCE_BINDING_BLOCKED");
+  assert.equal(settleBlocked.json?.details?.reasonCode, "WORK_ORDER_EVIDENCE_KIND_MISMATCH");
+  assert.equal(Array.isArray(settleBlocked.json?.details?.missingKinds), true);
+  assert.equal(settleBlocked.json?.details?.missingKinds?.includes("execution_attestation"), true);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_create_execatt_2" },
+    body: {
+      workOrderId: "workord_execatt_2",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 950, currency: "USD" },
+      evidencePolicy: {
+        schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+        workOrderType: "code_generation",
+        release: {
+          minEvidenceRefs: 1,
+          requiredKinds: ["artifact", "execution_attestation"],
+          requireReceiptHashBinding: false
+        },
+        refund: {
+          minEvidenceRefs: 1,
+          requiredKinds: ["artifact"],
+          requireReceiptHashBinding: false
+        }
+      }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_2/accept",
+    headers: { "x-idempotency-key": "work_order_accept_execatt_2" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-03-01T01:30:00.000Z"
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_2/complete",
+    headers: { "x-idempotency-key": "work_order_complete_execatt_2" },
+    body: {
+      receiptId: "worec_execatt_2",
+      status: "success",
+      outputs: { artifactRef: "artifact://code/execatt/2" },
+      evidenceRefs: ["artifact://code/execatt/2"],
+      executionAttestation: {
+        schemaVersion: "ExecutionAttestation.v1",
+        attestationId: "execatt_workord_2",
+        workOrderId: "workord_execatt_2",
+        executionId: "exec_workord_2",
+        attester: `agent://${subAgentId}`,
+        evidenceHash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        attestedAt: "2026-03-01T01:39:00.000Z"
+      },
+      amountCents: 950,
+      currency: "USD",
+      deliveredAt: "2026-03-01T01:40:00.000Z",
+      completedAt: "2026-03-01T01:41:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+  assert.equal(completed.json?.completionReceipt?.executionAttestation?.schemaVersion, "ExecutionAttestation.v1");
+  assert.equal(typeof completed.json?.completionReceipt?.executionAttestation?.attestationHash, "string");
+  assert.equal(completed.json?.completionReceipt?.executionAttestation?.attestationHash?.length, 64);
+
+  const settled = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_execatt_2/settle",
+    headers: { "x-idempotency-key": "work_order_settle_execatt_2" },
+    body: {
+      completionReceiptId: "worec_execatt_2",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_execatt_2",
+      x402RunId: "run_execatt_2",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_execatt_2",
+      settledAt: "2026-03-01T01:50:00.000Z"
+    }
+  });
+  assert.equal(settled.statusCode, 200, settled.body);
+  assert.equal(settled.json?.workOrder?.status, "settled");
+});
+
 test("API e2e: work-order settlement enforces taint-aware prompt-risk gates without a stored x402 gate record", async () => {
   const api = createApi({
     opsToken: "tok_ops",

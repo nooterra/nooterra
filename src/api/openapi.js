@@ -670,7 +670,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           unit: { type: "string" }
         }
       },
-      requiresEvidenceKinds: { type: "array", items: { type: "string", enum: ["artifact", "hash", "verification_report"] } },
+      requiresEvidenceKinds: {
+        type: "array",
+        items: { type: "string", enum: ["artifact", "hash", "verification_report", "execution_attestation"] }
+      },
       metadata: { type: "object", nullable: true, additionalProperties: true }
     }
   };
@@ -1172,7 +1175,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       minEvidenceRefs: { type: "integer", minimum: 0 },
       requiredKinds: {
         type: "array",
-        items: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+        items: { type: "string", enum: ["artifact", "hash", "verification_report", "execution_attestation"] }
       },
       requireReceiptHashBinding: { type: "boolean" }
     }
@@ -1295,6 +1298,26 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const ExecutionAttestationV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "attestationId", "workOrderId", "executionId", "attester", "evidenceHash", "attestedAt", "attestationHash"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["ExecutionAttestation.v1"] },
+      attestationId: { type: "string" },
+      workOrderId: { type: "string" },
+      executionId: { type: "string" },
+      attester: { type: "string" },
+      evidenceHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      attestedAt: { type: "string", format: "date-time" },
+      runtime: { type: "object", additionalProperties: true, nullable: true },
+      signerKeyId: { type: "string", nullable: true },
+      signature: { type: "string", nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      attestationHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
   const SubAgentCompletionReceiptV1 = {
     type: "object",
     additionalProperties: false,
@@ -1326,6 +1349,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       },
       metrics: { type: "object", additionalProperties: true, nullable: true },
       evidenceRefs: { type: "array", items: { type: "string" } },
+      executionAttestation: { ...ExecutionAttestationV1, nullable: true },
       settlementQuote: {
         type: "object",
         additionalProperties: false,
@@ -1413,6 +1437,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       outputs: { type: "object", additionalProperties: true },
       metrics: { type: "object", additionalProperties: true },
       evidenceRefs: { type: "array", items: { type: "string" } },
+      executionAttestation: { ...ExecutionAttestationV1, nullable: true },
       amountCents: { type: "integer", minimum: 0, nullable: true },
       currency: { type: "string", nullable: true },
       traceId: { type: "string", nullable: true },
@@ -8189,7 +8214,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               name: "toolRequiresEvidenceKind",
               in: "query",
               required: false,
-              schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+              schema: { type: "string", enum: ["artifact", "hash", "verification_report", "execution_attestation"] }
             },
             { name: "supportsPolicyTemplate", in: "query", required: false, schema: { type: "string" } },
             { name: "supportsEvidencePack", in: "query", required: false, schema: { type: "string" } },
@@ -8242,7 +8267,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               name: "toolRequiresEvidenceKind",
               in: "query",
               required: false,
-              schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+              schema: { type: "string", enum: ["artifact", "hash", "verification_report", "execution_attestation"] }
             },
             { name: "supportsPolicyTemplate", in: "query", required: false, schema: { type: "string" } },
             { name: "supportsEvidencePack", in: "query", required: false, schema: { type: "string" } },
