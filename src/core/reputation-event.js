@@ -9,7 +9,10 @@ export const REPUTATION_EVENT_KIND = Object.freeze({
   HOLDBACK_AUTO_RELEASED: "holdback_auto_released",
   DISPUTE_OPENED: "dispute_opened",
   VERDICT_ISSUED: "verdict_issued",
-  ADJUSTMENT_APPLIED: "adjustment_applied"
+  ADJUSTMENT_APPLIED: "adjustment_applied",
+  PENALTY_DISPUTE_LOST: "penalty_dispute_lost",
+  PENALTY_CHARGEBACK: "penalty_chargeback",
+  PENALTY_INVALID_SIGNATURE: "penalty_invalid_signature"
 });
 
 export const REPUTATION_EVENT_ROLE = Object.freeze({

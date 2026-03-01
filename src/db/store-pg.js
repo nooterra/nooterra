@@ -1738,13 +1738,28 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       checkpointId ? String(checkpointId) : stateCheckpoint.checkpointId ? String(stateCheckpoint.checkpointId) : null;
     if (!normalizedCheckpointId) throw new TypeError("checkpointId is required");
     const normalizedStateCheckpoint = { ...stateCheckpoint, tenantId, checkpointId: normalizedCheckpointId };
-    await persistSnapshotAggregate(client, {
-      tenantId,
-      aggregateType: "state_checkpoint",
-      aggregateId: normalizedCheckpointId,
-      snapshot: normalizedStateCheckpoint,
-      updatedAt: normalizedStateCheckpoint.updatedAt ?? normalizedStateCheckpoint.createdAt ?? null
-    });
+    const updatedAt =
+      parseIsoOrNull(normalizedStateCheckpoint.updatedAt) ??
+      parseIsoOrNull(normalizedStateCheckpoint.createdAt) ??
+      new Date().toISOString();
+    try {
+      await client.query(
+        `
+          INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+          VALUES ($1, 'state_checkpoint', $2, 0, NULL, $3, $4)
+        `,
+        [tenantId, normalizedCheckpointId, JSON.stringify(normalizedStateCheckpoint), updatedAt]
+      );
+    } catch (err) {
+      if (err?.code === "23505") {
+        const conflict = new Error("state checkpoint already exists");
+        conflict.code = "STATE_CHECKPOINT_ALREADY_EXISTS";
+        conflict.checkpointId = normalizedCheckpointId;
+        conflict.constraint = err?.constraint ?? null;
+        throw conflict;
+      }
+      throw err;
+    }
   }
 
   async function persistSessionRelayState(client, { tenantId, checkpointId, relayState }) {

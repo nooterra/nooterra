@@ -89883,6 +89883,724 @@
         }
       }
     },
+    "/ops/network/command-center/workspace": {
+      "get": {
+        "summary": "Network command-center reliability and safety workspace",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "transactionFeeBps",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000,
+              "default": 100
+            }
+          },
+          {
+            "name": "windowHours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8760,
+              "default": 24
+            }
+          },
+          {
+            "name": "disputeSlaHours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8760,
+              "default": 24
+            }
+          },
+          {
+            "name": "httpClientErrorRateThresholdPct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "httpServerErrorRateThresholdPct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "deliveryDlqThreshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "disputeOverSlaThreshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "determinismRejectThreshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "kernelVerificationErrorThreshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "workspace"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "workspace": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "generatedAt",
+                        "parameters",
+                        "reliability",
+                        "safety",
+                        "trust",
+                        "revenue",
+                        "actionability",
+                        "links"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsNetworkCommandCenterWorkspace.v1"
+                          ]
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "parameters": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "transactionFeeBps",
+                            "windowHours",
+                            "disputeSlaHours"
+                          ],
+                          "properties": {
+                            "transactionFeeBps": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 5000
+                            },
+                            "windowHours": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 8760
+                            },
+                            "disputeSlaHours": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 8760
+                            }
+                          }
+                        },
+                        "reliability": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "httpRequestsTotal",
+                            "http4xxTotal",
+                            "http5xxTotal",
+                            "httpClientErrorRatePct",
+                            "httpServerErrorRatePct",
+                            "backlog"
+                          ],
+                          "properties": {
+                            "httpRequestsTotal": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "http4xxTotal": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "http5xxTotal": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "httpClientErrorRatePct": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "httpServerErrorRatePct": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "backlog": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "deliveriesPending",
+                                "deliveriesFailed",
+                                "ingestRejected",
+                                "deliveryDlqTopDestinations"
+                              ],
+                              "properties": {
+                                "outboxByKind": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                },
+                                "deliveriesPending": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "deliveriesFailed": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "ingestRejected": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "deliveryDlqTopDestinations": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "destinationId",
+                                      "count"
+                                    ],
+                                    "properties": {
+                                      "destinationId": {
+                                        "type": "string"
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "safety": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "determinism",
+                            "settlement",
+                            "disputes",
+                            "alerts"
+                          ],
+                          "properties": {
+                            "determinism": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "appendRejectedTopReasons",
+                                "ingestRejectedTopReasons",
+                                "determinismSensitiveRejects"
+                              ],
+                              "properties": {
+                                "appendRejectedTopReasons": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "reason",
+                                      "count"
+                                    ],
+                                    "properties": {
+                                      "reason": {
+                                        "type": "string"
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    }
+                                  }
+                                },
+                                "ingestRejectedTopReasons": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "reason",
+                                      "count"
+                                    ],
+                                    "properties": {
+                                      "reason": {
+                                        "type": "string"
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    }
+                                  }
+                                },
+                                "determinismSensitiveRejects": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              }
+                            },
+                            "settlement": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "windowHours",
+                                "resolvedCount",
+                                "lockedCount",
+                                "settlementAmountCents",
+                                "releasedAmountCents",
+                                "refundedAmountCents",
+                                "kernelVerificationErrorCount",
+                                "kernelVerificationErrorCountsByCode"
+                              ],
+                              "properties": {
+                                "windowHours": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "resolvedCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "lockedCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "settlementAmountCents": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "releasedAmountCents": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "refundedAmountCents": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "kernelVerificationErrorCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "kernelVerificationErrorCountsByCode": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "code",
+                                      "count"
+                                    ],
+                                    "properties": {
+                                      "code": {
+                                        "type": "string"
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "disputes": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "openCount",
+                                "openedCountInWindow",
+                                "closedCountInWindow",
+                                "oldestOpenAgeSeconds",
+                                "overSlaCount",
+                                "expiredWindowOpenCount"
+                              ],
+                              "properties": {
+                                "openCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "openedCountInWindow": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "closedCountInWindow": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "oldestOpenAgeSeconds": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "overSlaCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "expiredWindowOpenCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              }
+                            },
+                            "alerts": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "thresholds",
+                                "evaluatedCount",
+                                "breachCount",
+                                "breaches"
+                              ],
+                              "properties": {
+                                "thresholds": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "httpClientErrorRateThresholdPct",
+                                    "httpServerErrorRateThresholdPct",
+                                    "deliveryDlqThreshold",
+                                    "disputeOverSlaThreshold",
+                                    "determinismRejectThreshold",
+                                    "kernelVerificationErrorThreshold"
+                                  ],
+                                  "properties": {
+                                    "httpClientErrorRateThresholdPct": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "httpServerErrorRateThresholdPct": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "deliveryDlqThreshold": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "disputeOverSlaThreshold": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "determinismRejectThreshold": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "kernelVerificationErrorThreshold": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    }
+                                  }
+                                },
+                                "evaluatedCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "breachCount": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "breaches": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "schemaVersion",
+                                      "alertType",
+                                      "severity",
+                                      "metric",
+                                      "comparator",
+                                      "currentValue",
+                                      "threshold",
+                                      "message"
+                                    ],
+                                    "properties": {
+                                      "schemaVersion": {
+                                        "type": "string",
+                                        "enum": [
+                                          "CommandCenterAlert.v1"
+                                        ]
+                                      },
+                                      "alertType": {
+                                        "type": "string"
+                                      },
+                                      "severity": {
+                                        "type": "string"
+                                      },
+                                      "metric": {
+                                        "type": "string"
+                                      },
+                                      "comparator": {
+                                        "type": "string"
+                                      },
+                                      "currentValue": {
+                                        "type": "number"
+                                      },
+                                      "threshold": {
+                                        "type": "number"
+                                      },
+                                      "message": {
+                                        "type": "string"
+                                      },
+                                      "dimensions": {
+                                        "type": "object",
+                                        "nullable": true,
+                                        "additionalProperties": true
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "trust": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "totalAgents",
+                            "activeAgents",
+                            "sampledAgents",
+                            "averageTrustScore"
+                          ],
+                          "properties": {
+                            "totalAgents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "activeAgents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "sampledAgents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "averageTrustScore": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "revenue": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "transactionFeeBps",
+                            "estimatedTransactionFeesCentsInWindow"
+                          ],
+                          "properties": {
+                            "transactionFeeBps": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 5000
+                            },
+                            "estimatedTransactionFeesCentsInWindow": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "currentPlatformRevenueCents": {
+                              "type": "integer",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "actionability": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "canPersistAlerts"
+                          ],
+                          "properties": {
+                            "canPersistAlerts": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "links": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "summary",
+                            "status"
+                          ],
+                          "properties": {
+                            "summary": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ops/sla-templates": {
       "get": {
         "summary": "List built-in SLA policy templates",

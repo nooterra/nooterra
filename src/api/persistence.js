@@ -1085,6 +1085,12 @@ export function applyTxRecord(store, record) {
       if (!checkpointId) throw new TypeError("STATE_CHECKPOINT_UPSERT requires stateCheckpoint.checkpointId");
       if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
       const key = makeScopedKey({ tenantId, id: String(checkpointId) });
+      if (store.stateCheckpoints.has(key)) {
+        const err = new Error("state checkpoint already exists");
+        err.code = "STATE_CHECKPOINT_ALREADY_EXISTS";
+        err.checkpointId = String(checkpointId);
+        throw err;
+      }
       store.stateCheckpoints.set(key, { ...stateCheckpoint, tenantId, checkpointId: String(checkpointId) });
       continue;
     }

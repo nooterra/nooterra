@@ -3981,6 +3981,7 @@ export function createApi({
   const BILLING_PERIOD_CLOSE_ARTIFACT_TYPE = "BillingPeriodClose.v1";
   const BILLING_STRIPE_CHECKOUT_SESSION_SCHEMA = "BillingStripeCheckoutSession.v1";
   const BILLING_STRIPE_PORTAL_SESSION_SCHEMA = "BillingStripePortalSession.v1";
+  const COMMAND_CENTER_WORKSPACE_SCHEMA_VERSION = "OpsNetworkCommandCenterWorkspace.v1";
   const COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS = Object.freeze({
     httpClientErrorRateThresholdPct: 1,
     httpServerErrorRateThresholdPct: 1,
@@ -4014,6 +4015,15 @@ export function createApi({
     if (value < min) throw new TypeError(`${name} must be >= ${min}`);
     if (Number.isFinite(max) && value > max) throw new TypeError(`${name} must be <= ${max}`);
     return value;
+  }
+
+  function isCommandCenterDependencyUnavailableError(err) {
+    const message = String(err?.message ?? "").toLowerCase();
+    if (!message) return false;
+    if (message.includes("not supported for this store")) return true;
+    if (message.includes("dependency unavailable")) return true;
+    if (message.includes("is not a function")) return true;
+    return false;
   }
 
   function evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds } = {}) {
@@ -4293,7 +4303,8 @@ export function createApi({
     tenantId,
     transactionFeeBps = 100,
     windowHours = 24,
-    disputeSlaHours = 24
+    disputeSlaHours = 24,
+    failClosed = false
   } = {}) {
     const t = normalizeTenant(tenantId);
     const nowAt = nowIso();
@@ -4311,7 +4322,11 @@ export function createApi({
     const snapshot = (() => {
       try {
         return metrics.snapshot();
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "metrics snapshot dependency unavailable";
+          throw new TypeError(message);
+        }
         return null;
       }
     })();
@@ -4351,7 +4366,7 @@ export function createApi({
     }, 0);
 
     const runs = await listAgentRunsForTenant({ tenantId: t });
-    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs, failClosed });
 
     let resolvedCountInWindow = 0;
     let releasedAmountCentsInWindow = 0;
@@ -4496,7 +4511,11 @@ export function createApi({
         if (leftAge !== rightAge) return rightAge - leftAge;
         return String(left?.caseId ?? "").localeCompare(String(right?.caseId ?? ""));
       });
-    } catch {
+    } catch (err) {
+      if (failClosed) {
+        const message = err?.message ? String(err.message) : "arbitration case dependency unavailable";
+        throw new TypeError(message);
+      }
       // Arbitration case SLA detail is best-effort.
     }
 
@@ -4522,14 +4541,19 @@ export function createApi({
           agentId,
           at: nowAt,
           reputationVersion: "v2",
-          reputationWindow: AGENT_REPUTATION_WINDOW.THIRTY_DAYS
+          reputationWindow: AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+          failClosed
         });
         const trustScore = Number(reputation?.trustScore ?? Number.NaN);
         if (!Number.isFinite(trustScore)) continue;
         trustSampledAgents += 1;
         trustScoreTotal += trustScore;
       }
-    } catch {
+    } catch (err) {
+      if (failClosed) {
+        const message = err?.message ? String(err.message) : "trust summary dependency unavailable";
+        throw new TypeError(message);
+      }
       // trust summary is best-effort.
     }
 
@@ -5250,7 +5274,6 @@ export function createApi({
     const heldCandidates = artifacts
       .filter((artifact) => artifact?.artifactType === ARTIFACT_TYPE.HELD_EXPOSURE_ROLLFORWARD_V1 && String(artifact?.period ?? "") === String(period))
       .sort((a, b) => String(a?.generatedAt ?? a?.artifactId ?? "").localeCompare(String(b?.generatedAt ?? b?.artifactId ?? "")));
-    const heldRollforwardArtifact = heldCandidates.length ? heldCandidates[heldCandidates.length - 1] : null;
 
     function sumHeldBucketNetCents(bucket) {
       const byCurrency = bucket && typeof bucket === "object" ? bucket.byCurrency : null;
@@ -5264,16 +5287,20 @@ export function createApi({
       return total;
     }
 
-    const rollforwardBuckets = heldRollforwardArtifact?.rollforward?.buckets ?? null;
-    const heldRollforwardNet = rollforwardBuckets
-      ? {
-          openingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.opening),
-          newLocksCents: sumHeldBucketNetCents(rollforwardBuckets.newHolds),
-          releasesCents: sumHeldBucketNetCents(rollforwardBuckets.released),
-          forfeitsCents: sumHeldBucketNetCents(rollforwardBuckets.forfeited),
-          endingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.ending)
-        }
-      : null;
+    function computeHeldRollforwardNet(artifact) {
+      const rollforwardBuckets = artifact?.rollforward?.buckets ?? null;
+      if (!rollforwardBuckets) return null;
+      return {
+        openingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.opening),
+        newLocksCents: sumHeldBucketNetCents(rollforwardBuckets.newHolds),
+        releasesCents: sumHeldBucketNetCents(rollforwardBuckets.released),
+        forfeitsCents: sumHeldBucketNetCents(rollforwardBuckets.forfeited),
+        endingHeldCents: sumHeldBucketNetCents(rollforwardBuckets.ending)
+      };
+    }
+
+    const heldRollforwardArtifact = heldCandidates.length ? heldCandidates[heldCandidates.length - 1] : null;
+    const heldRollforwardNet = computeHeldRollforwardNet(heldRollforwardArtifact);
 
     const ledgerEntries = await listAllLedgerEntriesForTenant({ tenantId });
     ledgerEntries.sort((a, b) => {
@@ -5342,23 +5369,39 @@ export function createApi({
     ledgerEscrow.endingHeldCents = actualEndingHeldCents;
 
     const ledgerConserved = computedEndingHeldCents === actualEndingHeldCents;
-    const heldRollforwardConserved = heldRollforwardNet
-      ? heldRollforwardNet.openingHeldCents + heldRollforwardNet.newLocksCents - heldRollforwardNet.releasesCents - heldRollforwardNet.forfeitsCents ===
-        heldRollforwardNet.endingHeldCents
-      : false;
-    const heldRollforwardMatchesLedger = heldRollforwardNet
-      ? heldRollforwardNet.openingHeldCents === ledgerEscrow.openingHeldCents &&
-        heldRollforwardNet.newLocksCents === ledgerEscrow.newLocksCents &&
-        heldRollforwardNet.releasesCents === ledgerEscrow.releasesCents &&
-        heldRollforwardNet.forfeitsCents === ledgerEscrow.forfeitsCents &&
-        heldRollforwardNet.endingHeldCents === ledgerEscrow.endingHeldCents
-      : false;
+    function heldRollforwardConserved(net) {
+      if (!net) return false;
+      return net.openingHeldCents + net.newLocksCents - net.releasesCents - net.forfeitsCents === net.endingHeldCents;
+    }
+
+    function heldRollforwardMatchesLedger(net) {
+      if (!net) return false;
+      return (
+        net.openingHeldCents === ledgerEscrow.openingHeldCents &&
+        net.newLocksCents === ledgerEscrow.newLocksCents &&
+        net.releasesCents === ledgerEscrow.releasesCents &&
+        net.forfeitsCents === ledgerEscrow.forfeitsCents &&
+        net.endingHeldCents === ledgerEscrow.endingHeldCents
+      );
+    }
+
+    const heldRollforwardConservedSelected = heldRollforwardConserved(heldRollforwardNet);
+    const heldRollforwardMatchesLedgerSelected = heldRollforwardMatchesLedger(heldRollforwardNet);
+    const heldRollforwardValidation = heldCandidates.map((candidate) => {
+      const net = computeHeldRollforwardNet(candidate);
+      return {
+        conserved: heldRollforwardConserved(net),
+        matchesLedger: heldRollforwardMatchesLedger(net)
+      };
+    });
+    const heldRollforwardInvalidDetected = heldRollforwardValidation.some((row) => row.conserved !== true);
+    const heldRollforwardLedgerMismatchDetected = heldRollforwardValidation.some((row) => row.matchesLedger !== true);
 
     const mismatchCodes = [];
     if (!heldRollforwardArtifact) mismatchCodes.push("HELD_ROLLFORWARD_MISSING");
     if (!ledgerConserved) mismatchCodes.push("LEDGER_ESCROW_ROLLFORWARD_INVALID");
-    if (heldRollforwardArtifact && !heldRollforwardConserved) mismatchCodes.push("HELD_ROLLFORWARD_INVALID");
-    if (heldRollforwardArtifact && !heldRollforwardMatchesLedger) mismatchCodes.push("HELD_ROLLFORWARD_LEDGER_MISMATCH");
+    if (heldRollforwardArtifact && heldRollforwardInvalidDetected) mismatchCodes.push("HELD_ROLLFORWARD_INVALID");
+    if (heldRollforwardArtifact && heldRollforwardLedgerMismatchDetected) mismatchCodes.push("HELD_ROLLFORWARD_LEDGER_MISMATCH");
     if (ledgerEscrow.unknownPositiveAdjustmentsCents !== 0 || ledgerEscrow.unknownNegativeAdjustmentsCents !== 0) {
       mismatchCodes.push("LEDGER_UNCLASSIFIED_ESCROW_ADJUSTMENT");
     }
@@ -5375,8 +5418,8 @@ export function createApi({
       heldRollforward: heldRollforwardNet,
       invariants: {
         ledgerConserved,
-        heldRollforwardConserved,
-        heldRollforwardMatchesLedger,
+        heldRollforwardConserved: heldRollforwardConservedSelected,
+        heldRollforwardMatchesLedger: heldRollforwardMatchesLedgerSelected,
         computedEndingHeldCents,
         actualEndingHeldCents
       },
@@ -8464,7 +8507,7 @@ export function createApi({
     return runs;
   }
 
-  async function listAgentRunSettlementsForRuns({ tenantId, runs = [] } = {}) {
+  async function listAgentRunSettlementsForRuns({ tenantId, runs = [], failClosed = false } = {}) {
     const t = normalizeTenant(tenantId);
     const out = [];
     if (!Array.isArray(runs) || runs.length === 0) return out;
@@ -8474,7 +8517,11 @@ export function createApi({
       try {
         const settlement = await getAgentRunSettlementRecord({ tenantId: t, runId });
         if (settlement && typeof settlement === "object" && !Array.isArray(settlement)) out.push(settlement);
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "agent run settlement dependency unavailable";
+          throw new TypeError(message);
+        }
         // Ignore unsupported settlement store or missing record.
       }
     }
@@ -8493,6 +8540,19 @@ export function createApi({
     const value = String(rawValue).trim();
     if (!Object.values(AGENT_REPUTATION_WINDOW).includes(value)) throw new TypeError("reputationWindow must be one of 7d|30d|allTime");
     return value;
+  }
+
+  function parseAsOfDateTime(rawValue, { defaultValue = nowIso(), fieldName = "asOf" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (!Number.isFinite(Date.parse(String(defaultValue ?? "")))) {
+        throw new TypeError(`${fieldName} must be an ISO date-time`);
+      }
+      return new Date(Date.parse(String(defaultValue))).toISOString();
+    }
+    const candidate = String(rawValue).trim();
+    const parsedMs = Date.parse(candidate);
+    if (!Number.isFinite(parsedMs)) throw new TypeError(`${fieldName} must be an ISO date-time`);
+    return new Date(parsedMs).toISOString();
   }
 
   function parseDiscoveryStatus(rawValue) {
@@ -10177,6 +10237,136 @@ export function createApi({
     return value;
   }
 
+  const AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION = "AgentReputationPenaltySignal.v1";
+  const REPUTATION_PENALTY_REASON_CODE = Object.freeze({
+    DISPUTE_LOST: "PENALTY_DISPUTE_LOST",
+    CHARGEBACK: "PENALTY_CHARGEBACK",
+    INVALID_SIGNATURE: "PENALTY_INVALID_SIGNATURE"
+  });
+  const REPUTATION_QUARANTINE_REASON_CODE = Object.freeze({
+    DISPUTE_LOST_THRESHOLD: "REPUTATION_QUARANTINE_DISPUTE_LOST_THRESHOLD",
+    CHARGEBACK_THRESHOLD: "REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD",
+    INVALID_SIGNATURE_THRESHOLD: "REPUTATION_QUARANTINE_INVALID_SIGNATURE_THRESHOLD",
+    TOTAL_PENALTY_THRESHOLD: "REPUTATION_QUARANTINE_TOTAL_PENALTY_THRESHOLD",
+    SIGNAL_UNAVAILABLE: "REPUTATION_QUARANTINE_SIGNAL_UNAVAILABLE"
+  });
+  const REPUTATION_PENALTY_QUARANTINE_THRESHOLDS = Object.freeze({
+    disputeLostCount: 1,
+    chargebackCount: 1,
+    invalidSignatureCount: 1,
+    totalPenaltyCount: 2
+  });
+
+  function isLikelySignerIssueMessage(message) {
+    return /signature|signer.?key|invalid signer|openedbyagentid/i.test(String(message ?? ""));
+  }
+
+  function derivePenaltyQuarantineReasonCodes(counts) {
+    const reasons = [];
+    if ((counts?.disputeLostCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.disputeLostCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.DISPUTE_LOST_THRESHOLD);
+    }
+    if ((counts?.chargebackCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.chargebackCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.CHARGEBACK_THRESHOLD);
+    }
+    if ((counts?.invalidSignatureCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.invalidSignatureCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.INVALID_SIGNATURE_THRESHOLD);
+    }
+    if ((counts?.totalPenaltyCount ?? 0) >= REPUTATION_PENALTY_QUARANTINE_THRESHOLDS.totalPenaltyCount) {
+      reasons.push(REPUTATION_QUARANTINE_REASON_CODE.TOTAL_PENALTY_THRESHOLD);
+    }
+    reasons.sort((left, right) => left.localeCompare(right));
+    return reasons;
+  }
+
+  function buildReputationPenaltySignalUnavailable({ asOf, reasonCode = REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE } = {}) {
+    const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION,
+        asOf: asOfValue,
+        evaluationStatus: "unavailable",
+        thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
+        counts: {
+          disputeLostCount: 0,
+          chargebackCount: 0,
+          invalidSignatureCount: 0,
+          totalPenaltyCount: 0
+        },
+        quarantineRecommended: true,
+        reasonCodes: [String(reasonCode ?? REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE)]
+      },
+      { path: "$.penaltySignal" }
+    );
+  }
+
+  function computeReputationPenaltySignal({
+    events = [],
+    agentId,
+    asOf,
+    windowStartAt = null
+  } = {}) {
+    const normalizedAgentId = String(agentId ?? "").trim();
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const asOfValue = parseAsOfDateTime(asOf, { fieldName: "asOf" });
+    const asOfMs = Date.parse(asOfValue);
+    const windowStartMs = windowStartAt ? Date.parse(String(windowStartAt)) : Number.NaN;
+    const counts = {
+      disputeLostCount: 0,
+      chargebackCount: 0,
+      invalidSignatureCount: 0,
+      totalPenaltyCount: 0
+    };
+
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      if (!subject || String(subject.agentId ?? "").trim() !== normalizedAgentId) continue;
+      const occurredAtMs = Date.parse(String(event.occurredAt ?? ""));
+      if (Number.isFinite(asOfMs) && Number.isFinite(occurredAtMs) && occurredAtMs > asOfMs) continue;
+      if (Number.isFinite(windowStartMs) && Number.isFinite(occurredAtMs) && occurredAtMs < windowStartMs) continue;
+      const kind = String(event.eventKind ?? "").trim().toLowerCase();
+      if (kind === REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST) counts.disputeLostCount += 1;
+      else if (kind === REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK) counts.chargebackCount += 1;
+      else if (kind === REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE) counts.invalidSignatureCount += 1;
+    }
+
+    counts.totalPenaltyCount = counts.disputeLostCount + counts.chargebackCount + counts.invalidSignatureCount;
+    const reasonCodes = derivePenaltyQuarantineReasonCodes(counts);
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_REPUTATION_PENALTY_SIGNAL_SCHEMA_VERSION,
+        asOf: asOfValue,
+        evaluationStatus: "ok",
+        thresholds: REPUTATION_PENALTY_QUARANTINE_THRESHOLDS,
+        counts,
+        quarantineRecommended: reasonCodes.length > 0,
+        reasonCodes
+      },
+      { path: "$.penaltySignal" }
+    );
+  }
+
+  function isReputationPenaltyQuarantined(reputation) {
+    return (
+      reputation?.penaltySignal &&
+      typeof reputation.penaltySignal === "object" &&
+      !Array.isArray(reputation.penaltySignal) &&
+      reputation.penaltySignal.quarantineRecommended === true
+    );
+  }
+
+  function withPenaltySignal(reputation, penaltySignal) {
+    if (!reputation || typeof reputation !== "object" || Array.isArray(reputation)) return reputation;
+    return normalizeForCanonicalJson(
+      {
+        ...reputation,
+        penaltySignal: penaltySignal ?? null
+      },
+      { path: "$.reputation" }
+    );
+  }
+
   function computeMarketplaceRankingScore({ reputation, strategy = "balanced", reputationVersion = "v2", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
     const baseScore = Number(reputation?.trustScore ?? 0);
     if (strategy === "trust_weighted") return clampScore(baseScore);
@@ -11219,12 +11409,20 @@ export function createApi({
     });
   }
 
-  async function computeAgentReputationSnapshotVersioned({ tenantId, agentId, at = nowIso(), reputationVersion = "v1", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
+  async function computeAgentReputationSnapshotVersioned({
+    tenantId,
+    agentId,
+    at = nowIso(),
+    reputationVersion = "v1",
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    failClosed = false
+  } = {}) {
     const t = normalizeTenant(tenantId);
     const a = String(agentId ?? "");
     if (a.trim() === "") throw new TypeError("agentId is required");
     const version = parseReputationVersion(reputationVersion);
     const window = parseReputationWindow(reputationWindow);
+    const asOf = parseAsOfDateTime(at, { fieldName: "at" });
 
     let runs = [];
     if (typeof store.listAgentRuns === "function") {
@@ -11242,25 +11440,60 @@ export function createApi({
           offset += batch.length;
         }
         runs = pagedRuns;
-      } catch {
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "agent run dependency unavailable";
+          throw new TypeError(message);
+        }
         runs = [];
       }
     } else {
       runs = listAgentRuns({ tenantId: t, agentId: a, status: null });
     }
 
-    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
-    if (version === "v2") {
-      return computeAgentReputationV2({
-        tenantId: t,
-        agentId: a,
-        runs,
-        settlements,
-        at,
-        primaryWindow: window
-      });
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs, failClosed });
+    const baseReputation =
+      version === "v2"
+        ? computeAgentReputationV2({
+            tenantId: t,
+            agentId: a,
+            runs,
+            settlements,
+            at: asOf,
+            primaryWindow: window
+          })
+        : computeAgentReputation({ tenantId: t, agentId: a, runs, settlements, at: asOf });
+
+    let penaltySignal = null;
+    if (typeof store.listReputationEvents !== "function" && typeof store.listArtifacts !== "function") {
+      if (failClosed) throw new TypeError("reputation penalty signal dependency unavailable");
+      penaltySignal = buildReputationPenaltySignalUnavailable({ asOf });
+    } else {
+      try {
+        const windowStartAt = reputationWindowStartAt({ window, at: asOf });
+        const events = await listRoutingReputationEvents({
+          tenantId: t,
+          agentId: a,
+          occurredAtGte: windowStartAt,
+          occurredAtLte: asOf,
+          pageSize: 5000
+        });
+        penaltySignal = computeReputationPenaltySignal({
+          events,
+          agentId: a,
+          asOf,
+          windowStartAt
+        });
+      } catch (err) {
+        if (failClosed) {
+          const message = err?.message ? String(err.message) : "reputation penalty signal evaluation failed";
+          throw new TypeError(message);
+        }
+        penaltySignal = buildReputationPenaltySignalUnavailable({ asOf });
+      }
     }
-    return computeAgentReputation({ tenantId: t, agentId: a, runs, settlements, at });
+
+    return withPenaltySignal(baseReputation, penaltySignal);
   }
 
   async function searchMarketplaceAgents({
@@ -11274,7 +11507,8 @@ export function createApi({
     includeReputation = true,
     reputationVersion = "v2",
     reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
-    scoreStrategy = "balanced"
+    scoreStrategy = "balanced",
+    asOf = nowIso()
   } = {}) {
     const t = normalizeTenant(tenantId);
     const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(100, limit) : 50;
@@ -11283,6 +11517,7 @@ export function createApi({
     const version = parseReputationVersion(reputationVersion);
     const window = parseReputationWindow(reputationWindow);
     const rankingStrategy = parseScoreStrategy(scoreStrategy);
+    const evaluatedAt = parseAsOfDateTime(asOf, { fieldName: "asOf" });
 
     const capabilityFilter =
       capability && String(capability).trim() !== "" ? normalizeCapabilityIdentifier(capability, { name: "capability" }) : null;
@@ -11307,16 +11542,33 @@ export function createApi({
     }
 
     const ranked = [];
+    const excludedQuarantineCandidates = [];
     for (const agentIdentity of agents) {
       const agentId = String(agentIdentity?.agentId ?? "");
       if (!agentId) continue;
       const reputation = await computeAgentReputationSnapshotVersioned({
         tenantId: t,
         agentId,
-        at: nowIso(),
+        at: evaluatedAt,
         reputationVersion: version,
         reputationWindow: window
       });
+      if (isReputationPenaltyQuarantined(reputation)) {
+        const reasonCodes = Array.isArray(reputation?.penaltySignal?.reasonCodes)
+          ? reputation.penaltySignal.reasonCodes.map((value) => String(value)).filter(Boolean)
+          : [REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE];
+        excludedQuarantineCandidates.push(
+          normalizeForCanonicalJson(
+            {
+              agentId,
+              reasonCodes: [...new Set(reasonCodes)].sort((left, right) => left.localeCompare(right)),
+              evaluationStatus: String(reputation?.penaltySignal?.evaluationStatus ?? "unavailable")
+            },
+            { path: "$.excludedQuarantineCandidates[]" }
+          )
+        );
+        continue;
+      }
       const trustScore = Number(reputation?.trustScore ?? 0);
       const riskTierValue = String(reputation?.riskTier ?? "high");
       if (minScore !== null && trustScore < minScore) continue;
@@ -11359,15 +11611,18 @@ export function createApi({
       return item;
     });
 
-    return {
+    const out = {
       reputationVersion: version,
       reputationWindow: window,
+      asOf: evaluatedAt,
       scoreStrategy: rankingStrategy,
       total,
       limit: safeLimit,
       offset: safeOffset,
       results
     };
+    if (excludedQuarantineCandidates.length > 0) out.excludedQuarantineCandidates = excludedQuarantineCandidates;
+    return out;
   }
 
   async function discoverAgentCards({
@@ -11399,7 +11654,8 @@ export function createApi({
     reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
     scoreStrategy = "balanced",
     requesterAgentId = null,
-    includeRoutingFactors = false
+    includeRoutingFactors = false,
+    asOf = nowIso()
   } = {}) {
     const discoveryScope = typeof scope === "string" && scope.trim() !== "" ? scope.trim().toLowerCase() : "tenant";
     if (discoveryScope !== "tenant" && discoveryScope !== "public") {
@@ -11481,7 +11737,7 @@ export function createApi({
     const rankingStrategy = parseScoreStrategy(scoreStrategy);
     const parsedRequesterAgentId = normalizeOptionalX402RefInput(requesterAgentId, "requesterAgentId", { allowNull: true, max: 200 });
     const includeRouting = includeRoutingFactors === true || rankingStrategy === "trust_weighted";
-    const evaluatedAt = nowIso();
+    const evaluatedAt = parseAsOfDateTime(asOf, { fieldName: "asOf" });
     const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
     if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
       throw new TypeError("minTrustScore must be an integer within 0..100");
@@ -11622,6 +11878,7 @@ export function createApi({
 
     const ranked = [];
     const excludedAttestationCandidates = [];
+    const excludedQuarantineCandidates = [];
     for (const agentCard of cards) {
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
@@ -11739,6 +11996,23 @@ export function createApi({
         reputationVersion: version,
         reputationWindow: window
       });
+      if (isReputationPenaltyQuarantined(reputation)) {
+        const reasonCodes = Array.isArray(reputation?.penaltySignal?.reasonCodes)
+          ? reputation.penaltySignal.reasonCodes.map((value) => String(value)).filter(Boolean)
+          : [REPUTATION_QUARANTINE_REASON_CODE.SIGNAL_UNAVAILABLE];
+        excludedQuarantineCandidates.push(
+          normalizeForCanonicalJson(
+            {
+              agentId,
+              tenantId: cardTenantId,
+              reasonCodes: [...new Set(reasonCodes)].sort((left, right) => left.localeCompare(right)),
+              evaluationStatus: String(reputation?.penaltySignal?.evaluationStatus ?? "unavailable")
+            },
+            { path: "$.excludedQuarantineCandidates[]" }
+          )
+        );
+        continue;
+      }
       const trustScore = Number(reputation?.trustScore ?? 0);
       const riskTierValue = String(reputation?.riskTier ?? "high");
       if (minScore !== null && trustScore < minScore) continue;
@@ -11807,6 +12081,7 @@ export function createApi({
       scope: discoveryScope,
       reputationVersion: version,
       reputationWindow: window,
+      asOf: evaluatedAt,
       scoreStrategy: rankingStrategy,
       total,
       limit: safeLimit,
@@ -11814,6 +12089,7 @@ export function createApi({
       results
     };
     if (requireAttestation) out.excludedAttestationCandidates = excludedAttestationCandidates;
+    if (excludedQuarantineCandidates.length > 0) out.excludedQuarantineCandidates = excludedQuarantineCandidates;
     if (requireAttestationByPolicy) {
       out.attestationPolicy = {
         schemaVersion: "AgentCardPublicDiscoveryAttestationPolicy.v1",
@@ -19887,6 +20163,239 @@ export function createApi({
     throw new TypeError("state checkpoints not supported for this store");
   }
 
+  function normalizeStateCheckpointArtifactHash(value) {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    return /^[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+  }
+
+  const ARTIFACT_READ_REDACTION_SCHEMA_VERSION = "ArtifactReadRedaction.v1";
+  const ARTIFACT_READ_REDACTABLE_FIELDS = Object.freeze([
+    "payload",
+    "content",
+    "state",
+    "stateSnapshot",
+    "stateDiff",
+    "diff",
+    "diffs",
+    "metadata"
+  ]);
+
+  function normalizeArtifactRefIdForPolicy(ref) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref)) return null;
+    const artifactId = typeof ref.artifactId === "string" ? ref.artifactId.trim() : "";
+    return artifactId || null;
+  }
+
+  function stateCheckpointReferencesArtifactId(checkpoint, artifactId) {
+    const candidateId = typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!candidateId) return false;
+    const stateRefId = normalizeArtifactRefIdForPolicy(checkpoint?.stateRef);
+    if (stateRefId === candidateId) return true;
+    const diffRefs = Array.isArray(checkpoint?.diffRefs) ? checkpoint.diffRefs : [];
+    for (const ref of diffRefs) {
+      if (normalizeArtifactRefIdForPolicy(ref) === candidateId) return true;
+    }
+    return false;
+  }
+
+  async function lookupArtifactReadRedactionContext({ tenantId, artifactId, contextCache = null } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const normalizedArtifactId = typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!normalizedArtifactId) return null;
+    const cacheKey = `${normalizedTenantId}:${normalizedArtifactId}`;
+    if (contextCache instanceof Map && contextCache.has(cacheKey)) {
+      return contextCache.get(cacheKey);
+    }
+    const matches = [];
+    let offset = 0;
+    const limit = 500;
+    let page = 0;
+    while (page < 200) {
+      page += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await listStateCheckpointRecords({
+        tenantId: normalizedTenantId,
+        limit,
+        offset
+      });
+      if (!Array.isArray(rows) || rows.length === 0) break;
+      for (const checkpoint of rows) {
+        if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) continue;
+        if (!stateCheckpointReferencesArtifactId(checkpoint, normalizedArtifactId)) continue;
+        const redactionPolicyRef =
+          typeof checkpoint.redactionPolicyRef === "string" && checkpoint.redactionPolicyRef.trim() !== ""
+            ? checkpoint.redactionPolicyRef.trim()
+            : null;
+        if (!redactionPolicyRef) continue;
+        const checkpointId = typeof checkpoint.checkpointId === "string" ? checkpoint.checkpointId.trim() : "";
+        if (!checkpointId) continue;
+        matches.push({ checkpointId, redactionPolicyRef });
+      }
+      if (rows.length < limit) break;
+      offset += rows.length;
+    }
+    let selected = null;
+    if (matches.length > 0) {
+      matches.sort((left, right) => {
+        const checkpointOrder = String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? ""));
+        if (checkpointOrder !== 0) return checkpointOrder;
+        return String(left.redactionPolicyRef ?? "").localeCompare(String(right.redactionPolicyRef ?? ""));
+      });
+      selected = matches[0];
+    }
+    if (contextCache instanceof Map) contextCache.set(cacheKey, selected);
+    return selected;
+  }
+
+  function redactArtifactForStateCheckpointPolicy(artifact, { checkpointId, redactionPolicyRef } = {}) {
+    const base = artifact && typeof artifact === "object" && !Array.isArray(artifact) ? { ...artifact } : artifact;
+    if (!base || typeof base !== "object" || Array.isArray(base)) return base;
+    const redactedFields = [];
+    for (const field of ARTIFACT_READ_REDACTABLE_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(base, field)) continue;
+      if (base[field] === null || base[field] === undefined) continue;
+      base[field] = null;
+      redactedFields.push(field);
+    }
+    redactedFields.sort((left, right) => left.localeCompare(right));
+    base.readRedaction = normalizeForCanonicalJson(
+      {
+        schemaVersion: ARTIFACT_READ_REDACTION_SCHEMA_VERSION,
+        mode: "state_checkpoint_policy",
+        checkpointId: typeof checkpointId === "string" && checkpointId.trim() !== "" ? checkpointId.trim() : null,
+        redactionPolicyRef:
+          typeof redactionPolicyRef === "string" && redactionPolicyRef.trim() !== "" ? redactionPolicyRef.trim() : null,
+        redactedFields
+      },
+      { path: "$.readRedaction" }
+    );
+    return base;
+  }
+
+  async function enforceArtifactReadPolicy({
+    tenantId,
+    artifact,
+    scopes = [],
+    contextCache = null
+  } = {}) {
+    const artifactId = typeof artifact?.artifactId === "string" && artifact.artifactId.trim() !== "" ? artifact.artifactId.trim() : null;
+    if (!artifactId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "artifact read policy evaluation failed",
+        details: { message: "artifactId is required" },
+        code: "ARTIFACT_ACCESS_EVALUATION_FAILED"
+      };
+    }
+    let redactionContext = null;
+    try {
+      redactionContext = await lookupArtifactReadRedactionContext({ tenantId, artifactId, contextCache });
+    } catch (err) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "artifact read policy evaluation failed",
+        details: { artifactId, message: err?.message ?? null },
+        code: "ARTIFACT_ACCESS_EVALUATION_FAILED"
+      };
+    }
+    if (!redactionContext) {
+      return { ok: true, artifact };
+    }
+    const hasAuditRead = requireScope(scopes, OPS_SCOPES.AUDIT_READ);
+    const hasOpsRead = requireScope(scopes, OPS_SCOPES.OPS_READ);
+    if (!hasAuditRead && !hasOpsRead) {
+      return {
+        ok: false,
+        statusCode: 403,
+        message: "artifact access denied by state checkpoint policy",
+        details: {
+          artifactId,
+          checkpointId: redactionContext.checkpointId,
+          redactionPolicyRef: redactionContext.redactionPolicyRef
+        },
+        code: "ARTIFACT_ACCESS_DENIED"
+      };
+    }
+    if (hasAuditRead) return { ok: true, artifact };
+    return {
+      ok: true,
+      artifact: redactArtifactForStateCheckpointPolicy(artifact, redactionContext)
+    };
+  }
+
+  async function verifyStateCheckpointArtifactRefsForCreate({ tenantId, stateRef, diffRefs = [] } = {}) {
+    if (typeof store.getArtifact !== "function") {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: "state checkpoint artifact verification unavailable",
+        details: null,
+        code: "STATE_CHECKPOINT_ARTIFACT_VERIFICATION_UNAVAILABLE"
+      };
+    }
+    const refs = [{ refPath: "stateRef", ref: stateRef }, ...(Array.isArray(diffRefs) ? diffRefs : []).map((ref, index) => ({ refPath: `diffRefs[${index}]`, ref }))];
+    for (const entry of refs) {
+      const refPath = entry.refPath;
+      const ref = entry.ref;
+      const artifactId = typeof ref?.artifactId === "string" && ref.artifactId.trim() !== "" ? ref.artifactId.trim() : null;
+      if (!artifactId) {
+        return {
+          ok: false,
+          statusCode: 400,
+          message: "invalid state checkpoint artifact reference",
+          details: { message: `${refPath}.artifactId is required` },
+          code: "SCHEMA_INVALID"
+        };
+      }
+
+      let artifact = null;
+      try {
+        artifact = await store.getArtifact({ tenantId, artifactId });
+      } catch (err) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: "state checkpoint artifact lookup failed",
+          details: { refPath, artifactId, message: err?.message ?? null },
+          code: "STATE_CHECKPOINT_ARTIFACT_LOOKUP_FAILED"
+        };
+      }
+      if (!artifact) {
+        return {
+          ok: false,
+          statusCode: 409,
+          message: "state checkpoint artifact reference not found",
+          details: { refPath, artifactId },
+          code: "STATE_CHECKPOINT_ARTIFACT_NOT_FOUND"
+        };
+      }
+
+      const expectedArtifactHash = normalizeStateCheckpointArtifactHash(ref?.artifactHash);
+      if (expectedArtifactHash) {
+        const actualArtifactHash = normalizeStateCheckpointArtifactHash(artifact?.artifactHash);
+        if (!actualArtifactHash || actualArtifactHash !== expectedArtifactHash) {
+          return {
+            ok: false,
+            statusCode: 409,
+            message: "state checkpoint artifact hash mismatch",
+            details: {
+              refPath,
+              artifactId,
+              expectedArtifactHash,
+              actualArtifactHash
+            },
+            code: "STATE_CHECKPOINT_ARTIFACT_HASH_MISMATCH"
+          };
+        }
+      }
+    }
+    return { ok: true };
+  }
+
   async function getSessionRelayStateRecord({ tenantId, checkpointId }) {
     if (typeof store.getSessionRelayState === "function") return store.getSessionRelayState({ tenantId, checkpointId });
     if (!(store.sessionRelayStates instanceof Map)) store.sessionRelayStates = new Map();
@@ -25866,6 +26375,179 @@ export function createApi({
 	      return null;
 	    }
 	  }
+
+  async function emitPenaltyReputationEventBestEffort({
+    tenantId,
+    penaltyKind,
+    occurredAt = nowIso(),
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "payee",
+    sourceRef,
+    reasonCode = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    if (
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST &&
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK &&
+      penaltyKind !== REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE
+    ) {
+      return null;
+    }
+    const occurredAtValue = parseAsOfDateTime(occurredAt, { fieldName: "occurredAt" });
+    const normalizedCounterpartyAgentId =
+      typeof counterpartyAgentId === "string" && counterpartyAgentId.trim() !== "" ? counterpartyAgentId.trim() : null;
+    const normalizedToolId = typeof toolId === "string" && toolId.trim() !== "" ? toolId.trim() : null;
+    const normalizedRole = typeof role === "string" && role.trim() !== "" ? role.trim().toLowerCase() : "payee";
+    const safeReasonCode = typeof reasonCode === "string" && reasonCode.trim() !== "" ? reasonCode.trim() : REPUTATION_PENALTY_REASON_CODE.INVALID_SIGNATURE;
+    const safeReasonMessage = typeof reasonMessage === "string" && reasonMessage.trim() !== "" ? reasonMessage.trim() : null;
+    const safePenalizedCents = toSafeNonNegativeInt(amountPenalizedCents);
+    const normalizedSourceRef =
+      sourceRef && typeof sourceRef === "object" && !Array.isArray(sourceRef)
+        ? sourceRef
+        : { kind: "penalty_event", sourceId: `penalty_${subjectAgentId}` };
+    const facts = normalizeForCanonicalJson(
+      {
+        reasonCode: safeReasonCode,
+        reasonMessage: safeReasonMessage,
+        amountPenalizedCents: safePenalizedCents ?? 0,
+        ...(extraFacts && typeof extraFacts === "object" && !Array.isArray(extraFacts) ? extraFacts : {})
+      },
+      { path: "$.facts" }
+    );
+    const eventSeed = normalizeForCanonicalJson(
+      {
+        tenantId,
+        occurredAt: occurredAtValue,
+        eventKind: penaltyKind,
+        subject: {
+          agentId: subjectAgentId,
+          toolId: normalizedToolId,
+          counterpartyAgentId: normalizedCounterpartyAgentId,
+          role: normalizedRole
+        },
+        sourceRef: normalizedSourceRef,
+        facts
+      },
+      { path: "$.eventSeed" }
+    );
+    const eventId = `rep_pen_${sha256Hex(canonicalJsonStringify(eventSeed))}`;
+    return emitReputationEventBestEffort(
+      {
+        tenantId,
+        eventId,
+        occurredAt: occurredAtValue,
+        eventKind: penaltyKind,
+        subject: {
+          agentId: subjectAgentId,
+          ...(normalizedToolId ? { toolId: normalizedToolId } : {}),
+          ...(normalizedCounterpartyAgentId ? { counterpartyAgentId: normalizedCounterpartyAgentId } : {}),
+          role: normalizedRole
+        },
+        sourceRef: normalizedSourceRef,
+        facts
+      },
+      { context: context ?? "reputation.penalty" }
+    );
+  }
+
+  async function emitInvalidSignaturePenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "system",
+    sourceRef = null,
+    reasonMessage = null,
+    occurredAt = nowIso(),
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_INVALID_SIGNATURE,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.INVALID_SIGNATURE,
+      reasonMessage,
+      context: context ?? "reputation.penalty.invalid_signature"
+    });
+  }
+
+  async function emitDisputeLostPenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = null,
+    role = "payee",
+    sourceRef = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    occurredAt = nowIso(),
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_DISPUTE_LOST,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.DISPUTE_LOST,
+      reasonMessage,
+      amountPenalizedCents,
+      extraFacts,
+      context: context ?? "reputation.penalty.dispute_lost"
+    });
+  }
+
+  async function emitChargebackPenaltyBestEffort({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    toolId = "money_rail",
+    role = "payee",
+    sourceRef = null,
+    reasonMessage = null,
+    amountPenalizedCents = null,
+    occurredAt = nowIso(),
+    extraFacts = null,
+    context = null
+  } = {}) {
+    const subjectAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!subjectAgentId) return null;
+    return emitPenaltyReputationEventBestEffort({
+      tenantId,
+      penaltyKind: REPUTATION_EVENT_KIND.PENALTY_CHARGEBACK,
+      occurredAt,
+      agentId: subjectAgentId,
+      counterpartyAgentId,
+      toolId,
+      role,
+      sourceRef,
+      reasonCode: REPUTATION_PENALTY_REASON_CODE.CHARGEBACK,
+      reasonMessage,
+      amountPenalizedCents,
+      extraFacts,
+      context: context ?? "reputation.penalty.chargeback"
+    });
+  }
 
 	  function buildWorkOrderSettlementDecisionHashV1({
 	    tenantId,
@@ -41153,6 +41835,146 @@ export function createApi({
           });
         }
 
+        if (parts[1] === "network" && parts[2] === "command-center" && parts[3] === "workspace" && parts.length === 4 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const transactionFeeBpsRaw = url.searchParams.get("transactionFeeBps");
+          const windowHoursRaw = url.searchParams.get("windowHours");
+          const disputeSlaHoursRaw = url.searchParams.get("disputeSlaHours");
+
+          const transactionFeeBps =
+            transactionFeeBpsRaw === null || transactionFeeBpsRaw.trim() === ""
+              ? 100
+              : Number(transactionFeeBpsRaw);
+          if (!Number.isSafeInteger(transactionFeeBps) || transactionFeeBps < 0 || transactionFeeBps > 5000) {
+            return sendError(res, 400, "transactionFeeBps must be an integer within 0..5000");
+          }
+
+          const windowHours =
+            windowHoursRaw === null || windowHoursRaw.trim() === ""
+              ? 24
+              : Number(windowHoursRaw);
+          if (!Number.isSafeInteger(windowHours) || windowHours <= 0 || windowHours > 24 * 365) {
+            return sendError(res, 400, "windowHours must be an integer within 1..8760");
+          }
+
+          const disputeSlaHours =
+            disputeSlaHoursRaw === null || disputeSlaHoursRaw.trim() === ""
+              ? 24
+              : Number(disputeSlaHoursRaw);
+          if (!Number.isSafeInteger(disputeSlaHours) || disputeSlaHours <= 0 || disputeSlaHours > 24 * 365) {
+            return sendError(res, 400, "disputeSlaHours must be an integer within 1..8760");
+          }
+
+          let thresholds;
+          try {
+            thresholds = {
+              httpClientErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpClientErrorRateThresholdPct"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpClientErrorRateThresholdPct,
+                min: 0,
+                name: "httpClientErrorRateThresholdPct"
+              }),
+              httpServerErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpServerErrorRateThresholdPct"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpServerErrorRateThresholdPct,
+                min: 0,
+                name: "httpServerErrorRateThresholdPct"
+              }),
+              deliveryDlqThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("deliveryDlqThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.deliveryDlqThreshold,
+                min: 0,
+                name: "deliveryDlqThreshold"
+              }),
+              disputeOverSlaThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("disputeOverSlaThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.disputeOverSlaThreshold,
+                min: 0,
+                name: "disputeOverSlaThreshold"
+              }),
+              determinismRejectThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("determinismRejectThreshold"), {
+                defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.determinismRejectThreshold,
+                min: 0,
+                name: "determinismRejectThreshold"
+              }),
+              kernelVerificationErrorThreshold: parseThresholdIntegerQueryValue(
+                url.searchParams.get("kernelVerificationErrorThreshold"),
+                {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.kernelVerificationErrorThreshold,
+                  min: 0,
+                  name: "kernelVerificationErrorThreshold"
+                }
+              )
+            };
+          } catch (err) {
+            return sendError(res, 400, err?.message ?? "invalid alert thresholds");
+          }
+
+          let commandCenter;
+          try {
+            commandCenter = await computeNetworkCommandCenterSummary({
+              tenantId,
+              transactionFeeBps,
+              windowHours,
+              disputeSlaHours,
+              failClosed: true
+            });
+          } catch (err) {
+            if (isCommandCenterDependencyUnavailableError(err)) {
+              return sendError(
+                res,
+                501,
+                "command-center workspace dependencies unavailable",
+                { message: err?.message ?? String(err) },
+                { code: "COMMAND_CENTER_DEPENDENCY_UNAVAILABLE" }
+              );
+            }
+            return sendError(
+              res,
+              500,
+              "failed to compute command-center workspace",
+              { message: err?.message ?? String(err) },
+              { code: "COMMAND_CENTER_WORKSPACE_FAILED" }
+            );
+          }
+
+          const breaches = evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds });
+          const workspace = normalizeForCanonicalJson(
+            {
+              schemaVersion: COMMAND_CENTER_WORKSPACE_SCHEMA_VERSION,
+              generatedAt: commandCenter.generatedAt,
+              parameters: {
+                transactionFeeBps,
+                windowHours,
+                disputeSlaHours
+              },
+              reliability: commandCenter.reliability,
+              safety: {
+                determinism: commandCenter.determinism,
+                settlement: commandCenter.settlement,
+                disputes: commandCenter.disputes,
+                alerts: {
+                  thresholds,
+                  evaluatedCount: Object.keys(COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS).length,
+                  breachCount: breaches.length,
+                  breaches
+                }
+              },
+              trust: commandCenter.trust,
+              revenue: commandCenter.revenue,
+              actionability: {
+                canPersistAlerts: requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)
+              },
+              links: {
+                summary: "/ops/network/command-center",
+                status: "/ops/status"
+              }
+            },
+            { path: "$" }
+          );
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            workspace
+          });
+        }
+
         if (parts[1] === "maintenance" && parts[2] === "finance-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
           const hasMaintenanceWriteScope =
             requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
@@ -48051,6 +48873,7 @@ export function createApi({
                 : ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeReputation")).trim().toLowerCase()),
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced"
           });
           return sendJson(res, 200, result);
@@ -56733,6 +57556,7 @@ export function createApi({
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
             requesterAgentId: url.searchParams.get("requesterAgentId"),
             includeRoutingFactors
@@ -57020,13 +57844,10 @@ export function createApi({
         const parts = path.split("/").filter(Boolean);
         if (req.method === "GET" && parts[0] === "public" && parts[1] === "agents" && parts[2] && parts[3] === "reputation-summary" && parts.length === 4) {
           const targetAgentId = parts[2];
-          let asOf = nowIso();
+          const defaultAsOf = nowIso();
+          let asOf = defaultAsOf;
           try {
-            if (url.searchParams.get("asOf")) {
-              const candidate = String(url.searchParams.get("asOf") ?? "").trim();
-              if (!Number.isFinite(Date.parse(candidate))) throw new TypeError("asOf must be an ISO date-time");
-              asOf = candidate;
-            }
+            asOf = parseAsOfDateTime(url.searchParams.get("asOf"), { defaultValue: defaultAsOf, fieldName: "asOf" });
           } catch (err) {
             return sendError(res, 400, "invalid public reputation summary query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
@@ -57260,6 +58081,7 @@ export function createApi({
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            asOf: url.searchParams.get("asOf"),
             scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
             requesterAgentId: url.searchParams.get("requesterAgentId"),
             includeRoutingFactors
@@ -58669,6 +59491,45 @@ export function createApi({
           return sendError(res, 400, "invalid state checkpoint", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
+        if (stateCheckpoint.parentCheckpointId) {
+          let parentStateCheckpoint = null;
+          try {
+            parentStateCheckpoint = await getStateCheckpointRecord({
+              tenantId,
+              checkpointId: stateCheckpoint.parentCheckpointId
+            });
+          } catch (err) {
+            return sendError(res, 501, "state checkpoints not supported for this store", { message: err?.message });
+          }
+          if (!parentStateCheckpoint) {
+            return sendError(
+              res,
+              409,
+              "parent state checkpoint not found",
+              {
+                checkpointId,
+                parentCheckpointId: stateCheckpoint.parentCheckpointId
+              },
+              { code: "STATE_CHECKPOINT_PARENT_NOT_FOUND" }
+            );
+          }
+        }
+
+        const artifactRefVerification = await verifyStateCheckpointArtifactRefsForCreate({
+          tenantId,
+          stateRef: stateCheckpoint.stateRef,
+          diffRefs: stateCheckpoint.diffRefs
+        });
+        if (!artifactRefVerification?.ok) {
+          return sendError(
+            res,
+            artifactRefVerification?.statusCode ?? 409,
+            artifactRefVerification?.message ?? "state checkpoint artifact verification failed",
+            artifactRefVerification?.details ?? null,
+            { code: artifactRefVerification?.code ?? "STATE_CHECKPOINT_ARTIFACT_VERIFICATION_FAILED" }
+          );
+        }
+
         const responseBody = { ok: true, stateCheckpoint };
         const ops = [{ kind: "STATE_CHECKPOINT_UPSERT", tenantId, checkpointId, stateCheckpoint }];
         if (idemStoreKey) {
@@ -58678,7 +59539,14 @@ export function createApi({
             value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
           });
         }
-        await commitTx(ops);
+        try {
+          await commitTx(ops);
+        } catch (err) {
+          if (err?.code === "STATE_CHECKPOINT_ALREADY_EXISTS") {
+            return sendError(res, 409, "state checkpoint already exists", null, { code: "CONFLICT" });
+          }
+          throw err;
+        }
         return sendJson(res, 201, responseBody);
       }
 
@@ -61259,11 +62127,14 @@ export function createApi({
         const includeReputation = includeReputationRaw !== null && ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
         const reputationVersionRaw = url.searchParams.get("reputationVersion");
         const reputationWindowRaw = url.searchParams.get("reputationWindow");
+        const asOfRaw = url.searchParams.get("asOf");
         let reputationVersion = "v1";
         let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+        let asOf = nowIso();
         try {
           reputationVersion = parseReputationVersion(reputationVersionRaw);
           reputationWindow = parseReputationWindow(reputationWindowRaw);
+          asOf = parseAsOfDateTime(asOfRaw, { defaultValue: asOf, fieldName: "asOf" });
         } catch (err) {
           return sendError(res, 400, "invalid reputation query", { message: err?.message });
         }
@@ -61318,7 +62189,7 @@ export function createApi({
           const reputation = await computeAgentReputationSnapshotVersioned({
             tenantId,
             agentId,
-            at: nowIso(),
+            at: asOf,
             reputationVersion,
             reputationWindow
           });
@@ -61949,7 +62820,41 @@ export function createApi({
             } catch (err) {
               const signerDetails =
                 err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+              const invalidSignerAgentId =
+                typeof disputeOpenEnvelopeRaw?.openedByAgentId === "string" && disputeOpenEnvelopeRaw.openedByAgentId.trim() !== ""
+                  ? disputeOpenEnvelopeRaw.openedByAgentId.trim()
+                  : typeof body?.openedByAgentId === "string" && body.openedByAgentId.trim() !== ""
+                    ? body.openedByAgentId.trim()
+                    : null;
+              const invalidSignerRole =
+                invalidSignerAgentId === String(hold?.payerAgentId ?? "")
+                  ? "payer"
+                  : invalidSignerAgentId === String(hold?.payeeAgentId ?? "")
+                    ? "payee"
+                    : "system";
               if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
+                await emitInvalidSignaturePenaltyBestEffort({
+                  tenantId,
+                  agentId: invalidSignerAgentId,
+                  counterpartyAgentId:
+                    invalidSignerAgentId === String(hold?.payerAgentId ?? "") ? String(hold?.payeeAgentId ?? "") : String(hold?.payerAgentId ?? ""),
+                  toolId: "tool_call",
+                  role: invalidSignerRole,
+                  sourceRef: {
+                    kind: "dispute_open_envelope",
+                    sourceId: defaultCaseId,
+                    agreementHash,
+                    receiptHash,
+                    holdHash,
+                    runId,
+                    settlementId,
+                    disputeId,
+                    caseId
+                  },
+                  reasonMessage: err?.message ?? null,
+                  occurredAt: nowAt,
+                  context: "tool_call_dispute.open.invalid_signature"
+                });
                 return sendError(res, 409, "invalid disputeOpenEnvelope", signerDetails ?? { message: err?.message }, {
                   code: "DISPUTE_INVALID_SIGNER"
                 });
@@ -61958,6 +62863,30 @@ export function createApi({
               const signerIssue =
                 /signature|signerkeyid|openedbyagentid|unknown signerkeyid|invalid disputeopenenvelope/i.test(message) ||
                 /does not match openedbyagentid key/i.test(message);
+              if (signerIssue) {
+                await emitInvalidSignaturePenaltyBestEffort({
+                  tenantId,
+                  agentId: invalidSignerAgentId,
+                  counterpartyAgentId:
+                    invalidSignerAgentId === String(hold?.payerAgentId ?? "") ? String(hold?.payeeAgentId ?? "") : String(hold?.payerAgentId ?? ""),
+                  toolId: "tool_call",
+                  role: invalidSignerRole,
+                  sourceRef: {
+                    kind: "dispute_open_envelope",
+                    sourceId: defaultCaseId,
+                    agreementHash,
+                    receiptHash,
+                    holdHash,
+                    runId,
+                    settlementId,
+                    disputeId,
+                    caseId
+                  },
+                  reasonMessage: message,
+                  occurredAt: nowAt,
+                  context: "tool_call_dispute.open.invalid_signature"
+                });
+              }
               return sendError(
                 res,
                 signerIssue ? 409 : 400,
@@ -62275,6 +63204,36 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : typeof arbitrationCase?.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
+                  ? arbitrationCase.arbiterAgentId.trim()
+                  : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(hold?.payerAgentId ?? ""),
+                toolId: "tool_call",
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: caseId,
+                  agreementHash,
+                  receiptHash,
+                  holdHash,
+                  runId: arbitrationCase?.runId ?? runId,
+                  settlementId: arbitrationCase?.settlementId ?? settlementId,
+                  disputeId: arbitrationCase?.disputeId ?? disputeId,
+                  caseId
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "tool_call_dispute.verdict.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -62527,6 +63486,36 @@ export function createApi({
             },
             { context: "tool_call_dispute.verdict_issued" }
           );
+          if (verdictOutcome === "payer_win") {
+            await emitDisputeLostPenaltyBestEffort({
+              tenantId,
+              agentId: String(hold.payeeAgentId),
+              counterpartyAgentId: String(hold.payerAgentId),
+              toolId: "tool_call",
+              role: "payee",
+              sourceRef: {
+                kind: "arbitration_verdict",
+                sourceId: caseId,
+                verdictHash: signedArbitrationVerdict.verdictHash ?? null,
+                agreementHash,
+                receiptHash,
+                holdHash,
+                runId: arbitrationCase.runId,
+                settlementId: arbitrationCase.settlementId,
+                disputeId: arbitrationCase.disputeId,
+                caseId
+              },
+              reasonMessage: "arbitration verdict rejected in favor of payer",
+              amountPenalizedCents: heldAmountCents,
+              occurredAt: String(signedArbitrationVerdict.issuedAt ?? nowAt),
+              extraFacts: {
+                verdictOutcome,
+                releaseRatePct,
+                amountCents: heldAmountCents
+              },
+              context: "tool_call_dispute.verdict.penalty_dispute_lost"
+            });
+          }
           await emitReputationEventBestEffort(
             {
               tenantId,
@@ -65296,6 +66285,33 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : typeof arbitrationCase?.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
+                  ? arbitrationCase.arbiterAgentId.trim()
+                  : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: caseId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: arbitrationCase?.disputeId ?? settlement?.disputeId ?? null,
+                  caseId
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_arbitration.verdict.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -65587,6 +66603,32 @@ export function createApi({
             } catch {
               replayVerificationArtifact = null;
             }
+          }
+          const disputeResolutionOutcome = String(nextSettlement?.disputeResolution?.outcome ?? "").toLowerCase();
+          if (disputeResolutionOutcome === "rejected") {
+            await emitDisputeLostPenaltyBestEffort({
+              tenantId,
+              agentId: String(nextSettlement?.agentId ?? settlement?.agentId ?? ""),
+              counterpartyAgentId: String(nextSettlement?.payerAgentId ?? settlement?.payerAgentId ?? ""),
+              toolId: null,
+              role: "payee",
+              sourceRef: {
+                kind: "arbitration_case",
+                sourceId: caseId,
+                runId,
+                settlementId: nextSettlement?.settlementId ?? settlement?.settlementId ?? null,
+                disputeId: nextSettlement?.disputeId ?? settlement?.disputeId ?? disputeId ?? null,
+                caseId
+              },
+              reasonMessage: "arbitration close resolved as rejected",
+              amountPenalizedCents: Number(nextSettlement?.refundedAmountCents ?? settlement?.amountCents ?? 0),
+              occurredAt: nowAt,
+              extraFacts: {
+                outcome: disputeResolutionOutcome,
+                releaseRatePct: Number(nextSettlement?.disputeResolution?.releaseRatePct ?? 0)
+              },
+              context: "run_arbitration.close.penalty_dispute_lost"
+            });
           }
           return sendJson(res, 200, {
             ...responseBody,
@@ -66090,6 +67132,30 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.verdict?.arbiterAgentId === "string" && body.verdict.arbiterAgentId.trim() !== ""
+                ? body.verdict.arbiterAgentId.trim()
+                : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "dispute_verdict",
+                  sourceId: body?.disputeId ?? settlement?.disputeId ?? runId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: body?.disputeId ?? settlement?.disputeId ?? null
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_dispute.close.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid dispute verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -66114,6 +67180,30 @@ export function createApi({
           } catch (err) {
             const signerDetails =
               err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : null;
+            const invalidArbiterAgentId =
+              typeof body?.arbitrationVerdict?.arbiterAgentId === "string" && body.arbitrationVerdict.arbiterAgentId.trim() !== ""
+                ? body.arbitrationVerdict.arbiterAgentId.trim()
+                : null;
+            const signerIssue = String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER" || isLikelySignerIssueMessage(err?.message ?? "");
+            if (signerIssue) {
+              await emitInvalidSignaturePenaltyBestEffort({
+                tenantId,
+                agentId: invalidArbiterAgentId,
+                counterpartyAgentId: String(settlement?.agentId ?? ""),
+                toolId: null,
+                role: "arbiter",
+                sourceRef: {
+                  kind: "arbitration_verdict",
+                  sourceId: body?.disputeId ?? settlement?.disputeId ?? runId,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null,
+                  disputeId: body?.disputeId ?? settlement?.disputeId ?? null
+                },
+                reasonMessage: err?.message ?? null,
+                occurredAt: nowAt,
+                context: "run_dispute.close.invalid_signature"
+              });
+            }
             if (String(err?.code ?? "") === "DISPUTE_INVALID_SIGNER") {
               return sendError(res, 409, "invalid arbitration verdict", signerDetails ?? { message: err?.message }, {
                 code: "DISPUTE_INVALID_SIGNER"
@@ -66752,18 +67842,21 @@ export function createApi({
         if (parts[2] === "reputation" && req.method === "GET" && parts.length === 3) {
           const reputationVersionRaw = url.searchParams.get("reputationVersion");
           const reputationWindowRaw = url.searchParams.get("reputationWindow");
+          const asOfRaw = url.searchParams.get("asOf");
           let reputationVersion = "v1";
           let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          let asOf = nowIso();
           try {
             reputationVersion = parseReputationVersion(reputationVersionRaw);
             reputationWindow = parseReputationWindow(reputationWindowRaw);
+            asOf = parseAsOfDateTime(asOfRaw, { defaultValue: asOf, fieldName: "asOf" });
           } catch (err) {
             return sendError(res, 400, "invalid reputation query", { message: err?.message });
           }
           const reputation = await computeAgentReputationSnapshotVersioned({
             tenantId,
             agentId,
-            at: nowIso(),
+            at: asOf,
             reputationVersion,
             reputationWindow
           });
@@ -68419,8 +69512,21 @@ export function createApi({
           return sendError(res, 400, "invalid artifact id", { message: err?.message });
         }
         if (!artifact) return sendError(res, 404, "artifact not found");
-
-        return sendJson(res, 200, { artifact });
+        const artifactPolicy = await enforceArtifactReadPolicy({
+          tenantId,
+          artifact,
+          scopes: auth.scopes
+        });
+        if (!artifactPolicy?.ok) {
+          return sendError(
+            res,
+            artifactPolicy?.statusCode ?? 403,
+            artifactPolicy?.message ?? "artifact access denied",
+            artifactPolicy?.details ?? null,
+            { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+          );
+        }
+        return sendJson(res, 200, { artifact: artifactPolicy.artifact });
       }
 
       if (parts[0] === "jobs" && parts[1]) {
@@ -68484,6 +69590,7 @@ export function createApi({
 	          if (!artifactType || String(artifactType).trim() === "") return sendError(res, 400, "type is required");
 
 	          const settledEventId = job?.settlement?.settledEventId ?? null;
+	          const artifactPolicyContextCache = new Map();
 	          if (typeof settledEventId === "string" && settledEventId.trim() !== "") {
 	            const artifacts = await store.listArtifacts({
 	              tenantId,
@@ -68497,8 +69604,23 @@ export function createApi({
 	            if (artifacts.length > 1) {
 	              return sendError(res, 500, "multiple settlement-backed artifacts found", { settledEventId, count: artifacts.length });
 	            }
-	            return sendJson(res, 200, {
+	            const artifactPolicy = await enforceArtifactReadPolicy({
+	              tenantId,
 	              artifact: artifacts[0],
+	              scopes: auth.scopes,
+	              contextCache: artifactPolicyContextCache
+	            });
+	            if (!artifactPolicy?.ok) {
+	              return sendError(
+	                res,
+	                artifactPolicy?.statusCode ?? 403,
+	                artifactPolicy?.message ?? "artifact access denied",
+	                artifactPolicy?.details ?? null,
+	                { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+	              );
+	            }
+	            return sendJson(res, 200, {
+	              artifact: artifactPolicy.artifact,
 	              selection: { kind: "SETTLED_EVENT", sourceEventId: settledEventId }
 	            });
 	          }
@@ -68581,8 +69703,23 @@ export function createApi({
 	          if (artifacts.length > 1) {
 	            return sendError(res, 500, "multiple artifacts found for effective source event", { sourceEventId: proofEvent.id, count: artifacts.length });
 	          }
-	          return sendJson(res, 200, {
+	          const artifactPolicy = await enforceArtifactReadPolicy({
+	            tenantId,
 	            artifact: artifacts[0],
+	            scopes: auth.scopes,
+	            contextCache: artifactPolicyContextCache
+	          });
+	          if (!artifactPolicy?.ok) {
+	            return sendError(
+	              res,
+	              artifactPolicy?.statusCode ?? 403,
+	              artifactPolicy?.message ?? "artifact access denied",
+	              artifactPolicy?.details ?? null,
+	              { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+	            );
+	          }
+	          return sendJson(res, 200, {
+	            artifact: artifactPolicy.artifact,
 	            selection: {
 	              kind: "PROOF_EVENT",
 	              sourceEventId: proofEvent.id,
@@ -68677,13 +69814,34 @@ export function createApi({
 	              return sendError(res, 400, "invalid artifacts query", { message: err?.message });
 	            }
 
-	            const hasMore = rows.length > pageSize;
-	            const page = rows.slice(0, pageSize);
-	            const artifacts = page.map((r) => r?.artifact ?? null).filter(Boolean);
-	            const last = page.length ? page[page.length - 1] : null;
-	            const nextCursor = hasMore && last?.db?.createdAt && last?.db?.artifactId ? encodeCursor(last.db) : null;
-	            return sendJson(res, 200, { artifacts, nextCursor, hasMore, limit: pageSize });
-	          }
+		            const hasMore = rows.length > pageSize;
+		            const page = rows.slice(0, pageSize);
+		            const artifactsRaw = page.map((r) => r?.artifact ?? null).filter(Boolean);
+		            const artifactPolicyContextCache = new Map();
+		            const artifacts = [];
+		            for (const artifact of artifactsRaw) {
+		              // eslint-disable-next-line no-await-in-loop
+		              const artifactPolicy = await enforceArtifactReadPolicy({
+		                tenantId,
+		                artifact,
+		                scopes: auth.scopes,
+		                contextCache: artifactPolicyContextCache
+		              });
+		              if (!artifactPolicy?.ok) {
+		                return sendError(
+		                  res,
+		                  artifactPolicy?.statusCode ?? 403,
+		                  artifactPolicy?.message ?? "artifact access denied",
+		                  artifactPolicy?.details ?? null,
+		                  { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+		                );
+		              }
+		              artifacts.push(artifactPolicy.artifact);
+		            }
+		            const last = page.length ? page[page.length - 1] : null;
+		            const nextCursor = hasMore && last?.db?.createdAt && last?.db?.artifactId ? encodeCursor(last.db) : null;
+		            return sendJson(res, 200, { artifacts, nextCursor, hasMore, limit: pageSize });
+		          }
 
 	          let artifacts;
 	          try {
@@ -68695,11 +69853,32 @@ export function createApi({
 	              limit,
 	              offset
 	            });
-	          } catch (err) {
-	            return sendError(res, 400, "invalid artifacts query", { message: err?.message });
-	          }
-	          return sendJson(res, 200, { artifacts });
-	        }
+		          } catch (err) {
+		            return sendError(res, 400, "invalid artifacts query", { message: err?.message });
+		          }
+		          const artifactPolicyContextCache = new Map();
+		          const visibleArtifacts = [];
+		          for (const artifact of artifacts) {
+		            // eslint-disable-next-line no-await-in-loop
+		            const artifactPolicy = await enforceArtifactReadPolicy({
+		              tenantId,
+		              artifact,
+		              scopes: auth.scopes,
+		              contextCache: artifactPolicyContextCache
+		            });
+		            if (!artifactPolicy?.ok) {
+		              return sendError(
+		                res,
+		                artifactPolicy?.statusCode ?? 403,
+		                artifactPolicy?.message ?? "artifact access denied",
+		                artifactPolicy?.details ?? null,
+		                { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+		              );
+		            }
+		            visibleArtifacts.push(artifactPolicy.artifact);
+		          }
+		          return sendJson(res, 200, { artifacts: visibleArtifacts });
+		        }
 
         const getWindowZoneId = (windowZoneId) => normalizeZoneId(windowZoneId ?? job.booking?.zoneId ?? job.constraints?.zoneId);
 

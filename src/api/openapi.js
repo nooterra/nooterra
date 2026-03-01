@@ -5399,6 +5399,114 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const CommandCenterWorkspaceAlert = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "alertType", "severity", "metric", "comparator", "currentValue", "threshold", "message"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["CommandCenterAlert.v1"] },
+      alertType: { type: "string" },
+      severity: { type: "string" },
+      metric: { type: "string" },
+      comparator: { type: "string" },
+      currentValue: { type: "number" },
+      threshold: { type: "number" },
+      message: { type: "string" },
+      dimensions: { type: "object", nullable: true, additionalProperties: true }
+    }
+  };
+
+  const OpsNetworkCommandCenterWorkspace = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "generatedAt", "parameters", "reliability", "safety", "trust", "revenue", "actionability", "links"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["OpsNetworkCommandCenterWorkspace.v1"] },
+      generatedAt: { type: "string", format: "date-time" },
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["transactionFeeBps", "windowHours", "disputeSlaHours"],
+        properties: {
+          transactionFeeBps: { type: "integer", minimum: 0, maximum: 5000 },
+          windowHours: { type: "integer", minimum: 1, maximum: 8760 },
+          disputeSlaHours: { type: "integer", minimum: 1, maximum: 8760 }
+        }
+      },
+      reliability: OpsNetworkCommandCenterSummary.properties.reliability,
+      safety: {
+        type: "object",
+        additionalProperties: false,
+        required: ["determinism", "settlement", "disputes", "alerts"],
+        properties: {
+          determinism: OpsNetworkCommandCenterSummary.properties.determinism,
+          settlement: OpsNetworkCommandCenterSummary.properties.settlement,
+          disputes: OpsNetworkCommandCenterSummary.properties.disputes,
+          alerts: {
+            type: "object",
+            additionalProperties: false,
+            required: ["thresholds", "evaluatedCount", "breachCount", "breaches"],
+            properties: {
+              thresholds: {
+                type: "object",
+                additionalProperties: false,
+                required: [
+                  "httpClientErrorRateThresholdPct",
+                  "httpServerErrorRateThresholdPct",
+                  "deliveryDlqThreshold",
+                  "disputeOverSlaThreshold",
+                  "determinismRejectThreshold",
+                  "kernelVerificationErrorThreshold"
+                ],
+                properties: {
+                  httpClientErrorRateThresholdPct: { type: "number", minimum: 0 },
+                  httpServerErrorRateThresholdPct: { type: "number", minimum: 0 },
+                  deliveryDlqThreshold: { type: "integer", minimum: 0 },
+                  disputeOverSlaThreshold: { type: "integer", minimum: 0 },
+                  determinismRejectThreshold: { type: "integer", minimum: 0 },
+                  kernelVerificationErrorThreshold: { type: "integer", minimum: 0 }
+                }
+              },
+              evaluatedCount: { type: "integer", minimum: 0 },
+              breachCount: { type: "integer", minimum: 0 },
+              breaches: { type: "array", items: CommandCenterWorkspaceAlert }
+            }
+          }
+        }
+      },
+      trust: OpsNetworkCommandCenterSummary.properties.trust,
+      revenue: OpsNetworkCommandCenterSummary.properties.revenue,
+      actionability: {
+        type: "object",
+        additionalProperties: false,
+        required: ["canPersistAlerts"],
+        properties: {
+          canPersistAlerts: { type: "boolean" }
+        }
+      },
+      links: {
+        type: "object",
+        additionalProperties: false,
+        required: ["summary", "status"],
+        properties: {
+          summary: { type: "string" },
+          status: { type: "string" }
+        }
+      }
+    }
+  };
+
+  const OpsNetworkCommandCenterWorkspaceResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "workspace"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      workspace: OpsNetworkCommandCenterWorkspace
+    }
+  };
+
   const OpsFinanceReconcileResponse = {
     type: "object",
     additionalProperties: false,
@@ -10436,6 +10544,33 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsNetworkCommandCenterResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/network/command-center/workspace": {
+        get: {
+          summary: "Network command-center reliability and safety workspace",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "transactionFeeBps", in: "query", required: false, schema: { type: "integer", minimum: 0, maximum: 5000, default: 100 } },
+            { name: "windowHours", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 8760, default: 24 } },
+            { name: "disputeSlaHours", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 8760, default: 24 } },
+            { name: "httpClientErrorRateThresholdPct", in: "query", required: false, schema: { type: "number", minimum: 0 } },
+            { name: "httpServerErrorRateThresholdPct", in: "query", required: false, schema: { type: "number", minimum: 0 } },
+            { name: "deliveryDlqThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "disputeOverSlaThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "determinismRejectThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "kernelVerificationErrorThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsNetworkCommandCenterWorkspaceResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Dependency unavailable", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
