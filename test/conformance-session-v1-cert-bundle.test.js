@@ -22,6 +22,14 @@ function baseRunnerArgs() {
   ];
 }
 
+function fullPackRunnerArgs() {
+  return [
+    "conformance/session-v1/run.mjs",
+    "--adapter-node-bin",
+    "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs"
+  ];
+}
+
 test("session artifact conformance pack emits hash-bound report and cert bundle", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-cert-"));
   t.after(async () => {
@@ -103,4 +111,42 @@ test("session artifact conformance strict artifacts fail closed on report/cert p
 
   assert.equal(res.status, 2, `expected fail-closed strict artifact path conflict exit\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
   assert.match(res.stderr, /CONFORMANCE_STRICT_ARTIFACTS_PATH_CONFLICT/);
+});
+
+test("session artifact conformance cert run covers replay determinism variants", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-full-pack-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const reportPath = path.join(tmpRoot, "session-conformance-report.json");
+  const certPath = path.join(tmpRoot, "session-conformance-cert.json");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
+
+  const res = runConformance([
+    ...fullPackRunnerArgs(),
+    "--json-out",
+    reportPath,
+    "--cert-bundle-out",
+    certPath,
+    "--generated-at",
+    generatedAt,
+    "--strict-artifacts"
+  ]);
+
+  assert.equal(res.status, 0, `session conformance full pack run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
+
+  const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  assert.equal(report.reportCore?.summary?.total, 2);
+  assert.equal(report.reportCore?.summary?.pass, 2);
+  assert.equal(report.reportCore?.summary?.fail, 0);
+  assert.equal(report.reportCore?.summary?.ok, true);
+  const resultIds = (Array.isArray(report.reportCore?.results) ? report.reportCore.results : []).map((row) => row?.id).sort();
+  assert.deepEqual(resultIds, ["session_artifacts_signed_deterministic", "session_artifacts_unsigned_deterministic"]);
+  assert.equal(report.generatedAt, generatedAt);
+
+  const cert = JSON.parse(await fs.readFile(certPath, "utf8"));
+  assert.equal(cert.certCore?.pack, "conformance/session-v1");
+  assert.equal(cert.certCore?.reportHash, report.reportHash);
+  assert.equal(cert.certHash, sha256Hex(canonicalJsonStringify(cert.certCore)));
 });
