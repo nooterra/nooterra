@@ -136,6 +136,49 @@ function parseToolResult(response) {
   }
 }
 
+function normalizeToolFailureMessage(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function detectToolFailure(response, parsedResult) {
+  if (response?.result?.isError === true) {
+    const message = normalizeToolFailureMessage(response?.result?.content?.[0]?.text) ?? "tool call failed";
+    return { message };
+  }
+
+  if (!parsedResult || typeof parsedResult !== "object" || Array.isArray(parsedResult)) return null;
+  const candidate =
+    parsedResult?.result && typeof parsedResult.result === "object" && !Array.isArray(parsedResult.result)
+      ? parsedResult.result
+      : parsedResult;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(candidate, key);
+  const rawError = hasOwn("error") ? candidate.error : null;
+  const hasError =
+    rawError !== null &&
+    rawError !== undefined &&
+    !(typeof rawError === "string" && rawError.trim() === "");
+  const statusCode =
+    Number.isInteger(candidate.statusCode) ? candidate.statusCode : Number.isInteger(candidate.status) ? candidate.status : null;
+  const failed = candidate.ok === false || hasError || (Number.isInteger(statusCode) && statusCode >= 400);
+  if (!failed) return null;
+
+  const rawErrorMessage =
+    normalizeToolFailureMessage(rawError) ||
+    (rawError && typeof rawError === "object"
+      ? normalizeToolFailureMessage(rawError.message) || normalizeToolFailureMessage(rawError.error)
+      : null);
+  const message =
+    rawErrorMessage ||
+    normalizeToolFailureMessage(candidate.message) ||
+    "tool call reported upstream failure";
+  const code =
+    normalizeToolFailureMessage(candidate.code) ||
+    (rawError && typeof rawError === "object" ? normalizeToolFailureMessage(rawError.code) : null);
+  return { message, code };
+}
+
 function sanitizeId(value, fallback) {
   const normalized = String(value ?? "").trim().replace(/[^A-Za-z0-9:_-]/g, "_");
   return normalized || fallback;
@@ -233,16 +276,14 @@ async function main() {
         throw new Error(`${name} failed: ${response.error?.message ?? "unknown error"}`);
       }
       const parsed = parseToolResult(response);
-      const isToolError =
-        response?.result?.isError === true || (parsed && typeof parsed.error === "string" && parsed.error.trim() !== "");
-      transcript.push({ step: name, ok: !isToolError, result: parsed });
-      if (isToolError) {
-        const errorCode =
-          typeof parsed?.code === "string" && parsed.code.trim() !== "" ? parsed.code.trim() : null;
+      const detectedFailure = detectToolFailure(response, parsed);
+      transcript.push({ step: name, ok: !detectedFailure, result: parsed });
+      if (detectedFailure) {
+        const errorCode = detectedFailure.code ?? null;
         const details =
           parsed?.details && typeof parsed.details === "object" ? JSON.stringify(parsed.details) : null;
         throw new Error(
-          `${name} failed: ${String(parsed.error ?? "tool returned isError")}${
+          `${name} failed: ${String(detectedFailure.message ?? "tool returned isError")}${
             errorCode ? ` [${errorCode}]` : ""
           }${details ? ` details=${details}` : ""}`
         );

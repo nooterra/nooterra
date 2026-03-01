@@ -26,11 +26,179 @@ export const CAPABILITY_ATTESTATION_REASON_CODE = Object.freeze({
   INVALID: "CAPABILITY_ATTESTATION_INVALID"
 });
 
+export const CAPABILITY_NAMESPACE_POLICY_VERSION = "CapabilityNamespacePolicy.v1";
+
+export const CAPABILITY_IDENTIFIER_REASON_CODE = Object.freeze({
+  REQUIRED: "CAPABILITY_IDENTIFIER_REQUIRED",
+  TOO_LONG: "CAPABILITY_IDENTIFIER_TOO_LONG",
+  LEGACY_PATTERN_INVALID: "CAPABILITY_IDENTIFIER_LEGACY_PATTERN_INVALID",
+  URI_SCHEME_INVALID: "CAPABILITY_IDENTIFIER_URI_SCHEME_INVALID",
+  URI_ASCII_LOWERCASE_REQUIRED: "CAPABILITY_IDENTIFIER_URI_ASCII_LOWERCASE_REQUIRED",
+  URI_IDENTIFIER_REQUIRED: "CAPABILITY_IDENTIFIER_URI_IDENTIFIER_REQUIRED",
+  URI_IDENTIFIER_PATTERN_INVALID: "CAPABILITY_IDENTIFIER_URI_IDENTIFIER_PATTERN_INVALID",
+  URI_IDENTIFIER_TOO_LONG: "CAPABILITY_IDENTIFIER_URI_IDENTIFIER_TOO_LONG",
+  URI_VERSION_INVALID: "CAPABILITY_IDENTIFIER_URI_VERSION_INVALID",
+  URI_SEGMENT_COUNT_EXCEEDED: "CAPABILITY_IDENTIFIER_URI_SEGMENT_COUNT_EXCEEDED",
+  URI_SEGMENT_LENGTH_EXCEEDED: "CAPABILITY_IDENTIFIER_URI_SEGMENT_LENGTH_EXCEEDED",
+  URI_NAMESPACE_RESERVED: "CAPABILITY_IDENTIFIER_URI_NAMESPACE_RESERVED"
+});
+
+export const CAPABILITY_URI_POLICY_LIMITS = Object.freeze({
+  maxLength: 160,
+  maxIdentifierLength: 128,
+  maxDotSegments: 8,
+  maxSegmentLength: 32,
+  maxVersionDigits: 9
+});
+
+export const CAPABILITY_URI_RESERVED_TOP_LEVEL_NAMESPACES = Object.freeze([
+  "admin",
+  "internal",
+  "nooterra",
+  "reserved",
+  "root",
+  "system"
+]);
+
 const LEVEL_RANK = Object.freeze({
   [CAPABILITY_ATTESTATION_LEVEL.SELF_CLAIM]: 1,
   [CAPABILITY_ATTESTATION_LEVEL.ATTESTED]: 2,
   [CAPABILITY_ATTESTATION_LEVEL.CERTIFIED]: 3
 });
+
+const CAPABILITY_IDENTIFIER_LEGACY_PATTERN = /^[A-Za-z0-9._:-]+$/;
+const CAPABILITY_IDENTIFIER_URI_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+const CAPABILITY_IDENTIFIER_URI_PREFIX = "capability://";
+const CAPABILITY_IDENTIFIER_URI_ASCII_PATTERN = /^[\x00-\x7F]+$/;
+const CAPABILITY_IDENTIFIER_URI_IDENTIFIER_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+const CAPABILITY_IDENTIFIER_URI_VERSION_PATTERN = new RegExp(
+  `^v[1-9][0-9]{0,${CAPABILITY_URI_POLICY_LIMITS.maxVersionDigits - 1}}$`
+);
+const CAPABILITY_URI_RESERVED_TOP_LEVEL_NAMESPACE_SET = new Set(CAPABILITY_URI_RESERVED_TOP_LEVEL_NAMESPACES);
+
+function capabilityIdentifierError(name, code, message) {
+  const err = new TypeError(`${name} failed capability namespace policy (${code}): ${message}`);
+  err.code = code;
+  return err;
+}
+
+function parseCapabilityUriParts(value, name) {
+  const remainder = value.slice(CAPABILITY_IDENTIFIER_URI_PREFIX.length);
+  if (!remainder) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.URI_IDENTIFIER_REQUIRED, "identifier must be present after capability://");
+  }
+
+  const firstAt = remainder.indexOf("@");
+  if (firstAt === -1) return { identifier: remainder, versionSuffix: null };
+  if (firstAt === 0) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.URI_IDENTIFIER_REQUIRED, "identifier must be present before @v<positive-integer>");
+  }
+  if (remainder.indexOf("@", firstAt + 1) !== -1) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.URI_VERSION_INVALID, "version suffix must appear at most once");
+  }
+  const identifier = remainder.slice(0, firstAt);
+  const versionSuffix = remainder.slice(firstAt + 1);
+  if (!versionSuffix) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.URI_VERSION_INVALID, "version suffix must match @v<positive-integer>");
+  }
+  return { identifier, versionSuffix };
+}
+
+export function normalizeCapabilityIdentifier(value, { name = "capability", max = 256 } = {}) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.REQUIRED, "must be a non-empty string");
+  }
+  const normalized = value.trim();
+  if (normalized.length > max) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.TOO_LONG, `must be <= ${max} characters`);
+  }
+
+  const hasUriScheme = CAPABILITY_IDENTIFIER_URI_SCHEME_PATTERN.test(normalized);
+  if (!hasUriScheme) {
+    if (!CAPABILITY_IDENTIFIER_LEGACY_PATTERN.test(normalized)) {
+      throw capabilityIdentifierError(
+        name,
+        CAPABILITY_IDENTIFIER_REASON_CODE.LEGACY_PATTERN_INVALID,
+        "legacy identifier must match ^[A-Za-z0-9._:-]+$"
+      );
+    }
+    return normalized;
+  }
+
+  if (!normalized.startsWith(CAPABILITY_IDENTIFIER_URI_PREFIX)) {
+    throw capabilityIdentifierError(name, CAPABILITY_IDENTIFIER_REASON_CODE.URI_SCHEME_INVALID, "URI identifier must use capability:// scheme");
+  }
+  if (!CAPABILITY_IDENTIFIER_URI_ASCII_PATTERN.test(normalized) || normalized !== normalized.toLowerCase()) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_ASCII_LOWERCASE_REQUIRED,
+      "URI identifier must use lowercase ASCII only"
+    );
+  }
+  if (normalized.length > CAPABILITY_URI_POLICY_LIMITS.maxLength) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_IDENTIFIER_TOO_LONG,
+      `URI identifier must be <= ${CAPABILITY_URI_POLICY_LIMITS.maxLength} characters`
+    );
+  }
+
+  const { identifier, versionSuffix } = parseCapabilityUriParts(normalized, name);
+  if (!CAPABILITY_IDENTIFIER_URI_IDENTIFIER_PATTERN.test(identifier)) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_IDENTIFIER_PATTERN_INVALID,
+      "identifier must match ^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    );
+  }
+  if (identifier.length > CAPABILITY_URI_POLICY_LIMITS.maxIdentifierLength) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_IDENTIFIER_TOO_LONG,
+      `identifier must be <= ${CAPABILITY_URI_POLICY_LIMITS.maxIdentifierLength} characters`
+    );
+  }
+  if (versionSuffix !== null && !CAPABILITY_IDENTIFIER_URI_VERSION_PATTERN.test(versionSuffix)) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_VERSION_INVALID,
+      `version suffix must match @v<positive-integer> with <= ${CAPABILITY_URI_POLICY_LIMITS.maxVersionDigits} digits`
+    );
+  }
+
+  const dotSegments = identifier.split(".");
+  if (dotSegments.length > CAPABILITY_URI_POLICY_LIMITS.maxDotSegments) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_SEGMENT_COUNT_EXCEEDED,
+      `identifier must have <= ${CAPABILITY_URI_POLICY_LIMITS.maxDotSegments} dot-separated segments`
+    );
+  }
+  for (const segment of dotSegments) {
+    if (segment.length > CAPABILITY_URI_POLICY_LIMITS.maxSegmentLength) {
+      throw capabilityIdentifierError(
+        name,
+        CAPABILITY_IDENTIFIER_REASON_CODE.URI_SEGMENT_LENGTH_EXCEEDED,
+        `each dot-separated segment must be <= ${CAPABILITY_URI_POLICY_LIMITS.maxSegmentLength} characters`
+      );
+    }
+  }
+  const topLevelNamespace = dotSegments[0];
+  if (CAPABILITY_URI_RESERVED_TOP_LEVEL_NAMESPACE_SET.has(topLevelNamespace)) {
+    throw capabilityIdentifierError(
+      name,
+      CAPABILITY_IDENTIFIER_REASON_CODE.URI_NAMESPACE_RESERVED,
+      `top-level namespace "${topLevelNamespace}" is reserved`
+    );
+  }
+
+  return normalized;
+}
+
+export function normalizeOptionalCapabilityIdentifier(value, { name = "capability", max = 256 } = {}) {
+  if (value === null || value === undefined) return null;
+  return normalizeCapabilityIdentifier(value, { name, max });
+}
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -58,9 +226,7 @@ function normalizeIsoDateTime(value, name) {
 }
 
 function normalizeCapability(value, name = "capability") {
-  const normalized = assertNonEmptyString(value, name, { max: 256 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(normalized)) throw new TypeError(`${name} must match ^[A-Za-z0-9._:-]+$`);
-  return normalized;
+  return normalizeCapabilityIdentifier(value, { name, max: 256 });
 }
 
 function normalizeCapabilityLevel(value, name = "level") {

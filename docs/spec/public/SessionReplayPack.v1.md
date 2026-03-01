@@ -57,6 +57,8 @@ Long-horizon session memory migration uses a deterministic companion contract:
 - `replayPackHash`, `replayPackRef` (`ArtifactRef.v1`, `artifactHash == replayPackHash`)
 - `transcriptHash` + `transcriptRef` (both nullable, but must be set together)
 - `eventCount`, `firstEventId`, `lastEventId`, `firstPrevChainHash`, `headChainHash`
+- optional `workspace` boundary (`workspaceId`, `ownerAgentId`, `domainId`, `host`, revocation metadata)
+- optional `migration` metadata (`migrationId`, `sourceHost`, `targetHost`, `migratedAt`)
 - `continuity.previousHeadChainHash`, `continuity.previousPackHash`
 
 Import verification is fail-closed:
@@ -64,6 +66,9 @@ Import verification is fail-closed:
 - replay-pack hash/ref mismatch,
 - event window mismatch (`eventCount`, `firstPrevChainHash`, `headChainHash`),
 - chain continuity mismatch (`continuity.previousHeadChainHash`),
+- workspace boundary mismatch when expected workspace controls are provided,
+- workspace revocation is active (`workspace.revokedAt` set),
+- migration metadata mismatch when expected migration controls are provided,
 - transcript missing when referenced,
 - transcript/replay semantic drift,
 - invalid or missing required signatures when signature verification is requested.

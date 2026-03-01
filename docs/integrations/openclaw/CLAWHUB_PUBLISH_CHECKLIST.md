@@ -2,6 +2,22 @@
 
 Use this to publish and validate the Nooterra OpenClaw skill safely.
 
+## 0) Nooterra Verified Acceptance Gate (Community Listing)
+
+If the skill listing claims `Nooterra Verified`, run collaboration gate first:
+
+```bash
+npm run -s test:ops:nooterra-verified-gate -- --level collaboration --out artifacts/gates/nooterra-verified-collaboration-gate.json
+```
+
+Confirm pass (fail closed):
+
+```bash
+node -e 'const fs=require("node:fs");const r=JSON.parse(fs.readFileSync("artifacts/gates/nooterra-verified-collaboration-gate.json","utf8"));if(!(r.schemaVersion==="NooterraVerifiedGateReport.v1"&&r.level==="collaboration"&&r.ok===true&&Number(r?.summary?.failedChecks)===0&&Array.isArray(r?.blockingIssues)&&r.blockingIssues.length===0)){process.exit(1)}'
+```
+
+Do not publish a `Nooterra Verified` listing claim when this gate fails.
+
 ## 1) Pre-Publish Validation
 
 Run local MCP sanity checks first:
@@ -20,13 +36,21 @@ Confirm required files exist:
 
 ## 2) Prepare Skill Metadata
 
-In `SKILL.md`, verify:
+In `SKILL.md` frontmatter and `skill.json`, verify:
 
 - `name` is unique in ClawHub
+- `name` matches exactly across `SKILL.md` and `skill.json`
+- `version` matches exactly across `SKILL.md` and `skill.json`
 - `description` is short and explicit
 - `version` bumped for every publish
 - `user-invocable: true` is present for slash-invoked usage
 - prompt library includes discovery + delegation + work-order + receipt flows
+
+For `Nooterra Verified` listings, use exact description token in both files:
+
+- `[Nooterra Verified: collaboration]`
+
+Do not invent new schema keys for listing claims in either file.
 
 ## 3) Publish To ClawHub
 
@@ -47,7 +71,15 @@ Install the skill in a clean OpenClaw environment and verify:
 3. One paid call succeeds:
    - `nooterra.exa_search_paid`, or
    - `nooterra.weather_current_paid`
-4. Result includes `x-nooterra-*` verification headers.
+4. Result includes required policy/verification headers:
+   - `x-nooterra-settlement-status`
+   - `x-nooterra-verification-status`
+   - `x-nooterra-policy-decision`
+   - `x-nooterra-policy-hash`
+   - `x-nooterra-decision-id`
+5. Delegation + receipt minimums succeed:
+   - delegation grant flow (`nooterra.delegation_grant_issue` -> `nooterra.delegation_grant_list` -> `nooterra.delegation_grant_revoke`)
+   - receipt/settlement lookup flow (`nooterra.x402_gate_get` or work-order settle read path)
 
 Automated smoke (requires network and public ClawHub access):
 

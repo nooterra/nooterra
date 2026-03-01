@@ -2,6 +2,33 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": true,
+  "definitions": {
+    "probeConfig": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "initialDelaySeconds": { "type": "integer", "minimum": 0 },
+        "periodSeconds": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "failureThreshold": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["path", "initialDelaySeconds", "periodSeconds", "timeoutSeconds", "failureThreshold"]
+    },
+    "readinessProbeConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/probeConfig" },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "successThreshold": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["successThreshold"]
+        }
+      ]
+    }
+  },
   "properties": {
     "image": {
       "type": "object",
@@ -14,6 +41,15 @@
       "required": ["repository", "tag"]
     },
     "buildId": { "type": "string" },
+    "api": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "readinessProbe": { "$ref": "#/definitions/readinessProbeConfig" },
+        "livenessProbe": { "$ref": "#/definitions/probeConfig" },
+        "startupProbe": { "$ref": "#/definitions/probeConfig" }
+      }
+    },
     "store": {
       "type": "object",
       "additionalProperties": true,
@@ -32,6 +68,43 @@
         }
       },
       "required": ["mode", "pgSchema", "migrateOnStartup", "databaseUrlSecret"]
+    },
+    "evidenceStore": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": { "type": "string", "enum": ["fs", "s3"] },
+        "s3": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "endpoint": { "type": "string" },
+            "region": { "type": "string", "minLength": 1 },
+            "bucket": { "type": "string" },
+            "forcePathStyle": { "type": "boolean" },
+            "accessKeyIdSecret": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              },
+              "required": ["key"]
+            },
+            "secretAccessKeySecret": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              },
+              "required": ["key"]
+            }
+          },
+          "required": ["region", "forcePathStyle", "accessKeyIdSecret", "secretAccessKeySecret"]
+        }
+      },
+      "required": ["mode", "s3"]
     },
     "config": {
       "type": "object",
@@ -69,6 +142,9 @@
       "additionalProperties": true,
       "properties": {
         "enabled": { "type": "boolean" },
+        "readinessProbe": { "$ref": "#/definitions/readinessProbeConfig" },
+        "livenessProbe": { "$ref": "#/definitions/probeConfig" },
+        "startupProbe": { "$ref": "#/definitions/probeConfig" },
         "ackUrl": { "type": "string" },
         "tenantId": { "type": "string", "minLength": 1 },
         "destinationId": { "type": "string", "minLength": 1 },
@@ -92,7 +168,7 @@
       "required": ["enabled", "tenantId", "destinationId", "dedupeDbPath", "allowInlineSecrets", "hmacSecretRef", "s3"]
     }
   },
-  "required": ["image", "store", "maintenance", "receiver"],
+  "required": ["image", "store", "evidenceStore", "maintenance", "receiver"],
   "allOf": [
     {
       "if": {
@@ -122,6 +198,38 @@
       }
     },
     {
+      "if": { "properties": { "evidenceStore": { "properties": { "mode": { "const": "s3" } } } } },
+      "then": {
+        "properties": {
+          "evidenceStore": {
+            "properties": {
+              "s3": {
+                "required": ["endpoint", "bucket", "accessKeyIdSecret", "secretAccessKeySecret"],
+                "properties": {
+                  "endpoint": { "type": "string", "minLength": 1 },
+                  "bucket": { "type": "string", "minLength": 1 },
+                  "accessKeyIdSecret": {
+                    "required": ["name", "key"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "key": { "type": "string", "minLength": 1 }
+                    }
+                  },
+                  "secretAccessKeySecret": {
+                    "required": ["name", "key"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "key": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "if": { "properties": { "receiver": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
@@ -146,4 +254,3 @@
     }
   ]
 }
-

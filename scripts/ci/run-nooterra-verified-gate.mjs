@@ -379,6 +379,11 @@ function checksForLevel(level, { includePg = false } = {}) {
       ]
     },
     {
+      id: "e2e_capability_attestation_discovery_filters",
+      command: "node",
+      args: ["--test", "test/api-e2e-capability-attestation-discovery.test.js"]
+    },
+    {
       id: "e2e_python_sdk_acs_substrate_smoke",
       command: "node",
       args: ["--test", "test/api-python-sdk-acs-substrate-smoke.test.js"]

@@ -43,6 +43,29 @@ export const AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL = Object.freeze({
   L3_EXTERNAL: "l3_external"
 });
 
+export const FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION = "FederationDisputeJurisdiction.v1";
+export const FEDERATION_DISPUTE_POLICY_PATH = Object.freeze({
+  LOCAL_PRIMARY: "local_primary",
+  COUNTERPARTY_PRIMARY: "counterparty_primary",
+  TIE_BREAK: "tie_break"
+});
+export const FEDERATION_DISPUTE_PRIMARY_PLANE = Object.freeze({
+  LOCAL: "local",
+  COUNTERPARTY: "counterparty",
+  SHARED: "shared"
+});
+export const FEDERATION_DISPUTE_COUNTERPART_STATUS = Object.freeze({
+  REACHABLE: "reachable",
+  DISAGREED: "disagreed",
+  UNAVAILABLE: "unavailable"
+});
+export const FEDERATION_DISPUTE_TIE_BREAK = Object.freeze({
+  NONE: "none",
+  LOCAL_OPERATOR: "local_operator",
+  SHARED_ARBITER: "shared_arbiter",
+  EXTERNAL_FORUM: "external_forum"
+});
+
 export const AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME = Object.freeze({
   ACCEPTED: "accepted",
   REJECTED: "rejected",
@@ -111,6 +134,84 @@ function normalizeDisputeEvidenceRefs(value, name) {
   return out;
 }
 
+function normalizeDisputeFederationJurisdiction(value, { name = "settlement.disputeContext.federationJurisdiction" } = {}) {
+  if (value === null || value === undefined) return null;
+  assertPlainObject(value, name);
+  const schemaVersionRaw =
+    value.schemaVersion === null || value.schemaVersion === undefined ? FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION : value.schemaVersion;
+  const schemaVersion = String(schemaVersionRaw).trim();
+  if (schemaVersion !== FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION) {
+    throw new TypeError(`${name}.schemaVersion must be ${FEDERATION_DISPUTE_JURISDICTION_SCHEMA_VERSION}`);
+  }
+  const policyPath = normalizeEnumValue(
+    value.policyPath ?? FEDERATION_DISPUTE_POLICY_PATH.LOCAL_PRIMARY,
+    `${name}.policyPath`,
+    Object.values(FEDERATION_DISPUTE_POLICY_PATH)
+  );
+  const primaryPlane = normalizeEnumValue(
+    value.primaryPlane ?? FEDERATION_DISPUTE_PRIMARY_PLANE.LOCAL,
+    `${name}.primaryPlane`,
+    Object.values(FEDERATION_DISPUTE_PRIMARY_PLANE)
+  );
+  const counterpartStatus = normalizeEnumValue(
+    value.counterpartStatus ?? FEDERATION_DISPUTE_COUNTERPART_STATUS.REACHABLE,
+    `${name}.counterpartStatus`,
+    Object.values(FEDERATION_DISPUTE_COUNTERPART_STATUS)
+  );
+  const tieBreaker = normalizeEnumValue(
+    value.tieBreaker ?? FEDERATION_DISPUTE_TIE_BREAK.NONE,
+    `${name}.tieBreaker`,
+    Object.values(FEDERATION_DISPUTE_TIE_BREAK)
+  );
+  const disputeCoordinationId =
+    value.disputeCoordinationId === null || value.disputeCoordinationId === undefined ? null : String(value.disputeCoordinationId).trim();
+  if (disputeCoordinationId !== null && disputeCoordinationId === "") {
+    throw new TypeError(`${name}.disputeCoordinationId must be a non-empty string when provided`);
+  }
+  if (disputeCoordinationId !== null && disputeCoordinationId.length > 256) {
+    throw new TypeError(`${name}.disputeCoordinationId must be <= 256 chars`);
+  }
+  const authorizationRef =
+    value.authorizationRef === null || value.authorizationRef === undefined ? null : String(value.authorizationRef).trim();
+  if (authorizationRef !== null && authorizationRef === "") {
+    throw new TypeError(`${name}.authorizationRef must be a non-empty string when provided`);
+  }
+  const reasonCode =
+    value.reasonCode === null || value.reasonCode === undefined ? null : String(value.reasonCode).trim();
+  if (reasonCode !== null && reasonCode === "") {
+    throw new TypeError(`${name}.reasonCode must be a non-empty string when provided`);
+  }
+  if (reasonCode !== null && reasonCode.length > 120) {
+    throw new TypeError(`${name}.reasonCode must be <= 120 chars`);
+  }
+  const continuityHash =
+    value.continuityHash === null || value.continuityHash === undefined ? null : String(value.continuityHash).trim().toLowerCase();
+  if (continuityHash !== null && !/^[0-9a-f]{64}$/.test(continuityHash)) {
+    throw new TypeError(`${name}.continuityHash must be a 64-character lowercase hex sha256`);
+  }
+  const asOf = value.asOf === null || value.asOf === undefined ? null : String(value.asOf).trim();
+  if (asOf !== null) {
+    if (asOf === "") throw new TypeError(`${name}.asOf must be a non-empty string when provided`);
+    assertIsoDate(asOf, `${name}.asOf`);
+  }
+  const evidenceRefs = normalizeDisputeEvidenceRefs(value.evidenceRefs, `${name}.evidenceRefs`).sort((left, right) => left.localeCompare(right));
+  const invocationRefs = normalizeDisputeEvidenceRefs(value.invocationRefs, `${name}.invocationRefs`).sort((left, right) => left.localeCompare(right));
+  return {
+    schemaVersion,
+    policyPath,
+    primaryPlane,
+    counterpartStatus,
+    tieBreaker,
+    disputeCoordinationId,
+    authorizationRef,
+    reasonCode,
+    continuityHash,
+    asOf,
+    evidenceRefs,
+    invocationRefs
+  };
+}
+
 function normalizeDisputeContext(disputeContext, { name = "settlement.disputeContext", defaultEscalationLevel = null } = {}) {
   if (disputeContext === null || disputeContext === undefined) return null;
   assertPlainObject(disputeContext, name);
@@ -149,6 +250,9 @@ function normalizeDisputeContext(disputeContext, { name = "settlement.disputeCon
     throw new TypeError(`${name}.reason must be a non-empty string when provided`);
   }
   const evidenceRefs = normalizeDisputeEvidenceRefs(disputeContext.evidenceRefs, `${name}.evidenceRefs`);
+  const federationJurisdiction = normalizeDisputeFederationJurisdiction(disputeContext.federationJurisdiction, {
+    name: `${name}.federationJurisdiction`
+  });
   return {
     type: kind,
     priority,
@@ -156,7 +260,8 @@ function normalizeDisputeContext(disputeContext, { name = "settlement.disputeCon
     escalationLevel,
     openedByAgentId,
     reason,
-    evidenceRefs
+    evidenceRefs,
+    ...(federationJurisdiction ? { federationJurisdiction } : {})
   };
 }
 
@@ -220,6 +325,9 @@ function normalizeDisputeResolution(disputeResolution, { name = "settlement.disp
     throw new TypeError(`${name}.releaseRatePct is only allowed for accepted|rejected|partial outcomes`);
   }
   const evidenceRefs = normalizeDisputeEvidenceRefs(disputeResolution.evidenceRefs, `${name}.evidenceRefs`);
+  const federationJurisdiction = normalizeDisputeFederationJurisdiction(disputeResolution.federationJurisdiction, {
+    name: `${name}.federationJurisdiction`
+  });
   return {
     outcome,
     escalationLevel,
@@ -227,7 +335,8 @@ function normalizeDisputeResolution(disputeResolution, { name = "settlement.disp
     summary,
     closedAt,
     ...(releaseRatePct !== null ? { releaseRatePct } : {}),
-    evidenceRefs
+    evidenceRefs,
+    ...(federationJurisdiction ? { federationJurisdiction } : {})
   };
 }
 

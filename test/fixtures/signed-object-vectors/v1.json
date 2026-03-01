@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "SignedObjectVectors.v1",
+  "vectorsVersion": "1.0.0",
+  "generatedAt": "2026-02-01T00:00:00.000Z",
+  "signer": {
+    "keyId": "key_282c80df2381d6831a92e89b"
+  },
+  "cases": [
+    {
+      "id": "agent_card_v1",
+      "schemaVersion": "AgentCard.v1",
+      "canonicalJson": "{\"agentId\":\"agt_vectors_card_1\",\"attestations\":[{\"credentialRef\":null,\"expiresAt\":\"2026-12-31T00:00:00.000Z\",\"issuedAt\":\"2026-01-15T00:00:00.000Z\",\"issuer\":\"agt_vectors_issuer_1\",\"level\":\"attested\",\"proofHash\":null,\"type\":\"capability\"}],\"capabilities\":[\"travel.booking\"],\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"description\":\"Deterministic signed AgentCard vector\",\"displayName\":\"Vector Agent Card\",\"host\":{\"endpoint\":\"https://vectors.example/agent-card\",\"protocols\":[\"http\",\"mcp\"],\"runtime\":\"openclaw\"},\"identityRef\":{\"keyId\":\"key_282c80df2381d6831a92e89b\",\"schemaVersion\":\"AgentIdentity.v1\"},\"metadata\":{\"stage\":\"vectors\"},\"priceHint\":{\"amountCents\":125,\"currency\":\"USD\",\"unit\":\"task\"},\"publish\":{\"algorithm\":\"ed25519\",\"payloadHash\":\"29926baf97ee2c4300523f57e0600a4aa3629a38226b59ac9c164942a79adb82\",\"schemaVersion\":\"AgentCardPublish.v1\",\"signature\":\"joPhV97Q5XpGUGvCHc+UCspoxNEbOmdTdq19W/ZKt4XqurMBBJ8+MjC6Q6Stesjm3mqxwBqceguY3iDvFZBzBw==\",\"signedAt\":\"2026-02-01T00:00:00.000Z\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\"},\"revision\":0,\"schemaVersion\":\"AgentCard.v1\",\"status\":\"active\",\"tags\":[\"travel\",\"vectors\"],\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\",\"visibility\":\"public\"}",
+      "sha256": "8711aa6478c58bb10155489d9be93e0f7e97b67d63eaffc6383fffccc236a914",
+      "signatureAlgorithm": "ed25519",
+      "signatureKeyId": "key_282c80df2381d6831a92e89b",
+      "signature": "AJ/+R0twSypWkKCscVtHTG97EayH89L1w8vcynMoiG3Y5WEcbdlUpFhQUibvPOsEXT3Zoqd8Pj8UEys3Ruj+BQ==",
+      "signatureVerified": true
+    },
+    {
+      "id": "delegation_grant_v1",
+      "schemaVersion": "DelegationGrant.v1",
+      "canonicalJson": "{\"chainBinding\":{\"depth\":0,\"maxDelegationDepth\":3,\"parentGrantHash\":null,\"rootGrantHash\":\"db56669a0f3c7797056ccc065f1c67aeb15afc0db0b5dd4b60874ed659993b4a\"},\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"delegateeAgentId\":\"agt_vectors_worker_1\",\"delegatorAgentId\":\"agt_vectors_principal_1\",\"grantHash\":\"a836d0417d3379bb34028be100f92b648f1e03480b2d3d93ac57be7f29a021e8\",\"grantId\":\"dgrant_vectors_1\",\"metadata\":{\"stage\":\"vectors\"},\"revocation\":{\"revocable\":true,\"revocationReasonCode\":null,\"revokedAt\":null},\"schemaVersion\":\"DelegationGrant.v1\",\"scope\":{\"allowedProviderIds\":[\"provider_vectors_1\"],\"allowedRiskClasses\":[\"compute\",\"financial\"],\"allowedToolIds\":[\"tool_vectors_1\"],\"sideEffectingAllowed\":true},\"spendLimit\":{\"currency\":\"USD\",\"maxPerCallCents\":500,\"maxTotalCents\":5000},\"tenantId\":\"tenant_vectors\",\"validity\":{\"expiresAt\":\"2026-03-01T00:00:00.000Z\",\"issuedAt\":\"2026-02-01T00:00:00.000Z\",\"notBefore\":\"2026-02-01T00:00:00.000Z\"}}",
+      "sha256": "4f1b8e8a5fbebb3d511da5f7c6531291437354b673824eaf876d63c4157ede5f",
+      "signatureAlgorithm": "ed25519",
+      "signatureKeyId": "key_282c80df2381d6831a92e89b",
+      "signature": "0GEGipm68XZh3DqbPT+0+JY2gt/vWlbL1/5qDK/1kZf8jfzkL3mgDmV8rg9RRYWNQHbuPOWPNqI9ZuqpuMqoCw==",
+      "signatureVerified": true
+    },
+    {
+      "id": "subagent_work_order_v1",
+      "schemaVersion": "SubAgentWorkOrder.v1",
+      "canonicalJson": "{\"acceptedAt\":null,\"acceptedByAgentId\":null,\"authorityGrantRef\":\"agrant_vectors_1\",\"completedAt\":null,\"completionReceiptId\":null,\"constraints\":{\"deadlineAt\":\"2026-02-02T00:00:00.000Z\",\"maxCostCents\":3000,\"maxDurationSeconds\":3600,\"retryLimit\":1},\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"delegationGrantRef\":\"dgrant_vectors_1\",\"evidencePolicy\":{\"refund\":{\"minEvidenceRefs\":0,\"requireReceiptHashBinding\":false,\"requiredKinds\":[]},\"release\":{\"minEvidenceRefs\":1,\"requireReceiptHashBinding\":true,\"requiredKinds\":[\"artifact\"]},\"schemaVersion\":\"WorkOrderSettlementEvidencePolicy.v1\",\"workOrderType\":\"travel_booking\"},\"metadata\":{\"stage\":\"vectors\"},\"parentTaskId\":\"task_vectors_1\",\"pricing\":{\"amountCents\":2500,\"currency\":\"USD\",\"model\":\"fixed\",\"quoteId\":\"quote_vectors_1\"},\"principalAgentId\":\"agt_vectors_principal_1\",\"progressEvents\":[],\"requiredCapability\":\"travel.booking\",\"revision\":0,\"schemaVersion\":\"SubAgentWorkOrder.v1\",\"settlement\":null,\"specification\":{\"input\":{\"date\":\"2026-03-10\",\"destination\":\"LAX\",\"origin\":\"SFO\"},\"task\":\"book_flight\"},\"status\":\"created\",\"subAgentId\":\"agt_vectors_worker_1\",\"tenantId\":\"tenant_vectors\",\"traceId\":\"trace_vectors_1\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\",\"workOrderId\":\"wo_vectors_1\",\"x402ProviderId\":\"provider_vectors_1\",\"x402ToolId\":\"tool_vectors_1\"}",
+      "sha256": "136da59313b3916f0e13207cddc2368fa76bf5891ecf3b1797f4469aa633855c",
+      "signatureAlgorithm": "ed25519",
+      "signatureKeyId": "key_282c80df2381d6831a92e89b",
+      "signature": "lKT8OdZmhjkzajEYa4kE+YvX8gqig0ilkWf7OYC30ASanhLE8bMsQCGkjts6eJelBSmX0FtgRZ+XawMGZkbAAg==",
+      "signatureVerified": true
+    },
+    {
+      "id": "subagent_completion_receipt_v1",
+      "schemaVersion": "SubAgentCompletionReceipt.v1",
+      "canonicalJson": "{\"deliveredAt\":\"2026-02-01T00:10:00.000Z\",\"evidenceRefs\":[\"artifact://vectors/work-order/wo_vectors_1.json\",\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"metadata\":{\"stage\":\"vectors\"},\"metrics\":{\"latencyMs\":1240},\"outputs\":{\"bookedAt\":\"2026-03-10T09:00:00.000Z\",\"confirmationId\":\"CONFIRM-123\"},\"principalAgentId\":\"agt_vectors_principal_1\",\"receiptHash\":\"5f6a5ab46bb797d055ae622019b5e3775126ca4ae813538f43325d847bbb845c\",\"receiptId\":\"rcpt_vectors_1\",\"schemaVersion\":\"SubAgentCompletionReceipt.v1\",\"settlementQuote\":{\"amountCents\":2500,\"currency\":\"USD\"},\"status\":\"success\",\"subAgentId\":\"agt_vectors_worker_1\",\"tenantId\":\"tenant_vectors\",\"traceId\":\"trace_vectors_1\",\"workOrderId\":\"wo_vectors_1\"}",
+      "sha256": "8263a519c18568114a3de7265848af69ae97ea28e3f65c6ac15b0381f8f01008",
+      "signatureAlgorithm": "ed25519",
+      "signatureKeyId": "key_282c80df2381d6831a92e89b",
+      "signature": "d/R5G4b4wbOb62rZr0ryJNZw6n03nvDduTpxFvJh53wVCH/pbJbfgUoX0xfT/GdBVXHFkrcUaTvEOGc4KufuAQ==",
+      "signatureVerified": true
+    },
+    {
+      "id": "capability_attestation_v1",
+      "schemaVersion": "CapabilityAttestation.v1",
+      "canonicalJson": "{\"attestationHash\":\"f542564e9c8637812cc3ad36b368b0d62937bdd067400808ba96a42703e20976\",\"attestationId\":\"att_vectors_1\",\"capability\":\"travel.booking\",\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"evidenceRefs\":[\"artifact://vectors/capability/att_vectors_1.json\"],\"issuerAgentId\":\"agt_vectors_issuer_1\",\"level\":\"certified\",\"metadata\":{\"stage\":\"vectors\"},\"revision\":0,\"revocation\":{\"reasonCode\":null,\"revokedAt\":null},\"schemaVersion\":\"CapabilityAttestation.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"keyId\":\"key_282c80df2381d6831a92e89b\",\"signature\":\"aTiNUl6puWPXIAnX0WJEXWAt729kTkld6UU5hQgsRm0qr3tMgpaclTxEitzQDwsIsSDfaqRQQ0VXYJrI31yyCQ==\"},\"subjectAgentId\":\"agt_vectors_worker_1\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\",\"validity\":{\"expiresAt\":\"2026-04-01T00:00:00.000Z\",\"issuedAt\":\"2026-02-01T00:00:00.000Z\",\"notBefore\":\"2026-02-01T00:00:00.000Z\"},\"verificationMethod\":{\"mode\":\"deterministic\",\"verifier\":\"nooterra.vectors\"}}",
+      "sha256": "62ff8148bc08612f8baf0c0aa5aa3fb53446fb98cd7a4db2a9001d3e51f295ab",
+      "signatureAlgorithm": "ed25519",
+      "signatureKeyId": "key_282c80df2381d6831a92e89b",
+      "signature": "4tSTRyNEdoCikfvmSFQLAJ5UzN50cBwClZl1ts0XracSWcddXxJxjbkc2SsNxEo+tze/S/FU8/l77f3zDYgfAw==",
+      "signatureVerified": true
+    }
+  ]
+}

@@ -7,7 +7,6 @@ import pathlib
 import random
 import sys
 import time
-import hashlib
 from datetime import datetime, timedelta, timezone
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -54,10 +53,6 @@ def _require_string(value: object, label: str) -> str:
 
 def _future_iso(hours: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def _sha256_hex(value: str) -> str:
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
 
 def main() -> int:
@@ -410,9 +405,13 @@ def main() -> int:
         _require_body(client.get_session_transcript(session_id, principal_id=principal_agent_id), "get session transcript")
 
         checkpoint_trace_id = f"trace_checkpoint_{suffix}"
-        state_snapshot = json.dumps({"itineraryOptions": 3, "preferredClass": "economy", "budgetCents": 150000})
-        diff_a = json.dumps({"field": "itineraryOptions", "previous": 0, "next": 3})
-        diff_b = json.dumps({"field": "budgetCents", "previous": 0, "next": 150000})
+        checkpoint_artifact_seed = _require_body(
+            client._request("POST", "/ops/finance/billing/period-close", body={"dryRun": False}),
+            "seed state checkpoint artifact",
+        )
+        checkpoint_artifact = _require_object(checkpoint_artifact_seed.get("artifact"), "checkpointArtifact")
+        checkpoint_artifact_id = _require_string(checkpoint_artifact.get("artifactId"), "checkpointArtifact.artifactId")
+        checkpoint_artifact_hash = _require_string(checkpoint_artifact.get("artifactHash"), "checkpointArtifact.artifactHash")
         state_checkpoint_body = _require_body(
             client.create_state_checkpoint(
                 {
@@ -423,25 +422,12 @@ def main() -> int:
                     "delegationGrantRef": checkpoint_delegation_grant_id,
                     "authorityGrantRef": authority_grant_id,
                     "stateRef": {
-                        "artifactId": f"art_state_{suffix}",
-                        "artifactHash": _sha256_hex(state_snapshot),
+                        "artifactId": checkpoint_artifact_id,
+                        "artifactHash": checkpoint_artifact_hash,
                         "contentType": "application/json",
-                        "uri": f"memory://state/{suffix}",
+                        "uri": f"/artifacts/{checkpoint_artifact_id}",
                     },
-                    "diffRefs": [
-                        {
-                            "artifactId": f"art_diff_a_{suffix}",
-                            "artifactHash": _sha256_hex(diff_a),
-                            "contentType": "application/json",
-                            "uri": f"memory://diff/a/{suffix}",
-                        },
-                        {
-                            "artifactId": f"art_diff_b_{suffix}",
-                            "artifactHash": _sha256_hex(diff_b),
-                            "contentType": "application/json",
-                            "uri": f"memory://diff/b/{suffix}",
-                        },
-                    ],
+                    "diffRefs": [],
                     "metadata": {"source": "sdk-acs-substrate-smoke-py"},
                 }
             ),

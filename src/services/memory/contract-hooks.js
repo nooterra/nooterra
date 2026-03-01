@@ -86,7 +86,9 @@ export function buildSessionMemoryContractHooksV1({
   previousHeadChainHash = null,
   previousPackHash = null,
   memoryExportArtifactId = null,
-  tenantId = null
+  tenantId = null,
+  workspace = null,
+  migration = null
 } = {}) {
   const memoryExport = buildSessionMemoryExportV1({
     replayPack,
@@ -94,7 +96,9 @@ export function buildSessionMemoryContractHooksV1({
     exportId,
     exportedAt,
     previousHeadChainHash,
-    previousPackHash
+    previousPackHash,
+    workspace,
+    migration
   });
 
   const normalizedTenantId =
@@ -126,6 +130,8 @@ export function verifySessionMemoryContractImportV1({
   evaluateSignerLifecycle = null,
   expectedTenantId = null,
   expectedSessionId = null,
+  expectedWorkspace = null,
+  expectedMigration = null,
   expectedPreviousHeadChainHash = null,
   expectedPreviousPackHash = null,
   replayPackPublicKeyPem = null,
@@ -157,6 +163,8 @@ export function verifySessionMemoryContractImportV1({
     transcript,
     expectedTenantId,
     expectedSessionId,
+    expectedWorkspace,
+    expectedMigration,
     expectedPreviousHeadChainHash,
     expectedPreviousPackHash,
     replayPackPublicKeyPem,
