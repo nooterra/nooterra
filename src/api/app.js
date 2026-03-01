@@ -20181,6 +20181,98 @@ export function createApi({
     "diffs",
     "metadata"
   ]);
+  const ARTIFACT_ACCESS_SCOPE_SCHEMA_VERSION = "ArtifactAccessScope.v1";
+  const ARTIFACT_ACCESS_SCOPE_FIELDS = Object.freeze(["sessionId", "taskId", "projectId"]);
+
+  function normalizeArtifactAccessScopeValue(value, fieldName, { max = 200 } = {}) {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== "string") throw new TypeError(`${fieldName} must be a string`);
+    const normalized = value.trim();
+    if (!normalized) return null;
+    if (normalized.length > max) throw new TypeError(`${fieldName} must be <= ${max} characters`);
+    return normalized;
+  }
+
+  function normalizeArtifactAccessScopeQuery(urlLike) {
+    const normalized = {
+      sessionId: null,
+      taskId: null,
+      projectId: null
+    };
+    for (const field of ARTIFACT_ACCESS_SCOPE_FIELDS) {
+      const raw = urlLike?.searchParams?.get(field) ?? null;
+      if (raw === null || raw === undefined) continue;
+      const value = normalizeArtifactAccessScopeValue(raw, `query.${field}`);
+      if (value === null) throw new TypeError(`query.${field} must be a non-empty string when provided`);
+      normalized[field] = value;
+    }
+    return normalized;
+  }
+
+  function hasArtifactAccessScopeConstraints(scope) {
+    if (!scope || typeof scope !== "object" || Array.isArray(scope)) return false;
+    return ARTIFACT_ACCESS_SCOPE_FIELDS.some((field) => scope[field] !== null);
+  }
+
+  function resolveArtifactAccessScopeFromRecord(artifact) {
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) return { scope: null, malformed: false, message: null };
+    const accessScope =
+      artifact.accessScope === null || artifact.accessScope === undefined
+        ? null
+        : artifact.accessScope && typeof artifact.accessScope === "object" && !Array.isArray(artifact.accessScope)
+          ? artifact.accessScope
+          : "__MALFORMED__";
+    if (accessScope === "__MALFORMED__") {
+      return {
+        scope: null,
+        malformed: true,
+        message: "artifact.accessScope must be an object"
+      };
+    }
+    if (
+      accessScope &&
+      accessScope.schemaVersion !== undefined &&
+      accessScope.schemaVersion !== null &&
+      String(accessScope.schemaVersion).trim() !== ARTIFACT_ACCESS_SCOPE_SCHEMA_VERSION
+    ) {
+      return {
+        scope: null,
+        malformed: true,
+        message: `artifact.accessScope.schemaVersion must be ${ARTIFACT_ACCESS_SCOPE_SCHEMA_VERSION}`
+      };
+    }
+    try {
+      const scope = {
+        sessionId: normalizeArtifactAccessScopeValue(
+          accessScope && Object.prototype.hasOwnProperty.call(accessScope, "sessionId")
+            ? accessScope.sessionId
+            : artifact.sessionId ?? null,
+          "artifact access scope sessionId"
+        ),
+        taskId: normalizeArtifactAccessScopeValue(
+          accessScope && Object.prototype.hasOwnProperty.call(accessScope, "taskId") ? accessScope.taskId : artifact.taskId ?? null,
+          "artifact access scope taskId"
+        ),
+        projectId: normalizeArtifactAccessScopeValue(
+          accessScope && Object.prototype.hasOwnProperty.call(accessScope, "projectId")
+            ? accessScope.projectId
+            : artifact.projectId ?? null,
+          "artifact access scope projectId"
+        )
+      };
+      return {
+        scope: hasArtifactAccessScopeConstraints(scope) ? scope : null,
+        malformed: false,
+        message: null
+      };
+    } catch (err) {
+      return {
+        scope: null,
+        malformed: true,
+        message: err?.message ?? "artifact access scope is invalid"
+      };
+    }
+  }
 
   function normalizeArtifactRefIdForPolicy(ref) {
     if (!ref || typeof ref !== "object" || Array.isArray(ref)) return null;
@@ -20282,7 +20374,8 @@ export function createApi({
     tenantId,
     artifact,
     scopes = [],
-    contextCache = null
+    contextCache = null,
+    requestedAccessScope = null
   } = {}) {
     const artifactId = typeof artifact?.artifactId === "string" && artifact.artifactId.trim() !== "" ? artifact.artifactId.trim() : null;
     if (!artifactId) {
@@ -20293,6 +20386,75 @@ export function createApi({
         details: { message: "artifactId is required" },
         code: "ARTIFACT_ACCESS_EVALUATION_FAILED"
       };
+    }
+    const resolvedAccessScope = resolveArtifactAccessScopeFromRecord(artifact);
+    if (resolvedAccessScope.malformed) {
+      return {
+        ok: false,
+        statusCode: 403,
+        message: "artifact access denied by malformed scope ACL",
+        details: {
+          artifactId,
+          message: resolvedAccessScope.message ?? null
+        },
+        code: "ARTIFACT_SCOPE_ACL_INVALID"
+      };
+    }
+    if (resolvedAccessScope.scope) {
+      const requestedScope =
+        requestedAccessScope && typeof requestedAccessScope === "object" && !Array.isArray(requestedAccessScope)
+          ? requestedAccessScope
+          : { sessionId: null, taskId: null, projectId: null };
+      for (const field of ARTIFACT_ACCESS_SCOPE_FIELDS) {
+        const expectedValue = resolvedAccessScope.scope[field];
+        if (expectedValue === null) continue;
+        let gotValue = null;
+        try {
+          gotValue = normalizeArtifactAccessScopeValue(requestedScope[field] ?? null, `requested scope ${field}`);
+        } catch (err) {
+          return {
+            ok: false,
+            statusCode: 403,
+            message: "artifact access denied by scope ACL",
+            details: {
+              artifactId,
+              field,
+              reason: "invalid_context",
+              message: err?.message ?? null
+            },
+            code: "ARTIFACT_SCOPE_CONTEXT_INVALID"
+          };
+        }
+        if (gotValue === null) {
+          return {
+            ok: false,
+            statusCode: 403,
+            message: "artifact access denied by scope ACL",
+            details: {
+              artifactId,
+              field,
+              reason: "required",
+              requiredValue: expectedValue
+            },
+            code: "ARTIFACT_SCOPE_CONTEXT_REQUIRED"
+          };
+        }
+        if (gotValue !== expectedValue) {
+          return {
+            ok: false,
+            statusCode: 403,
+            message: "artifact access denied by scope ACL",
+            details: {
+              artifactId,
+              field,
+              reason: "mismatch",
+              requiredValue: expectedValue,
+              gotValue
+            },
+            code: "ARTIFACT_SCOPE_CONTEXT_MISMATCH"
+          };
+        }
+      }
     }
     let redactionContext = null;
     try {
@@ -69456,6 +69618,12 @@ export function createApi({
           return sendError(res, 403, "forbidden");
         }
         if (typeof store.getArtifact !== "function") return sendError(res, 501, "artifacts not supported for this store");
+        let requestedAccessScope = null;
+        try {
+          requestedAccessScope = normalizeArtifactAccessScopeQuery(url);
+        } catch (err) {
+          return sendError(res, 400, "invalid artifact access scope query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
 
         const artifactId = String(parts[1]);
         let artifact = null;
@@ -69465,6 +69633,21 @@ export function createApi({
           return sendError(res, 400, "invalid artifact id", { message: err?.message });
         }
         if (!artifact) return sendError(res, 404, "artifact not found");
+        const artifactPolicy = await enforceArtifactReadPolicy({
+          tenantId,
+          artifact,
+          scopes: auth.scopes,
+          requestedAccessScope
+        });
+        if (!artifactPolicy?.ok) {
+          return sendError(
+            res,
+            artifactPolicy?.statusCode ?? 403,
+            artifactPolicy?.message ?? "artifact access denied",
+            artifactPolicy?.details ?? null,
+            { code: artifactPolicy?.code ?? "ARTIFACT_ACCESS_DENIED" }
+          );
+        }
 
         let job = null;
         const artifactJobId = typeof artifact.jobId === "string" && artifact.jobId.trim() !== "" ? String(artifact.jobId) : null;
@@ -69507,6 +69690,12 @@ export function createApi({
           return sendError(res, 403, "forbidden");
         }
         if (typeof store.getArtifact !== "function") return sendError(res, 501, "artifacts not supported for this store");
+        let requestedAccessScope = null;
+        try {
+          requestedAccessScope = normalizeArtifactAccessScopeQuery(url);
+        } catch (err) {
+          return sendError(res, 400, "invalid artifact access scope query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
 
         const artifactId = String(parts[1]);
         let artifact = null;
@@ -69519,7 +69708,8 @@ export function createApi({
         const artifactPolicy = await enforceArtifactReadPolicy({
           tenantId,
           artifact,
-          scopes: auth.scopes
+          scopes: auth.scopes,
+          requestedAccessScope
         });
         if (!artifactPolicy?.ok) {
           return sendError(
@@ -69592,6 +69782,12 @@ export function createApi({
 
 	          const artifactType = url.searchParams.get("type");
 	          if (!artifactType || String(artifactType).trim() === "") return sendError(res, 400, "type is required");
+	          let requestedAccessScope = null;
+	          try {
+	            requestedAccessScope = normalizeArtifactAccessScopeQuery(url);
+	          } catch (err) {
+	            return sendError(res, 400, "invalid artifact access scope query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	          }
 
 	          const settledEventId = job?.settlement?.settledEventId ?? null;
 	          const artifactPolicyContextCache = new Map();
@@ -69612,7 +69808,8 @@ export function createApi({
 	              tenantId,
 	              artifact: artifacts[0],
 	              scopes: auth.scopes,
-	              contextCache: artifactPolicyContextCache
+	              contextCache: artifactPolicyContextCache,
+	              requestedAccessScope
 	            });
 	            if (!artifactPolicy?.ok) {
 	              return sendError(
@@ -69707,12 +69904,13 @@ export function createApi({
 	          if (artifacts.length > 1) {
 	            return sendError(res, 500, "multiple artifacts found for effective source event", { sourceEventId: proofEvent.id, count: artifacts.length });
 	          }
-	          const artifactPolicy = await enforceArtifactReadPolicy({
-	            tenantId,
-	            artifact: artifacts[0],
-	            scopes: auth.scopes,
-	            contextCache: artifactPolicyContextCache
-	          });
+	            const artifactPolicy = await enforceArtifactReadPolicy({
+	              tenantId,
+	              artifact: artifacts[0],
+	              scopes: auth.scopes,
+	              contextCache: artifactPolicyContextCache,
+	              requestedAccessScope
+	            });
 	          if (!artifactPolicy?.ok) {
 	            return sendError(
 	              res,
@@ -69741,6 +69939,12 @@ export function createApi({
 
 	          const type = url.searchParams.get("type");
 	          const sourceEventId = url.searchParams.get("sourceEventId");
+	          let requestedAccessScope = null;
+	          try {
+	            requestedAccessScope = normalizeArtifactAccessScopeQuery(url);
+	          } catch (err) {
+	            return sendError(res, 400, "invalid artifact access scope query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	          }
 	          const cursor = url.searchParams.get("cursor");
 	          const limitRaw = url.searchParams.get("limit");
 	          const offsetRaw = url.searchParams.get("offset");
@@ -69808,6 +70012,9 @@ export function createApi({
 	                jobId,
 	                artifactType: type && String(type).trim() !== "" ? String(type) : null,
 	                sourceEventId: sourceEventId && String(sourceEventId).trim() !== "" ? String(sourceEventId) : null,
+	                sessionId: requestedAccessScope?.sessionId ?? null,
+	                taskId: requestedAccessScope?.taskId ?? null,
+	                projectId: requestedAccessScope?.projectId ?? null,
 	                beforeCreatedAt: cur.createdAt,
 	                beforeArtifactId: cur.artifactId,
 	                includeDbMeta: true,
@@ -69829,7 +70036,8 @@ export function createApi({
 		                tenantId,
 		                artifact,
 		                scopes: auth.scopes,
-		                contextCache: artifactPolicyContextCache
+		                contextCache: artifactPolicyContextCache,
+		                requestedAccessScope
 		              });
 		              if (!artifactPolicy?.ok) {
 		                return sendError(
@@ -69854,6 +70062,9 @@ export function createApi({
 	              jobId,
 	              artifactType: type && String(type).trim() !== "" ? String(type) : null,
 	              sourceEventId: sourceEventId && String(sourceEventId).trim() !== "" ? String(sourceEventId) : null,
+	              sessionId: requestedAccessScope?.sessionId ?? null,
+	              taskId: requestedAccessScope?.taskId ?? null,
+	              projectId: requestedAccessScope?.projectId ?? null,
 	              limit,
 	              offset
 	            });
@@ -69868,7 +70079,8 @@ export function createApi({
 		              tenantId,
 		              artifact,
 		              scopes: auth.scopes,
-		              contextCache: artifactPolicyContextCache
+		              contextCache: artifactPolicyContextCache,
+		              requestedAccessScope
 		            });
 		            if (!artifactPolicy?.ok) {
 		              return sendError(

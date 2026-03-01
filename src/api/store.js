@@ -3635,7 +3635,16 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return store.artifacts.get(key);
   };
 
-  store.listArtifacts = async function listArtifacts({ tenantId = DEFAULT_TENANT_ID, jobId = null, jobIds = null, artifactType = null, sourceEventId = null } = {}) {
+  store.listArtifacts = async function listArtifacts({
+    tenantId = DEFAULT_TENANT_ID,
+    jobId = null,
+    jobIds = null,
+    artifactType = null,
+    sourceEventId = null,
+    sessionId = null,
+    taskId = null,
+    projectId = null
+  } = {}) {
     tenantId = normalizeTenantId(tenantId);
     let jobIdSet = null;
     if (jobIds !== null && jobIds !== undefined) {
@@ -3646,9 +3655,23 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         jobIdSet.add(String(item));
       }
     }
+    if (sessionId !== null && (typeof sessionId !== "string" || sessionId.trim() === "")) throw new TypeError("sessionId must be null or a non-empty string");
+    if (taskId !== null && (typeof taskId !== "string" || taskId.trim() === "")) throw new TypeError("taskId must be null or a non-empty string");
+    if (projectId !== null && (typeof projectId !== "string" || projectId.trim() === "")) throw new TypeError("projectId must be null or a non-empty string");
     const all = [];
     const sourceFilter = typeof sourceEventId === "string" && sourceEventId.trim() !== "" ? String(sourceEventId) : null;
     const typeFilter = typeof artifactType === "string" && artifactType.trim() !== "" ? String(artifactType) : null;
+    const sessionFilter = typeof sessionId === "string" && sessionId.trim() !== "" ? String(sessionId) : null;
+    const taskFilter = typeof taskId === "string" && taskId.trim() !== "" ? String(taskId) : null;
+    const projectFilter = typeof projectId === "string" && projectId.trim() !== "" ? String(projectId) : null;
+    const readAccessScopeField = (artifact, field) => {
+      const fromAccessScope =
+        artifact?.accessScope && typeof artifact.accessScope === "object" && !Array.isArray(artifact.accessScope)
+          ? artifact.accessScope[field]
+          : undefined;
+      const candidate = fromAccessScope !== undefined ? fromAccessScope : artifact?.[field];
+      return typeof candidate === "string" && candidate.trim() !== "" ? candidate.trim() : null;
+    };
     for (const art of store.artifacts.values()) {
       if (!art || typeof art !== "object") continue;
       if (normalizeTenantId(art.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
@@ -3656,6 +3679,9 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (jobIdSet && !jobIdSet.has(String(art.jobId ?? ""))) continue;
       if (typeFilter !== null && String(art.artifactType ?? art.schemaVersion ?? "") !== typeFilter) continue;
       if (sourceFilter !== null && String(art.sourceEventId ?? "") !== sourceFilter) continue;
+      if (sessionFilter !== null && readAccessScopeField(art, "sessionId") !== sessionFilter) continue;
+      if (taskFilter !== null && readAccessScopeField(art, "taskId") !== taskFilter) continue;
+      if (projectFilter !== null && readAccessScopeField(art, "projectId") !== projectFilter) continue;
       all.push(art);
     }
     all.sort((a, b) => String(a.artifactId ?? "").localeCompare(String(b.artifactId ?? "")));

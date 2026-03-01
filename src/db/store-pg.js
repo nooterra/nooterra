@@ -8390,6 +8390,9 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     jobIds = null,
     artifactType = null,
     sourceEventId = null,
+    sessionId = null,
+    taskId = null,
+    projectId = null,
     beforeCreatedAt = null,
     beforeArtifactId = null,
     includeDbMeta = false,
@@ -8404,6 +8407,9 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
     if (artifactType !== null) assertNonEmptyString(artifactType, "artifactType");
     if (sourceEventId !== null) assertNonEmptyString(sourceEventId, "sourceEventId");
+    if (sessionId !== null) assertNonEmptyString(sessionId, "sessionId");
+    if (taskId !== null) assertNonEmptyString(taskId, "taskId");
+    if (projectId !== null) assertNonEmptyString(projectId, "projectId");
     if (beforeCreatedAt !== null) assertNonEmptyString(beforeCreatedAt, "beforeCreatedAt");
     if (beforeArtifactId !== null) assertNonEmptyString(beforeArtifactId, "beforeArtifactId");
     if (includeDbMeta !== false && includeDbMeta !== true) throw new TypeError("includeDbMeta must be a boolean");
@@ -8432,6 +8438,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     if (sourceEventId !== null) {
       params.push(String(sourceEventId));
       where.push(`source_event_id = $${params.length}`);
+    }
+    if (sessionId !== null) {
+      params.push(String(sessionId));
+      where.push(
+        `COALESCE(NULLIF(BTRIM(artifact_json->'accessScope'->>'sessionId'), ''), NULLIF(BTRIM(artifact_json->>'sessionId'), '')) = $${params.length}`
+      );
+    }
+    if (taskId !== null) {
+      params.push(String(taskId));
+      where.push(`COALESCE(NULLIF(BTRIM(artifact_json->'accessScope'->>'taskId'), ''), NULLIF(BTRIM(artifact_json->>'taskId'), '')) = $${params.length}`);
+    }
+    if (projectId !== null) {
+      params.push(String(projectId));
+      where.push(
+        `COALESCE(NULLIF(BTRIM(artifact_json->'accessScope'->>'projectId'), ''), NULLIF(BTRIM(artifact_json->>'projectId'), '')) = $${params.length}`
+      );
     }
     if (beforeCreatedAt !== null || beforeArtifactId !== null) {
       if (beforeCreatedAt === null || beforeArtifactId === null) {
