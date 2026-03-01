@@ -1111,6 +1111,22 @@ export class NooterraClient {
     return this.request("GET", `/state-checkpoints/${encodeURIComponent(checkpointId)}`, opts);
   }
 
+  compactStateCheckpointLineage(body, opts) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    if (!Array.isArray(body.checkpoints) || body.checkpoints.length === 0) {
+      throw new TypeError("body.checkpoints must be a non-empty array");
+    }
+    return this.request("POST", "/state-checkpoints/lineage/compact", { ...opts, body });
+  }
+
+  restoreStateCheckpointLineage(body, opts) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    if (!body.compaction || typeof body.compaction !== "object" || Array.isArray(body.compaction)) {
+      throw new TypeError("body.compaction is required");
+    }
+    return this.request("POST", "/state-checkpoints/lineage/restore", { ...opts, body });
+  }
+
   createSession(body, opts) {
     if (!body || typeof body !== "object") throw new TypeError("body is required");
     return this.request("POST", "/sessions", { ...opts, body });

@@ -778,3 +778,214 @@ test("API e2e: state checkpoint create fails closed without authority grant when
   assert.equal(allowed.statusCode, 201, allowed.body);
   assert.equal(allowed.json?.stateCheckpoint?.authorityGrantRef, authorityGrant.grantId);
 });
+
+test("API e2e: state checkpoint lineage compact and restore are deterministic", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_state_owner_lineage_1";
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["state.manage"] });
+
+  const createdCheckpoints = [];
+  for (let index = 1; index <= 4; index += 1) {
+    const checkpointId = `chkpt_state_lineage_${index}`;
+    const parentCheckpointId = index === 1 ? null : `chkpt_state_lineage_${index - 1}`;
+    const artifactId = `art_state_lineage_${index}`;
+    const artifactHash = String(index).repeat(64);
+    await seedArtifact(api, {
+      artifactId,
+      artifactHash,
+      artifactType: "StateSnapshot.v1"
+    });
+    const created = await request(api, {
+      method: "POST",
+      path: "/state-checkpoints",
+      headers: { "x-idempotency-key": `state_checkpoint_lineage_create_${index}` },
+      body: {
+        checkpointId,
+        ownerAgentId,
+        parentCheckpointId,
+        sessionId: "sess_state_lineage_1",
+        stateRef: {
+          schemaVersion: "ArtifactRef.v1",
+          artifactId,
+          artifactHash,
+          artifactType: "StateSnapshot.v1"
+        }
+      }
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    createdCheckpoints.push(created.json?.stateCheckpoint);
+  }
+
+  const compacted = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/compact",
+    body: {
+      checkpoints: [createdCheckpoints[2], createdCheckpoints[0], createdCheckpoints[3], createdCheckpoints[1]],
+      compactionId: "cmp_state_api_lineage_1",
+      retainEvery: 2,
+      retainTail: 1,
+      compactedAt: "2026-02-28T00:00:00.000Z"
+    }
+  });
+  assert.equal(compacted.statusCode, 200, compacted.body);
+  assert.equal(compacted.json?.stateCheckpointLineageCompaction?.schemaVersion, "StateCheckpointLineageCompaction.v1");
+  assert.equal(compacted.json?.stateCheckpointLineageCompaction?.lineage?.checkpointCount, 4);
+  assert.equal(typeof compacted.json?.stateCheckpointLineageCompaction?.compactionHash, "string");
+  assert.equal(compacted.json?.stateCheckpointLineageCompaction?.compactionHash?.length, 64);
+
+  const compactedAgain = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/compact",
+    body: {
+      checkpoints: [createdCheckpoints[0], createdCheckpoints[1], createdCheckpoints[2], createdCheckpoints[3]],
+      compactionId: "cmp_state_api_lineage_1",
+      retainEvery: 2,
+      retainTail: 1,
+      compactedAt: "2026-02-28T00:00:00.000Z"
+    }
+  });
+  assert.equal(compactedAgain.statusCode, 200, compactedAgain.body);
+  assert.deepEqual(compactedAgain.json?.stateCheckpointLineageCompaction, compacted.json?.stateCheckpointLineageCompaction);
+
+  const restored = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/restore",
+    body: {
+      compaction: compacted.json?.stateCheckpointLineageCompaction,
+      restoredAt: "2026-02-28T00:30:00.000Z"
+    }
+  });
+  assert.equal(restored.statusCode, 200, restored.body);
+  assert.equal(restored.json?.stateCheckpointLineageRestore?.schemaVersion, "StateCheckpointLineageRestore.v1");
+  assert.equal(restored.json?.stateCheckpointLineageRestore?.restoredEntries?.length, 4);
+  assert.equal(typeof restored.json?.stateCheckpointLineageRestore?.restoreHash, "string");
+  assert.equal(restored.json?.stateCheckpointLineageRestore?.restoreHash?.length, 64);
+  assert.deepEqual(
+    restored.json?.stateCheckpointLineageRestore?.missingCheckpointIds,
+    compacted.json?.stateCheckpointLineageCompaction?.droppedCheckpointIds
+  );
+});
+
+test("API e2e: state checkpoint lineage compact/restore fails closed on invalid lineage and tampering", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const ownerAgentId = "agt_state_owner_lineage_2";
+  await registerAgent(api, { agentId: ownerAgentId, capabilities: ["state.manage"] });
+
+  await seedArtifact(api, {
+    artifactId: "art_state_lineage_root",
+    artifactHash: "a".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+  await seedArtifact(api, {
+    artifactId: "art_state_lineage_child_a",
+    artifactHash: "b".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+  await seedArtifact(api, {
+    artifactId: "art_state_lineage_child_b",
+    artifactHash: "c".repeat(64),
+    artifactType: "StateSnapshot.v1"
+  });
+
+  const root = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_lineage_root_create_1" },
+    body: {
+      checkpointId: "chkpt_state_lineage_root",
+      ownerAgentId,
+      sessionId: "sess_state_lineage_2",
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_lineage_root",
+        artifactHash: "a".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(root.statusCode, 201, root.body);
+  const childA = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_lineage_child_a_create_1" },
+    body: {
+      checkpointId: "chkpt_state_lineage_child_a",
+      ownerAgentId,
+      parentCheckpointId: "chkpt_state_lineage_root",
+      sessionId: "sess_state_lineage_2",
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_lineage_child_a",
+        artifactHash: "b".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(childA.statusCode, 201, childA.body);
+  const childB = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_lineage_child_b_create_1" },
+    body: {
+      checkpointId: "chkpt_state_lineage_child_b",
+      ownerAgentId,
+      parentCheckpointId: "chkpt_state_lineage_root",
+      sessionId: "sess_state_lineage_2",
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_lineage_child_b",
+        artifactHash: "c".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(childB.statusCode, 201, childB.body);
+
+  const branchBlocked = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/compact",
+    body: {
+      checkpoints: [root.json?.stateCheckpoint, childA.json?.stateCheckpoint, childB.json?.stateCheckpoint],
+      compactionId: "cmp_state_api_lineage_branch_1",
+      retainEvery: 2,
+      retainTail: 1,
+      compactedAt: "2026-02-28T02:00:00.000Z"
+    }
+  });
+  assert.equal(branchBlocked.statusCode, 409, branchBlocked.body);
+  assert.equal(branchBlocked.json?.code, "STATE_CHECKPOINT_LINEAGE_BRANCH_UNSUPPORTED");
+
+  const restoreMissingCompaction = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/restore",
+    body: {}
+  });
+  assert.equal(restoreMissingCompaction.statusCode, 400, restoreMissingCompaction.body);
+  assert.equal(restoreMissingCompaction.json?.code, "SCHEMA_INVALID");
+
+  const compacted = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/compact",
+    body: {
+      checkpoints: [root.json?.stateCheckpoint, childA.json?.stateCheckpoint],
+      compactionId: "cmp_state_api_lineage_tamper_1",
+      retainEvery: 1,
+      retainTail: 1,
+      compactedAt: "2026-02-28T03:00:00.000Z"
+    }
+  });
+  assert.equal(compacted.statusCode, 200, compacted.body);
+  const tamperedCompaction = structuredClone(compacted.json?.stateCheckpointLineageCompaction);
+  tamperedCompaction.compactionHash = "f".repeat(64);
+
+  const tamperedRestore = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints/lineage/restore",
+    body: {
+      compaction: tamperedCompaction,
+      restoredAt: "2026-02-28T03:30:00.000Z"
+    }
+  });
+  assert.equal(tamperedRestore.statusCode, 409, tamperedRestore.body);
+  assert.equal(tamperedRestore.json?.code, "STATE_CHECKPOINT_LINEAGE_HASH_MISMATCH");
+});

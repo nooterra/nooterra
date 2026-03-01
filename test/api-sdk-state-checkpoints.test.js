@@ -26,6 +26,12 @@ test("api-sdk: state checkpoint methods call expected endpoints", async () => {
     if (String(url).endsWith("/state-checkpoints/chkpt_sdk_1") && String(init?.method) === "GET") {
       return makeJsonResponse({ stateCheckpoint: { checkpointId: "chkpt_sdk_1" } });
     }
+    if (String(url).endsWith("/state-checkpoints/lineage/compact") && String(init?.method) === "POST") {
+      return makeJsonResponse({ stateCheckpointLineageCompaction: { compactionId: "cmp_sdk_1" } });
+    }
+    if (String(url).endsWith("/state-checkpoints/lineage/restore") && String(init?.method) === "POST") {
+      return makeJsonResponse({ stateCheckpointLineageRestore: { restoreHash: "f".repeat(64) } });
+    }
     return makeJsonResponse({}, { status: 404 });
   };
 
@@ -75,6 +81,32 @@ test("api-sdk: state checkpoint methods call expected endpoints", async () => {
   await client.getStateCheckpoint("chkpt_sdk_1");
   assert.equal(calls[2].url, "https://api.nooterra.local/state-checkpoints/chkpt_sdk_1");
   assert.equal(calls[2].init?.method, "GET");
+
+  await client.compactStateCheckpointLineage({
+    checkpoints: [{ checkpointId: "chkpt_sdk_1", checkpointHash: "a".repeat(64), revision: 0 }],
+    compactionId: "cmp_sdk_1",
+    retainEvery: 2,
+    retainTail: 1
+  });
+  assert.equal(calls[3].url, "https://api.nooterra.local/state-checkpoints/lineage/compact");
+  assert.equal(calls[3].init?.method, "POST");
+
+  await client.restoreStateCheckpointLineage({
+    compaction: {
+      schemaVersion: "StateCheckpointLineageCompaction.v1",
+      compactionId: "cmp_sdk_1",
+      compactionHash: "b".repeat(64),
+      entries: [{ checkpointId: "chkpt_sdk_1", checkpointHash: "a".repeat(64), index: 0, parentCheckpointId: null }],
+      lineage: {
+        rootCheckpointId: "chkpt_sdk_1",
+        headCheckpointId: "chkpt_sdk_1",
+        checkpointCount: 1,
+        lineageHash: "c".repeat(64)
+      }
+    }
+  });
+  assert.equal(calls[4].url, "https://api.nooterra.local/state-checkpoints/lineage/restore");
+  assert.equal(calls[4].init?.method, "POST");
 });
 
 test("api-sdk: createStateCheckpoint validates required fields", async () => {
@@ -95,4 +127,7 @@ test("api-sdk: createStateCheckpoint validates required fields", async () => {
       }),
     /body.stateRef.artifactHash/
   );
+
+  assert.throws(() => client.compactStateCheckpointLineage({}), /body.checkpoints/);
+  assert.throws(() => client.restoreStateCheckpointLineage({}), /body.compaction/);
 });
