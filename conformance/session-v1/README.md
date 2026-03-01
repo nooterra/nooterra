@@ -8,6 +8,7 @@ Scope:
 - `SessionTranscript.v1` materialization from the same fixture.
 - Optional deterministic Ed25519 signing for both artifacts.
 - Fail-closed ACL denial behavior for replay/transcript materialization attempts.
+- Fail-closed replay/provenance verification denial behavior when session verification input is invalid.
 - Deterministic rerun behavior (identical request must produce identical canonical artifact JSON).
 
 ## Files

@@ -54,6 +54,11 @@ function normalizeParticipants(value) {
   return out;
 }
 
+function normalizeVerificationBlock(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
 async function main() {
   const request = await readStdinJson();
   const caseId = typeof request?.caseId === "string" ? request.caseId : null;
@@ -80,6 +85,32 @@ async function main() {
           }
         });
       }
+    }
+
+    const verification = normalizeVerificationBlock(fixture.verification);
+    if (verification && verification.chainOk !== true) {
+      fail({
+        caseId,
+        code: "SESSION_REPLAY_CHAIN_INVALID",
+        message: "session replay chain invalid",
+        details: {
+          sessionId: normalizeNonEmptyString(fixture?.session?.sessionId),
+          reason: normalizeNonEmptyString(verification.error) ?? "chain verification failed"
+        }
+      });
+    }
+
+    const provenance = normalizeVerificationBlock(verification?.provenance);
+    if (provenance && provenance.ok !== true) {
+      fail({
+        caseId,
+        code: "SESSION_REPLAY_PROVENANCE_INVALID",
+        message: "session replay provenance invalid",
+        details: {
+          sessionId: normalizeNonEmptyString(fixture?.session?.sessionId),
+          reason: normalizeNonEmptyString(provenance.error) ?? "provenance verification failed"
+        }
+      });
     }
 
     const replayPackUnsigned = buildSessionReplayPackV1({
