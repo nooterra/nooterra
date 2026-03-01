@@ -2479,6 +2479,94 @@ test("API e2e: x402 authorize fails closed when delegation parent hash does not 
   assert.equal(blocked.json?.details?.details?.field, "chainBinding.parentGrantHash");
 });
 
+test("API e2e: x402 gate create fails closed when delegation parent hash is missing for delegated depth", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_parent_missing_payer_1";
+  const payeeAgentId = "agt_auth_parent_missing_payee_1";
+
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_parent_missing_1"
+  });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_parent_missing_root_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      depth: 0,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_parent_missing_1",
+    delegatorAgentId: "agt_auth_parent_missing_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const { parentGrantHash: _droppedParentGrantHash, ...delegationChainWithoutParent } =
+    delegationGrant?.chainBinding && typeof delegationGrant.chainBinding === "object" && !Array.isArray(delegationGrant.chainBinding)
+      ? delegationGrant.chainBinding
+      : {};
+  await store.putDelegationGrant({
+    delegationGrant: {
+      ...delegationGrant,
+      chainBinding: delegationChainWithoutParent,
+      updatedAt: "2026-02-25T00:00:01.000Z"
+    }
+  });
+
+  const blocked = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_parent_missing_create_1" },
+    body: {
+      gateId: "x402gate_auth_parent_missing_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATION_GRANT_INVALID");
+  assert.match(String(blocked.json?.details?.message ?? ""), /parentGrantHash is required when depth>0/i);
+});
+
 test("API e2e: work order create fails closed without authority grant when required", async () => {
   const api = createApi({ x402RequireAuthorityGrant: true });
   const principalAgentId = "agt_auth_required_work_create_principal_1";
@@ -2923,4 +3011,73 @@ test("API e2e: work order settle fails closed when delegation parent hash does n
   assert.equal(blocked.statusCode, 409, blocked.body);
   assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH");
   assert.equal(blocked.json?.details?.reasonCode, "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH");
+});
+
+test("API e2e: work order create fails closed when delegation parent hash is missing for delegated depth", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const principalAgentId = "agt_auth_work_settle_parent_missing_principal_1";
+  const subAgentId = "agt_auth_work_settle_parent_missing_sub_1";
+  await registerAgent(setupApi, { agentId: principalAgentId });
+  await registerAgent(setupApi, { agentId: subAgentId });
+
+  const rootGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_work_settle_parent_missing_root_1",
+    granteeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: { depth: 0, maxDelegationDepth: 2 },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_work_settle_parent_missing_1",
+    delegatorAgentId: "agt_auth_work_settle_parent_missing_manager_1",
+    delegateeAgentId: principalAgentId,
+    scope: { sideEffectingAllowed: true, allowedRiskClasses: ["financial"] },
+    chainBinding: {
+      rootGrantHash: rootGrant.grantHash,
+      parentGrantHash: rootGrant.grantHash,
+      depth: 2,
+      maxDelegationDepth: 2
+    },
+    validity: {
+      issuedAt: "2026-02-25T00:00:00.000Z",
+      notBefore: "2026-02-25T00:00:00.000Z",
+      expiresAt: "2099-02-25T00:00:00.000Z"
+    }
+  });
+  const { parentGrantHash: _droppedParentGrantHash, ...delegationChainWithoutParent } =
+    delegationGrant?.chainBinding && typeof delegationGrant.chainBinding === "object" && !Array.isArray(delegationGrant.chainBinding)
+      ? delegationGrant.chainBinding
+      : {};
+  await store.putDelegationGrant({
+    delegationGrant: {
+      ...delegationGrant,
+      chainBinding: delegationChainWithoutParent,
+      updatedAt: "2026-02-25T00:00:01.000Z"
+    }
+  });
+
+  const blocked = await request(setupApi, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_settle_parent_missing_create_1" },
+    body: {
+      workOrderId: "workord_auth_settle_parent_missing_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      specification: { taskType: "codegen", prompt: "implement parser with parent-missing guard" },
+      pricing: { amountCents: 360, currency: "USD" },
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATION_GRANT_SCHEMA_INVALID");
+  assert.match(String(blocked.json?.details?.message ?? ""), /parentGrantHash is required when depth>0/i);
 });
