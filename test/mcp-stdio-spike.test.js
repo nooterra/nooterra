@@ -2428,6 +2428,12 @@ test("mcp spike: capability attestation tool mappings", async () => {
 
 test("mcp spike: task negotiation tool mappings", async () => {
   const requests = [];
+  const intentContract = {
+    schemaVersion: "IntentContract.v1",
+    negotiationId: "neg_mcp_task_1",
+    intentId: "intent_mcp_task_1",
+    intentHash: "d".repeat(64)
+  };
   const api = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -2446,6 +2452,11 @@ test("mcp spike: task negotiation tool mappings", async () => {
         assert.equal(parsedBody?.buyerAgentId, "agt_buyer_1");
         assert.equal(parsedBody?.sellerAgentId, "agt_seller_1");
         assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
+        assert.equal(parsedBody?.intentContract?.intentHash, intentContract.intentHash);
+        assert.equal(parsedBody?.intentActorAgentId, "agt_buyer_1");
+        assert.equal(parsedBody?.intentEventId, "inevent_mcp_propose_1");
+        assert.equal(parsedBody?.intentEventAt, "2026-02-25T00:01:00.000Z");
+        assert.deepEqual(parsedBody?.intentEventMetadata, { source: "mcp_spike", stage: "propose" });
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2477,6 +2488,12 @@ test("mcp spike: task negotiation tool mappings", async () => {
         assert.equal(req.headers["x-idempotency-key"], "idem_task_offer_issue_1");
         assert.equal(parsedBody?.quoteRef?.quoteId, "tquote_mcp_1");
         assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
+        assert.equal(parsedBody?.intentContract?.intentHash, intentContract.intentHash);
+        assert.equal(parsedBody?.intentActorAgentId, "agt_seller_1");
+        assert.equal(parsedBody?.intentEventId, "inevent_mcp_counter_1");
+        assert.equal(parsedBody?.intentEventAt, "2026-02-25T00:02:00.000Z");
+        assert.equal(parsedBody?.intentPrevEventHash, "e".repeat(64));
+        assert.deepEqual(parsedBody?.intentEventMetadata, { source: "mcp_spike", stage: "counter" });
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2509,6 +2526,12 @@ test("mcp spike: task negotiation tool mappings", async () => {
         assert.equal(parsedBody?.quoteId, "tquote_mcp_1");
         assert.equal(parsedBody?.offerId, "toffer_mcp_1");
         assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
+        assert.equal(parsedBody?.intentContract?.intentHash, intentContract.intentHash);
+        assert.equal(parsedBody?.intentActorAgentId, "agt_buyer_1");
+        assert.equal(parsedBody?.intentEventId, "inevent_mcp_accept_1");
+        assert.equal(parsedBody?.intentEventAt, "2026-02-25T00:03:00.000Z");
+        assert.equal(parsedBody?.intentPrevEventHash, "f".repeat(64));
+        assert.deepEqual(parsedBody?.intentEventMetadata, { source: "mcp_spike", stage: "accept" });
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2608,6 +2631,11 @@ test("mcp spike: task negotiation tool mappings", async () => {
       currency: "USD",
       quoteId: "tquote_mcp_1",
       traceId: "trace_mcp_task_1",
+      intentContract,
+      intentActorAgentId: "agt_buyer_1",
+      intentEventId: "inevent_mcp_propose_1",
+      intentEventAt: "2026-02-25T00:01:00.000Z",
+      intentEventMetadata: { source: "mcp_spike", stage: "propose" },
       idempotencyKey: "idem_task_quote_issue_1"
     }
   });
@@ -2637,6 +2665,12 @@ test("mcp spike: task negotiation tool mappings", async () => {
       currency: "USD",
       traceId: "trace_mcp_task_1",
       offerId: "toffer_mcp_1",
+      intentContract,
+      intentActorAgentId: "agt_seller_1",
+      intentEventId: "inevent_mcp_counter_1",
+      intentEventAt: "2026-02-25T00:02:00.000Z",
+      intentPrevEventHash: "e".repeat(64),
+      intentEventMetadata: { source: "mcp_spike", stage: "counter" },
       idempotencyKey: "idem_task_offer_issue_1"
     }
   });
@@ -2663,6 +2697,12 @@ test("mcp spike: task negotiation tool mappings", async () => {
       acceptedByAgentId: "agt_buyer_1",
       traceId: "trace_mcp_task_1",
       acceptanceId: "taccept_mcp_1",
+      intentContract,
+      intentActorAgentId: "agt_buyer_1",
+      intentEventId: "inevent_mcp_accept_1",
+      intentEventAt: "2026-02-25T00:03:00.000Z",
+      intentPrevEventHash: "f".repeat(64),
+      intentEventMetadata: { source: "mcp_spike", stage: "accept" },
       idempotencyKey: "idem_task_acceptance_issue_1"
     }
   });
@@ -2698,6 +2738,12 @@ test("mcp spike: task negotiation tool mappings", async () => {
 
 test("mcp spike: work order tool mappings", async () => {
   const requests = [];
+  const intentRef = {
+    negotiationId: "neg_mcp_task_1",
+    intentId: "intent_mcp_task_1",
+    intentHash: "d".repeat(64),
+    acceptedEventHash: "f".repeat(64)
+  };
   const api = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -2723,6 +2769,8 @@ test("mcp spike: work order tool mappings", async () => {
         assert.equal(parsedBody?.attestationRequirement?.required, true);
         assert.equal(parsedBody?.attestationRequirement?.minLevel, "attested");
         assert.equal(parsedBody?.attestationRequirement?.issuerAgentId, "agt_issuer_1");
+        assert.equal(parsedBody?.requireAcceptedIntentHash, true);
+        assert.deepEqual(parsedBody?.intentRef, intentRef);
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2836,6 +2884,7 @@ test("mcp spike: work order tool mappings", async () => {
         assert.equal(parsedBody?.status, "success");
         assert.equal(parsedBody?.receiptId, "worec_1");
         assert.equal(parsedBody?.traceId, "trace_mcp_work_order_1");
+        assert.equal(parsedBody?.intentHash, intentRef.intentHash);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2860,6 +2909,7 @@ test("mcp spike: work order tool mappings", async () => {
       if (req.method === "POST" && req.url === "/work-orders/workord_1/settle") {
         assert.equal(req.headers["x-idempotency-key"], "idem_work_order_settle_1");
         assert.equal(parsedBody?.traceId, "trace_mcp_work_order_1");
+        assert.equal(parsedBody?.intentHash, intentRef.intentHash);
         if (parsedBody?.x402GateId === "x402gate_conflict_1") {
           res.writeHead(409, { "content-type": "application/json" });
           res.end(
@@ -2977,6 +3027,8 @@ test("mcp spike: work order tool mappings", async () => {
         minLevel: "attested",
         issuerAgentId: "agt_issuer_1"
       },
+      requireAcceptedIntentHash: true,
+      intentRef,
       idempotencyKey: "idem_work_order_create_1"
     }
   });
@@ -3049,6 +3101,7 @@ test("mcp spike: work order tool mappings", async () => {
       receiptId: "worec_1",
       status: "success",
       traceId: "trace_mcp_work_order_1",
+      intentHash: intentRef.intentHash,
       idempotencyKey: "idem_work_order_complete_1"
     }
   });
@@ -3067,6 +3120,7 @@ test("mcp spike: work order tool mappings", async () => {
       x402RunId: "run_1",
       traceId: "trace_mcp_work_order_1",
       authorityGrantRef: "agrant_mcp_1",
+      intentHash: intentRef.intentHash,
       idempotencyKey: "idem_work_order_settle_1"
     }
   });
@@ -3086,6 +3140,7 @@ test("mcp spike: work order tool mappings", async () => {
       x402RunId: "run_conflict_1",
       traceId: "trace_mcp_work_order_1",
       authorityGrantRef: "agrant_mcp_1",
+      intentHash: intentRef.intentHash,
       idempotencyKey: "idem_work_order_settle_1"
     }
   });
