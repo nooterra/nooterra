@@ -1585,6 +1585,20 @@ test("API e2e: chargeback policy enforces negative-balance hold/net payout handl
   const tenantId = "tenant_default";
   const partyId = "pty_money_chargeback_1";
   const partyRole = "operator";
+  const { publicKeyPem: subjectPublicKeyPem } = createEd25519Keypair();
+  const subjectRegistered = await request(api, {
+    method: "POST",
+    path: "/agents/register",
+    headers: { "x-idempotency-key": "agent_register_money_chargeback_1" },
+    body: {
+      agentId: partyId,
+      displayName: "Money Chargeback Subject",
+      owner: { ownerType: "service", ownerId: "svc_money_chargeback" },
+      publicKeyPem: subjectPublicKeyPem,
+      capabilities: ["finance.payouts"]
+    }
+  });
+  assert.equal(subjectRegistered.statusCode, 201, subjectRegistered.body);
 
   async function closeMonthAndPutStatement({ period, payoutCents, suffix }) {
     const monthCloseRequested = await request(api, {
@@ -1696,6 +1710,20 @@ test("API e2e: chargeback policy enforces negative-balance hold/net payout handl
   });
   assert.equal(reversed.statusCode, 200);
   assert.equal(reversed.json?.operation?.state, "reversed");
+
+  const reputationAfterChargeback = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(partyId)}/reputation?reputationVersion=v2&reputationWindow=allTime&asOf=${encodeURIComponent("2026-02-07T00:04:00.000Z")}`
+  });
+  assert.equal(reputationAfterChargeback.statusCode, 200, reputationAfterChargeback.body);
+  assert.equal(reputationAfterChargeback.json?.reputation?.penaltySignal?.evaluationStatus, "ok");
+  assert.equal(reputationAfterChargeback.json?.reputation?.penaltySignal?.counts?.chargebackCount, 1);
+  assert.equal(reputationAfterChargeback.json?.reputation?.penaltySignal?.counts?.totalPenaltyCount, 1);
+  assert.equal(reputationAfterChargeback.json?.reputation?.penaltySignal?.quarantineRecommended, true);
+  assert.ok(
+    Array.isArray(reputationAfterChargeback.json?.reputation?.penaltySignal?.reasonCodes) &&
+      reputationAfterChargeback.json.reputation.penaltySignal.reasonCodes.includes("REPUTATION_QUARANTINE_CHARGEBACK_THRESHOLD")
+  );
 
   const exposuresBefore = await request(api, {
     method: "GET",

@@ -29,6 +29,10 @@ Capture deterministic outcome facts (decision, dispute, verdict, adjustments) wi
 - `verdict_issued`
 - `holdback_auto_released`
 - `adjustment_applied`
+- `penalty_dispute_lost`
+- `penalty_chargeback`
+- `penalty_invalid_signature`
+- `penalty_sybil`
 
 ## Invariants
 
