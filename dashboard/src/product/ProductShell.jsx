@@ -31,6 +31,13 @@ import {
   PRODUCT_RUNTIME_STORAGE_KEY,
   requestJson
 } from "./api.js";
+import {
+  deriveStarterWorkerDraft,
+  formatStarterWorkerCapabilities,
+  formatStarterWorkerTags,
+  starterWorkerProfiles,
+  starterWorkerSetPresets
+} from "./starter-worker-catalog.js";
 import "./product.css";
 
 const LAST_LAUNCH_STORAGE_KEY = "nooterra_product_last_launch_id_v1";
@@ -160,39 +167,6 @@ const networkTemplates = [
   }
 ];
 
-const studioProfiles = [
-  {
-    id: "code_worker",
-    title: "Code Worker",
-    body: "Implements changes, runs tests, and hands back a patch-ready result.",
-    displayName: "Code Worker",
-    description: "A public worker for implementation, debugging, and patch delivery.",
-    capabilities: "capability://code.generation\ncapability://code.test.run",
-    priceAmountCents: "500",
-    tags: "software, implementation"
-  },
-  {
-    id: "qa_worker",
-    title: "QA Worker",
-    body: "Checks behavior, reproduces bugs, and verifies releases before merge.",
-    displayName: "QA Worker",
-    description: "A public worker for regression checks, validation, and release confidence.",
-    capabilities: "capability://code.test.run\ncapability://quality.review",
-    priceAmountCents: "350",
-    tags: "software, qa"
-  },
-  {
-    id: "research_worker",
-    title: "Research Worker",
-    body: "Finds evidence, compares options, and returns structured recommendations.",
-    displayName: "Research Worker",
-    description: "A public worker for research, synthesis, and option analysis.",
-    capabilities: "capability://research.analysis\ncapability://knowledge.synthesis",
-    priceAmountCents: "300",
-    tags: "research, analysis"
-  }
-];
-
 const agentBrowsePresets = [
   {
     id: "all",
@@ -205,14 +179,21 @@ const agentBrowsePresets = [
     id: "software",
     title: "Software Workers",
     body: "Code, QA, and release-oriented workers for technical workflows.",
-    capability: "code.generation",
+    capability: "capability://code.generation",
     runtime: "nooterra"
   },
   {
     id: "research",
     title: "Research Workers",
     body: "Evidence gathering, comparison, and synthesis workflows.",
-    capability: "research.analysis",
+    capability: "capability://research.analysis",
+    runtime: ""
+  },
+  {
+    id: "operations",
+    title: "Operations Workers",
+    body: "Runbook execution, intake, and operational handoff.",
+    capability: "capability://workflow.intake",
     runtime: ""
   }
 ];
@@ -965,7 +946,7 @@ function AgentsPage({ runtime }) {
                   setSelectedPresetId("");
                   setFilters((previous) => ({ ...previous, capability: event.target.value }));
                 }}
-                placeholder="code.generation"
+                placeholder="capability://code.generation"
               />
             </label>
             <label>
@@ -2355,67 +2336,241 @@ function StudioPage({ runtime, onboardingState, onAgentRecorded, lastAgentId, de
   const buyer = onboardingState?.buyer ?? null;
   const bootstrapBundle = onboardingState?.bootstrap ?? null;
   const smokeBundle = onboardingState?.smoke ?? null;
+  const defaultStudioProfile = starterWorkerProfiles[0];
+  const defaultStudioDraft = deriveStarterWorkerDraft(defaultStudioProfile, {
+    tenantId: buyer?.tenantId ?? runtime.tenantId,
+    endpointBaseUrl: ""
+  });
   const [form, setForm] = useState({
-    agentId: lastAgentId || `agt_${createClientId("studio").slice(-12).replace(/[^a-z0-9_]/gi, "").toLowerCase()}`,
-    displayName: "Network Worker",
-    description: "A public worker for routed software tasks.",
-    ownerType: "service",
-    ownerId: "svc_network_worker",
-    capabilities: "capability://code.generation\ncapability://code.test.run",
+    agentId: lastAgentId || defaultStudioDraft.agentId,
+    displayName: defaultStudioDraft.displayName,
+    description: defaultStudioDraft.description,
+    ownerType: defaultStudioDraft.ownerType,
+    ownerId: defaultStudioDraft.ownerId,
+    capabilities: formatStarterWorkerCapabilities(defaultStudioProfile),
     visibility: "public",
-    runtimeName: "nooterra",
+    runtimeName: defaultStudioDraft.runtimeName,
     endpoint: "",
-    priceAmountCents: "500",
-    priceCurrency: "USD",
-    priceUnit: "task",
-    tags: "software, beta",
+    seedEndpointBaseUrl: "",
+    priceAmountCents: defaultStudioDraft.priceAmountCents,
+    priceCurrency: defaultStudioDraft.priceCurrency,
+    priceUnit: defaultStudioDraft.priceUnit,
+    tags: formatStarterWorkerTags(defaultStudioProfile),
     attachPublishSignature: false
   });
-  const [selectedProfileId, setSelectedProfileId] = useState(studioProfiles[0].id);
+  const [selectedProfileId, setSelectedProfileId] = useState(defaultStudioProfile.id);
+  const [selectedStarterSetId, setSelectedStarterSetId] = useState(starterWorkerSetPresets[0].id);
   const [keys, setKeys] = useState({ publicKeyPem: "", privateKeyPem: "", keyId: "" });
-  const [studioMessage, setStudioMessage] = useState("Pick a starter profile, generate a signer, then publish the worker.");
+  const [studioMessage, setStudioMessage] = useState("Pick a starter profile or starter set, generate a signer, then publish the workers.");
   const [registerOutput, setRegisterOutput] = useState(null);
   const [publishOutput, setPublishOutput] = useState(null);
   const [discoverOutput, setDiscoverOutput] = useState(null);
+  const [seedOutput, setSeedOutput] = useState(null);
   const [busyState, setBusyState] = useState("");
   const runtimeReady = Boolean(String(runtime.apiKey ?? "").trim());
   const discoveryResults = Array.isArray(discoverOutput?.results) ? discoverOutput.results : [];
+  const seedResults = Array.isArray(seedOutput?.results) ? seedOutput.results : [];
+  const selectedStarterSet =
+    starterWorkerSetPresets.find((preset) => preset.id === selectedStarterSetId) ?? starterWorkerSetPresets[0];
 
   useEffect(() => {
     if (!buyer?.tenantId) return;
-    const tenantSlug = toIdSlug(buyer.tenantId);
-    const suggestedAgentId = lastAgentId || `agt_${tenantSlug}_worker`;
-    const suggestedOwnerId = `svc_${tenantSlug}_worker`;
+    const suggestedDraft = deriveStarterWorkerDraft(defaultStudioProfile, {
+      tenantId: buyer.tenantId,
+      endpointBaseUrl: form.seedEndpointBaseUrl
+    });
     setForm((previous) => {
       const next = { ...previous };
       let changed = false;
-      if ((!lastAgentId && previous.agentId === "") || previous.agentId.includes("studio")) {
-        next.agentId = suggestedAgentId;
+      if (
+        (!lastAgentId && previous.agentId === defaultStudioDraft.agentId) ||
+        previous.agentId.includes("studio") ||
+        previous.agentId === `agt_${toIdSlug(runtime.tenantId)}_${defaultStudioProfile.id}`
+      ) {
+        next.agentId = lastAgentId || suggestedDraft.agentId;
         changed = true;
       }
-      if (previous.ownerId === "svc_network_worker") {
-        next.ownerId = suggestedOwnerId;
+      if (previous.ownerId === defaultStudioDraft.ownerId || previous.ownerId === `svc_${toIdSlug(runtime.tenantId)}_${defaultStudioProfile.id}`) {
+        next.ownerId = suggestedDraft.ownerId;
         changed = true;
       }
-      if (previous.displayName === "Network Worker") {
-        next.displayName = `${buyer.tenantId} Worker`;
+      if (previous.displayName === defaultStudioProfile.displayName) {
+        next.displayName = suggestedDraft.displayName;
         changed = true;
       }
       return changed ? next : previous;
     });
-  }, [buyer?.tenantId, lastAgentId]);
+  }, [buyer?.tenantId, defaultStudioDraft.agentId, defaultStudioDraft.ownerId, defaultStudioProfile, form.seedEndpointBaseUrl, lastAgentId, runtime.tenantId]);
 
   function applyStudioProfile(profile) {
     setSelectedProfileId(profile.id);
+    const draft = deriveStarterWorkerDraft(profile, {
+      tenantId: buyer?.tenantId ?? runtime.tenantId,
+      endpointBaseUrl: form.seedEndpointBaseUrl
+    });
     setForm((previous) => ({
       ...previous,
-      displayName: profile.displayName,
-      description: profile.description,
-      capabilities: profile.capabilities,
-      priceAmountCents: profile.priceAmountCents,
-      tags: profile.tags
+      agentId: draft.agentId,
+      displayName: draft.displayName,
+      description: draft.description,
+      ownerType: draft.ownerType,
+      ownerId: draft.ownerId,
+      capabilities: formatStarterWorkerCapabilities(profile),
+      runtimeName: draft.runtimeName,
+      endpoint: draft.endpoint,
+      priceAmountCents: draft.priceAmountCents,
+      priceCurrency: draft.priceCurrency,
+      priceUnit: draft.priceUnit,
+      tags: formatStarterWorkerTags(profile)
     }));
     setStudioMessage(`${profile.title} profile loaded. Adjust the details, then register and publish the worker.`);
+  }
+
+  function buildManualDraft() {
+    return {
+      agentId: form.agentId,
+      displayName: form.displayName,
+      description: form.description,
+      ownerType: form.ownerType,
+      ownerId: form.ownerId,
+      capabilities: parseCapabilityList(form.capabilities),
+      visibility: form.visibility,
+      runtimeName: form.runtimeName,
+      endpoint: String(form.endpoint ?? "").trim(),
+      priceAmountCents: String(form.priceAmountCents ?? "0"),
+      priceCurrency: String(form.priceCurrency ?? "USD").trim().toUpperCase(),
+      priceUnit: String(form.priceUnit ?? "task").trim() || "task",
+      tags: parseCapabilityList(form.tags)
+    };
+  }
+
+  async function ensureStudioSigner() {
+    if (keys.publicKeyPem) return keys;
+    const generated = await generateBrowserEd25519KeypairPem();
+    startTransition(() => {
+      setKeys(generated);
+    });
+    return generated;
+  }
+
+  async function registerAgentIdentity(draft, signer, { allowExisting = false, idempotencyKey } = {}) {
+    try {
+      const output = await requestJson({
+        baseUrl: runtime.baseUrl,
+        pathname: "/agents/register",
+        method: "POST",
+        headers: buildHeaders({ ...runtime, write: true, idempotencyKey }),
+        body: {
+          agentId: draft.agentId,
+          displayName: draft.displayName,
+          description: draft.description,
+          owner: {
+            ownerType: draft.ownerType,
+            ownerId: draft.ownerId
+          },
+          publicKeyPem: signer.publicKeyPem,
+          capabilities: draft.capabilities
+        }
+      });
+      return { output, status: "created" };
+    } catch (error) {
+      if (allowExisting && error.status === 409) {
+        return { output: null, status: "exists" };
+      }
+      throw error;
+    }
+  }
+
+  async function publishAgentCardDraft(draft, signer, { attachPublishSignature = false, idempotencyKey } = {}) {
+    const requestBody = {
+      agentId: draft.agentId,
+      displayName: draft.displayName,
+      description: draft.description,
+      capabilities: draft.capabilities,
+      visibility: draft.visibility,
+      host: {
+        runtime: draft.runtimeName,
+        ...(draft.endpoint ? { endpoint: draft.endpoint } : {})
+      },
+      priceHint: {
+        amountCents: Number(draft.priceAmountCents || 0) || 0,
+        currency: String(draft.priceCurrency || "USD").trim().toUpperCase(),
+        unit: draft.priceUnit || "task"
+      },
+      tags: draft.tags
+    };
+
+    if (attachPublishSignature && signer.privateKeyPem && signer.keyId) {
+      requestBody.publish = await buildAgentCardPublishSignature({
+        tenantId: runtime.tenantId,
+        requestBody,
+        signerKeyId: signer.keyId,
+        privateKeyPem: signer.privateKeyPem
+      });
+    }
+
+    return requestJson({
+      baseUrl: runtime.baseUrl,
+      pathname: "/agent-cards",
+      method: "POST",
+      headers: buildHeaders({ ...runtime, write: true, idempotencyKey }),
+      body: requestBody
+    });
+  }
+
+  async function publishStarterSet() {
+    if (!runtimeReady) {
+      setStudioMessage("Complete onboarding and issue runtime bootstrap before seeding public workers.");
+      return;
+    }
+    setBusyState("seed");
+    setStudioMessage(`Publishing ${selectedStarterSet.profileIds.length} starter workers into the public directory...`);
+    try {
+      const signer = await ensureStudioSigner();
+      const tenantId = buyer?.tenantId ?? runtime.tenantId;
+      const endpointBaseUrl = form.seedEndpointBaseUrl || form.endpoint;
+      const results = [];
+
+      for (const profileId of selectedStarterSet.profileIds) {
+        const profile = starterWorkerProfiles.find((entry) => entry.id === profileId);
+        if (!profile) continue;
+        const draft = deriveStarterWorkerDraft(profile, { tenantId, endpointBaseUrl });
+        const registration = await registerAgentIdentity(draft, signer, {
+          allowExisting: true,
+          idempotencyKey: `starter_register_${draft.agentId}`
+        });
+        const published = await publishAgentCardDraft(draft, signer, {
+          attachPublishSignature: form.attachPublishSignature,
+          idempotencyKey: `starter_card_${draft.agentId}`
+        });
+
+        results.push({
+          profileId: profile.id,
+          title: profile.title,
+          agentId: draft.agentId,
+          registerStatus: registration.status,
+          publishStatus: "published",
+          endpoint: draft.endpoint || null,
+          card: published?.card ?? null
+        });
+        onAgentRecorded(draft.agentId);
+      }
+
+      startTransition(() => {
+        setSeedOutput({
+          schemaVersion: "StudioStarterSeed.v1",
+          setId: selectedStarterSet.id,
+          results
+        });
+      });
+      setStudioMessage(`${results.length} starter workers published from ${selectedStarterSet.title}.`);
+      const primaryProfile = starterWorkerProfiles.find((entry) => entry.id === selectedStarterSet.profileIds[0]) ?? null;
+      await previewDiscovery(primaryProfile?.capabilities?.[0] ?? null);
+    } catch (error) {
+      setStudioMessage(`Starter set publish failed: ${error.message}`);
+    } finally {
+      setBusyState("");
+    }
   }
 
   async function generateKeys() {
@@ -2442,36 +2597,16 @@ function StudioPage({ runtime, onboardingState, onAgentRecorded, lastAgentId, de
     setBusyState("register");
     setStudioMessage("Registering the agent identity...");
     try {
-      const capabilities = parseCapabilityList(form.capabilities);
-      let signer = keys;
-      if (!signer.publicKeyPem) {
-        signer = await generateBrowserEd25519KeypairPem();
-        startTransition(() => {
-          setKeys(signer);
-        });
-      }
-      const output = await requestJson({
-        baseUrl: runtime.baseUrl,
-        pathname: "/agents/register",
-        method: "POST",
-        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("agent_register") }),
-        body: {
-          agentId: form.agentId,
-          displayName: form.displayName,
-          description: form.description,
-          owner: {
-            ownerType: form.ownerType,
-            ownerId: form.ownerId
-          },
-          publicKeyPem: signer.publicKeyPem,
-          capabilities
-        }
+      const draft = buildManualDraft();
+      const signer = await ensureStudioSigner();
+      const { output } = await registerAgentIdentity(draft, signer, {
+        idempotencyKey: createClientId("agent_register")
       });
       startTransition(() => {
         setRegisterOutput(output);
       });
-      onAgentRecorded(form.agentId);
-      setStudioMessage(`Agent ${form.agentId} registered.`);
+      onAgentRecorded(draft.agentId);
+      setStudioMessage(`Agent ${draft.agentId} registered.`);
     } catch (error) {
       setStudioMessage(`Register failed: ${error.message}`);
     } finally {
@@ -2487,48 +2622,18 @@ function StudioPage({ runtime, onboardingState, onAgentRecorded, lastAgentId, de
     setBusyState("publish");
     setStudioMessage("Publishing agent card...");
     try {
-      const capabilities = parseCapabilityList(form.capabilities);
-      const tags = parseCapabilityList(form.tags);
-      const requestBody = {
-        agentId: form.agentId,
-        displayName: form.displayName,
-        description: form.description,
-        capabilities,
-        visibility: form.visibility,
-        host: {
-          runtime: form.runtimeName,
-          ...(form.endpoint ? { endpoint: form.endpoint } : {})
-        },
-        priceHint: {
-          amountCents: Number(form.priceAmountCents || 0) || 0,
-          currency: String(form.priceCurrency || "USD").trim().toUpperCase(),
-          unit: form.priceUnit || "task"
-        },
-        tags
-      };
-
-      if (form.attachPublishSignature && keys.privateKeyPem && keys.keyId) {
-        requestBody.publish = await buildAgentCardPublishSignature({
-          tenantId: runtime.tenantId,
-          requestBody,
-          signerKeyId: keys.keyId,
-          privateKeyPem: keys.privateKeyPem
-        });
-      }
-
-      const output = await requestJson({
-        baseUrl: runtime.baseUrl,
-        pathname: "/agent-cards",
-        method: "POST",
-        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("agent_card") }),
-        body: requestBody
+      const draft = buildManualDraft();
+      const signer = await ensureStudioSigner();
+      const output = await publishAgentCardDraft(draft, signer, {
+        attachPublishSignature: form.attachPublishSignature,
+        idempotencyKey: createClientId("agent_card")
       });
       startTransition(() => {
         setPublishOutput(output);
       });
-      onAgentRecorded(form.agentId);
-      setStudioMessage(`Agent card for ${form.agentId} published.`);
-      await previewDiscovery(capabilities[0] ?? null);
+      onAgentRecorded(draft.agentId);
+      setStudioMessage(`Agent card for ${draft.agentId} published.`);
+      await previewDiscovery(draft.capabilities[0] ?? null);
     } catch (error) {
       setStudioMessage(`Publish failed: ${error.message}`);
     } finally {
@@ -2602,6 +2707,10 @@ export NOOTERRA_API_KEY=${JSON.stringify(runtime.apiKey || "sk_test_keyid.secret
 
 agentverse agent init ${form.agentId} --capability ${parseCapabilityList(form.capabilities)[0] || "capability://code.generation"}
 agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --tenant-id ${runtime.tenantId}`;
+  const starterSeedSnippet = `${bootstrapBundle?.bootstrap?.exportCommands ?? `export NOOTERRA_BASE_URL=${JSON.stringify(runtime.baseUrl)}
+export NOOTERRA_TENANT_ID=${JSON.stringify(runtime.tenantId)}
+export NOOTERRA_API_KEY=${JSON.stringify(runtime.apiKey || "sk_test_keyid.secret")}`}
+${form.seedEndpointBaseUrl ? `export NOOTERRA_STARTER_ENDPOINT_BASE_URL=${JSON.stringify(form.seedEndpointBaseUrl)}\n` : ""}npm run setup:seed-public-workers -- --profile-set ${selectedStarterSet.id}`;
 
   return (
     <div className="product-page">
@@ -2631,7 +2740,7 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
             <h2>Start from a worker shape that already fits the network.</h2>
           </div>
           <div className="product-option-grid">
-            {studioProfiles.map((profile) => (
+            {starterWorkerProfiles.map((profile) => (
               <button
                 key={profile.id}
                 type="button"
@@ -2647,8 +2756,39 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
 
         <article className="product-card">
           <div className="product-section-head compact">
+            <p>Starter Sets</p>
+            <h2>Seed a believable public directory in one pass.</h2>
+          </div>
+          <div className="product-option-grid">
+            {starterWorkerSetPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`product-option-card ${selectedStarterSetId === preset.id ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedStarterSetId(preset.id);
+                  setStudioMessage(`${preset.title} selected. Publish it to seed richer public supply.`);
+                }}
+              >
+                <strong>{preset.title}</strong>
+                <span>{preset.body}</span>
+                <span>{preset.profileIds.map((profileId) => starterWorkerProfiles.find((entry) => entry.id === profileId)?.title ?? profileId).join(" · ")}</span>
+              </button>
+            ))}
+          </div>
+          <div className="product-actions">
+            <button className="product-button product-button-solid" disabled={busyState !== "" || !runtimeReady} onClick={() => void publishStarterSet()}>
+              {busyState === "seed" ? "Publishing..." : `Publish ${selectedStarterSet.profileIds.length} Starter Workers`}
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section className="product-section">
+        <article className="product-card">
+          <div className="product-section-head compact">
             <p>Publish Path</p>
-            <h2>Make the builder prerequisites visible.</h2>
+            <h2>Make the builder prerequisites visible before you seed or publish.</h2>
           </div>
           <div className="product-step-list">
             {publishPath.map((item) => (
@@ -2762,6 +2902,14 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
               <span>Host endpoint (optional)</span>
               <input value={form.endpoint} onChange={(event) => setForm((previous) => ({ ...previous, endpoint: event.target.value }))} placeholder="https://worker.nooterra.ai" />
             </label>
+            <label className="wide">
+              <span>Starter endpoint base (optional)</span>
+              <input
+                value={form.seedEndpointBaseUrl}
+                onChange={(event) => setForm((previous) => ({ ...previous, seedEndpointBaseUrl: event.target.value }))}
+                placeholder="https://workers.nooterra.ai/agents"
+              />
+            </label>
             <label>
               <span>Price (cents)</span>
               <input value={form.priceAmountCents} onChange={(event) => setForm((previous) => ({ ...previous, priceAmountCents: event.target.value }))} />
@@ -2811,7 +2959,28 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
                   : "Preview discovery to see how the card appears."}
               </span>
             </div>
+            <div>
+              <strong>Starter set</strong>
+              <span>
+                {seedResults.length
+                  ? `${seedResults.length} worker${seedResults.length === 1 ? "" : "s"} seeded from ${selectedStarterSet.title}.`
+                  : "Use a starter set when you want to seed several public workers at once."}
+              </span>
+            </div>
           </div>
+          {seedResults.length > 0 ? (
+            <div className="product-step-list">
+              {seedResults.map((row) => (
+                <div key={row.agentId} className="product-step-item">
+                  <div className="product-step-copy">
+                    <strong>{row.title}</strong>
+                    <span>{row.agentId} · register {row.registerStatus} · card {row.publishStatus}</span>
+                  </div>
+                  <a className="product-status-pill tone-accent" href={`/agents/${encodeURIComponent(row.agentId)}`}>Open</a>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {discoveryResults.length > 0 ? (
             <div className="product-discovery-list">
               {discoveryResults.slice(0, 4).map((row, index) => (
@@ -2846,6 +3015,10 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
                 <summary>Public discovery preview</summary>
                 <pre><code>{prettyJson(discoverOutput)}</code></pre>
               </details>
+              <details className="product-details">
+                <summary>Starter worker seed</summary>
+                <pre><code>{prettyJson(seedOutput)}</code></pre>
+              </details>
             </div>
           ) : null}
         </article>
@@ -2854,9 +3027,10 @@ agentverse agent run --agent-id ${form.agentId} --base-url ${runtime.baseUrl} --
       <section className="product-section">
         <div className="product-section-head">
           <p>Builder Loop</p>
-          <h2>CLI and daemon path</h2>
+          <h2>CLI and ops seeding paths</h2>
         </div>
         <CodeBlock title="Agentverse CLI" code={agentCliSnippet} hint="Scaffold locally, then keep the worker live against the network." />
+        <CodeBlock title="Starter Worker Seed" code={starterSeedSnippet} hint="Populate a real tenant from env when you want richer public supply without clicking through Studio." />
       </section>
     </div>
   );
