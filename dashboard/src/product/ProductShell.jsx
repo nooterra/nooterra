@@ -40,7 +40,8 @@ const EMPTY_ONBOARDING_STATE = Object.freeze({
   authMode: null,
   buyer: null,
   bootstrap: null,
-  smoke: null
+  smoke: null,
+  sessionExpected: false
 });
 
 const productNarrative = [
@@ -202,7 +203,8 @@ function normalizeOnboardingState(value) {
     authMode: value.authMode && typeof value.authMode === "object" && !Array.isArray(value.authMode) ? value.authMode : null,
     buyer: value.buyer && typeof value.buyer === "object" && !Array.isArray(value.buyer) ? value.buyer : null,
     bootstrap: value.bootstrap && typeof value.bootstrap === "object" && !Array.isArray(value.bootstrap) ? value.bootstrap : null,
-    smoke: value.smoke && typeof value.smoke === "object" && !Array.isArray(value.smoke) ? value.smoke : null
+    smoke: value.smoke && typeof value.smoke === "object" && !Array.isArray(value.smoke) ? value.smoke : null,
+    sessionExpected: value.sessionExpected === true
   };
 }
 
@@ -1024,6 +1026,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const buyer = onboardingState?.buyer ?? null;
   const bootstrapBundle = onboardingState?.bootstrap ?? null;
   const smokeBundle = onboardingState?.smoke ?? null;
+  const sessionExpected = onboardingState?.sessionExpected === true;
   const [signupForm, setSignupForm] = useState({
     email: buyer?.email ?? "",
     company: "",
@@ -1067,6 +1070,16 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         }
       }
 
+      if (!sessionExpected) {
+        startTransition(() => {
+          setOnboardingState((previous) => ({
+            ...normalizeOnboardingState(previous),
+            buyer: null
+          }));
+        });
+        return;
+      }
+
       try {
         const meOut = await requestJson({
           baseUrl: runtime.authBaseUrl,
@@ -1079,7 +1092,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         startTransition(() => {
           setOnboardingState((previous) => ({
             ...normalizeOnboardingState(previous),
-            buyer: principal
+            buyer: principal,
+            sessionExpected: Boolean(principal)
           }));
         });
         if (principal) {
@@ -1100,7 +1114,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           startTransition(() => {
             setOnboardingState((previous) => ({
               ...normalizeOnboardingState(previous),
-              buyer: null
+              buyer: null,
+              sessionExpected: false
             }));
           });
         } else {
@@ -1113,7 +1128,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     return () => {
       cancelled = true;
     };
-  }, [runtime.authBaseUrl, runtime.tenantId, setOnboardingState, setRuntime]);
+  }, [runtime.authBaseUrl, runtime.tenantId, sessionExpected, setOnboardingState, setRuntime]);
 
   useEffect(() => {
     if (!buyer) return;
@@ -1145,7 +1160,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ...normalized,
           buyer: principal,
           bootstrap: sameTenant ? normalized.bootstrap : null,
-          smoke: sameTenant ? normalized.smoke : null
+          smoke: sameTenant ? normalized.smoke : null,
+          sessionExpected: Boolean(principal)
         };
       });
     });
@@ -1216,7 +1232,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ...normalizeOnboardingState(previous),
           buyer: null,
           bootstrap: null,
-          smoke: null
+          smoke: null,
+          sessionExpected: false
         }));
       });
       setStatusMessage(
@@ -1271,6 +1288,12 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           code: loginForm.code
         },
         credentials: "include"
+      });
+      startTransition(() => {
+        setOnboardingState((previous) => ({
+          ...normalizeOnboardingState(previous),
+          sessionExpected: true
+        }));
       });
       const principal = await loadBuyerSession();
       setStatusMessage(`Signed in as ${principal?.email ?? out?.email ?? loginForm.email}. Runtime bootstrap is unlocked.`);
@@ -1376,7 +1399,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ...normalizeOnboardingState(previous),
           buyer: null,
           bootstrap: null,
-          smoke: null
+          smoke: null,
+          sessionExpected: false
         }));
       });
       setRuntime((previous) => ({
