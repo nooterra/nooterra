@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/IntentContract.v1.schema.json",
+  "title": "IntentContract.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "intentId",
+    "negotiationId",
+    "tenantId",
+    "proposerAgentId",
+    "responderAgentId",
+    "intent",
+    "idempotencyKey",
+    "nonce",
+    "expiresAt",
+    "createdAt",
+    "updatedAt",
+    "intentHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "IntentContract.v1" },
+    "intentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "negotiationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "proposerAgentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "responderAgentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskType",
+        "capabilityId",
+        "riskClass",
+        "expectedDeterminism",
+        "sideEffecting",
+        "maxLossCents",
+        "spendLimit",
+        "parametersHash",
+        "constraints"
+      ],
+      "properties": {
+        "taskType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "capabilityId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "riskClass": {
+          "type": "string",
+          "enum": ["read", "compute", "action", "financial"]
+        },
+        "expectedDeterminism": {
+          "type": "string",
+          "enum": ["deterministic", "bounded_nondeterministic", "open_nondeterministic"]
+        },
+        "sideEffecting": { "type": "boolean" },
+        "maxLossCents": { "type": "integer", "minimum": 0 },
+        "spendLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["currency", "maxAmountCents"],
+          "properties": {
+            "currency": { "type": "string", "minLength": 3, "maxLength": 12 },
+            "maxAmountCents": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "parametersHash": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "constraints": {}
+      }
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 256
+    },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "intentHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -41,6 +41,26 @@
       "expectWarningCodes": [
         "provider_quote_signature_material_missing"
       ]
+    },
+    {
+      "id": "provider_signer_revoked_after_signing",
+      "file": "vector-provider-signer-revoked-after-signing.json",
+      "strict": false,
+      "expectOk": true,
+      "expectErrorCodes": [],
+      "expectWarningCodes": [
+        "provider_signature_signer_key_currently_invalid"
+      ]
+    },
+    {
+      "id": "provider_quote_signer_rotated_after_signing",
+      "file": "vector-provider-quote-signer-rotated-after-signing.json",
+      "strict": false,
+      "expectOk": true,
+      "expectErrorCodes": [],
+      "expectWarningCodes": [
+        "provider_quote_signature_signer_key_currently_invalid"
+      ]
     }
   ]
 }

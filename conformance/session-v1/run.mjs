@@ -379,6 +379,52 @@ function compareExpected({ expected, actual }) {
   return mismatches;
 }
 
+function compareSubset({ expected, actual, path = "$", mismatches }) {
+  if (expected === null || expected === undefined) {
+    if (actual !== expected) mismatches.push(`${path} expected ${String(expected)} got ${String(actual)}`);
+    return;
+  }
+
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual)) {
+      mismatches.push(`${path} expected array got ${typeof actual}`);
+      return;
+    }
+    if (actual.length !== expected.length) {
+      mismatches.push(`${path}.length expected ${expected.length} got ${actual.length}`);
+      return;
+    }
+    for (let i = 0; i < expected.length; i += 1) {
+      compareSubset({ expected: expected[i], actual: actual[i], path: `${path}[${i}]`, mismatches });
+    }
+    return;
+  }
+
+  if (typeof expected === "object") {
+    if (!actual || typeof actual !== "object" || Array.isArray(actual)) {
+      mismatches.push(`${path} expected object got ${typeof actual}`);
+      return;
+    }
+    for (const [key, value] of Object.entries(expected)) {
+      compareSubset({ expected: value, actual: actual[key], path: `${path}.${key}`, mismatches });
+    }
+    return;
+  }
+
+  if (actual !== expected) {
+    mismatches.push(`${path} expected ${JSON.stringify(expected)} got ${JSON.stringify(actual)}`);
+  }
+}
+
+function extractActualFailShape(parsed) {
+  return {
+    outcome: "fail",
+    code: parsed?.code ?? null,
+    message: parsed?.message ?? null,
+    details: parsed?.details ?? null
+  };
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
@@ -465,91 +511,69 @@ async function main() {
       signing: row?.signing ?? null
     });
 
+    const expectedOutcome = String(expected?.outcome ?? "pass").toLowerCase();
     const runA = await runAdapter({ cli, request, cwd: cli.adapterCwd ?? packDir });
-    if (runA.exitCode !== 0) {
-      fail += 1;
-      results.push(
-        normalizeForCanonicalJson(
-          {
-            id: caseId,
-            invariantIds,
-            status: "fail",
-            reasonCode: "CONFORMANCE_ADAPTER_EXEC_FAILED",
-            mismatches: [`adapter exited with code ${runA.exitCode}`],
-            adapterStderr: normalizeString(runA.stderr)
-          },
-          { path: "$" }
-        )
-      );
-      // eslint-disable-next-line no-console
-      console.error(`FAIL ${caseId}: adapter exited with code ${runA.exitCode}`);
-      continue;
-    }
-
-    if (!runA.parsed) {
-      fail += 1;
-      results.push(
-        normalizeForCanonicalJson(
-          {
-            id: caseId,
-            invariantIds,
-            status: "fail",
-            reasonCode: "CONFORMANCE_ADAPTER_OUTPUT_INVALID_JSON",
-            mismatches: ["adapter stdout is not valid JSON"]
-          },
-          { path: "$" }
-        )
-      );
-      // eslint-disable-next-line no-console
-      console.error(`FAIL ${caseId}: adapter stdout is not valid JSON`);
-      continue;
-    }
-
     const runB = await runAdapter({ cli, request, cwd: cli.adapterCwd ?? packDir });
-    if (runB.exitCode !== 0 || !runB.parsed) {
-      fail += 1;
-      results.push(
-        normalizeForCanonicalJson(
-          {
-            id: caseId,
-            invariantIds,
-            status: "fail",
-            reasonCode: "CONFORMANCE_ADAPTER_DETERMINISM_RERUN_FAILED",
-            mismatches: ["adapter rerun failed (non-zero exit or invalid JSON)"]
-          },
-          { path: "$" }
-        )
-      );
-      // eslint-disable-next-line no-console
-      console.error(`FAIL ${caseId}: adapter rerun failed`);
-      continue;
+
+    const mismatches = [];
+    if (!runA.parsed) mismatches.push("adapter stdout is not valid JSON");
+    if (!runB.parsed) mismatches.push("adapter rerun stdout is not valid JSON");
+    if (runA.parsed && runB.parsed) {
+      if (canonicalJsonStringify(runA.parsed) !== canonicalJsonStringify(runB.parsed)) {
+        mismatches.push("adapter output is non-deterministic across identical reruns");
+      }
     }
 
     const verifiedA = verifyArtifacts({ caseId, fixture, signing: row?.signing ?? null, output: runA.parsed });
     const verifiedB = verifyArtifacts({ caseId, fixture, signing: row?.signing ?? null, output: runB.parsed });
 
-    const mismatches = [];
-    mismatches.push(...verifiedA.errors);
-    mismatches.push(...verifiedB.errors.map((m) => `rerun: ${m}`));
-
-    if (verifiedA.replayPack && verifiedB.replayPack) {
-      const replayCanonicalA = canonicalJsonStringify(verifiedA.replayPack);
-      const replayCanonicalB = canonicalJsonStringify(verifiedB.replayPack);
-      if (replayCanonicalA !== replayCanonicalB) {
-        mismatches.push("replayPack output is non-deterministic across identical reruns");
+    if (expectedOutcome === "pass") {
+      if (runA.exitCode !== 0) {
+        mismatches.push(`expected pass exit code 0 got ${runA.exitCode}`);
       }
-    }
-
-    if (verifiedA.transcript && verifiedB.transcript) {
-      const transcriptCanonicalA = canonicalJsonStringify(verifiedA.transcript);
-      const transcriptCanonicalB = canonicalJsonStringify(verifiedB.transcript);
-      if (transcriptCanonicalA !== transcriptCanonicalB) {
-        mismatches.push("transcript output is non-deterministic across identical reruns");
+      if (runB.exitCode !== 0) {
+        mismatches.push(`expected deterministic pass rerun exit code 0 got ${runB.exitCode}`);
       }
-    }
+      mismatches.push(...verifiedA.errors);
+      mismatches.push(...verifiedB.errors.map((m) => `rerun: ${m}`));
 
-    if (verifiedA.actual) {
-      mismatches.push(...compareExpected({ expected, actual: verifiedA.actual }));
+      if (verifiedA.replayPack && verifiedB.replayPack) {
+        const replayCanonicalA = canonicalJsonStringify(verifiedA.replayPack);
+        const replayCanonicalB = canonicalJsonStringify(verifiedB.replayPack);
+        if (replayCanonicalA !== replayCanonicalB) {
+          mismatches.push("replayPack output is non-deterministic across identical reruns");
+        }
+      }
+
+      if (verifiedA.transcript && verifiedB.transcript) {
+        const transcriptCanonicalA = canonicalJsonStringify(verifiedA.transcript);
+        const transcriptCanonicalB = canonicalJsonStringify(verifiedB.transcript);
+        if (transcriptCanonicalA !== transcriptCanonicalB) {
+          mismatches.push("transcript output is non-deterministic across identical reruns");
+        }
+      }
+
+      if (verifiedA.actual) {
+        mismatches.push(...compareExpected({ expected, actual: verifiedA.actual }));
+      }
+    } else if (expectedOutcome === "fail") {
+      if (runA.exitCode === 0) {
+        mismatches.push("expected fail but adapter exited with code 0");
+      }
+      if (runB.exitCode === 0) {
+        mismatches.push("expected deterministic fail rerun but adapter exited with code 0");
+      }
+      if (runA.parsed && runA.parsed.ok !== false) {
+        mismatches.push(`expected fail but adapter returned ok=${String(runA.parsed.ok)}`);
+      }
+      if (runB.parsed && runB.parsed.ok !== false) {
+        mismatches.push(`expected deterministic fail rerun but adapter returned ok=${String(runB.parsed.ok)}`);
+      }
+
+      const failShape = extractActualFailShape(runA.parsed);
+      compareSubset({ expected, actual: failShape, mismatches });
+    } else {
+      mismatches.push(`expected.outcome must be pass|fail (got ${String(expected?.outcome ?? "null")})`);
     }
 
     if (mismatches.length > 0) {
@@ -562,7 +586,7 @@ async function main() {
             status: "fail",
             reasonCode: "CONFORMANCE_EXPECTATION_MISMATCH",
             expected,
-            actual: verifiedA.actual ?? null,
+            actual: expectedOutcome === "pass" ? verifiedA.actual ?? null : runA.parsed ?? null,
             mismatches
           },
           { path: "$" }
@@ -581,7 +605,7 @@ async function main() {
           invariantIds,
           status: "pass",
           expected,
-          actual: verifiedA.actual,
+          actual: expectedOutcome === "pass" ? verifiedA.actual : runA.parsed,
           runtime: verifiedA.runtime ?? null
         },
         { path: "$" }

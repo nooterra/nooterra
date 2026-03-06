@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "SignerLifecycleConformanceVectors.v1",
+  "generatedAt": "2026-03-01T00:00:00.000Z",
+  "cases": [
+    {
+      "id": "key_not_registered_fail_closed",
+      "input": {
+        "signerKey": null,
+        "at": "2026-03-01T00:00:05.000Z",
+        "requireRegistered": true
+      },
+      "expected": {
+        "ok": false,
+        "legacyCode": "IDENTITY_SIGNER_KEY_NOT_REGISTERED",
+        "canonicalCode": "KEY_NOT_REGISTERED",
+        "validAtOk": null,
+        "validAtCanonicalCode": null,
+        "validNowOk": null,
+        "validNowCanonicalCode": null
+      }
+    },
+    {
+      "id": "key_not_yet_valid_fail_closed",
+      "input": {
+        "signerKey": {
+          "status": "active",
+          "validFrom": "2026-03-01T00:00:10.000Z"
+        },
+        "at": "2026-03-01T00:00:09.999Z"
+      },
+      "expected": {
+        "ok": false,
+        "legacyCode": "IDENTITY_SIGNER_KEY_NOT_YET_VALID",
+        "canonicalCode": "KEY_NOT_YET_VALID",
+        "validAtOk": false,
+        "validAtCanonicalCode": "KEY_NOT_YET_VALID",
+        "validNowOk": false,
+        "validNowCanonicalCode": "KEY_NOT_YET_VALID"
+      }
+    },
+    {
+      "id": "key_chain_gap_fail_closed",
+      "input": {
+        "signerKey": {
+          "status": "rotated"
+        },
+        "at": "2026-03-01T00:00:05.000Z"
+      },
+      "expected": {
+        "ok": false,
+        "legacyCode": "IDENTITY_SIGNER_KEY_CHAIN_GAP",
+        "canonicalCode": "KEY_CHAIN_GAP",
+        "validAtOk": false,
+        "validAtCanonicalCode": "KEY_CHAIN_GAP",
+        "validNowOk": false,
+        "validNowCanonicalCode": "KEY_CHAIN_GAP"
+      }
+    },
+    {
+      "id": "historical_valid_currently_revoked_allowed_when_not_enforced",
+      "input": {
+        "signerKey": {
+          "status": "active",
+          "revokedAt": "2026-03-01T00:00:10.000Z"
+        },
+        "at": "2026-03-01T00:00:09.000Z",
+        "now": "2026-03-01T00:00:11.000Z",
+        "enforceCurrentValidity": false
+      },
+      "expected": {
+        "ok": true,
+        "legacyCode": null,
+        "canonicalCode": null,
+        "validAtOk": true,
+        "validAtCanonicalCode": null,
+        "validNowOk": false,
+        "validNowCanonicalCode": "KEY_REVOKED"
+      }
+    },
+    {
+      "id": "historical_valid_currently_revoked_blocked_when_enforced",
+      "input": {
+        "signerKey": {
+          "status": "active",
+          "revokedAt": "2026-03-01T00:00:10.000Z"
+        },
+        "at": "2026-03-01T00:00:09.000Z",
+        "now": "2026-03-01T00:00:11.000Z",
+        "enforceCurrentValidity": true
+      },
+      "expected": {
+        "ok": false,
+        "legacyCode": "IDENTITY_SIGNER_KEY_REVOKED",
+        "canonicalCode": "KEY_REVOKED",
+        "validAtOk": true,
+        "validAtCanonicalCode": null,
+        "validNowOk": false,
+        "validNowCanonicalCode": "KEY_REVOKED"
+      }
+    }
+  ]
+}

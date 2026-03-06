@@ -535,6 +535,8 @@ test("API e2e: delegation grant issue fails closed when participant signer lifec
   assert.equal(blocked.json?.details?.role, "delegator");
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 authorize fails closed when delegation grant participant signer lifecycle is non-active", async () => {
@@ -605,6 +607,8 @@ test("API e2e: x402 authorize fails closed when delegation grant participant sig
   assert.equal(blocked.json?.details?.details?.role, "delegatee");
   assert.equal(blocked.json?.details?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 authorize fails closed when payer signer lifecycle is non-active", async () => {
@@ -641,6 +645,8 @@ test("API e2e: x402 authorize fails closed when payer signer lifecycle is non-ac
   assert.equal(blocked.json?.details?.role, "payer");
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 verify fails closed when payee signer lifecycle is non-active", async () => {
@@ -683,6 +689,8 @@ test("API e2e: x402 verify fails closed when payee signer lifecycle is non-activ
   assert.equal(blocked.json?.details?.role, "payee");
   assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(blocked.json?.details?.signerStatus, "rotated");
+  assert.equal(blocked.json?.details?.validAt?.ok, false);
+  assert.equal(blocked.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: x402 prompt risk forced challenge blocks authorize unless override is recorded", async () => {

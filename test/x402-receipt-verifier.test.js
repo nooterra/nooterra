@@ -107,6 +107,65 @@ test("x402 receipt verifier: valid vector passes with zero errors", () => {
   assert.equal(providerQuoteCheck?.ok, true);
 });
 
+test("x402 receipt verifier: provider signer revoked after signing remains verifiable with lifecycle warning", () => {
+  const receipt = buildX402ReceiptVerifierVector();
+  receipt.verificationContext.providerSigningKey = normalizeForCanonicalJson(
+    {
+      ...receipt.verificationContext.providerSigningKey,
+      status: "revoked",
+      revokedAt: "2026-02-18T00:00:03.000Z"
+    },
+    { path: "$" }
+  );
+  const report = verifyX402ReceiptRecord({ receipt, strict: false });
+  assert.equal(report.ok, true);
+  assert.ok(report.warnings.some((row) => row.code === "provider_signature_signer_key_currently_invalid"));
+  const lifecycleCheck = report.checks.find((row) => row.id === "provider_output_signer_lifecycle_continuity");
+  assert.equal(lifecycleCheck?.ok, true);
+  assert.equal(lifecycleCheck?.detail?.validAt?.ok, true);
+  assert.equal(lifecycleCheck?.detail?.validNow?.ok, false);
+  assert.equal(lifecycleCheck?.detail?.validNow?.canonicalCode, "KEY_REVOKED");
+});
+
+test("x402 receipt verifier: provider quote signer rotated after signing remains verifiable with lifecycle warning", () => {
+  const receipt = buildX402ReceiptVerifierVector();
+  receipt.verificationContext.providerQuoteSigningKey = normalizeForCanonicalJson(
+    {
+      ...receipt.verificationContext.providerQuoteSigningKey,
+      status: "rotated",
+      rotatedAt: "2026-02-18T00:00:02.000Z"
+    },
+    { path: "$" }
+  );
+  const report = verifyX402ReceiptRecord({ receipt, strict: false });
+  assert.equal(report.ok, true);
+  assert.ok(report.warnings.some((row) => row.code === "provider_quote_signature_signer_key_currently_invalid"));
+  const lifecycleCheck = report.checks.find((row) => row.id === "provider_quote_signer_lifecycle_continuity");
+  assert.equal(lifecycleCheck?.ok, true);
+  assert.equal(lifecycleCheck?.detail?.validAt?.ok, true);
+  assert.equal(lifecycleCheck?.detail?.validNow?.ok, false);
+  assert.equal(lifecycleCheck?.detail?.validNow?.canonicalCode, "KEY_ROTATED");
+});
+
+test("x402 receipt verifier: provider signer revoked before signing fails closed", () => {
+  const receipt = buildX402ReceiptVerifierVector();
+  receipt.verificationContext.providerSigningKey = normalizeForCanonicalJson(
+    {
+      ...receipt.verificationContext.providerSigningKey,
+      status: "revoked",
+      revokedAt: "2026-02-18T00:00:01.000Z"
+    },
+    { path: "$" }
+  );
+  const report = verifyX402ReceiptRecord({ receipt, strict: false });
+  assert.equal(report.ok, false);
+  assert.ok(report.errors.some((row) => row.code === "provider_signature_signer_key_invalid_at_signing"));
+  const lifecycleCheck = report.checks.find((row) => row.id === "provider_output_signer_lifecycle_continuity");
+  assert.equal(lifecycleCheck?.ok, false);
+  assert.equal(lifecycleCheck?.detail?.validAt?.ok, false);
+  assert.equal(lifecycleCheck?.detail?.validAt?.canonicalCode, "KEY_REVOKED");
+});
+
 test("x402 receipt verifier: tampered response binding fails", () => {
   const receipt = buildX402ReceiptVerifierVector();
   receipt.bindings.response.sha256 = "9".repeat(64);

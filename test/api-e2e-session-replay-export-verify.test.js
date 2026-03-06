@@ -173,6 +173,102 @@ test("API e2e: session replay verify returns deterministic verdicts and fails cl
   assert.equal(verifyTampered.json?.verdict?.code, "SESSION_REPLAY_VERIFICATION_MEMORY_CONTRACT_INVALID");
 });
 
+test("API e2e: session replay verify preserves historical signer validity and surfaces current revocation", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_replay_verify_historical_signer_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: api.store.serverSigner.keyId,
+      publicKeyPem: api.store.serverSigner.publicKeyPem,
+      purpose: "server",
+      status: "active",
+      description: "session replay historical signer validity test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: {
+      "x-idempotency-key": "session_replay_historical_signer_create_1",
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      sessionId: "sess_replay_historical_signer_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_replay_historical_signer_1/events",
+    headers: {
+      "x-idempotency-key": "session_replay_historical_signer_append_1",
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": principalAgentId
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      at: "2026-02-20T00:00:01.000Z",
+      payload: { taskId: "task_replay_historical_signer_1" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const exported = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_replay_historical_signer_1/replay-export?includeTranscript=true&sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`,
+    headers: { "x-proxy-principal-id": principalAgentId }
+  });
+  assert.equal(exported.statusCode, 200, exported.body);
+  assert.equal(exported.json?.replayPack?.signature?.keyId, api.store.serverSigner.keyId);
+  assert.equal(exported.json?.transcript?.signature?.keyId, api.store.serverSigner.keyId);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(api.store.serverSigner.keyId)}/revoke`,
+    body: {}
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(revoked.json?.signerKey?.status, "revoked");
+
+  const verifyAfterRevoke = await request(api, {
+    method: "POST",
+    path: "/sessions/replay-verify",
+    body: {
+      memoryExport: exported.json?.memoryExport,
+      memoryExportRef: exported.json?.memoryExportRef,
+      replayPack: exported.json?.replayPack,
+      transcript: exported.json?.transcript,
+      expectedTenantId: "tenant_default",
+      expectedSessionId: "sess_replay_historical_signer_1",
+      replayPackPublicKeyPem: api.store.serverSigner.publicKeyPem,
+      transcriptPublicKeyPem: api.store.serverSigner.publicKeyPem,
+      requireReplayPackSignature: true,
+      requireTranscriptSignature: true
+    }
+  });
+  assert.equal(verifyAfterRevoke.statusCode, 200, verifyAfterRevoke.body);
+  assert.equal(verifyAfterRevoke.json?.ok, true);
+  assert.equal(verifyAfterRevoke.json?.verdict?.ok, true);
+
+  const memoryCheck = Array.isArray(verifyAfterRevoke.json?.verdict?.checks)
+    ? verifyAfterRevoke.json.verdict.checks.find((row) => row?.id === "memory_contract_import")
+    : null;
+  assert.ok(memoryCheck);
+  assert.equal(memoryCheck?.ok, true);
+  assert.equal(memoryCheck?.details?.signatureLifecycle?.replayPack?.validAt?.ok, true);
+  assert.equal(memoryCheck?.details?.signatureLifecycle?.replayPack?.validNow?.ok, false);
+  assert.equal(memoryCheck?.details?.signatureLifecycle?.replayPack?.validNow?.code, "IDENTITY_SIGNER_KEY_REVOKED");
+});
+
 test("API e2e: replay export enforces memory scopes and records deterministic audit decisions", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const ownerAgentId = "agt_replay_scope_owner_1";

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/IdentityLogEntry.v1.schema.json",
+  "title": "IdentityLogEntry.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "entryId",
+    "tenantId",
+    "agentId",
+    "eventType",
+    "logIndex",
+    "prevEntryHash",
+    "keyIdBefore",
+    "keyIdAfter",
+    "statusBefore",
+    "statusAfter",
+    "capabilitiesBefore",
+    "capabilitiesAfter",
+    "reasonCode",
+    "reason",
+    "occurredAt",
+    "recordedAt",
+    "metadata",
+    "entryHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "IdentityLogEntry.v1"
+    },
+    "entryId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "eventType": {
+      "type": "string",
+      "enum": ["create", "rotate", "revoke", "capability-claim-change"]
+    },
+    "logIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "prevEntryHash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "keyIdBefore": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "keyIdAfter": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "statusBefore": {
+      "type": ["string", "null"],
+      "enum": ["active", "suspended", "revoked", null]
+    },
+    "statusAfter": {
+      "type": ["string", "null"],
+      "enum": ["active", "suspended", "revoked", null]
+    },
+    "capabilitiesBefore": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilitiesAfter": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reasonCode": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "entryHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

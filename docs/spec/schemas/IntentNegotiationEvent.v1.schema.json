@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/IntentNegotiationEvent.v1.schema.json",
+  "title": "IntentNegotiationEvent.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "negotiationId",
+    "intentId",
+    "intentHash",
+    "eventType",
+    "reasonCode",
+    "actorAgentId",
+    "at",
+    "prevEventHash",
+    "metadata",
+    "eventHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "IntentNegotiationEvent.v1" },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "negotiationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "intentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "intentHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": ["propose", "counter", "accept"]
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": [
+        "INTENT_NEGOTIATION_PROPOSED",
+        "INTENT_NEGOTIATION_COUNTERED",
+        "INTENT_NEGOTIATION_ACCEPTED"
+      ]
+    },
+    "actorAgentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "at": { "type": "string", "format": "date-time" },
+    "prevEventHash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metadata": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "eventHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

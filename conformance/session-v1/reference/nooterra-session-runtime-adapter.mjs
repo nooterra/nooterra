@@ -2,13 +2,14 @@
 import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../../../src/core/session-replay-pack.js";
 import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../../../src/core/session-transcript.js";
 
-function fail({ caseId, code, message }) {
+function fail({ caseId, code, message, details = null }) {
   const payload = {
     schemaVersion: "SessionArtifactConformanceResponse.v1",
     caseId,
     ok: false,
     code,
-    message
+    message,
+    details
   };
   process.stdout.write(`${JSON.stringify(payload)}\n`);
   process.exit(1);
@@ -36,6 +37,28 @@ function assertObject(value, label) {
   }
 }
 
+function normalizeNonEmptyString(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized === "" ? null : normalized;
+}
+
+function normalizeParticipants(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const row of value) {
+    const normalized = normalizeNonEmptyString(row);
+    if (!normalized) continue;
+    if (!out.includes(normalized)) out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeVerificationBlock(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
 async function main() {
   const request = await readStdinJson();
   const caseId = typeof request?.caseId === "string" ? request.caseId : null;
@@ -46,6 +69,49 @@ async function main() {
     }
     assertObject(request.fixture, "fixture");
     const fixture = request.fixture;
+    const acl = fixture.acl && typeof fixture.acl === "object" && !Array.isArray(fixture.acl) ? fixture.acl : null;
+    if (acl) {
+      const principalId = normalizeNonEmptyString(acl.principalId);
+      const participants = normalizeParticipants(acl.participants);
+      if (!principalId || participants.length === 0 || !participants.includes(principalId)) {
+        fail({
+          caseId,
+          code: "SESSION_ACCESS_DENIED",
+          message: "session access denied",
+          details: {
+            sessionId: normalizeNonEmptyString(fixture?.session?.sessionId),
+            principalId,
+            participants
+          }
+        });
+      }
+    }
+
+    const verification = normalizeVerificationBlock(fixture.verification);
+    if (verification && verification.chainOk !== true) {
+      fail({
+        caseId,
+        code: "SESSION_REPLAY_CHAIN_INVALID",
+        message: "session replay chain invalid",
+        details: {
+          sessionId: normalizeNonEmptyString(fixture?.session?.sessionId),
+          reason: normalizeNonEmptyString(verification.error) ?? "chain verification failed"
+        }
+      });
+    }
+
+    const provenance = normalizeVerificationBlock(verification?.provenance);
+    if (provenance && provenance.ok !== true) {
+      fail({
+        caseId,
+        code: "SESSION_REPLAY_PROVENANCE_INVALID",
+        message: "session replay provenance invalid",
+        details: {
+          sessionId: normalizeNonEmptyString(fixture?.session?.sessionId),
+          reason: normalizeNonEmptyString(provenance.error) ?? "provenance verification failed"
+        }
+      });
+    }
 
     const replayPackUnsigned = buildSessionReplayPackV1({
       tenantId: fixture.tenantId,

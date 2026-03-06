@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/AgentInboxCursor.v1.schema.json",
+  "title": "AgentInboxCursor.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "channel", "seq", "messageId", "publishedAt"],
+  "properties": {
+    "schemaVersion": {
+      "const": "AgentInboxCursor.v1"
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_./-]+$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "messageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_./-]+$"
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

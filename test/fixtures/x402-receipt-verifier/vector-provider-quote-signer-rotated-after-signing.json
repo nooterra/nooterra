@@ -1,0 +1,361 @@
+{
+  "schemaVersion": "X402ReceiptRecord.v1",
+  "tenantId": "tenant_default",
+  "receiptId": "srec_x402_vector_1",
+  "gateId": "x402gate_vector_1",
+  "runId": "run_x402_vector_1",
+  "payerAgentId": "agt_payer_vector_1",
+  "providerId": "agt_payee_vector_1",
+  "toolId": "mock_search",
+  "sponsorRef": "sponsor_acme",
+  "sponsorWalletRef": "wallet_acme_1",
+  "agentKeyId": "agent_key_1",
+  "settlementState": "released",
+  "verificationStatus": "green",
+  "settledAt": "2026-02-18T00:00:04.000Z",
+  "createdAt": "2026-02-18T00:00:04.000Z",
+  "updatedAt": "2026-02-18T00:00:05.000Z",
+  "evidenceRefs": [
+    "http:request_sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "http:response_sha256:022677b41f49447a052fcddc40137e3ab290ae543a040dac0e78f2e46be866c4",
+    "provider:key_id:key_34aa19fb206a903c24616806",
+    "provider:signed_at:2026-02-18T00:00:02.000Z",
+    "provider:nonce:1234abcd1234abcd",
+    "provider:payload_sha256:133695283541d5158ece44cf48e4eee5e63d114038081c937629d68b28dc5c9f",
+    "provider:sig_b64:E07iRuB92x+OAgORIRASMujTxpCUX2gLm/ecAOlw0hFIL2chkERT1uDlxwe1BtWn60A5OPjKwVNHn2kZz6+TBg==",
+    "provider_quote:quote_id:x402quote_vector_1",
+    "provider_quote:payload_sha256:95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+    "provider:key_jwk_thumbprint_sha256:b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+    "provider_quote:key_jwk_thumbprint_sha256:b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7"
+  ],
+  "verificationContext": {
+    "schemaVersion": "X402GateVerificationContext.v1",
+    "providerSigningKey": {
+      "schemaVersion": "VerificationKeyEvidence.v1",
+      "keyId": "key_34aa19fb206a903c24616806",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQ70D1FtwopWnvJeFsiKdThSP/9QADgSeaZYKip79KQI=\n-----END PUBLIC KEY-----",
+      "jwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "Q70D1FtwopWnvJeFsiKdThSP_9QADgSeaZYKip79KQI"
+      },
+      "jwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7"
+    },
+    "providerQuoteSigningKey": {
+      "schemaVersion": "VerificationKeyEvidence.v1",
+      "keyId": "key_34aa19fb206a903c24616806",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQ70D1FtwopWnvJeFsiKdThSP/9QADgSeaZYKip79KQI=\n-----END PUBLIC KEY-----",
+      "jwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "Q70D1FtwopWnvJeFsiKdThSP_9QADgSeaZYKip79KQI"
+      },
+      "jwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+      "status": "rotated",
+      "rotatedAt": "2026-02-18T00:00:02.000Z"
+    }
+  },
+  "bindings": {
+    "authorizationRef": "auth_x402gate_vector_1",
+    "token": {
+      "kid": "key_nooterra_vector_1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expiresAt": "2026-02-18T00:05:00.000Z"
+    },
+    "request": {
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "response": {
+      "status": 200,
+      "sha256": "022677b41f49447a052fcddc40137e3ab290ae543a040dac0e78f2e46be866c4"
+    },
+    "providerSig": {
+      "required": true,
+      "present": true,
+      "verified": true,
+      "providerKeyId": "key_34aa19fb206a903c24616806",
+      "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+      "error": null
+    },
+    "providerQuoteSig": {
+      "required": true,
+      "present": true,
+      "verified": true,
+      "providerKeyId": "key_34aa19fb206a903c24616806",
+      "quoteId": "x402quote_vector_1",
+      "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+      "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+      "error": null
+    },
+    "quote": {
+      "quoteId": "x402quote_vector_1",
+      "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+      "expiresAt": "2026-02-18T00:05:00.000Z",
+      "requestBindingMode": "strict",
+      "requestBindingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "reserve": {
+      "adapter": "circle",
+      "mode": "transfer",
+      "reserveId": "circle_transfer_vector_1",
+      "status": "settled"
+    },
+    "spendAuthorization": {
+      "spendAuthorizationVersion": "SpendAuthorization.v1",
+      "idempotencyKey": "idem_x402_vector_1",
+      "nonce": "nonce_vector_1",
+      "sponsorRef": "sponsor_acme",
+      "sponsorWalletRef": "wallet_acme_1",
+      "agentKeyId": "agent_key_1",
+      "delegationRef": "delegation_1",
+      "policyVersion": 3,
+      "policyFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "policyDecisionFingerprint": {
+      "fingerprintVersion": "PolicyDecisionFingerprint.v1",
+      "policyId": "policy_default",
+      "policyVersion": 3,
+      "policyHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "verificationMethodHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "evaluationHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  },
+  "providerSignature": {
+    "schemaVersion": "ToolProviderSignature.v1",
+    "algorithm": "ed25519",
+    "keyId": "key_34aa19fb206a903c24616806",
+    "signedAt": "2026-02-18T00:00:02.000Z",
+    "nonce": "1234abcd1234abcd",
+    "responseHash": "022677b41f49447a052fcddc40137e3ab290ae543a040dac0e78f2e46be866c4",
+    "payloadHash": "133695283541d5158ece44cf48e4eee5e63d114038081c937629d68b28dc5c9f",
+    "signatureBase64": "E07iRuB92x+OAgORIRASMujTxpCUX2gLm/ecAOlw0hFIL2chkERT1uDlxwe1BtWn60A5OPjKwVNHn2kZz6+TBg=="
+  },
+  "providerQuoteSignature": {
+    "schemaVersion": "ToolProviderQuoteSignature.v1",
+    "algorithm": "ed25519",
+    "keyId": "key_34aa19fb206a903c24616806",
+    "signedAt": "2026-02-18T00:00:01.000Z",
+    "nonce": "abcd1234abcd1234",
+    "payloadHash": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+    "signatureBase64": "MZdandrh5Z3NLOWDn7jX5aG6o2WHw6crYu5kuHaJvIS2IKmvdeJfi0q1jKsa13V3R1pIxBJhpHoDkKh+xXd4Cg==",
+    "quoteId": "x402quote_vector_1",
+    "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQ70D1FtwopWnvJeFsiKdThSP/9QADgSeaZYKip79KQI=\n-----END PUBLIC KEY-----"
+  },
+  "providerQuotePayload": {
+    "schemaVersion": "ToolProviderQuotePayload.v1",
+    "providerId": "agt_payee_vector_1",
+    "toolId": "mock_search",
+    "amountCents": 500,
+    "currency": "USD",
+    "address": "mock:payee",
+    "network": "mocknet",
+    "requestBindingMode": "strict",
+    "requestBindingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "quoteRequired": true,
+    "quoteId": "x402quote_vector_1",
+    "spendAuthorizationMode": "required",
+    "quotedAt": "2026-02-18T00:00:00.000Z",
+    "expiresAt": "2026-02-18T00:05:00.000Z"
+  },
+  "decisionRecord": {
+    "schemaVersion": "SettlementDecisionRecord.v2",
+    "decisionId": "dec_x402_vector_1",
+    "tenantId": "tenant_default",
+    "runId": "run_x402_vector_1",
+    "settlementId": "astl_x402_vector_1",
+    "agreementId": null,
+    "decisionStatus": "auto_resolved",
+    "decisionMode": "automatic",
+    "decisionReason": "x402_provider_signature_green",
+    "verificationStatus": "green",
+    "policyNormalizationVersion": "v1",
+    "policyHashUsed": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "profileHashUsed": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "verificationMethodHashUsed": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "policyRef": {
+      "policyHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "verificationMethodHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "verifierRef": {
+      "verifierId": "nooterra.x402",
+      "verifierVersion": "v1",
+      "verifierHash": null,
+      "modality": "attested"
+    },
+    "workRef": {
+      "runStatus": "completed",
+      "runLastEventId": null,
+      "runLastChainHash": null,
+      "resolutionEventId": "x402res_vector_1"
+    },
+    "bindings": {
+      "authorizationRef": "auth_x402gate_vector_1",
+      "token": {
+        "kid": "key_nooterra_vector_1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expiresAt": "2026-02-18T00:05:00.000Z"
+      },
+      "request": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "response": {
+        "status": 200,
+        "sha256": "022677b41f49447a052fcddc40137e3ab290ae543a040dac0e78f2e46be866c4"
+      },
+      "providerSig": {
+        "required": true,
+        "present": true,
+        "verified": true,
+        "providerKeyId": "key_34aa19fb206a903c24616806",
+        "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+        "error": null
+      },
+      "providerQuoteSig": {
+        "required": true,
+        "present": true,
+        "verified": true,
+        "providerKeyId": "key_34aa19fb206a903c24616806",
+        "quoteId": "x402quote_vector_1",
+        "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+        "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+        "error": null
+      },
+      "reserve": {
+        "adapter": "circle",
+        "mode": "transfer",
+        "reserveId": "circle_transfer_vector_1",
+        "status": "settled"
+      },
+      "quote": {
+        "quoteId": "x402quote_vector_1",
+        "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+        "expiresAt": "2026-02-18T00:05:00.000Z",
+        "requestBindingMode": "strict",
+        "requestBindingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "spendAuthorization": {
+        "spendAuthorizationVersion": "SpendAuthorization.v1",
+        "idempotencyKey": "idem_x402_vector_1",
+        "nonce": "nonce_vector_1",
+        "sponsorRef": "sponsor_acme",
+        "sponsorWalletRef": "wallet_acme_1",
+        "agentKeyId": "agent_key_1",
+        "delegationGrantRef": null,
+        "delegationRef": "delegation_1",
+        "rootDelegationRef": null,
+        "rootDelegationHash": null,
+        "effectiveDelegationRef": null,
+        "effectiveDelegationHash": null,
+        "policyVersion": 3,
+        "policyFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "executionIntent": null,
+      "policyDecisionFingerprint": {
+        "fingerprintVersion": "PolicyDecisionFingerprint.v1",
+        "policyId": "policy_default",
+        "policyVersion": 3,
+        "policyHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "verificationMethodHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "evaluationHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    "decidedAt": "2026-02-18T00:00:03.000Z",
+    "decisionHash": "bc6df8876cacea2d8d474df6c8626c18571b9f22fc278ff6851ed3eb44ddc2c3"
+  },
+  "settlementReceipt": {
+    "schemaVersion": "SettlementReceipt.v1",
+    "receiptId": "srec_x402_vector_1",
+    "tenantId": "tenant_default",
+    "runId": "run_x402_vector_1",
+    "settlementId": "astl_x402_vector_1",
+    "decisionRef": {
+      "decisionId": "dec_x402_vector_1",
+      "decisionHash": "bc6df8876cacea2d8d474df6c8626c18571b9f22fc278ff6851ed3eb44ddc2c3"
+    },
+    "status": "released",
+    "amountCents": 500,
+    "releasedAmountCents": 500,
+    "refundedAmountCents": 0,
+    "releaseRatePct": 100,
+    "currency": "USD",
+    "runStatus": "completed",
+    "resolutionEventId": "x402res_vector_1",
+    "finalityProvider": "internal_ledger",
+    "finalityState": "final",
+    "settledAt": "2026-02-18T00:00:04.000Z",
+    "bindings": {
+      "authorizationRef": "auth_x402gate_vector_1",
+      "token": {
+        "kid": "key_nooterra_vector_1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expiresAt": "2026-02-18T00:05:00.000Z"
+      },
+      "request": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "response": {
+        "status": 200,
+        "sha256": "022677b41f49447a052fcddc40137e3ab290ae543a040dac0e78f2e46be866c4"
+      },
+      "providerSig": {
+        "required": true,
+        "present": true,
+        "verified": true,
+        "providerKeyId": "key_34aa19fb206a903c24616806",
+        "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+        "error": null
+      },
+      "providerQuoteSig": {
+        "required": true,
+        "present": true,
+        "verified": true,
+        "providerKeyId": "key_34aa19fb206a903c24616806",
+        "quoteId": "x402quote_vector_1",
+        "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+        "keyJwkThumbprintSha256": "b92d0fdb5b5fb9270b9d91cf6c2b893c48cf944fc0a5020c09c9b72c75de22d7",
+        "error": null
+      },
+      "reserve": {
+        "adapter": "circle",
+        "mode": "transfer",
+        "reserveId": "circle_transfer_vector_1",
+        "status": "settled"
+      },
+      "quote": {
+        "quoteId": "x402quote_vector_1",
+        "quoteSha256": "95735a14094885a705801165fee8dbc5e70a964f87475ed6790a23c4e1ae064e",
+        "expiresAt": "2026-02-18T00:05:00.000Z",
+        "requestBindingMode": "strict",
+        "requestBindingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "spendAuthorization": {
+        "spendAuthorizationVersion": "SpendAuthorization.v1",
+        "idempotencyKey": "idem_x402_vector_1",
+        "nonce": "nonce_vector_1",
+        "sponsorRef": "sponsor_acme",
+        "sponsorWalletRef": "wallet_acme_1",
+        "agentKeyId": "agent_key_1",
+        "delegationGrantRef": null,
+        "delegationRef": "delegation_1",
+        "rootDelegationRef": null,
+        "rootDelegationHash": null,
+        "effectiveDelegationRef": null,
+        "effectiveDelegationHash": null,
+        "policyVersion": 3,
+        "policyFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "executionIntent": null,
+      "policyDecisionFingerprint": {
+        "fingerprintVersion": "PolicyDecisionFingerprint.v1",
+        "policyId": "policy_default",
+        "policyVersion": 3,
+        "policyHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "verificationMethodHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "evaluationHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    "createdAt": "2026-02-18T00:00:04.000Z",
+    "receiptHash": "863c4f9d7f537107586fba254c039d02df219c04e2189702eb61d792937bc707"
+  }
+}

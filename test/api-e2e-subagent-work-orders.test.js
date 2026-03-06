@@ -590,6 +590,8 @@ test("API e2e: work-order routes fail closed when participant signer key lifecyc
   assert.equal(createBlocked.json?.details?.role, "principal");
   assert.equal(createBlocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(createBlocked.json?.details?.signerStatus, "rotated");
+  assert.equal(createBlocked.json?.details?.validAt?.ok, false);
+  assert.equal(createBlocked.json?.details?.validNow?.ok, false);
 
   await upsertSignerKey(api, {
     keyId: principal.keyId,
@@ -628,6 +630,8 @@ test("API e2e: work-order routes fail closed when participant signer key lifecyc
   assert.equal(acceptBlocked.json?.details?.role, "sub_agent");
   assert.equal(acceptBlocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
   assert.equal(acceptBlocked.json?.details?.signerStatus, "rotated");
+  assert.equal(acceptBlocked.json?.details?.validAt?.ok, false);
+  assert.equal(acceptBlocked.json?.details?.validNow?.ok, false);
 });
 
 test("API e2e: work-order create fails closed when delegation grant is revoked", async () => {

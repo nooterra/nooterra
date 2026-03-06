@@ -8,6 +8,7 @@ import {
   verifyArtifactRefPayloadBindingV1,
   ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES
 } from "../../core/artifact-ref.js";
+import { normalizeForCanonicalJson } from "../../core/canonical-json.js";
 import { evaluateSignerLifecycleForContinuity } from "../identity/signer-lifecycle.js";
 
 export const SESSION_MEMORY_CONTRACT_REASON_CODES = Object.freeze({
@@ -33,7 +34,8 @@ function verifyOptionalSignatureLifecycle({
   reasonCode,
   signedArtifact,
   evaluateSignerLifecycle,
-  signerRegistry
+  signerRegistry,
+  signerLifecycleNow = null
 } = {}) {
   const signature =
     signedArtifact && typeof signedArtifact === "object" && !Array.isArray(signedArtifact)
@@ -56,8 +58,13 @@ function verifyOptionalSignatureLifecycle({
   const signerKey = signerRegistry instanceof Map ? signerRegistry.get(signerKeyId) ?? null : null;
   const lifecycle =
     evaluateSignerLifecycle === null
-      ? evaluateSignerLifecycleForContinuity({ signerKey, at: signedAt, requireRegistered: signerRegistry instanceof Map })
-      : evaluateSignerLifecycle({ signerKeyId, signedAt, signerKey, label });
+      ? evaluateSignerLifecycleForContinuity({
+          signerKey,
+          at: signedAt,
+          now: signerLifecycleNow,
+          requireRegistered: signerRegistry instanceof Map
+        })
+      : evaluateSignerLifecycle({ signerKeyId, signedAt, signerKey, label, now: signerLifecycleNow });
 
   if (!lifecycle || lifecycle.ok !== true) {
     return {
@@ -75,7 +82,25 @@ function verifyOptionalSignatureLifecycle({
     };
   }
 
-  return { ok: true, code: null, error: null };
+  return {
+    ok: true,
+    code: null,
+    error: null,
+    lifecycle: normalizeForCanonicalJson(
+      {
+        signerKeyId,
+        signedAt,
+        signerStatus: lifecycle?.signerStatus ?? null,
+        validFrom: lifecycle?.validFrom ?? null,
+        validTo: lifecycle?.validTo ?? null,
+        rotatedAt: lifecycle?.rotatedAt ?? null,
+        revokedAt: lifecycle?.revokedAt ?? null,
+        validAt: lifecycle?.validAt ?? null,
+        validNow: lifecycle?.validNow ?? null
+      },
+      { path: `$.${label.replaceAll(" ", "_")}.lifecycle` }
+    )
+  };
 }
 
 export function buildSessionMemoryContractHooksV1({
@@ -137,7 +162,8 @@ export function verifySessionMemoryContractImportV1({
   replayPackPublicKeyPem = null,
   transcriptPublicKeyPem = null,
   requireReplayPackSignature = false,
-  requireTranscriptSignature = false
+  requireTranscriptSignature = false,
+  signerLifecycleNow = null
 } = {}) {
   if (expectedMemoryExportRef !== null && expectedMemoryExportRef !== undefined) {
     const binding = verifyArtifactRefPayloadBindingV1({
@@ -181,7 +207,8 @@ export function verifySessionMemoryContractImportV1({
     reasonCode: SESSION_MEMORY_CONTRACT_REASON_CODES.REPLAY_PACK_SIGNER_LIFECYCLE_INVALID,
     signedArtifact: verified.replayPack,
     evaluateSignerLifecycle: evaluateLifecycle,
-    signerRegistry
+    signerRegistry,
+    signerLifecycleNow
   });
   if (!replayLifecycle.ok) return replayLifecycle;
 
@@ -190,12 +217,20 @@ export function verifySessionMemoryContractImportV1({
     reasonCode: SESSION_MEMORY_CONTRACT_REASON_CODES.TRANSCRIPT_SIGNER_LIFECYCLE_INVALID,
     signedArtifact: verified.transcript,
     evaluateSignerLifecycle: evaluateLifecycle,
-    signerRegistry
+    signerRegistry,
+    signerLifecycleNow
   });
   if (!transcriptLifecycle.ok) return transcriptLifecycle;
 
   return {
     ...verified,
-    memoryExportRefVerified: expectedMemoryExportRef ? true : null
+    memoryExportRefVerified: expectedMemoryExportRef ? true : null,
+    signatureLifecycle: normalizeForCanonicalJson(
+      {
+        replayPack: replayLifecycle.lifecycle ?? null,
+        transcript: transcriptLifecycle.lifecycle ?? null
+      },
+      { path: "$.signatureLifecycle" }
+    )
   };
 }

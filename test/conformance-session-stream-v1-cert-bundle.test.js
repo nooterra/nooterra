@@ -22,6 +22,16 @@ function baseRunnerArgs() {
   ];
 }
 
+function aclDeniedRunnerArgs() {
+  return [
+    "conformance/session-stream-v1/run.mjs",
+    "--adapter-node-bin",
+    "conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs",
+    "--case",
+    "stream_acl_denied_fail_closed"
+  ];
+}
+
 test("session stream conformance pack emits hash-bound report and cert bundle", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-stream-conformance-cert-"));
   t.after(async () => {
@@ -103,4 +113,45 @@ test("session stream conformance strict artifacts fail closed on report/cert pat
 
   assert.equal(res.status, 2, `expected fail-closed strict artifact path conflict exit\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
   assert.match(res.stderr, /CONFORMANCE_STRICT_ARTIFACTS_PATH_CONFLICT/);
+});
+
+test("session stream conformance cert run covers ACL denial fail-closed case", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-stream-conformance-acl-deny-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const reportPath = path.join(tmpRoot, "session-stream-conformance-report.json");
+  const certPath = path.join(tmpRoot, "session-stream-conformance-cert.json");
+  const generatedAt = "2026-02-27T00:00:00.000Z";
+
+  const res = runConformance([
+    ...aclDeniedRunnerArgs(),
+    "--json-out",
+    reportPath,
+    "--cert-bundle-out",
+    certPath,
+    "--generated-at",
+    generatedAt,
+    "--strict-artifacts"
+  ]);
+
+  assert.equal(res.status, 0, `session stream ACL deny conformance run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
+
+  const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  assert.equal(report.reportCore?.summary?.total, 1);
+  assert.equal(report.reportCore?.summary?.pass, 1);
+  assert.equal(report.reportCore?.summary?.fail, 0);
+  const row = Array.isArray(report.reportCore?.results) ? report.reportCore.results[0] : null;
+  assert.equal(row?.id, "stream_acl_denied_fail_closed");
+  assert.equal(row?.status, "pass");
+  assert.equal(row?.expected?.outcome, "fail");
+  assert.equal(row?.actual?.ok, false);
+  assert.equal(row?.actual?.code, "SESSION_ACCESS_DENIED");
+  assert.equal(report.generatedAt, generatedAt);
+
+  const cert = JSON.parse(await fs.readFile(certPath, "utf8"));
+  assert.equal(cert.certCore?.pack, "conformance/session-stream-v1");
+  assert.equal(cert.certCore?.reportHash, report.reportHash);
+  assert.equal(cert.certHash, sha256Hex(canonicalJsonStringify(cert.certCore)));
 });

@@ -14,6 +14,13 @@ import { GOVERNANCE_STREAM_ID } from "../src/core/governance.js";
 import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { computeArtifactHash } from "../src/core/artifacts.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
+import { buildIntentContractV1 } from "../src/core/intent-contract.js";
+import { INTENT_NEGOTIATION_EVENT_TYPE, buildIntentNegotiationEventV1 } from "../src/core/intent-negotiation.js";
+import {
+  buildIdentityLogEntry,
+  buildIdentityLogCheckpoint,
+  buildIdentityLogProof
+} from "../src/core/identity-transparency-log.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -189,6 +196,9 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   const validateGovernancePolicy = ajv.getSchema("https://nooterra.local/schemas/GovernancePolicy.v2.schema.json");
   const validateRevocationList = ajv.getSchema("https://nooterra.local/schemas/RevocationList.v1.schema.json");
   const validateVerifyCliOutput = ajv.getSchema("https://nooterra.local/schemas/VerifyCliOutput.v1.schema.json");
+  const validateIdentityLogEntry = ajv.getSchema("https://nooterra.local/schemas/IdentityLogEntry.v1.schema.json");
+  const validateIdentityLogCheckpoint = ajv.getSchema("https://nooterra.local/schemas/IdentityLogCheckpoint.v1.schema.json");
+  const validateIdentityLogProof = ajv.getSchema("https://nooterra.local/schemas/IdentityLogProof.v1.schema.json");
 
   assert.ok(validateReport);
   assert.ok(validateAttestation);
@@ -198,6 +208,9 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   assert.ok(validateGovernancePolicy);
   assert.ok(validateRevocationList);
   assert.ok(validateVerifyCliOutput);
+  assert.ok(validateIdentityLogEntry);
+  assert.ok(validateIdentityLogCheckpoint);
+  assert.ok(validateIdentityLogProof);
 
   const { job, month, finance } = await buildMinimalBundles();
 
@@ -222,6 +235,63 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   assert.equal(validateReport(parseJson(finance.files.get("verify/verification_report.json"))), true);
   assert.equal(validateGovernancePolicy(parseJson(finance.files.get("governance/policy.json"))), true);
   assert.equal(validateRevocationList(parseJson(finance.files.get("governance/revocations.json"))), true);
+
+  const identityTenantId = "tenant_schema_test";
+  const identityNowAt = "2026-02-01T00:00:00.000Z";
+  const identityEntryCreate = buildIdentityLogEntry({
+    entryId: "idlog_schema_0001",
+    tenantId: identityTenantId,
+    agentId: "agt_schema_1",
+    eventType: "create",
+    logIndex: 0,
+    prevEntryHash: null,
+    keyIdBefore: null,
+    keyIdAfter: "key_schema_1",
+    statusBefore: null,
+    statusAfter: "active",
+    capabilitiesBefore: [],
+    capabilitiesAfter: ["run.inference"],
+    reasonCode: null,
+    reason: null,
+    occurredAt: identityNowAt,
+    recordedAt: identityNowAt,
+    metadata: { source: "schema-test" }
+  });
+  const identityEntryCapability = buildIdentityLogEntry({
+    entryId: "idlog_schema_0002",
+    tenantId: identityTenantId,
+    agentId: "agt_schema_1",
+    eventType: "capability-claim-change",
+    logIndex: 1,
+    prevEntryHash: identityEntryCreate.entryHash,
+    keyIdBefore: "key_schema_1",
+    keyIdAfter: "key_schema_1",
+    statusBefore: "active",
+    statusAfter: "active",
+    capabilitiesBefore: ["run.inference"],
+    capabilitiesAfter: ["run.inference", "fetch.web"],
+    reasonCode: "SCHEMA_TEST",
+    reason: "capability profile update",
+    occurredAt: identityNowAt,
+    recordedAt: identityNowAt,
+    metadata: { source: "schema-test" }
+  });
+  const identityEntries = [identityEntryCreate, identityEntryCapability];
+  const identityCheckpoint = buildIdentityLogCheckpoint({
+    tenantId: identityTenantId,
+    entries: identityEntries,
+    generatedAt: identityNowAt
+  });
+  const identityProof = buildIdentityLogProof({
+    entries: identityEntries,
+    entryId: identityEntryCapability.entryId,
+    checkpoint: identityCheckpoint,
+    generatedAt: identityNowAt
+  });
+
+  assert.equal(validateIdentityLogEntry(identityEntryCreate), true);
+  assert.equal(validateIdentityLogCheckpoint(identityCheckpoint), true);
+  assert.equal(validateIdentityLogProof(identityProof), true);
 });
 
 test("schema catches missing required fields (smoke)", async () => {
@@ -238,6 +308,8 @@ test("schema catches missing required fields (smoke)", async () => {
   const validateReleaseTrust = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v1.schema.json");
   const validateReleaseTrustV2 = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v2.schema.json");
   const validateVerifyReleaseOut = ajv.getSchema("https://nooterra.local/schemas/VerifyReleaseOutput.v1.schema.json");
+  const validateAgentInboxMessage = ajv.getSchema("https://nooterra.local/schemas/AgentInboxMessage.v1.schema.json");
+  const validateAgentInboxCursor = ajv.getSchema("https://nooterra.local/schemas/AgentInboxCursor.v1.schema.json");
   assert.ok(validateReport);
   assert.ok(validateVerifyCliOutput);
   assert.ok(validateProduceCliOutput);
@@ -247,6 +319,8 @@ test("schema catches missing required fields (smoke)", async () => {
   assert.ok(validateReleaseTrust);
   assert.ok(validateReleaseTrustV2);
   assert.ok(validateVerifyReleaseOut);
+  assert.ok(validateAgentInboxMessage);
+  assert.ok(validateAgentInboxCursor);
 
   const examplePath = path.resolve(process.cwd(), "docs/spec/examples/verification_report_v1.example.json");
   const example = JSON.parse(await fs.readFile(examplePath, "utf8"));
@@ -280,9 +354,89 @@ test("schema catches missing required fields (smoke)", async () => {
   const releaseTrustV2Example = JSON.parse(await fs.readFile(releaseTrustV2ExamplePath, "utf8"));
   assert.equal(validateReleaseTrustV2(releaseTrustV2Example), true);
 
+  const inboxMessageExample = {
+    schemaVersion: "AgentInboxMessage.v1",
+    channel: "chan.schema",
+    seq: 1,
+    messageId: "aimsg_0123456789abcdef_000000000001",
+    idempotencyKey: "schema_msg_1",
+    publishedAt: "2026-03-01T00:00:00.000Z",
+    payload: { hello: "world" },
+    payloadHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  };
+  assert.equal(validateAgentInboxMessage(inboxMessageExample), true);
+
+  const inboxCursorExample = {
+    schemaVersion: "AgentInboxCursor.v1",
+    channel: "chan.schema",
+    seq: 1,
+    messageId: "aimsg_0123456789abcdef_000000000001",
+    publishedAt: "2026-03-01T00:00:00.000Z"
+  };
+  assert.equal(validateAgentInboxCursor(inboxCursorExample), true);
+
   const broken = { ...example };
   // eslint-disable-next-line no-prototype-builtins
   assert.equal(Object.prototype.hasOwnProperty.call(broken, "subject"), true);
   delete broken.subject;
   assert.equal(validateReport(broken), false);
+
+  const brokenInboxCursor = { ...inboxCursorExample };
+  delete brokenInboxCursor.messageId;
+  assert.equal(validateAgentInboxCursor(brokenInboxCursor), false);
+});
+
+test("IntentContract and IntentNegotiationEvent schemas validate helper output", async () => {
+  const ajv = createAjv2020();
+  for (const schema of await loadSchemas()) {
+    if (schema && typeof schema === "object" && typeof schema.$id === "string") {
+      ajv.addSchema(schema, schema.$id);
+    }
+  }
+
+  const validateIntentContract = ajv.getSchema("https://nooterra.local/schemas/IntentContract.v1.schema.json");
+  const validateIntentNegotiationEvent = ajv.getSchema("https://nooterra.local/schemas/IntentNegotiationEvent.v1.schema.json");
+  assert.ok(validateIntentContract);
+  assert.ok(validateIntentNegotiationEvent);
+
+  const intentContract = buildIntentContractV1({
+    intentId: "intent_schema_0001",
+    negotiationId: "nego_schema_0001",
+    tenantId: "tenant_default",
+    proposerAgentId: "agt_proposer_schema_1",
+    responderAgentId: "agt_responder_schema_1",
+    intent: {
+      taskType: "tool_call",
+      capabilityId: "weather.read",
+      riskClass: "read",
+      expectedDeterminism: "deterministic",
+      sideEffecting: false,
+      maxLossCents: 0,
+      spendLimit: { currency: "USD", maxAmountCents: 100 },
+      parametersHash: "1".repeat(64),
+      constraints: { region: "us" }
+    },
+    idempotencyKey: "intent_schema_idem_0001",
+    nonce: "intent_schema_nonce_0001",
+    expiresAt: "2026-03-01T00:20:00.000Z",
+    metadata: { source: "schema-test" },
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: "2026-03-01T00:00:00.000Z"
+  });
+
+  const propose = buildIntentNegotiationEventV1({
+    eventId: "inev_schema_0001",
+    eventType: INTENT_NEGOTIATION_EVENT_TYPE.PROPOSE,
+    actorAgentId: "agt_proposer_schema_1",
+    intentContract,
+    at: "2026-03-01T00:01:00.000Z",
+    metadata: { phase: "propose" }
+  });
+
+  assert.equal(validateIntentContract(intentContract), true, JSON.stringify(validateIntentContract.errors ?? [], null, 2));
+  assert.equal(
+    validateIntentNegotiationEvent(propose),
+    true,
+    JSON.stringify(validateIntentNegotiationEvent.errors ?? [], null, 2)
+  );
 });

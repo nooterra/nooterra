@@ -20294,92 +20294,176 @@ export function createApi({
     return { iso, ms };
   }
 
-  function evaluateSessionSignerLifecycleAt({ signerKey, at } = {}) {
-    const atValue = typeof at === "string" && at.trim() !== "" ? at.trim() : null;
-    if (!atValue) {
-      return { ok: false, reasonCode: "SIGNER_EVENT_TIME_INVALID", message: "event timestamp is required" };
-    }
-    const atMs = Date.parse(atValue);
-    if (!Number.isFinite(atMs)) {
-      return { ok: false, reasonCode: "SIGNER_EVENT_TIME_INVALID", message: "event timestamp must be an ISO date-time" };
-    }
+  function buildSessionSignerLifecycleDecision({ ok, reasonCode = null, message = null } = {}) {
+    return {
+      ok: ok === true,
+      reasonCode: typeof reasonCode === "string" && reasonCode.trim() !== "" ? reasonCode.trim() : null,
+      reason: typeof message === "string" && message.trim() !== "" ? message.trim() : null
+    };
+  }
 
-    let validFrom = null;
-    let validTo = null;
-    let revokedAt = null;
-    let signerStatus = SIGNER_KEY_STATUS.ACTIVE;
-    try {
-      signerStatus = normalizeSignerKeyStatus(signerKey?.status ?? SIGNER_KEY_STATUS.ACTIVE);
-    } catch {
-      return { ok: false, reasonCode: "SIGNER_KEY_STATUS_INVALID", message: "signer key status is invalid" };
-    }
-    try {
-      validFrom = parseSessionSignerLifecycleIsoDate(signerKey?.validFrom ?? null, { fieldName: "signerKey.validFrom" });
-      validTo = parseSessionSignerLifecycleIsoDate(signerKey?.validTo ?? null, { fieldName: "signerKey.validTo" });
-      revokedAt = parseSessionSignerLifecycleIsoDate(signerKey?.revokedAt ?? null, { fieldName: "signerKey.revokedAt" });
-    } catch (err) {
-      return {
-        ok: false,
-        reasonCode: "SIGNER_KEY_LIFECYCLE_INVALID",
-        message: err?.message ?? "signer key lifecycle fields are invalid",
-        signerStatus
-      };
-    }
-    if (signerStatus === SIGNER_KEY_STATUS.REVOKED && revokedAt && atMs >= revokedAt.ms) {
-      return {
-        ok: false,
-        reasonCode: "SIGNER_KEY_REVOKED",
-        message: "signer key is revoked at event time",
-        signerStatus,
-        revokedAt: revokedAt.iso
-      };
-    }
-    if (signerStatus !== SIGNER_KEY_STATUS.ACTIVE) {
-      return {
-        ok: false,
-        reasonCode: "SIGNER_KEY_NOT_ACTIVE",
-        message: "signer key is not active",
-        signerStatus,
-        revokedAt: revokedAt?.iso ?? null
-      };
-    }
-
+  function evaluateSessionSignerLifecyclePhase({
+    atMs,
+    signerStatus,
+    validFrom,
+    validTo,
+    rotatedAt,
+    revokedAt,
+    phaseLabel = "evaluation"
+  } = {}) {
     if (validFrom && atMs < validFrom.ms) {
       return {
         ok: false,
         reasonCode: "SIGNER_KEY_NOT_YET_VALID",
-        message: "signer key is not yet valid at event time",
-        signerStatus,
-        validFrom: validFrom.iso
+        message: `signer key is not yet valid at ${phaseLabel}`
       };
     }
     if (validTo && atMs > validTo.ms) {
       return {
         ok: false,
         reasonCode: "SIGNER_KEY_EXPIRED",
-        message: "signer key is expired at event time",
-        signerStatus,
-        validTo: validTo.iso
+        message: `signer key is expired at ${phaseLabel}`
       };
     }
     if (revokedAt && atMs >= revokedAt.ms) {
       return {
         ok: false,
         reasonCode: "SIGNER_KEY_REVOKED",
-        message: "signer key is revoked at event time",
-        signerStatus,
-        revokedAt: revokedAt.iso
+        message: `signer key is revoked at ${phaseLabel}`
+      };
+    }
+    if (rotatedAt && atMs >= rotatedAt.ms) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_NOT_ACTIVE",
+        message: `signer key is not active at ${phaseLabel}`
+      };
+    }
+    if (signerStatus === SIGNER_KEY_STATUS.REVOKED && !revokedAt) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_CHAIN_GAP",
+        message: "signer key revocation boundary is missing"
+      };
+    }
+    if (signerStatus === SIGNER_KEY_STATUS.ROTATED && !rotatedAt) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_CHAIN_GAP",
+        message: "signer key rotation boundary is missing"
+      };
+    }
+    if (
+      signerStatus !== SIGNER_KEY_STATUS.ACTIVE &&
+      signerStatus !== SIGNER_KEY_STATUS.REVOKED &&
+      signerStatus !== SIGNER_KEY_STATUS.ROTATED
+    ) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_NOT_ACTIVE",
+        message: `signer key is not active at ${phaseLabel}`
+      };
+    }
+    return { ok: true, reasonCode: null, message: null };
+  }
+
+  function evaluateSessionSignerLifecycleAt({ signerKey, at, now = null, enforceCurrentValidity = false } = {}) {
+    const atValue = typeof at === "string" && at.trim() !== "" ? at.trim() : null;
+    if (!atValue) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_EVENT_TIME_INVALID",
+        message: "event timestamp is required",
+        validAt: null,
+        validNow: null
+      };
+    }
+    const atMs = Date.parse(atValue);
+    if (!Number.isFinite(atMs)) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_EVENT_TIME_INVALID",
+        message: "event timestamp must be an ISO date-time",
+        validAt: null,
+        validNow: null
+      };
+    }
+    const nowValue = typeof now === "string" && now.trim() !== "" ? now.trim() : atValue;
+    const nowMs = Date.parse(nowValue);
+    if (!Number.isFinite(nowMs)) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_EVENT_TIME_INVALID",
+        message: "current timestamp must be an ISO date-time",
+        validAt: null,
+        validNow: null
       };
     }
 
+    let validFrom = null;
+    let validTo = null;
+    let rotatedAt = null;
+    let revokedAt = null;
+    let signerStatus = SIGNER_KEY_STATUS.ACTIVE;
+    try {
+      signerStatus = normalizeSignerKeyStatus(signerKey?.status ?? SIGNER_KEY_STATUS.ACTIVE);
+    } catch {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_STATUS_INVALID",
+        message: "signer key status is invalid",
+        validAt: null,
+        validNow: null
+      };
+    }
+    try {
+      validFrom = parseSessionSignerLifecycleIsoDate(signerKey?.validFrom ?? null, { fieldName: "signerKey.validFrom" });
+      validTo = parseSessionSignerLifecycleIsoDate(signerKey?.validTo ?? null, { fieldName: "signerKey.validTo" });
+      rotatedAt = parseSessionSignerLifecycleIsoDate(signerKey?.rotatedAt ?? null, { fieldName: "signerKey.rotatedAt" });
+      revokedAt = parseSessionSignerLifecycleIsoDate(signerKey?.revokedAt ?? null, { fieldName: "signerKey.revokedAt" });
+      if (validFrom && validTo && validFrom.ms > validTo.ms) {
+        throw new TypeError("signerKey.validFrom must be <= signerKey.validTo");
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_LIFECYCLE_INVALID",
+        message: err?.message ?? "signer key lifecycle fields are invalid",
+        signerStatus,
+        validAt: null,
+        validNow: null
+      };
+    }
+    const validAt = evaluateSessionSignerLifecyclePhase({
+      atMs,
+      signerStatus,
+      validFrom,
+      validTo,
+      rotatedAt,
+      revokedAt,
+      phaseLabel: "event time"
+    });
+    const validNow = evaluateSessionSignerLifecyclePhase({
+      atMs: nowMs,
+      signerStatus,
+      validFrom,
+      validTo,
+      rotatedAt,
+      revokedAt,
+      phaseLabel: "current time"
+    });
+    const blocker = !validAt.ok ? validAt : enforceCurrentValidity && !validNow.ok ? validNow : null;
     return {
-      ok: true,
-      reasonCode: null,
-      message: null,
+      ok: blocker ? false : true,
+      reasonCode: blocker?.reasonCode ?? null,
+      message: blocker?.message ?? null,
       signerStatus,
       validFrom: validFrom?.iso ?? null,
       validTo: validTo?.iso ?? null,
-      revokedAt: revokedAt?.iso ?? null
+      rotatedAt: rotatedAt?.iso ?? null,
+      revokedAt: revokedAt?.iso ?? null,
+      validAt: buildSessionSignerLifecycleDecision(validAt),
+      validNow: buildSessionSignerLifecycleDecision(validNow)
     };
   }
 
@@ -20387,12 +20471,20 @@ export function createApi({
     tenantId,
     signerKeyId,
     at,
+    now = null,
     signerKeyCache = null,
-    requireRegistered = true
+    requireRegistered = true,
+    enforceCurrentValidity = false
   } = {}) {
     const normalizedKeyId = typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null;
     if (!normalizedKeyId) {
-      return { ok: false, reasonCode: "SIGNER_KEY_ID_MISSING", message: "signerKeyId is required" };
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_ID_MISSING",
+        message: "signerKeyId is required",
+        validAt: null,
+        validNow: null
+      };
     }
     const serverSignerKeyId = typeof store?.serverSigner?.keyId === "string" ? store.serverSigner.keyId.trim() : "";
     let signerKey = null;
@@ -20405,15 +20497,43 @@ export function createApi({
 
     if (!signerKey) {
       if (normalizedKeyId === serverSignerKeyId) {
-        return { ok: true, reasonCode: null, message: null, signerStatus: null, validFrom: null, validTo: null, revokedAt: null };
+        return {
+          ok: true,
+          reasonCode: null,
+          message: null,
+          signerStatus: null,
+          validFrom: null,
+          validTo: null,
+          rotatedAt: null,
+          revokedAt: null,
+          validAt: null,
+          validNow: null
+        };
       }
       if (requireRegistered) {
-        return { ok: false, reasonCode: "SIGNER_KEY_UNREGISTERED", message: "signer key is not registered" };
+        return {
+          ok: false,
+          reasonCode: "SIGNER_KEY_UNREGISTERED",
+          message: "signer key is not registered",
+          validAt: null,
+          validNow: null
+        };
       }
-      return { ok: true, reasonCode: null, message: null, signerStatus: null, validFrom: null, validTo: null, revokedAt: null };
+      return {
+        ok: true,
+        reasonCode: null,
+        message: null,
+        signerStatus: null,
+        validFrom: null,
+        validTo: null,
+        rotatedAt: null,
+        revokedAt: null,
+        validAt: null,
+        validNow: null
+      };
     }
 
-    return evaluateSessionSignerLifecycleAt({ signerKey, at });
+    return evaluateSessionSignerLifecycleAt({ signerKey, at, now, enforceCurrentValidity });
   }
 
   async function resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel = "session artifact" } = {}) {
@@ -21840,7 +21960,10 @@ export function createApi({
           signerStatus: null,
           validFrom: null,
           validTo: null,
-          revokedAt: null
+          rotatedAt: null,
+          revokedAt: null,
+          validAt: null,
+          validNow: null
         }
       };
     }
@@ -21848,7 +21971,9 @@ export function createApi({
       tenantId,
       signerKeyId,
       at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
-      requireRegistered: false
+      now: nowIso(),
+      requireRegistered: false,
+      enforceCurrentValidity: true
     });
     if (lifecycle.ok) return { ok: true, checked: true, signerKeyId, lifecycle };
     return { ok: false, checked: true, signerKeyId, lifecycle };
@@ -21874,7 +21999,10 @@ export function createApi({
         signerStatus: lifecycle?.signerStatus ?? null,
         validFrom: lifecycle?.validFrom ?? null,
         validTo: lifecycle?.validTo ?? null,
-        revokedAt: lifecycle?.revokedAt ?? null
+        rotatedAt: lifecycle?.rotatedAt ?? null,
+        revokedAt: lifecycle?.revokedAt ?? null,
+        validAt: lifecycle?.validAt ?? null,
+        validNow: lifecycle?.validNow ?? null
       },
       { path: "$.details" }
     );

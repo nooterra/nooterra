@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/IdentityLogProof.v1.schema.json",
+  "title": "IdentityLogProof.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "entryId",
+    "entry",
+    "treeSize",
+    "leafIndex",
+    "leafHash",
+    "siblings",
+    "rootHash",
+    "checkpoint",
+    "generatedAt",
+    "trustedCheckpoint",
+    "proofHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "IdentityLogProof.v1"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "entryId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "entry": {
+      "$ref": "https://nooterra.local/schemas/IdentityLogEntry.v1.schema.json"
+    },
+    "treeSize": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "leafIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "leafHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "siblings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position", "hash"],
+        "properties": {
+          "position": {
+            "type": "string",
+            "enum": ["left", "right"]
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "rootHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "checkpoint": {
+      "$ref": "https://nooterra.local/schemas/IdentityLogCheckpoint.v1.schema.json"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trustedCheckpoint": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["treeSize", "checkpointHash"],
+          "properties": {
+            "treeSize": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "checkpointHash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "proofHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

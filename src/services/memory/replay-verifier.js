@@ -153,6 +153,9 @@ export function verifySessionReplayBundleV1({
   replayPack,
   transcript = null,
   memoryExportRef = null,
+  signerRegistry = null,
+  evaluateSignerLifecycle = null,
+  signerLifecycleNow = null,
   expectedTenantId = null,
   expectedSessionId = null,
   expectedPreviousHeadChainHash = null,
@@ -183,6 +186,9 @@ export function verifySessionReplayBundleV1({
       replayPack,
       transcript,
       expectedMemoryExportRef: memoryExportRef,
+      signerRegistry,
+      evaluateSignerLifecycle,
+      signerLifecycleNow,
       expectedTenantId,
       expectedSessionId,
       expectedPreviousHeadChainHash,
@@ -204,7 +210,8 @@ export function verifySessionReplayBundleV1({
         details:
           memoryImport.ok === true
             ? {
-                memoryExportRefVerified: memoryImport.memoryExportRefVerified ?? null
+                memoryExportRefVerified: memoryImport.memoryExportRefVerified ?? null,
+                signatureLifecycle: memoryImport.signatureLifecycle ?? null
               }
             : {
                 reasonCode: memoryImport.code ?? null
