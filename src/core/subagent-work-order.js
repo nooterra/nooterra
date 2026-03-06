@@ -215,6 +215,27 @@ function normalizeConstraints(constraints = null) {
   );
 }
 
+function normalizeIntentBinding(intentBinding, { fieldName = "intentBinding", allowNull = true } = {}) {
+  if (intentBinding === null || intentBinding === undefined) {
+    if (allowNull) return null;
+    throw new TypeError(`${fieldName} is required`);
+  }
+  assertPlainObject(intentBinding, fieldName);
+  const schemaVersion = assertNonEmptyString(intentBinding.schemaVersion ?? "IntentBinding.v1", `${fieldName}.schemaVersion`, { max: 128 });
+  if (schemaVersion !== "IntentBinding.v1") {
+    throw new TypeError(`${fieldName}.schemaVersion must be IntentBinding.v1`);
+  }
+  return normalizeForCanonicalJson(
+    {
+      schemaVersion,
+      intentId: assertNonEmptyString(intentBinding.intentId, `${fieldName}.intentId`, { max: 200 }),
+      intentHash: assertSha256Hex(intentBinding.intentHash, `${fieldName}.intentHash`),
+      boundAt: normalizeIsoDateTime(intentBinding.boundAt, `${fieldName}.boundAt`)
+    },
+    { path: `$.${fieldName}` }
+  );
+}
+
 function normalizeSettlement(settlement) {
   if (settlement === null || settlement === undefined) return null;
   assertPlainObject(settlement, "settlement");
@@ -250,6 +271,7 @@ export function buildSubAgentWorkOrderV1({
   evidencePolicy = null,
   delegationGrantRef = null,
   authorityGrantRef = null,
+  intentBinding = null,
   metadata = null,
   createdAt = new Date().toISOString()
 } = {}) {
@@ -274,6 +296,7 @@ export function buildSubAgentWorkOrderV1({
       evidencePolicy: normalizeEvidencePolicy(evidencePolicy),
       delegationGrantRef: normalizeOptionalString(delegationGrantRef, "delegationGrantRef", { max: 200 }),
       authorityGrantRef: normalizeOptionalString(authorityGrantRef, "authorityGrantRef", { max: 200 }),
+      intentBinding: normalizeIntentBinding(intentBinding, { fieldName: "intentBinding", allowNull: true }),
       status: SUB_AGENT_WORK_ORDER_STATUS.CREATED,
       progressEvents: [],
       acceptedByAgentId: null,
@@ -320,6 +343,9 @@ export function validateSubAgentWorkOrderV1(workOrder) {
   }
   if (workOrder.authorityGrantRef !== null && workOrder.authorityGrantRef !== undefined) {
     normalizeOptionalString(workOrder.authorityGrantRef, "workOrder.authorityGrantRef", { max: 200 });
+  }
+  if (workOrder.intentBinding !== null && workOrder.intentBinding !== undefined) {
+    normalizeIntentBinding(workOrder.intentBinding, { fieldName: "workOrder.intentBinding", allowNull: false });
   }
   normalizeIsoDateTime(workOrder.createdAt, "workOrder.createdAt");
   normalizeIsoDateTime(workOrder.updatedAt, "workOrder.updatedAt");
@@ -522,6 +548,7 @@ export function buildSubAgentCompletionReceiptV1({
   executionAttestation = null,
   amountCents = null,
   currency = null,
+  intentHash = null,
   traceId = null,
   deliveredAt = new Date().toISOString(),
   metadata = null
@@ -561,6 +588,7 @@ export function buildSubAgentCompletionReceiptV1({
         amountCents: resolvedAmountCents,
         currency: resolvedCurrency
       },
+      intentHash: intentHash === null || intentHash === undefined ? normalizeOptionalString(workOrder?.intentBinding?.intentHash ?? null, "intentHash", { max: 64 }) : assertSha256Hex(intentHash, "intentHash"),
       deliveredAt: normalizedDeliveredAt,
       metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
       receiptHash: null
@@ -591,6 +619,9 @@ export function validateSubAgentCompletionReceiptV1(receipt) {
   assertPlainObject(receipt.settlementQuote, "receipt.settlementQuote");
   normalizeSafeInteger(receipt.settlementQuote.amountCents, "receipt.settlementQuote.amountCents", { min: 0 });
   normalizeCurrency(receipt.settlementQuote.currency, "receipt.settlementQuote.currency");
+  if (receipt.intentHash !== null && receipt.intentHash !== undefined) {
+    assertSha256Hex(receipt.intentHash, "receipt.intentHash");
+  }
   normalizeStringArray(receipt.evidenceRefs ?? [], "receipt.evidenceRefs", { max: 500 });
   if (receipt.executionAttestation !== null && receipt.executionAttestation !== undefined) {
     normalizeExecutionAttestation(receipt.executionAttestation, {

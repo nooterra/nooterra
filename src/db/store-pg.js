@@ -4584,21 +4584,16 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     assertNonEmptyString(triageKey, "triageKey");
     const normalizedTriageKey = String(triageKey).trim();
-    try {
-      const res = await pool.query(
-        `
-          SELECT tenant_id, aggregate_id, snapshot_json
-          FROM snapshots
-          WHERE tenant_id = $1 AND aggregate_type = 'finance_reconciliation_triage' AND aggregate_id = $2
-          LIMIT 1
-        `,
-        [tenantId, normalizedTriageKey]
-      );
-      return res.rows.length ? financeReconciliationTriageSnapshotRowToRecord(res.rows[0]) : null;
-    } catch (err) {
-      if (err?.code !== "42P01") throw err;
-      return store.financeReconciliationTriages.get(financeReconciliationTriageMapKey({ tenantId, triageKey: normalizedTriageKey })) ?? null;
-    }
+    const res = await pool.query(
+      `
+        SELECT tenant_id, aggregate_id, snapshot_json
+        FROM snapshots
+        WHERE tenant_id = $1 AND aggregate_type = 'finance_reconciliation_triage' AND aggregate_id = $2
+        LIMIT 1
+      `,
+      [tenantId, normalizedTriageKey]
+    );
+    return res.rows.length ? financeReconciliationTriageSnapshotRowToRecord(res.rows[0]) : null;
   };
 
   store.putFinanceReconciliationTriage = async function putFinanceReconciliationTriage({
@@ -4669,20 +4664,16 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           : String(triage.resolvedByPrincipalId).trim()
     };
 
-    try {
-      await withTx(async (client) => {
-        await persistSnapshotAggregate(client, {
-          tenantId,
-          aggregateType: "finance_reconciliation_triage",
-          aggregateId: triageKey,
-          snapshot: normalized,
-          updatedAt: normalized.updatedAt
-        });
-        if (audit) await insertOpsAuditRow(client, { tenantId, audit });
+    await withTx(async (client) => {
+      await persistSnapshotAggregate(client, {
+        tenantId,
+        aggregateType: "finance_reconciliation_triage",
+        aggregateId: triageKey,
+        snapshot: normalized,
+        updatedAt: normalized.updatedAt
       });
-    } catch (err) {
-      if (err?.code !== "42P01") throw err;
-    }
+      if (audit) await insertOpsAuditRow(client, { tenantId, audit });
+    });
 
     if (!(store.financeReconciliationTriages instanceof Map)) store.financeReconciliationTriages = new Map();
     store.financeReconciliationTriages.set(financeReconciliationTriageMapKey({ tenantId, triageKey }), normalized);
@@ -4731,21 +4722,16 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       return out.slice(safeOffset, safeOffset + safeLimit);
     };
 
-    try {
-      const res = await pool.query(
-        `
-          SELECT tenant_id, aggregate_id, snapshot_json
-          FROM snapshots
-          WHERE tenant_id = $1 AND aggregate_type = 'finance_reconciliation_triage'
-          ORDER BY updated_at DESC, aggregate_id ASC
-        `,
-        [tenantId]
-      );
-      return applyFilters(res.rows.map(financeReconciliationTriageSnapshotRowToRecord).filter(Boolean));
-    } catch (err) {
-      if (err?.code !== "42P01") throw err;
-      return applyFilters(Array.from(store.financeReconciliationTriages.values()));
-    }
+    const res = await pool.query(
+      `
+        SELECT tenant_id, aggregate_id, snapshot_json
+        FROM snapshots
+        WHERE tenant_id = $1 AND aggregate_type = 'finance_reconciliation_triage'
+        ORDER BY updated_at DESC, aggregate_id ASC
+      `,
+      [tenantId]
+    );
+    return applyFilters(res.rows.map(financeReconciliationTriageSnapshotRowToRecord).filter(Boolean));
   };
 
   store.getMarketplaceProviderPublication = async function getMarketplaceProviderPublication({

@@ -198,6 +198,17 @@ import {
 import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../core/session-replay-pack.js";
 import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../core/session-transcript.js";
 import {
+  ROUTER_PLAN_ISSUE_CODE,
+  ROUTER_PLAN_ISSUE_SEVERITY,
+  ROUTER_PLAN_SCOPE,
+  buildRouterPlanV1,
+  deriveRouterDraftFromText
+} from "../core/router-plan.js";
+import { buildRouterMarketplaceLaunchV1 } from "../core/router-marketplace-launch.js";
+import { buildRouterLaunchStatusV1, ROUTER_LAUNCH_STATUS_TASK_STATE } from "../core/router-launch-status.js";
+import { selectMarketplaceAutoAwardBidV1 } from "../core/marketplace-auto-award.js";
+import { buildRouterMarketplaceDispatchV1, ROUTER_MARKETPLACE_DISPATCH_STATE } from "../core/router-marketplace-dispatch.js";
+import {
   buildSessionMemoryExportResponseV1,
   buildSessionReplayExportMetadataV1,
   verifySessionMemoryImportRequestV1,
@@ -538,6 +549,11 @@ export function createApi({
     "putMarketplaceCapabilityListing",
     "deleteMarketplaceCapabilityListing"
   ]);
+  const requiredPgFinanceReconciliationStoreMethods = Object.freeze([
+    "getFinanceReconciliationTriage",
+    "putFinanceReconciliationTriage",
+    "listFinanceReconciliationTriages"
+  ]);
   if (store?.kind === "pg") {
     const missingPgMarketplaceStoreMethods = requiredPgMarketplaceStoreMethods.filter(
       (methodName) => typeof store?.[methodName] !== "function"
@@ -545,6 +561,14 @@ export function createApi({
     if (missingPgMarketplaceStoreMethods.length > 0) {
       throw new TypeError(
         `pg store missing required marketplace methods: ${missingPgMarketplaceStoreMethods.join(", ")}`
+      );
+    }
+    const missingPgFinanceReconciliationStoreMethods = requiredPgFinanceReconciliationStoreMethods.filter(
+      (methodName) => typeof store?.[methodName] !== "function"
+    );
+    if (missingPgFinanceReconciliationStoreMethods.length > 0) {
+      throw new TypeError(
+        `pg store missing required finance reconciliation methods: ${missingPgFinanceReconciliationStoreMethods.join(", ")}`
       );
     }
   }
@@ -3804,6 +3828,57 @@ export function createApi({
     try {
       metrics.setGauge(name, labels, value);
     } catch {}
+  }
+
+  const SETTLEMENT_LATENCY_METRIC_ROUTE = Object.freeze({
+    "/runs/:runId/settlement/policy-replay": "policy_replay",
+    "/runs/:runId/settlement/replay-evaluate": "replay_evaluate",
+    "/runs/:runId/settlement/explainability": "explainability"
+  });
+  const settlementLatencyWindowSize = (() => {
+    const raw = Number.parseInt(
+      typeof process !== "undefined" ? String(process.env.SLO_SETTLEMENT_LATENCY_WINDOW_SIZE ?? "256") : "256",
+      10
+    );
+    if (!Number.isSafeInteger(raw) || raw < 10) return 256;
+    return Math.min(raw, 10_000);
+  })();
+  const settlementLatencySamplesByRoute = new Map(
+    Object.values(SETTLEMENT_LATENCY_METRIC_ROUTE).map((routeKey) => [routeKey, []])
+  );
+
+  function resolveSettlementLatencyRouteKey({ route, requestPath }) {
+    const direct = SETTLEMENT_LATENCY_METRIC_ROUTE[route];
+    if (direct) return direct;
+    const pathValue = typeof requestPath === "string" ? requestPath : "";
+    if (/^\/runs\/[^/]+\/settlement\/policy-replay$/u.test(pathValue)) return "policy_replay";
+    if (/^\/runs\/[^/]+\/settlement\/replay-evaluate$/u.test(pathValue)) return "replay_evaluate";
+    if (/^\/runs\/[^/]+\/settlement\/explainability$/u.test(pathValue)) return "explainability";
+    return null;
+  }
+
+  function recordSettlementRouteLatencyMetric({ route, requestPath, durationMs }) {
+    const routeKey = resolveSettlementLatencyRouteKey({ route, requestPath });
+    if (!routeKey) return;
+    const safeDurationMs = Number(durationMs);
+    if (!Number.isFinite(safeDurationMs) || safeDurationMs < 0) return;
+
+    const samples = settlementLatencySamplesByRoute.get(routeKey) ?? [];
+    samples.push(Math.round(safeDurationMs));
+    if (samples.length > settlementLatencyWindowSize) {
+      samples.splice(0, samples.length - settlementLatencyWindowSize);
+    }
+    settlementLatencySamplesByRoute.set(routeKey, samples);
+
+    const p50 = computePercentile(samples, 50);
+    const p95 = computePercentile(samples, 95);
+    metricInc("run_settlement_latency_samples_total", { route: routeKey }, 1);
+    metricGauge("run_settlement_read_latency_ms_last_gauge", { route: routeKey }, safeDurationMs);
+    if (Number.isFinite(p50)) metricGauge("run_settlement_read_latency_ms_p50_gauge", { route: routeKey }, p50);
+    if (Number.isFinite(p95)) metricGauge("run_settlement_read_latency_ms_p95_gauge", { route: routeKey }, p95);
+    metricGauge(`run_settlement_${routeKey}_latency_ms_last_gauge`, null, safeDurationMs);
+    if (Number.isFinite(p50)) metricGauge(`run_settlement_${routeKey}_latency_ms_p50_gauge`, null, p50);
+    if (Number.isFinite(p95)) metricGauge(`run_settlement_${routeKey}_latency_ms_p95_gauge`, null, p95);
   }
 
   function classifyOutboxDebugRowState(row) {
@@ -19406,6 +19481,125 @@ export function createApi({
     return rows;
   }
 
+  function readRouterLaunchMetadataFromRfq(rfq) {
+    const metadata =
+      rfq?.metadata && typeof rfq.metadata === "object" && !Array.isArray(rfq.metadata) ? rfq.metadata : null;
+    const routerLaunch =
+      metadata?.routerLaunch && typeof metadata.routerLaunch === "object" && !Array.isArray(metadata.routerLaunch)
+        ? metadata.routerLaunch
+        : null;
+    if (!routerLaunch) return null;
+    const launchId =
+      typeof routerLaunch.launchId === "string" && routerLaunch.launchId.trim() !== "" ? routerLaunch.launchId.trim() : null;
+    const taskId = typeof routerLaunch.taskId === "string" && routerLaunch.taskId.trim() !== "" ? routerLaunch.taskId.trim() : null;
+    const taskIndex = Number(routerLaunch.taskIndex);
+    if (!launchId || !taskId || !Number.isSafeInteger(taskIndex) || taskIndex < 1) return null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion:
+          typeof routerLaunch.schemaVersion === "string" && routerLaunch.schemaVersion.trim() !== ""
+            ? routerLaunch.schemaVersion.trim()
+            : null,
+        launchId,
+        launchHash:
+          typeof routerLaunch.launchHash === "string" && /^[0-9a-f]{64}$/i.test(routerLaunch.launchHash.trim())
+            ? routerLaunch.launchHash.trim().toLowerCase()
+            : null,
+        requestTextSha256:
+          typeof routerLaunch.requestTextSha256 === "string" && /^[0-9a-f]{64}$/i.test(routerLaunch.requestTextSha256.trim())
+            ? routerLaunch.requestTextSha256.trim().toLowerCase()
+            : null,
+        planId: typeof routerLaunch.planId === "string" && routerLaunch.planId.trim() !== "" ? routerLaunch.planId.trim() : null,
+        planHash:
+          typeof routerLaunch.planHash === "string" && /^[0-9a-f]{64}$/i.test(routerLaunch.planHash.trim())
+            ? routerLaunch.planHash.trim().toLowerCase()
+            : null,
+        taskId,
+        taskIndex,
+        scope: typeof routerLaunch.scope === "string" && routerLaunch.scope.trim() !== "" ? routerLaunch.scope.trim().toLowerCase() : null,
+        dependsOnTaskIds: Array.isArray(routerLaunch.dependsOnTaskIds)
+          ? [...new Set(routerLaunch.dependsOnTaskIds.map((row) => String(row ?? "").trim()).filter(Boolean))].sort((left, right) =>
+              left.localeCompare(right)
+            )
+          : [],
+        candidateAgentIds: Array.isArray(routerLaunch.candidateAgentIds)
+          ? [...new Set(routerLaunch.candidateAgentIds.map((row) => String(row ?? "").trim()).filter(Boolean))]
+          : []
+      },
+      { path: "$" }
+    );
+  }
+
+  function listMarketplaceRfqsByRouterLaunchId({
+    tenantId,
+    launchId,
+    posterAgentId = null
+  } = {}) {
+    const normalizedLaunchId =
+      typeof launchId === "string" && launchId.trim() !== "" ? launchId.trim() : null;
+    if (!normalizedLaunchId) return [];
+    const rfqs = listMarketplaceRfqs({ tenantId, status: "all", posterAgentId });
+    const rows = [];
+    for (const rfq of rfqs) {
+      const launch = readRouterLaunchMetadataFromRfq(rfq);
+      if (!launch || launch.launchId !== normalizedLaunchId) continue;
+      rows.push(rfq);
+    }
+    rows.sort((left, right) => {
+      const leftLaunch = readRouterLaunchMetadataFromRfq(left);
+      const rightLaunch = readRouterLaunchMetadataFromRfq(right);
+      const leftIndex = Number(leftLaunch?.taskIndex ?? Number.MAX_SAFE_INTEGER);
+      const rightIndex = Number(rightLaunch?.taskIndex ?? Number.MAX_SAFE_INTEGER);
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      const leftTaskId = String(leftLaunch?.taskId ?? "");
+      const rightTaskId = String(rightLaunch?.taskId ?? "");
+      if (leftTaskId !== rightTaskId) return leftTaskId.localeCompare(rightTaskId);
+      return String(left?.rfqId ?? "").localeCompare(String(right?.rfqId ?? ""));
+    });
+    return rows;
+  }
+
+  function deriveRouterLaunchStatusTaskSnapshot({
+    rfqStatus,
+    missingDependencies = [],
+    cancelledDependencies = [],
+    pendingDependencies = [],
+    bidCount = 0
+  } = {}) {
+    const normalizedStatus = typeof rfqStatus === "string" ? rfqStatus.trim().toLowerCase() : "open";
+    if (normalizedStatus === "assigned") {
+      return { state: ROUTER_LAUNCH_STATUS_TASK_STATE.ASSIGNED, blockedByTaskIds: [] };
+    }
+    if (normalizedStatus === "closed") {
+      return { state: ROUTER_LAUNCH_STATUS_TASK_STATE.CLOSED, blockedByTaskIds: [] };
+    }
+    if (normalizedStatus === "cancelled") {
+      return { state: ROUTER_LAUNCH_STATUS_TASK_STATE.CANCELLED, blockedByTaskIds: [] };
+    }
+    if (missingDependencies.length > 0) {
+      return {
+        state: ROUTER_LAUNCH_STATUS_TASK_STATE.BLOCKED_DEPENDENCY_MISSING,
+        blockedByTaskIds: [...missingDependencies].sort((left, right) => left.localeCompare(right))
+      };
+    }
+    if (cancelledDependencies.length > 0) {
+      return {
+        state: ROUTER_LAUNCH_STATUS_TASK_STATE.BLOCKED_DEPENDENCY_CANCELLED,
+        blockedByTaskIds: [...cancelledDependencies].sort((left, right) => left.localeCompare(right))
+      };
+    }
+    if (pendingDependencies.length > 0) {
+      return {
+        state: ROUTER_LAUNCH_STATUS_TASK_STATE.BLOCKED_DEPENDENCIES_PENDING,
+        blockedByTaskIds: [...pendingDependencies].sort((left, right) => left.localeCompare(right))
+      };
+    }
+    return {
+      state: bidCount > 0 ? ROUTER_LAUNCH_STATUS_TASK_STATE.OPEN_READY : ROUTER_LAUNCH_STATUS_TASK_STATE.OPEN_NO_BIDS,
+      blockedByTaskIds: []
+    };
+  }
+
   function toMarketplaceRfqResponse(rfq) {
     if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) return null;
     return {
@@ -23634,6 +23828,9 @@ export function createApi({
     if (typeof store.getFinanceReconciliationTriage === "function") {
       return store.getFinanceReconciliationTriage({ tenantId, triageKey });
     }
+    if (store?.kind === "pg") {
+      throw new TypeError("finance reconciliation triage not supported for this store");
+    }
     if (store.financeReconciliationTriages instanceof Map) {
       return store.financeReconciliationTriages.get(makeScopedKey({ tenantId, id: String(triageKey) })) ?? null;
     }
@@ -23643,6 +23840,9 @@ export function createApi({
   async function putFinanceReconciliationTriageRecord({ tenantId, triage, audit = null }) {
     if (typeof store.putFinanceReconciliationTriage === "function") {
       return store.putFinanceReconciliationTriage({ tenantId, triage, audit });
+    }
+    if (store?.kind === "pg") {
+      throw new TypeError("finance reconciliation triage not supported for this store");
     }
     if (store.financeReconciliationTriages instanceof Map) {
       const key = makeScopedKey({ tenantId, id: String(triage?.triageKey ?? "") });
@@ -23666,6 +23866,9 @@ export function createApi({
   } = {}) {
     if (typeof store.listFinanceReconciliationTriages === "function") {
       return store.listFinanceReconciliationTriages({ tenantId, period, status, sourceType, providerId, limit, offset });
+    }
+    if (store?.kind === "pg") {
+      throw new TypeError("finance reconciliation triage not supported for this store");
     }
     if (!(store.financeReconciliationTriages instanceof Map)) {
       throw new TypeError("finance reconciliation triage not supported for this store");
@@ -23754,8 +23957,12 @@ export function createApi({
         providerId,
         pageSize: 1000
       });
-    } catch {
-      triages = [];
+    } catch (err) {
+      const reasonCode =
+        err?.code === "42P01"
+          ? "FINANCE_RECONCILIATION_TRIAGE_EVIDENCE_MISSING"
+          : "FINANCE_RECONCILIATION_TRIAGE_EVIDENCE_UNAVAILABLE";
+      throw makeHttpStatusError(409, "finance reconciliation triage evidence unavailable", { code: reasonCode });
     }
     const byTriageKey = new Map();
     for (const row of triages) {
@@ -24156,6 +24363,11 @@ export function createApi({
           String(a.operationId).localeCompare(String(b.operationId)) ||
           String(a.artifactId ?? "").localeCompare(String(b.artifactId ?? ""))
       );
+    if (!payoutInstructions.length) {
+      throw makeHttpStatusError(409, "money rail reconciliation requires payout instruction evidence", {
+        code: "MONEY_RAIL_RECONCILE_EVIDENCE_REQUIRED"
+      });
+    }
 
     const expectedByOperationId = new Map();
     const duplicateExpected = [];
@@ -25055,6 +25267,18 @@ export function createApi({
     NET: "net"
   });
 
+  const MONEY_RAIL_DEGRADED_ACTION = Object.freeze({
+    ENQUEUE_PAYOUT: "enqueue_payout",
+    SUBMIT_PAYOUT: "submit_payout"
+  });
+
+  const MONEY_RAIL_DEGRADED_BLOCK_CODE = Object.freeze({
+    [MONEY_RAIL_DEGRADED_ACTION.ENQUEUE_PAYOUT]: "MONEY_RAIL_DEGRADED_ENQUEUE_DENIED",
+    [MONEY_RAIL_DEGRADED_ACTION.SUBMIT_PAYOUT]: "MONEY_RAIL_DEGRADED_SUBMIT_DENIED"
+  });
+
+  const MONEY_RAIL_DEGRADED_DEFAULT_REASON_CODE = "MONEY_RAIL_PROVIDER_DEGRADED";
+
   function normalizeMoneyRailChargebackNegativeBalanceMode(value, { fieldName = "moneyRails.chargebacks.negativeBalanceMode" } = {}) {
     const normalized = normalizeNonEmptyStringOrNull(value);
     if (normalized === null) return MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.HOLD;
@@ -25090,6 +25314,58 @@ export function createApi({
         fieldName: "moneyRails.chargebacks.maxOutstandingCents",
         allowNull: true
       }),
+      updatedAt: normalizeBillingTimestampInput(value.updatedAt) ?? nowAt ?? null
+    };
+  }
+
+  function normalizeMoneyRailDegradedReasonCode(value, { fieldName = "moneyRails.degradedMode.reasonCode", allowNull = true } = {}) {
+    const normalized = normalizeNonEmptyStringOrNull(value);
+    if (!normalized) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const reasonCode = String(normalized).toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{2,120}$/.test(reasonCode)) {
+      throw new TypeError(`${fieldName} must match ^[A-Z][A-Z0-9_]{2,120}$`);
+    }
+    return reasonCode;
+  }
+
+  function normalizeMoneyRailDegradedMode(value, { allowNull = true, nowAt = null } = {}) {
+    if (value === null || value === undefined) {
+      if (allowNull) return null;
+      return {
+        schemaVersion: "MoneyRailDegradedMode.v1",
+        enabled: false,
+        providerIds: null,
+        denyEnqueuePayouts: true,
+        denySubmitPayouts: true,
+        reasonCode: MONEY_RAIL_DEGRADED_DEFAULT_REASON_CODE,
+        updatedAt: nowAt ?? null
+      };
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("moneyRails.degradedMode must be an object or null");
+    }
+    const enabled = value.enabled === true;
+    const denyEnqueuePayouts = value.denyEnqueuePayouts !== false;
+    const denySubmitPayouts = value.denySubmitPayouts !== false;
+    if (enabled && denyEnqueuePayouts !== true && denySubmitPayouts !== true) {
+      throw new TypeError("moneyRails.degradedMode must deny at least one payout action when enabled");
+    }
+    return {
+      schemaVersion: "MoneyRailDegradedMode.v1",
+      enabled,
+      providerIds: normalizeMoneyRailAllowedProviderIds(value.providerIds, {
+        fieldName: "moneyRails.degradedMode.providerIds"
+      }),
+      denyEnqueuePayouts,
+      denySubmitPayouts,
+      reasonCode:
+        normalizeMoneyRailDegradedReasonCode(value.reasonCode, {
+          fieldName: "moneyRails.degradedMode.reasonCode",
+          allowNull: true
+        }) ?? MONEY_RAIL_DEGRADED_DEFAULT_REASON_CODE,
       updatedAt: normalizeBillingTimestampInput(value.updatedAt) ?? nowAt ?? null
     };
   }
@@ -25259,6 +25535,7 @@ export function createApi({
         allowedProviderIds: null,
         connect: null,
         chargebacks: null,
+        degradedMode: null,
         updatedAt: nowAt ?? null
       };
     }
@@ -25280,6 +25557,7 @@ export function createApi({
       allowedProviderIds: normalizeMoneyRailAllowedProviderIds(input.allowedProviderIds),
       connect: normalizeMoneyRailConnectConfig(input.connect ?? null, { allowNull: true, nowAt }),
       chargebacks: normalizeMoneyRailChargebackPolicy(input.chargebacks ?? null, { allowNull: true, nowAt }),
+      degradedMode: normalizeMoneyRailDegradedMode(input.degradedMode ?? null, { allowNull: true, nowAt }),
       updatedAt: normalizeBillingTimestampInput(input.updatedAt) ?? nowAt ?? null
     };
   }
@@ -25300,7 +25578,34 @@ export function createApi({
       allowedProviderIds: null,
       connect: normalizeMoneyRailConnectConfig(null, { allowNull: false, nowAt: null }),
       chargebacks: normalizeMoneyRailChargebackPolicy(null, { allowNull: false, nowAt: null }),
+      degradedMode: normalizeMoneyRailDegradedMode(null, { allowNull: false, nowAt: null }),
       updatedAt: null
+    };
+  }
+
+  function evaluateMoneyRailDegradedModeGuard({ moneyRailControls, providerId, action } = {}) {
+    const degradedMode = normalizeMoneyRailDegradedMode(moneyRailControls?.degradedMode ?? null, {
+      allowNull: false,
+      nowAt: null
+    });
+    if (degradedMode.enabled !== true) return { blocked: false, degradedMode };
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId);
+    if (Array.isArray(degradedMode.providerIds) && degradedMode.providerIds.length > 0) {
+      if (!normalizedProviderId || !degradedMode.providerIds.includes(normalizedProviderId)) {
+        return { blocked: false, degradedMode };
+      }
+    }
+    const normalizedAction = String(action ?? "").trim().toLowerCase();
+    const denyForAction =
+      (normalizedAction === MONEY_RAIL_DEGRADED_ACTION.ENQUEUE_PAYOUT && degradedMode.denyEnqueuePayouts === true) ||
+      (normalizedAction === MONEY_RAIL_DEGRADED_ACTION.SUBMIT_PAYOUT && degradedMode.denySubmitPayouts === true);
+    if (!denyForAction) return { blocked: false, degradedMode };
+    return {
+      blocked: true,
+      code: MONEY_RAIL_DEGRADED_BLOCK_CODE[normalizedAction] ?? "MONEY_RAIL_DEGRADED_ACTION_DENIED",
+      outageReasonCode: degradedMode.reasonCode ?? MONEY_RAIL_DEGRADED_DEFAULT_REASON_CODE,
+      outageAction: normalizedAction,
+      degradedMode
     };
   }
 
@@ -33331,6 +33636,10 @@ export function createApi({
     if (m === "GET" && p === "/metrics") return "/metrics";
     if (m === "GET" && p === "/capabilities") return "/capabilities";
     if (m === "GET" && p === "/openapi.json") return "/openapi.json";
+    if (m === "POST" && p === "/router/plan") return "/router/plan";
+    if (m === "POST" && p === "/router/launch") return "/router/launch";
+    if (m === "POST" && p === "/router/dispatch") return "/router/dispatch";
+    if (m === "GET" && /^\/router\/launches\/[^/]+\/status$/.test(p)) return "/router/launches/:launchId/status";
     if (m === "GET" && p === "/public/agent-cards/discover") return "/public/agent-cards/discover";
     if (m === "GET" && p === "/public/agent-cards/stream") return "/public/agent-cards/stream";
     if (m === "GET" && p === "/v1/public/agents/resolve") return "/v1/public/agents/resolve";
@@ -34208,6 +34517,7 @@ export function createApi({
           path === "/ops/finance/reconciliation/workspace" ||
           path === "/ops/kernel/workspace" ||
           path === "/ops/marketplace/workspace" ||
+          path === "/ops/router/workspace" ||
           path === "/ops/policy/workspace"
         ) {
           const queryTenantId = url.searchParams.get("tenantId");
@@ -34491,6 +34801,895 @@ export function createApi({
           return { idempotencyKey, idemStoreKey, idemRequestHash };
         }
 
+        function makeRouteError(statusCode, message, { code = "SCHEMA_INVALID", details = null } = {}) {
+          const err = makeHttpStatusError(statusCode, message, { code });
+          if (details !== null && details !== undefined) err.details = details;
+          return err;
+        }
+
+        function parseRouterLaunchId(rawValue, { fieldPath = "launchId", allowNull = false } = {}) {
+          if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+            if (allowNull) return null;
+            throw new TypeError(`${fieldPath} is required`);
+          }
+          const value = String(rawValue).trim();
+          if (value.length > 200) throw new TypeError(`${fieldPath} must be <= 200 chars`);
+          if (!/^[A-Za-z0-9._:-]+$/.test(value)) throw new TypeError(`${fieldPath} must match [A-Za-z0-9._:-]+`);
+          return value;
+        }
+
+        function parseRouterLaunchTaskOverrides(rawValue, { fieldPath = "taskOverrides" } = {}) {
+          if (rawValue === null || rawValue === undefined) return new Map();
+          if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+            throw new TypeError(`${fieldPath} must be an object keyed by taskId`);
+          }
+
+          const overrides = new Map();
+          for (const [taskIdRaw, overrideRaw] of Object.entries(rawValue)) {
+            const taskId = parseRouterLaunchId(taskIdRaw, { fieldPath: `${fieldPath} taskId`, allowNull: false });
+            if (!overrideRaw || typeof overrideRaw !== "object" || Array.isArray(overrideRaw)) {
+              throw new TypeError(`${fieldPath}.${taskId} must be an object`);
+            }
+
+            const rfqId =
+              overrideRaw.rfqId === null || overrideRaw.rfqId === undefined || String(overrideRaw.rfqId).trim() === ""
+                ? null
+                : parseRouterLaunchId(overrideRaw.rfqId, { fieldPath: `${fieldPath}.${taskId}.rfqId`, allowNull: false });
+            const title =
+              overrideRaw.title === null || overrideRaw.title === undefined || String(overrideRaw.title).trim() === ""
+                ? null
+                : String(overrideRaw.title).trim();
+            const description =
+              overrideRaw.description === null || overrideRaw.description === undefined || String(overrideRaw.description).trim() === ""
+                ? null
+                : String(overrideRaw.description).trim();
+
+            let budgetCents = null;
+            if (overrideRaw.budgetCents !== undefined && overrideRaw.budgetCents !== null && overrideRaw.budgetCents !== "") {
+              const parsedBudget = Number(overrideRaw.budgetCents);
+              if (!Number.isSafeInteger(parsedBudget) || parsedBudget <= 0) {
+                throw new TypeError(`${fieldPath}.${taskId}.budgetCents must be a positive safe integer`);
+              }
+              budgetCents = parsedBudget;
+            }
+
+            const currency =
+              overrideRaw.currency === null || overrideRaw.currency === undefined || String(overrideRaw.currency).trim() === ""
+                ? null
+                : String(overrideRaw.currency).trim().toUpperCase();
+            if (currency !== null && !/^[A-Z0-9_]{2,8}$/.test(currency)) {
+              throw new TypeError(`${fieldPath}.${taskId}.currency must match ^[A-Z0-9_]{2,8}$`);
+            }
+
+            let deadlineAt = null;
+            if (overrideRaw.deadlineAt !== undefined && overrideRaw.deadlineAt !== null && overrideRaw.deadlineAt !== "") {
+              if (typeof overrideRaw.deadlineAt !== "string" || !Number.isFinite(Date.parse(overrideRaw.deadlineAt))) {
+                throw new TypeError(`${fieldPath}.${taskId}.deadlineAt must be an ISO date-time`);
+              }
+              deadlineAt = new Date(Date.parse(overrideRaw.deadlineAt)).toISOString();
+            }
+
+            const metadata =
+              overrideRaw.metadata === undefined
+                ? null
+                : overrideRaw.metadata === null
+                  ? null
+                  : typeof overrideRaw.metadata === "object" && !Array.isArray(overrideRaw.metadata)
+                    ? cloneJsonLike(overrideRaw.metadata)
+                    : (() => {
+                        throw new TypeError(`${fieldPath}.${taskId}.metadata must be an object or null`);
+                      })();
+
+            overrides.set(taskId, {
+              rfqId,
+              title,
+              description,
+              budgetCents,
+              currency,
+              deadlineAt,
+              metadata
+            });
+          }
+
+          return overrides;
+        }
+
+        async function buildRouterPlanFromBody(body) {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw makeRouteError(400, "invalid router plan request");
+          }
+
+          const text = typeof body?.text === "string" ? body.text : typeof body?.request === "string" ? body.request : "";
+          if (!text.trim()) throw makeRouteError(400, "text is required");
+          if (text.length > 20_000) throw makeRouteError(400, "text must be <= 20000 characters");
+
+          let scope = ROUTER_PLAN_SCOPE.TENANT;
+          if (typeof body?.scope === "string" && body.scope.trim() !== "") {
+            scope = String(body.scope).trim().toLowerCase();
+          }
+          if (scope !== ROUTER_PLAN_SCOPE.TENANT && scope !== ROUTER_PLAN_SCOPE.PUBLIC) {
+            throw makeRouteError(400, "invalid router plan request", {
+              details: { message: "scope must be tenant|public" }
+            });
+          }
+
+          const maxCandidatesRaw = body?.maxCandidates ?? body?.limit ?? null;
+          const maxCandidates =
+            maxCandidatesRaw === null || maxCandidatesRaw === undefined || String(maxCandidatesRaw).trim() === ""
+              ? 5
+              : Number(maxCandidatesRaw);
+          if (!Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 25) {
+            throw makeRouteError(400, "maxCandidates must be an integer in range 1..25");
+          }
+
+          const includeReputation = body?.includeReputation === undefined ? true : body.includeReputation === true;
+          const includeRoutingFactors = body?.includeRoutingFactors === undefined ? true : body.includeRoutingFactors === true;
+          const scoreStrategy = typeof body?.scoreStrategy === "string" && body.scoreStrategy.trim() !== "" ? body.scoreStrategy.trim() : "balanced";
+          const asOf =
+            typeof body?.asOf === "string" && body.asOf.trim() !== ""
+              ? body.asOf.trim()
+              : typeof body?.requestAsOf === "string" && body.requestAsOf.trim() !== ""
+                ? body.requestAsOf.trim()
+                : nowIso();
+          const requesterAgentId =
+            typeof body?.requesterAgentId === "string" && body.requesterAgentId.trim() !== "" ? body.requesterAgentId.trim() : null;
+
+          let draft = null;
+          try {
+            draft = deriveRouterDraftFromText({ text });
+          } catch (err) {
+            throw makeRouteError(400, "invalid router request", {
+              details: { message: err?.message ?? "unable to derive router draft" }
+            });
+          }
+
+          const issues = Array.isArray(draft?.issues) ? [...draft.issues] : [];
+          const plannedTasks = Array.isArray(draft?.tasks) ? draft.tasks : [];
+          const tasksWithCandidates = [];
+          for (const task of plannedTasks) {
+            const requiredCapability = typeof task?.requiredCapability === "string" ? task.requiredCapability : null;
+            let candidates = [];
+            if (requiredCapability) {
+              try {
+                const discovery = await discoverAgentCards({
+                  tenantId,
+                  scope,
+                  capability: requiredCapability,
+                  limit: maxCandidates,
+                  offset: 0,
+                  includeReputation,
+                  includeRoutingFactors,
+                  requesterAgentId,
+                  scoreStrategy,
+                  asOf
+                });
+                const rows = Array.isArray(discovery?.results) ? discovery.results : [];
+                candidates = rows
+                  .map((row) => {
+                    const agentCard =
+                      row?.agentCard && typeof row.agentCard === "object" && !Array.isArray(row.agentCard) ? row.agentCard : null;
+                    const reputation =
+                      row?.reputation && typeof row.reputation === "object" && !Array.isArray(row.reputation) ? row.reputation : null;
+                    return {
+                      rank: row?.rank ?? null,
+                      rankingScore: row?.rankingScore ?? null,
+                      riskTier: row?.riskTier ?? null,
+                      agentId: agentCard?.agentId ?? null,
+                      tenantId: agentCard?.tenantId ?? null,
+                      displayName: agentCard?.displayName ?? null,
+                      trustScore: reputation?.trustScore ?? null,
+                      priceHint: agentCard?.priceHint ?? null,
+                      routingFactors: includeRoutingFactors ? row?.routingFactors ?? null : null
+                    };
+                  })
+                  .filter((row) => row.agentId && row.tenantId);
+              } catch (err) {
+                throw makeRouteError(400, "router discovery failed", {
+                  details: { message: err?.message ?? "agent-card discovery failed" }
+                });
+              }
+            }
+
+            if (requiredCapability && candidates.length === 0) {
+              issues.push({
+                severity: ROUTER_PLAN_ISSUE_SEVERITY.BLOCKING,
+                code: ROUTER_PLAN_ISSUE_CODE.CAPABILITY_NO_CANDIDATES,
+                message: "no candidates found for required capability",
+                details: { requiredCapability, scope }
+              });
+            }
+
+            tasksWithCandidates.push({
+              taskId: task?.taskId ?? null,
+              title: task?.title ?? null,
+              requiredCapability,
+              dependsOnTaskIds: task?.dependsOnTaskIds ?? [],
+              candidates
+            });
+          }
+
+          let plan = null;
+          try {
+            plan = buildRouterPlanV1({
+              planId: createId("rplan"),
+              tenantId,
+              scope,
+              request: { text, asOf },
+              intent: draft?.intent ?? { intentId: "intent.unknown", label: "Unknown", score: 0 },
+              tasks: tasksWithCandidates,
+              issues,
+              generatedAt: nowIso()
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid router plan", {
+              details: { message: err?.message ?? "invalid router plan" }
+            });
+          }
+
+          return {
+            text,
+            scope,
+            maxCandidates,
+            includeReputation,
+            includeRoutingFactors,
+            scoreStrategy,
+            asOf,
+            requesterAgentId,
+            draft,
+            plan
+          };
+        }
+
+        async function acceptMarketplaceRfqBidForRfq({
+          rfq,
+          rfqId = rfq?.rfqId ?? null,
+          body,
+          idemStoreKey = null,
+          idemRequestHash = null,
+          responseBodyTransform = (value) => value
+        } = {}) {
+          if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) throw makeRouteError(404, "marketplace rfq not found", { code: "NOT_FOUND" });
+          const resolvedRfqId =
+            typeof rfqId === "string" && rfqId.trim() !== ""
+              ? rfqId.trim()
+              : typeof rfq?.rfqId === "string" && rfq.rfqId.trim() !== ""
+                ? rfq.rfqId.trim()
+                : null;
+          if (!resolvedRfqId) throw makeRouteError(404, "marketplace rfq not found", { code: "NOT_FOUND" });
+          if (String(rfq.status ?? "open").toLowerCase() !== "open") throw makeRouteError(409, "marketplace rfq is not open");
+
+          const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : null;
+          if (!bidId) throw makeRouteError(400, "bidId is required");
+
+          const acceptedByAgentId = body?.acceptedByAgentId && String(body.acceptedByAgentId).trim() !== "" ? String(body.acceptedByAgentId).trim() : null;
+          const acceptanceSignatureInput =
+            body?.acceptanceSignature && typeof body.acceptanceSignature === "object" && !Array.isArray(body.acceptanceSignature)
+              ? body.acceptanceSignature
+              : null;
+          if (body?.acceptanceSignature !== undefined && acceptanceSignatureInput === null) {
+            throw makeRouteError(400, "acceptanceSignature must be an object");
+          }
+          if (acceptanceSignatureInput && !acceptedByAgentId) {
+            throw makeRouteError(400, "acceptedByAgentId is required when acceptanceSignature is provided");
+          }
+          let acceptedByIdentity = null;
+          if (acceptedByAgentId) {
+            try {
+              acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
+            } catch (err) {
+              throw makeRouteError(400, "invalid acceptedByAgentId", { details: { message: err?.message } });
+            }
+            if (!acceptedByIdentity) throw makeRouteError(404, "accepting agent identity not found", { code: "NOT_FOUND" });
+          }
+
+          const existingBids = listMarketplaceRfqBids({ tenantId, rfqId: resolvedRfqId, status: "all" });
+          const selectedBid = existingBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
+          if (!selectedBid) throw makeRouteError(404, "marketplace bid not found", { code: "NOT_FOUND" });
+          if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") {
+            throw makeRouteError(409, "marketplace bid is not pending");
+          }
+
+          let rfqDirection = null;
+          let bidDirection = null;
+          try {
+            rfqDirection = parseInteractionDirection({ fromTypeRaw: rfq?.fromType, toTypeRaw: rfq?.toType });
+            bidDirection = parseInteractionDirection({
+              fromTypeRaw: selectedBid?.fromType,
+              toTypeRaw: selectedBid?.toType,
+              defaultFromType: rfqDirection.fromType,
+              defaultToType: rfqDirection.toType
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid interaction direction", { details: { message: err?.message } });
+          }
+          if (bidDirection.fromType !== rfqDirection.fromType || bidDirection.toType !== rfqDirection.toType) {
+            throw makeRouteError(409, "accepted bid interaction direction must match rfq direction");
+          }
+
+          const payeeAgentId = selectedBid?.bidderAgentId ? String(selectedBid.bidderAgentId) : null;
+          if (!payeeAgentId) throw makeRouteError(409, "selected bid is missing bidderAgentId");
+          let payeeIdentity = null;
+          try {
+            payeeIdentity = await getAgentIdentityRecord({ tenantId, agentId: payeeAgentId });
+          } catch (err) {
+            throw makeRouteError(400, "invalid bidderAgentId", { details: { message: err?.message } });
+          }
+          if (!payeeIdentity) throw makeRouteError(404, "bidder agent identity not found", { code: "NOT_FOUND" });
+
+          const settlementInput = body?.settlement && typeof body.settlement === "object" ? body.settlement : {};
+          let acceptDirection = null;
+          try {
+            acceptDirection = parseInteractionDirection({
+              fromTypeRaw: body?.fromType ?? settlementInput?.fromType,
+              toTypeRaw: body?.toType ?? settlementInput?.toType,
+              defaultFromType: rfqDirection.fromType,
+              defaultToType: rfqDirection.toType
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid interaction direction", { details: { message: err?.message } });
+          }
+          if (acceptDirection.fromType !== rfqDirection.fromType || acceptDirection.toType !== rfqDirection.toType) {
+            throw makeRouteError(409, "settlement interaction direction must match rfq direction");
+          }
+          const payerAgentIdRaw =
+            settlementInput.payerAgentId ??
+            body?.payerAgentId ??
+            rfq?.posterAgentId ??
+            null;
+          if (typeof payerAgentIdRaw !== "string" || payerAgentIdRaw.trim() === "") {
+            throw makeRouteError(400, "payerAgentId is required (rfq poster or settlement.payerAgentId)");
+          }
+          const acceptedAt = nowIso();
+          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ rfq: rfq, bid: selectedBid });
+          let selectedBidNegotiation =
+            selectedBid?.negotiation && typeof selectedBid.negotiation === "object" && !Array.isArray(selectedBid.negotiation)
+              ? selectedBid.negotiation
+              : null;
+          if (!selectedBidNegotiation) {
+            try {
+              selectedBidNegotiation = bootstrapMarketplaceBidNegotiation({
+                rfq: rfq,
+                bid: selectedBid,
+                counterOfferPolicy,
+                at: acceptedAt
+              });
+            } catch (err) {
+              throw makeRouteError(409, "unable to bootstrap bid negotiation", { details: { message: err?.message } });
+            }
+          }
+          const selectedPolicyApplied = applyMarketplaceBidNegotiationPolicy({
+            negotiation: selectedBidNegotiation,
+            counterOfferPolicy,
+            at: acceptedAt,
+            expireIfTimedOut: true
+          });
+          selectedBidNegotiation = selectedPolicyApplied.negotiation;
+          counterOfferPolicy = selectedPolicyApplied.counterOfferPolicy;
+          if (selectedPolicyApplied.justExpired) {
+            const latestExpiredProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
+            const expiredBid = {
+              ...selectedBid,
+              negotiation: selectedBidNegotiation,
+              counterOfferPolicy,
+              updatedAt: acceptedAt
+            };
+            const expiredBids = existingBids.map((candidate) => {
+              if (!candidate || typeof candidate !== "object") return candidate;
+              if (String(candidate.bidId ?? "") !== bidId) return candidate;
+              return expiredBid;
+            });
+            const expiredRfq = {
+              ...rfq,
+              updatedAt: acceptedAt
+            };
+            await commitTx([
+              { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: expiredRfq },
+              { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId: resolvedRfqId, bids: expiredBids }
+            ]);
+            try {
+              await emitMarketplaceLifecycleArtifact({
+                tenantId,
+                eventType: "proposal.expired",
+                rfqId: resolvedRfqId,
+                sourceEventId: latestExpiredProposal?.proposalId ?? null,
+                actorAgentId: acceptedByAgentId ?? String(payerAgentIdRaw).trim(),
+                details: {
+                  bidId,
+                  expiresAt: selectedPolicyApplied.expiresAt ?? null,
+                  negotiation: selectedBidNegotiation
+                }
+              });
+            } catch {
+              // Best-effort lifecycle delivery.
+            }
+            throw makeRouteError(409, "marketplace bid negotiation expired", {
+              details: { expiresAt: selectedPolicyApplied.expiresAt ?? null }
+            });
+          }
+          const selectedNegotiationState = String(selectedBidNegotiation?.state ?? "open").toLowerCase();
+          if (selectedNegotiationState === "expired") {
+            throw makeRouteError(409, "marketplace bid negotiation expired", {
+              details: { expiresAt: selectedPolicyApplied.expiresAt ?? selectedBidNegotiation?.expiresAt ?? null }
+            });
+          }
+          if (selectedNegotiationState !== "open") {
+            throw makeRouteError(409, "marketplace bid negotiation is not open");
+          }
+          const selectedLatestProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
+          if (!selectedLatestProposal) throw makeRouteError(409, "marketplace bid negotiation has no proposals");
+          selectedBidNegotiation = updateMarketplaceBidNegotiationState({
+            negotiation: selectedBidNegotiation,
+            state: "accepted",
+            at: acceptedAt,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            acceptedProposalId: selectedLatestProposal?.proposalId ?? null,
+            acceptedRevision: selectedLatestProposal?.revision ?? null
+          });
+          const selectedBidAccepted = {
+            ...selectedBid,
+            amountCents: selectedLatestProposal?.amountCents ?? selectedBid?.amountCents,
+            currency: selectedLatestProposal?.currency ?? selectedBid?.currency,
+            etaSeconds: selectedLatestProposal?.etaSeconds ?? null,
+            note: selectedLatestProposal?.note ?? null,
+            verificationMethod: selectedLatestProposal?.verificationMethod ?? selectedBid?.verificationMethod ?? null,
+            policy: selectedLatestProposal?.policy ?? selectedBid?.policy ?? null,
+            policyRef: selectedLatestProposal?.policyRef ?? selectedBid?.policyRef ?? null,
+            policyRefHash: selectedLatestProposal?.policyRefHash ?? null,
+            metadata: selectedLatestProposal?.metadata ?? null,
+            negotiation: selectedBidNegotiation,
+            counterOfferPolicy,
+            status: "accepted",
+            acceptedAt,
+            rejectedAt: null,
+            updatedAt: acceptedAt
+          };
+          const defaultAmountCents = Number(selectedBidAccepted?.amountCents);
+          const fallbackCurrency =
+            typeof selectedBidAccepted?.currency === "string" && selectedBidAccepted.currency.trim() !== ""
+              ? selectedBidAccepted.currency
+              : rfq?.currency ?? "USD";
+          let settlementRequest = null;
+          try {
+            settlementRequest = validateAgentRunSettlementRequest({
+              payerAgentId: String(payerAgentIdRaw).trim(),
+              amountCents: settlementInput.amountCents ?? defaultAmountCents,
+              currency: settlementInput.currency ?? fallbackCurrency
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid settlement payload", { details: { message: err?.message } });
+          }
+
+          let payerIdentity = null;
+          try {
+            payerIdentity = await getAgentIdentityRecord({ tenantId, agentId: settlementRequest.payerAgentId });
+          } catch (err) {
+            throw makeRouteError(400, "invalid payerAgentId", { details: { message: err?.message } });
+          }
+          if (!payerIdentity) throw makeRouteError(404, "payer agent identity not found", { code: "NOT_FOUND" });
+
+          const acceptLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlementRequest.payerAgentId },
+              { role: "payee", agentId: payeeAgentId },
+              ...(
+                acceptedByAgentId && !acceptanceSignatureInput
+                  ? [{ role: "accepted_by", agentId: acceptedByAgentId }]
+                  : []
+              )
+            ],
+            operation: "marketplace_bid.accept",
+            at: acceptedAt,
+            enforceSignerLifecycle: true
+          });
+          if (acceptLifecycleGuard?.blocked) {
+            throw makeRouteError(
+              acceptLifecycleGuard.httpStatus ?? 409,
+              acceptLifecycleGuard.message,
+              {
+                code: acceptLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID",
+                details: acceptLifecycleGuard.details ?? null
+              }
+            );
+          }
+
+          try {
+            await assertSettlementWithinWalletPolicy({
+              tenantId,
+              agentIdentity: payerIdentity,
+              amountCents: settlementRequest.amountCents,
+              at: acceptedAt
+            });
+          } catch (err) {
+            throw makeRouteError(409, "wallet policy blocked settlement", {
+              details: { message: err?.message, code: err?.code ?? null }
+            });
+          }
+
+          const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${resolvedRfqId}_${bidId}`;
+          if (typeof runId !== "string" || runId.trim() === "") throw makeRouteError(400, "runId must be a non-empty string");
+          let existingRun = null;
+          if (typeof store.getAgentRun === "function") {
+            existingRun = await store.getAgentRun({ tenantId, runId });
+          } else if (store.agentRuns instanceof Map) {
+            existingRun = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+          } else {
+            throw makeRouteError(501, "agent runs not supported for this store");
+          }
+          if (existingRun && !idemStoreKey) throw makeRouteError(409, "run already exists");
+
+          const runCreatedPayload = {
+            runId,
+            agentId: payeeAgentId,
+            tenantId,
+            taskType:
+              body?.taskType && String(body.taskType).trim() !== ""
+                ? String(body.taskType).trim()
+                : rfq?.capability ?? rfq?.title ?? "marketplace-rfq",
+            inputRef:
+              body?.inputRef && String(body.inputRef).trim() !== ""
+                ? String(body.inputRef).trim()
+                : `marketplace://rfqs/${encodeURIComponent(resolvedRfqId)}`
+          };
+          try {
+            validateRunCreatedPayload(runCreatedPayload);
+          } catch (err) {
+            throw makeRouteError(400, "invalid run payload", { details: { message: err?.message } });
+          }
+          const createdEvent = createChainedEvent({
+            streamId: runId,
+            type: AGENT_RUN_EVENT_TYPE.RUN_CREATED,
+            actor: { type: "agent", id: payeeAgentId },
+            payload: runCreatedPayload,
+            at: acceptedAt
+          });
+          const runEvents = normalizeAgentRunEventRecords(appendChainedEvent({ events: [], event: createdEvent, signer: serverSigner }));
+          let run = null;
+          try {
+            run = reduceAgentRun(runEvents);
+          } catch (err) {
+            throw makeRouteError(400, "run creation rejected", { details: { message: err?.message } });
+          }
+
+          let payerWallet = null;
+          try {
+            const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlementRequest.payerAgentId });
+            const basePayerWallet = ensureAgentWallet({
+              wallet: existingPayerWallet,
+              tenantId,
+              agentId: settlementRequest.payerAgentId,
+              currency: settlementRequest.currency,
+              at: acceptedAt
+            });
+            payerWallet = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents: settlementRequest.amountCents, at: acceptedAt });
+            projectEscrowLedgerOperation({
+              tenantId,
+              settlement: {
+                payerAgentId: settlementRequest.payerAgentId,
+                agentId: payeeAgentId,
+                currency: settlementRequest.currency
+              },
+              operationId: `escrow_hold_${runId}`,
+              type: ESCROW_OPERATION_TYPE.HOLD,
+              amountCents: settlementRequest.amountCents,
+              at: acceptedAt,
+              payerWalletBefore: basePayerWallet,
+              payerWalletAfter: payerWallet,
+              memo: `run:${runId}:hold`
+            });
+          } catch (err) {
+            throw makeRouteError(409, "unable to lock settlement escrow", {
+              details: { message: err?.message, code: err?.code ?? null }
+            });
+          }
+
+          const disputeWindowDaysRaw = body?.disputeWindowDays ?? settlementInput?.disputeWindowDays ?? 3;
+          const disputeWindowDays =
+            Number.isSafeInteger(Number(disputeWindowDaysRaw)) && Number(disputeWindowDaysRaw) >= 0 ? Number(disputeWindowDaysRaw) : 3;
+          let policySelection = null;
+          try {
+            policySelection = resolveMarketplaceSettlementPolicySelection({
+              tenantId,
+              policyRefInput: body?.policyRef ?? settlementInput?.policyRef ?? selectedBidAccepted?.policyRef ?? null,
+              verificationMethodInput:
+                body?.verificationMethod ?? settlementInput?.verificationMethod ?? selectedBidAccepted?.verificationMethod ?? undefined,
+              settlementPolicyInput: body?.policy ?? settlementInput?.policy ?? selectedBidAccepted?.policy ?? undefined
+            });
+          } catch (err) {
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_NOT_FOUND") {
+              throw makeRouteError(404, "policyRef not found");
+            }
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_REF_MISMATCH") {
+              throw makeRouteError(409, "policyRef does not match verificationMethod/policy", { details: { message: err?.message } });
+            }
+            if (err?.code === "INVALID_VERIFICATION_METHOD") {
+              throw makeRouteError(400, "invalid verificationMethod", { details: { message: err?.message } });
+            }
+            if (err?.code === "INVALID_SETTLEMENT_POLICY") {
+              throw makeRouteError(400, "invalid policy", { details: { message: err?.message } });
+            }
+            throw makeRouteError(400, "invalid agreement policy selection", { details: { message: err?.message } });
+          }
+
+          const verificationMethodInput = policySelection.verificationMethod;
+          const settlementPolicyInput = policySelection.policy;
+          const policyRefInput = policySelection.policyRef;
+          const agreementTermsInput = body?.agreementTerms ?? settlementInput?.agreementTerms ?? null;
+          let agreement = null;
+          try {
+            agreement = buildMarketplaceRfqAgreement({
+              tenantId,
+              rfq: rfq,
+              bid: selectedBidAccepted,
+              runId,
+              acceptedAt,
+              acceptedByAgentId,
+              payerAgentId: settlementRequest.payerAgentId,
+              fromType: acceptDirection.fromType,
+              toType: acceptDirection.toType,
+              disputeWindowDays,
+              verificationMethodInput,
+              settlementPolicyInput,
+              policyRefInput,
+              agreementTermsInput
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid agreement terms", { details: { message: err?.message } });
+          }
+          if (acceptanceSignatureInput) {
+            try {
+              const acceptanceSignature = await parseSignedMarketplaceAgreementAcceptance({
+                tenantId,
+                agreement,
+                acceptedByAgentId,
+                acceptedByIdentity,
+                acceptanceSignatureInput
+              });
+              agreement = {
+                ...agreement,
+                acceptanceSignature
+              };
+            } catch (err) {
+              const details =
+                err?.details && typeof err.details === "object" && !Array.isArray(err.details)
+                  ? { ...err.details, message: err?.message }
+                  : { message: err?.message };
+              throw makeRouteError(400, "invalid acceptance signature", { code: err?.code ?? null, details });
+            }
+          }
+          let settlement = createAgentRunSettlement({
+            tenantId,
+            runId,
+            agentId: payeeAgentId,
+            payerAgentId: settlementRequest.payerAgentId,
+            amountCents: settlementRequest.amountCents,
+            currency: settlementRequest.currency,
+            disputeWindowDays,
+            at: acceptedAt
+          });
+          const pendingVerifierRef = resolveAgreementVerifierRef(agreement?.verificationMethod ?? null);
+          const pendingKernelRefs = buildSettlementKernelRefs({
+            settlement,
+            run,
+            agreementId: agreement?.agreementId ?? null,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
+            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+            decisionReason: null,
+            verificationStatus: null,
+            policyHash: agreement?.policyHash ?? null,
+            verificationMethodHash: agreement?.verificationMethodHash ?? null,
+            verificationMethodMode: pendingVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
+            verifierId: pendingVerifierRef?.verifierId ?? "nooterra.policy-engine",
+            verifierVersion: pendingVerifierRef?.verifierVersion ?? "v1",
+            verifierHash: pendingVerifierRef?.verifierHash ?? null,
+            finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
+            settledAt: null,
+            createdAt: acceptedAt
+          });
+          settlement = updateAgentRunSettlementDecision({
+            settlement,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
+            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+            decisionPolicyHash: agreement?.policyHash ?? null,
+            decisionReason: null,
+            decisionTrace: {
+              phase: "agreement.accepted",
+              verificationMethod: agreement?.verificationMethod ?? null,
+              policy: agreement?.policy ?? null,
+              decisionRecord: pendingKernelRefs.decisionRecord,
+              settlementReceipt: pendingKernelRefs.settlementReceipt
+            },
+            at: acceptedAt
+          });
+          const nextRfq = {
+            ...rfq,
+            fromType: rfqDirection.fromType,
+            toType: rfqDirection.toType,
+            status: "assigned",
+            acceptedBidId: bidId,
+            acceptedBidderAgentId: selectedBidAccepted.bidderAgentId ?? null,
+            acceptedAt,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            runId,
+            agreementId: agreement.agreementId,
+            agreement,
+            settlementId: settlement.settlementId,
+            settlementDecisionStatus: settlement.decisionStatus ?? null,
+            updatedAt: acceptedAt
+          };
+          const nextBids = existingBids.map((candidate) => {
+            if (!candidate || typeof candidate !== "object") return candidate;
+            if (String(candidate.bidId ?? "") === bidId) {
+              return selectedBidAccepted;
+            }
+            const status = String(candidate.status ?? "pending").toLowerCase();
+            if (status === "pending") {
+              let rejectedNegotiation =
+                candidate?.negotiation && typeof candidate.negotiation === "object" && !Array.isArray(candidate.negotiation)
+                  ? candidate.negotiation
+                  : null;
+              try {
+                if (rejectedNegotiation) {
+                  rejectedNegotiation = updateMarketplaceBidNegotiationState({
+                    negotiation: rejectedNegotiation,
+                    state: "rejected",
+                    at: acceptedAt
+                  });
+                }
+              } catch {
+                rejectedNegotiation = null;
+              }
+              return {
+                ...candidate,
+                status: "rejected",
+                rejectedAt: acceptedAt,
+                updatedAt: acceptedAt,
+                negotiation: rejectedNegotiation ?? candidate?.negotiation ?? null
+              };
+            }
+            return candidate;
+          });
+
+          const acceptedBid = nextBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
+          const responseBody = responseBodyTransform({
+            rfq: toMarketplaceRfqResponse(nextRfq),
+            acceptedBid: toMarketplaceBidResponse(acceptedBid),
+            run,
+            settlement,
+            agreement,
+            offer: agreement?.offer ?? null,
+            offerAcceptance: agreement?.offerAcceptance ?? null,
+            decisionRecord: pendingKernelRefs.decisionRecord,
+            settlementReceipt: pendingKernelRefs.settlementReceipt
+          });
+          const ops = [
+            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq },
+            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId: resolvedRfqId, bids: nextBids },
+            { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: runEvents },
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "marketplace.rfq.accepted",
+              rfqId: resolvedRfqId,
+              runId,
+              sourceEventId: run?.lastEventId ?? null,
+              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
+              agreement,
+              settlement,
+              details: {
+                bidId,
+                acceptedBidderAgentId: acceptedBid?.bidderAgentId ?? null
+              }
+            });
+          } catch {
+            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
+          }
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "proposal.accepted",
+              rfqId: resolvedRfqId,
+              runId,
+              sourceEventId: selectedLatestProposal?.proposalId ?? null,
+              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
+              agreement,
+              settlement,
+              details: {
+                bidId,
+                proposal: selectedLatestProposal,
+                negotiation: selectedBidNegotiation
+              }
+            });
+          } catch {
+            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
+          }
+          return responseBody;
+        }
+
+        async function autoAcceptMarketplaceRfqBidForRfq({
+          rfq,
+          rfqId = rfq?.rfqId ?? null,
+          body,
+          idemStoreKey = null,
+          idemRequestHash = null
+        } = {}) {
+          if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) throw makeRouteError(404, "marketplace rfq not found", { code: "NOT_FOUND" });
+          const resolvedRfqId =
+            typeof rfqId === "string" && rfqId.trim() !== ""
+              ? rfqId.trim()
+              : typeof rfq?.rfqId === "string" && rfq.rfqId.trim() !== ""
+                ? rfq.rfqId.trim()
+                : null;
+          if (!resolvedRfqId) throw makeRouteError(404, "marketplace rfq not found", { code: "NOT_FOUND" });
+          const requestBody =
+            body && typeof body === "object" && !Array.isArray(body)
+              ? body
+              : {};
+          const selectionStrategyRaw = requestBody.selectionStrategy ?? requestBody.strategy ?? null;
+          if (
+            selectionStrategyRaw !== null &&
+            selectionStrategyRaw !== undefined &&
+            (typeof selectionStrategyRaw !== "string" || selectionStrategyRaw.trim() === "")
+          ) {
+            throw makeRouteError(400, "selectionStrategy must be a non-empty string", { code: "SCHEMA_INVALID" });
+          }
+          if (
+            requestBody.allowOverBudget !== undefined &&
+            requestBody.allowOverBudget !== null &&
+            typeof requestBody.allowOverBudget !== "boolean"
+          ) {
+            throw makeRouteError(400, "allowOverBudget must be a boolean", { code: "SCHEMA_INVALID" });
+          }
+
+          let decisionResult = null;
+          try {
+            decisionResult = selectMarketplaceAutoAwardBidV1({
+              rfq,
+              bids: listMarketplaceRfqBids({ tenantId, rfqId: resolvedRfqId, status: "all" }),
+              strategy: selectionStrategyRaw,
+              allowOverBudget: requestBody.allowOverBudget === true,
+              decidedAt: nowIso()
+            });
+          } catch (err) {
+            throw makeRouteError(400, "invalid marketplace auto-award request", {
+              code: "SCHEMA_INVALID",
+              details: { message: err?.message ?? "invalid auto-award request" }
+            });
+          }
+
+          if (!decisionResult?.selectedBid) {
+            throw makeRouteError(409, "marketplace auto-award blocked", {
+              code: decisionResult?.decision?.reasonCode ?? "MARKETPLACE_AUTO_AWARD_BLOCKED",
+              details: { decision: decisionResult?.decision ?? null }
+            });
+          }
+
+          const acceptBody = { ...requestBody, bidId: decisionResult.selectedBid.bidId };
+          delete acceptBody.selectionStrategy;
+          delete acceptBody.strategy;
+          delete acceptBody.allowOverBudget;
+          return acceptMarketplaceRfqBidForRfq({
+            rfq,
+            rfqId: resolvedRfqId,
+            body: acceptBody,
+            idemStoreKey,
+            idemRequestHash,
+            responseBodyTransform(responseBody) {
+              return {
+                ...responseBody,
+                decision: decisionResult.decision
+              };
+            }
+          });
+        }
+
         if (req.method === "GET" && path === "/health") {
           return sendJson(res, 200, { ok: true });
         }
@@ -34539,6 +35738,907 @@ export function createApi({
 
         if (req.method === "GET" && path === "/openapi.json") {
           return sendJson(res, 200, buildOpenApiSpec());
+        }
+
+        if (req.method === "POST" && path === "/router/plan") {
+          const body = await readJsonBody(req);
+          try {
+            const { plan } = await buildRouterPlanFromBody(body);
+            return sendJson(res, 200, { ok: true, plan });
+          } catch (err) {
+            return sendError(
+              res,
+              Number.isSafeInteger(Number(err?.statusCode)) ? Number(err.statusCode) : 400,
+              err?.message ?? "invalid router plan request",
+              err?.details ?? null,
+              { code: typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "SCHEMA_INVALID" }
+            );
+          }
+        }
+
+        if (req.method === "POST" && path === "/router/launch") {
+          if (!(store.marketplaceRfqs instanceof Map)) store.marketplaceRfqs = new Map();
+          if (!(store.marketplaceRfqBids instanceof Map)) store.marketplaceRfqBids = new Map();
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          let routed = null;
+          try {
+            routed = await buildRouterPlanFromBody(body);
+          } catch (err) {
+            return sendError(
+              res,
+              Number.isSafeInteger(Number(err?.statusCode)) ? Number(err.statusCode) : 400,
+              err?.message ?? "invalid router launch request",
+              err?.details ?? null,
+              { code: typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "SCHEMA_INVALID" }
+            );
+          }
+
+          const plan = routed.plan;
+          const plannedTasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
+          if (!plannedTasks.length) {
+            return sendError(
+              res,
+              409,
+              "router launch requires at least one routed task",
+              { plan },
+              { code: "ROUTER_LAUNCH_NO_TASKS" }
+            );
+          }
+
+          const posterAgentId =
+            typeof body?.posterAgentId === "string" && body.posterAgentId.trim() !== "" ? body.posterAgentId.trim() : null;
+          if (!posterAgentId) return sendError(res, 400, "posterAgentId is required", null, { code: "SCHEMA_INVALID" });
+
+          let posterIdentity = null;
+          try {
+            posterIdentity = await getAgentIdentityRecord({ tenantId, agentId: posterAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid posterAgentId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (!posterIdentity) return sendError(res, 404, "poster agent identity not found", null, { code: "NOT_FOUND" });
+
+          const rfqLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [{ role: "poster", agentId: posterAgentId }],
+            operation: "marketplace_rfq.issue"
+          });
+          if (rfqLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              rfqLifecycleGuard.httpStatus ?? 409,
+              rfqLifecycleGuard.message,
+              rfqLifecycleGuard.details ?? null,
+              { code: rfqLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
+
+          let taskDirection = null;
+          try {
+            taskDirection = parseInteractionDirection({ fromTypeRaw: body?.fromType, toTypeRaw: body?.toType });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction direction", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let defaultBudgetCents = null;
+          if (body?.budgetCents !== undefined && body?.budgetCents !== null && body?.budgetCents !== "") {
+            const parsedBudget = Number(body.budgetCents);
+            if (!Number.isSafeInteger(parsedBudget) || parsedBudget <= 0) {
+              return sendError(res, 400, "budgetCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+            }
+            defaultBudgetCents = parsedBudget;
+          }
+
+          const defaultCurrency = body?.currency ? String(body.currency).trim().toUpperCase() : "USD";
+          if (!defaultCurrency || !/^[A-Z0-9_]{2,8}$/.test(defaultCurrency)) {
+            return sendError(res, 400, "currency must be a non-empty string", null, { code: "SCHEMA_INVALID" });
+          }
+
+          let defaultDeadlineAt = null;
+          if (body?.deadlineAt !== undefined && body?.deadlineAt !== null && body?.deadlineAt !== "") {
+            if (typeof body.deadlineAt !== "string" || !Number.isFinite(Date.parse(body.deadlineAt))) {
+              return sendError(res, 400, "deadlineAt must be an ISO date-time", null, { code: "SCHEMA_INVALID" });
+            }
+            defaultDeadlineAt = new Date(Date.parse(body.deadlineAt)).toISOString();
+          }
+
+          const launchMetadata =
+            body?.metadata === undefined
+              ? null
+              : body.metadata === null
+                ? null
+                : typeof body.metadata === "object" && !Array.isArray(body.metadata)
+                  ? cloneJsonLike(body.metadata)
+                  : null;
+          if (body?.metadata !== undefined && launchMetadata === null && body.metadata !== null) {
+            return sendError(res, 400, "metadata must be an object or null", null, { code: "SCHEMA_INVALID" });
+          }
+
+          let counterOfferPolicy = null;
+          try {
+            counterOfferPolicy = normalizeMarketplaceCounterOfferPolicyInput(body?.counterOfferPolicy ?? null, {
+              fieldPath: "counterOfferPolicy"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid counterOfferPolicy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let taskOverrides = null;
+          try {
+            taskOverrides = parseRouterLaunchTaskOverrides(body?.taskOverrides ?? null);
+          } catch (err) {
+            return sendError(res, 400, "invalid taskOverrides", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const knownTaskIds = new Set(plannedTasks.map((task) => String(task?.taskId ?? "")).filter(Boolean));
+          for (const taskId of taskOverrides.keys()) {
+            if (!knownTaskIds.has(taskId)) {
+              return sendError(
+                res,
+                409,
+                "taskOverrides contains unknown taskId",
+                { taskId, knownTaskIds: Array.from(knownTaskIds.values()) },
+                { code: "ROUTER_LAUNCH_TASK_OVERRIDE_UNKNOWN" }
+              );
+            }
+          }
+
+          let launchId = null;
+          try {
+            launchId = parseRouterLaunchId(body?.launchId ?? null, { allowNull: true }) ?? createId("rlaunch");
+          } catch (err) {
+            return sendError(res, 400, "invalid launchId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const defaultDescription =
+            typeof body?.description === "string" && body.description.trim() !== "" ? body.description.trim() : routed.text;
+          const nowAt = nowIso();
+          const requestTextSha256 = sha256Hex(routed.text);
+          const seenRfqIds = new Set();
+          const rfqs = [];
+          const launchTasks = [];
+          const ops = [];
+
+          for (let index = 0; index < plannedTasks.length; index += 1) {
+            const task = plannedTasks[index];
+            const taskId = typeof task?.taskId === "string" && task.taskId.trim() !== "" ? task.taskId.trim() : null;
+            const requiredCapability =
+              typeof task?.requiredCapability === "string" && task.requiredCapability.trim() !== ""
+                ? task.requiredCapability.trim()
+                : null;
+            if (!taskId || !requiredCapability) {
+              return sendError(
+                res,
+                409,
+                "router launch blocked by invalid task",
+                { taskIndex: index, task },
+                { code: "ROUTER_LAUNCH_INVALID_TASK" }
+              );
+            }
+
+            const override = taskOverrides.get(taskId) ?? {};
+            const rfqId = override.rfqId ?? createId("rfq");
+            if (seenRfqIds.has(rfqId)) {
+              return sendError(
+                res,
+                409,
+                "router launch contains duplicate rfqId",
+                { taskId, rfqId },
+                { code: "ROUTER_LAUNCH_DUPLICATE_RFQ_ID" }
+              );
+            }
+            seenRfqIds.add(rfqId);
+
+            const existingRfq = getMarketplaceRfq({ tenantId, rfqId });
+            if (existingRfq) {
+              return sendError(
+                res,
+                409,
+                "marketplace rfq already exists",
+                { taskId, rfqId },
+                { code: "CONFLICT" }
+              );
+            }
+
+            const candidateAgentIds = Array.isArray(task?.candidates)
+              ? task.candidates
+                  .map((candidate) => (typeof candidate?.agentId === "string" && candidate.agentId.trim() !== "" ? candidate.agentId.trim() : null))
+                  .filter(Boolean)
+              : [];
+            const budgetCents = override.budgetCents ?? defaultBudgetCents;
+            const currency = override.currency ?? defaultCurrency;
+            const deadlineAt = override.deadlineAt ?? defaultDeadlineAt;
+            const taskMetadata = normalizeForCanonicalJson(
+              {
+                ...(launchMetadata ?? {}),
+                ...(override.metadata ?? {}),
+                routerLaunch: {
+                  schemaVersion: "RouterLaunchMetadata.v1",
+                  launchId,
+                  requestTextSha256,
+                  planId: plan.planId ?? null,
+                  planHash: plan.planHash ?? null,
+                  taskId,
+                  taskIndex: index + 1,
+                  scope: routed.scope,
+                  dependsOnTaskIds: Array.isArray(task?.dependsOnTaskIds) ? task.dependsOnTaskIds : [],
+                  candidateCount: candidateAgentIds.length,
+                  candidateAgentIds
+                }
+              },
+              { path: "$.metadata" }
+            );
+
+            const rfq = {
+              schemaVersion: "MarketplaceRfq.v1",
+              rfqId,
+              tenantId,
+              title:
+                typeof override.title === "string" && override.title.trim() !== ""
+                  ? override.title.trim()
+                  : typeof task?.title === "string" && task.title.trim() !== ""
+                    ? task.title.trim()
+                    : requiredCapability,
+              description:
+                typeof override.description === "string" && override.description.trim() !== ""
+                  ? override.description.trim()
+                  : defaultDescription,
+              capability: requiredCapability,
+              fromType: taskDirection.fromType,
+              toType: taskDirection.toType,
+              posterAgentId,
+              status: "open",
+              budgetCents,
+              currency,
+              deadlineAt,
+              acceptedBidId: null,
+              acceptedBidderAgentId: null,
+              acceptedAt: null,
+              counterOfferPolicy,
+              metadata: taskMetadata,
+              createdAt: nowAt,
+              updatedAt: nowAt
+            };
+            rfqs.push(rfq);
+            launchTasks.push({
+              taskId,
+              title: rfq.title,
+              requiredCapability,
+              rfqId,
+              dependsOnTaskIds: Array.isArray(task?.dependsOnTaskIds) ? task.dependsOnTaskIds : [],
+              budgetCents,
+              currency,
+              deadlineAt,
+              candidateCount: candidateAgentIds.length,
+              candidateAgentIds
+            });
+            ops.push({ kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq });
+            ops.push({ kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: [] });
+          }
+
+          let launch = null;
+          try {
+            launch = buildRouterMarketplaceLaunchV1({
+              launchId,
+              tenantId,
+              posterAgentId,
+              scope: routed.scope,
+              request: {
+                text: routed.text,
+                asOf: routed.asOf
+              },
+              planRef: {
+                planId: plan.planId,
+                planHash: plan.planHash
+              },
+              tasks: launchTasks,
+              metadata: launchMetadata,
+              createdAt: nowAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid router launch", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const rfqsWithLaunchHash = rfqs.map((rfq) => {
+            const metadata =
+              rfq?.metadata && typeof rfq.metadata === "object" && !Array.isArray(rfq.metadata) ? rfq.metadata : null;
+            const routerLaunch =
+              metadata?.routerLaunch && typeof metadata.routerLaunch === "object" && !Array.isArray(metadata.routerLaunch)
+                ? metadata.routerLaunch
+                : null;
+            if (!metadata || !routerLaunch) return rfq;
+            return {
+              ...rfq,
+              metadata: normalizeForCanonicalJson(
+                {
+                  ...metadata,
+                  routerLaunch: {
+                    ...routerLaunch,
+                    launchHash: launch.launchHash
+                  }
+                },
+                { path: "$.metadata" }
+              )
+            };
+          });
+          const rfqById = new Map(rfqsWithLaunchHash.map((rfq) => [String(rfq.rfqId ?? ""), rfq]));
+          for (const op of ops) {
+            if (op?.kind !== "MARKETPLACE_RFQ_UPSERT") continue;
+            const nextRfq = rfqById.get(String(op?.rfq?.rfqId ?? ""));
+            if (nextRfq) op.rfq = nextRfq;
+          }
+
+          const responseBody = {
+            ok: true,
+            launch,
+            plan,
+            rfqs: rfqsWithLaunchHash.map((rfq) => toMarketplaceRfqResponse(rfq))
+          };
+          if (idemStoreKey) {
+            ops.push({
+              kind: "IDEMPOTENCY_PUT",
+              key: idemStoreKey,
+              value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+            });
+          }
+          await commitTx(ops);
+          return sendJson(res, 201, responseBody);
+        }
+
+        const routerLaunchStatusMatch = req.method === "GET" ? /^\/router\/launches\/([^/]+)\/status$/.exec(path) : null;
+        if (req.method === "GET" && routerLaunchStatusMatch) {
+          let launchId = null;
+          try {
+            launchId = parseRouterLaunchId(decodeURIComponent(routerLaunchStatusMatch[1] ?? ""), { allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid router launch status request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const launchRfqs = listMarketplaceRfqsByRouterLaunchId({ tenantId, launchId });
+          if (!launchRfqs.length) {
+            return sendError(res, 404, "router launch not found", { launchId }, { code: "ROUTER_LAUNCH_NOT_FOUND" });
+          }
+
+          const byTaskId = new Map();
+          const launchHashes = new Set();
+          const planIds = new Set();
+          const planHashes = new Set();
+          const requestTextHashes = new Set();
+          const posterAgentIds = new Set();
+          for (const rfq of launchRfqs) {
+            const launch = readRouterLaunchMetadataFromRfq(rfq);
+            if (!launch) {
+              return sendError(
+                res,
+                409,
+                "router launch metadata is invalid",
+                { launchId, rfqId: rfq?.rfqId ?? null },
+                { code: "ROUTER_LAUNCH_INVALID" }
+              );
+            }
+            if (byTaskId.has(launch.taskId)) {
+              return sendError(
+                res,
+                409,
+                "router launch contains duplicate taskIds",
+                { launchId, taskId: launch.taskId },
+                { code: "ROUTER_LAUNCH_INVALID" }
+              );
+            }
+            byTaskId.set(launch.taskId, { rfq, launch });
+            if (launch.launchHash) launchHashes.add(launch.launchHash);
+            if (launch.planId) planIds.add(launch.planId);
+            if (launch.planHash) planHashes.add(launch.planHash);
+            if (launch.requestTextSha256) requestTextHashes.add(launch.requestTextSha256);
+            if (typeof rfq?.posterAgentId === "string" && rfq.posterAgentId.trim() !== "") {
+              posterAgentIds.add(rfq.posterAgentId.trim());
+            }
+          }
+
+          if (posterAgentIds.size !== 1 || planIds.size > 1 || planHashes.size > 1 || launchHashes.size > 1 || requestTextHashes.size > 1) {
+            return sendError(
+              res,
+              409,
+              "router launch metadata is inconsistent",
+              {
+                launchId,
+                posterAgentIds: Array.from(posterAgentIds.values()),
+                planIds: Array.from(planIds.values()),
+                planHashes: Array.from(planHashes.values()),
+                launchHashes: Array.from(launchHashes.values()),
+                requestTextHashes: Array.from(requestTextHashes.values())
+              },
+              { code: "ROUTER_LAUNCH_INVALID" }
+            );
+          }
+
+          const tasks = [];
+          for (const rfq of launchRfqs) {
+            const launch = readRouterLaunchMetadataFromRfq(rfq);
+            const taskId = launch?.taskId ?? null;
+            const taskIndex = launch?.taskIndex ?? null;
+            const dependsOnTaskIds = Array.isArray(launch?.dependsOnTaskIds) ? launch.dependsOnTaskIds : [];
+            const missingDependencies = dependsOnTaskIds.filter((dependencyTaskId) => !byTaskId.has(dependencyTaskId));
+            const cancelledDependencies = [];
+            const pendingDependencies = [];
+            if (missingDependencies.length === 0) {
+              for (const dependencyTaskId of dependsOnTaskIds) {
+                const dependency = byTaskId.get(dependencyTaskId);
+                const dependencyStatus = String(dependency?.rfq?.status ?? "open").toLowerCase();
+                if (dependencyStatus === "cancelled") {
+                  cancelledDependencies.push(dependencyTaskId);
+                  continue;
+                }
+                if (dependencyStatus !== "closed") pendingDependencies.push(dependencyTaskId);
+              }
+            }
+
+            const bids = listMarketplaceRfqBids({ tenantId, rfqId: rfq.rfqId, status: "all" }).map((bid) => toMarketplaceBidResponse(bid));
+            const acceptedBidId =
+              typeof rfq?.acceptedBidId === "string" && rfq.acceptedBidId.trim() !== "" ? rfq.acceptedBidId.trim() : null;
+            const acceptedBid = acceptedBidId ? bids.find((bid) => String(bid?.bidId ?? "") === acceptedBidId) ?? null : null;
+            const runId = typeof rfq?.runId === "string" && rfq.runId.trim() !== "" ? rfq.runId.trim() : null;
+            let run = null;
+            if (runId && typeof store.getAgentRun === "function") run = await store.getAgentRun({ tenantId, runId });
+            const settlement = runId ? await getAgentRunSettlementRecord({ tenantId, runId }) : null;
+            const snapshot = deriveRouterLaunchStatusTaskSnapshot({
+              rfqStatus: rfq?.status ?? "open",
+              missingDependencies,
+              cancelledDependencies,
+              pendingDependencies,
+              bidCount: bids.length
+            });
+            tasks.push({
+              taskId,
+              taskIndex,
+              rfqId: rfq?.rfqId ?? null,
+              title: typeof rfq?.title === "string" && rfq.title.trim() !== "" ? rfq.title.trim() : String(rfq?.capability ?? taskId ?? "task"),
+              requiredCapability:
+                typeof rfq?.capability === "string" && rfq.capability.trim() !== "" ? rfq.capability.trim() : String(taskId ?? ""),
+              dependsOnTaskIds,
+              candidateAgentIds: Array.isArray(launch?.candidateAgentIds) ? launch.candidateAgentIds : [],
+              candidateCount: Array.isArray(launch?.candidateAgentIds) ? launch.candidateAgentIds.length : 0,
+              state: snapshot.state,
+              blockedByTaskIds: snapshot.blockedByTaskIds,
+              rfqStatus: typeof rfq?.status === "string" && rfq.status.trim() !== "" ? rfq.status.trim().toLowerCase() : "open",
+              bidCount: bids.length,
+              acceptedBidId,
+              runId,
+              settlementStatus:
+                typeof settlement?.status === "string" && settlement.status.trim() !== "" ? settlement.status.trim().toLowerCase() : null,
+              disputeStatus:
+                typeof settlement?.disputeStatus === "string" && settlement.disputeStatus.trim() !== ""
+                  ? settlement.disputeStatus.trim().toLowerCase()
+                  : null,
+              rfq: toMarketplaceRfqResponse(rfq),
+              bids,
+              acceptedBid,
+              run,
+              settlement
+            });
+          }
+
+          let status = null;
+          try {
+            status = buildRouterLaunchStatusV1({
+              launchRef: {
+                launchId,
+                launchHash: Array.from(launchHashes.values())[0] ?? null,
+                planId: Array.from(planIds.values())[0] ?? null,
+                planHash: Array.from(planHashes.values())[0] ?? null,
+                requestTextSha256: Array.from(requestTextHashes.values())[0] ?? null
+              },
+              tenantId,
+              posterAgentId: Array.from(posterAgentIds.values())[0],
+              tasks,
+              generatedAt: nowIso()
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid router launch status", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          return sendJson(res, 200, { ok: true, status });
+        }
+
+        if (req.method === "POST" && path === "/router/dispatch") {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return sendError(res, 400, "invalid router dispatch request", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const allowedFields = new Set([
+            "launchId",
+            "dispatchId",
+            "taskIds",
+            "acceptedByAgentId",
+            "payerAgentId",
+            "selectionStrategy",
+            "strategy",
+            "allowOverBudget"
+          ]);
+          const unsupportedFields = Object.keys(body).filter((key) => !allowedFields.has(key));
+          if (unsupportedFields.length > 0) {
+            return sendError(
+              res,
+              400,
+              "router dispatch contains unsupported fields",
+              { unsupportedFields },
+              { code: "SCHEMA_INVALID" }
+            );
+          }
+
+          let launchId = null;
+          let dispatchId = null;
+          try {
+            launchId = parseRouterLaunchId(body?.launchId ?? null, { allowNull: false });
+            dispatchId = parseRouterLaunchId(body?.dispatchId ?? null, { fieldPath: "dispatchId", allowNull: true }) ?? createId("rdispatch");
+          } catch (err) {
+            return sendError(res, 400, "invalid router dispatch request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const acceptedByAgentId =
+            body?.acceptedByAgentId === undefined || body?.acceptedByAgentId === null || String(body.acceptedByAgentId).trim() === ""
+              ? null
+              : typeof body.acceptedByAgentId === "string"
+                ? body.acceptedByAgentId.trim()
+                : null;
+          if (body?.acceptedByAgentId !== undefined && body?.acceptedByAgentId !== null && acceptedByAgentId === null) {
+            return sendError(res, 400, "acceptedByAgentId must be a non-empty string", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const payerAgentId =
+            body?.payerAgentId === undefined || body?.payerAgentId === null || String(body.payerAgentId).trim() === ""
+              ? null
+              : typeof body.payerAgentId === "string"
+                ? body.payerAgentId.trim()
+                : null;
+          if (body?.payerAgentId !== undefined && body?.payerAgentId !== null && payerAgentId === null) {
+            return sendError(res, 400, "payerAgentId must be a non-empty string", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const selectionStrategyRaw = body?.selectionStrategy ?? body?.strategy ?? null;
+          if (
+            selectionStrategyRaw !== null &&
+            selectionStrategyRaw !== undefined &&
+            (typeof selectionStrategyRaw !== "string" || selectionStrategyRaw.trim() === "")
+          ) {
+            return sendError(res, 400, "selectionStrategy must be a non-empty string", null, { code: "SCHEMA_INVALID" });
+          }
+
+          if (
+            body?.allowOverBudget !== undefined &&
+            body?.allowOverBudget !== null &&
+            typeof body.allowOverBudget !== "boolean"
+          ) {
+            return sendError(res, 400, "allowOverBudget must be a boolean", null, { code: "SCHEMA_INVALID" });
+          }
+
+          let requestedTaskIds = null;
+          if (body?.taskIds !== undefined && body?.taskIds !== null) {
+            if (!Array.isArray(body.taskIds)) {
+              return sendError(res, 400, "taskIds must be an array", null, { code: "SCHEMA_INVALID" });
+            }
+            try {
+              requestedTaskIds = [...new Set(body.taskIds.map((row, index) => parseRouterLaunchId(row, { fieldPath: `taskIds[${index}]` })))];
+            } catch (err) {
+              return sendError(res, 400, "invalid router dispatch request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            if (requestedTaskIds.length === 0) {
+              return sendError(res, 400, "taskIds must include at least one taskId", null, { code: "SCHEMA_INVALID" });
+            }
+            requestedTaskIds.sort((left, right) => left.localeCompare(right));
+          }
+
+          const launchRfqs = listMarketplaceRfqsByRouterLaunchId({ tenantId, launchId });
+          if (!launchRfqs.length) {
+            return sendError(res, 404, "router launch not found", { launchId }, { code: "ROUTER_DISPATCH_LAUNCH_NOT_FOUND" });
+          }
+
+          const byTaskId = new Map();
+          const launchHashes = new Set();
+          const planIds = new Set();
+          const planHashes = new Set();
+          const requestTextHashes = new Set();
+          const posterAgentIds = new Set();
+          for (const rfq of launchRfqs) {
+            const launch = readRouterLaunchMetadataFromRfq(rfq);
+            if (!launch) {
+              return sendError(
+                res,
+                409,
+                "router dispatch launch metadata is invalid",
+                { launchId, rfqId: rfq?.rfqId ?? null },
+                { code: "ROUTER_DISPATCH_LAUNCH_INVALID" }
+              );
+            }
+            if (byTaskId.has(launch.taskId)) {
+              return sendError(
+                res,
+                409,
+                "router dispatch launch contains duplicate taskIds",
+                { launchId, taskId: launch.taskId },
+                { code: "ROUTER_DISPATCH_LAUNCH_INVALID" }
+              );
+            }
+            byTaskId.set(launch.taskId, { rfq, launch });
+            if (launch.launchHash) launchHashes.add(launch.launchHash);
+            if (launch.planId) planIds.add(launch.planId);
+            if (launch.planHash) planHashes.add(launch.planHash);
+            if (launch.requestTextSha256) requestTextHashes.add(launch.requestTextSha256);
+            if (typeof rfq?.posterAgentId === "string" && rfq.posterAgentId.trim() !== "") posterAgentIds.add(rfq.posterAgentId.trim());
+          }
+
+          if (posterAgentIds.size !== 1 || planIds.size > 1 || planHashes.size > 1 || launchHashes.size > 1 || requestTextHashes.size > 1) {
+            return sendError(
+              res,
+              409,
+              "router dispatch launch metadata is inconsistent",
+              {
+                launchId,
+                posterAgentIds: Array.from(posterAgentIds.values()),
+                planIds: Array.from(planIds.values()),
+                planHashes: Array.from(planHashes.values()),
+                launchHashes: Array.from(launchHashes.values()),
+                requestTextHashes: Array.from(requestTextHashes.values())
+              },
+              { code: "ROUTER_DISPATCH_LAUNCH_INVALID" }
+            );
+          }
+
+          if (requestedTaskIds) {
+            const missingTaskIds = requestedTaskIds.filter((taskId) => !byTaskId.has(taskId));
+            if (missingTaskIds.length > 0) {
+              return sendError(
+                res,
+                409,
+                "router dispatch references unknown taskIds",
+                { launchId, missingTaskIds, knownTaskIds: Array.from(byTaskId.keys()).sort((left, right) => left.localeCompare(right)) },
+                { code: "ROUTER_DISPATCH_TASK_NOT_FOUND" }
+              );
+            }
+          }
+
+          const dispatchAt = nowIso();
+          const selectionStrategy = selectionStrategyRaw ? String(selectionStrategyRaw).trim().toLowerCase() : "lowest_amount_then_eta";
+          const allowOverBudget = body.allowOverBudget === true;
+          const selectedTaskSet = requestedTaskIds ? new Set(requestedTaskIds) : null;
+          const selectedLaunchRows = launchRfqs.filter((rfq) => {
+            if (!selectedTaskSet) return true;
+            const launch = readRouterLaunchMetadataFromRfq(rfq);
+            return Boolean(launch && selectedTaskSet.has(launch.taskId));
+          });
+          const posterAgentId = Array.from(posterAgentIds.values())[0];
+
+          const dispatchTasks = [];
+          const results = [];
+          const autoAwardStateByCode = new Map([
+            ["MARKETPLACE_AUTO_AWARD_NO_PENDING_BIDS", ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_NO_PENDING_BIDS],
+            ["MARKETPLACE_AUTO_AWARD_AMBIGUOUS", ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_AMBIGUOUS],
+            ["MARKETPLACE_AUTO_AWARD_OVER_BUDGET", ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_OVER_BUDGET]
+          ]);
+
+          for (const rfq of selectedLaunchRows) {
+            const launch = readRouterLaunchMetadataFromRfq(rfq);
+            const taskId = launch?.taskId ?? null;
+            const taskIndex = launch?.taskIndex ?? null;
+            const dependsOnTaskIds = Array.isArray(launch?.dependsOnTaskIds) ? launch.dependsOnTaskIds : [];
+            const blockingTaskIds = [];
+            let state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_RFQ_INVALID;
+            let reasonCode = "ROUTER_DISPATCH_RFQ_INVALID";
+            let decisionHash = null;
+            let acceptedBidId = typeof rfq?.acceptedBidId === "string" && rfq.acceptedBidId.trim() !== "" ? rfq.acceptedBidId.trim() : null;
+            let runId = typeof rfq?.runId === "string" && rfq.runId.trim() !== "" ? rfq.runId.trim() : null;
+            let responseDetail = {
+              taskId,
+              taskIndex,
+              rfqId: rfq?.rfqId ?? null
+            };
+            let rfqStatus = String(rfq?.status ?? "open").toLowerCase();
+
+            if (!launch || !taskId || !Number.isSafeInteger(Number(taskIndex)) || !rfq?.rfqId) {
+              state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_RFQ_INVALID;
+              reasonCode = "ROUTER_DISPATCH_RFQ_INVALID";
+            } else if (rfqStatus === "assigned") {
+              state = ROUTER_MARKETPLACE_DISPATCH_STATE.ALREADY_ASSIGNED;
+              reasonCode = null;
+            } else if (rfqStatus === "closed") {
+              state = ROUTER_MARKETPLACE_DISPATCH_STATE.ALREADY_CLOSED;
+              reasonCode = null;
+            } else if (rfqStatus === "cancelled") {
+              state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_RFQ_CANCELLED;
+              reasonCode = "ROUTER_DISPATCH_RFQ_CANCELLED";
+            } else if (rfqStatus !== "open") {
+              state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_RFQ_INVALID;
+              reasonCode = "ROUTER_DISPATCH_RFQ_STATUS_INVALID";
+            } else {
+              const missingDependencies = dependsOnTaskIds.filter((dependencyTaskId) => !byTaskId.has(dependencyTaskId));
+              if (missingDependencies.length > 0) {
+                blockingTaskIds.push(...missingDependencies);
+                state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_DEPENDENCY_MISSING;
+                reasonCode = "ROUTER_DISPATCH_DEPENDENCY_MISSING";
+              } else {
+                const cancelledDependencies = [];
+                const pendingDependencies = [];
+                for (const dependencyTaskId of dependsOnTaskIds) {
+                  const dependency = byTaskId.get(dependencyTaskId);
+                  const dependencyStatus = String(dependency?.rfq?.status ?? "open").toLowerCase();
+                  if (dependencyStatus === "cancelled") {
+                    cancelledDependencies.push(dependencyTaskId);
+                    continue;
+                  }
+                  if (dependencyStatus !== "closed") pendingDependencies.push(dependencyTaskId);
+                }
+                if (cancelledDependencies.length > 0) {
+                  blockingTaskIds.push(...cancelledDependencies);
+                  state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_DEPENDENCY_CANCELLED;
+                  reasonCode = "ROUTER_DISPATCH_DEPENDENCY_CANCELLED";
+                } else if (pendingDependencies.length > 0) {
+                  blockingTaskIds.push(...pendingDependencies);
+                  state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_DEPENDENCIES_PENDING;
+                  reasonCode = "ROUTER_DISPATCH_DEPENDENCIES_PENDING";
+                } else {
+                  try {
+                    const accepted = await autoAcceptMarketplaceRfqBidForRfq({
+                      rfq,
+                      rfqId: rfq.rfqId,
+                      body: {
+                        ...(acceptedByAgentId ? { acceptedByAgentId } : {}),
+                        ...(payerAgentId ? { payerAgentId } : {}),
+                        selectionStrategy,
+                        allowOverBudget
+                      }
+                    });
+                    state = ROUTER_MARKETPLACE_DISPATCH_STATE.ACCEPTED;
+                    reasonCode = null;
+                    decisionHash = accepted?.decision?.decisionHash ?? null;
+                    acceptedBidId = accepted?.acceptedBid?.bidId ?? accepted?.rfq?.acceptedBidId ?? acceptedBidId;
+                    runId = accepted?.run?.runId ?? accepted?.rfq?.runId ?? runId;
+                    rfqStatus = String(accepted?.rfq?.status ?? "assigned").toLowerCase();
+                    responseDetail = {
+                      ...responseDetail,
+                      decision: accepted?.decision ?? null,
+                      rfq: accepted?.rfq ?? null,
+                      acceptedBid: accepted?.acceptedBid ?? null,
+                      run: accepted?.run ?? null,
+                      settlement: accepted?.settlement ?? null,
+                      agreement: accepted?.agreement ?? null,
+                      offer: accepted?.offer ?? null,
+                      offerAcceptance: accepted?.offerAcceptance ?? null,
+                      decisionRecord: accepted?.decisionRecord ?? null,
+                      settlementReceipt: accepted?.settlementReceipt ?? null
+                    };
+                  } catch (err) {
+                    const mappedState = autoAwardStateByCode.get(err?.code ?? "");
+                    if (mappedState) {
+                      state = mappedState;
+                      reasonCode = err?.code ?? null;
+                      decisionHash =
+                        err?.details?.decision && typeof err.details.decision === "object" ? err.details.decision.decisionHash ?? null : null;
+                      responseDetail = {
+                        ...responseDetail,
+                        decision:
+                          err?.details?.decision && typeof err.details.decision === "object" ? err.details.decision : null
+                      };
+                    } else {
+                      state = ROUTER_MARKETPLACE_DISPATCH_STATE.BLOCKED_ACCEPT_FAILED;
+                      reasonCode = typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "ROUTER_DISPATCH_ACCEPT_FAILED";
+                      responseDetail = {
+                        ...responseDetail,
+                        error: {
+                          message: err?.message ?? "router dispatch accept failed",
+                          code: typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : null,
+                          details: err?.details ?? null
+                        }
+                      };
+                    }
+                  }
+                }
+              }
+            }
+
+            dispatchTasks.push({
+              taskId,
+              taskIndex,
+              rfqId: rfq?.rfqId ?? null,
+              dependsOnTaskIds,
+              state,
+              reasonCode,
+              rfqStatus,
+              acceptedBidId,
+              runId,
+              decisionHash,
+              blockingTaskIds
+            });
+            results.push(
+              normalizeForCanonicalJson(
+                {
+                  ...responseDetail,
+                  state,
+                  reasonCode,
+                  dependsOnTaskIds,
+                  blockingTaskIds,
+                  rfqStatus,
+                  acceptedBidId,
+                  runId,
+                  decisionHash
+                },
+                { path: `$.results[${results.length}]` }
+              )
+            );
+          }
+
+          let dispatch = null;
+          try {
+            dispatch = buildRouterMarketplaceDispatchV1({
+              dispatchId,
+              launchRef: {
+                launchId,
+                launchHash: Array.from(launchHashes.values())[0] ?? null,
+                planId: Array.from(planIds.values())[0] ?? null,
+                planHash: Array.from(planHashes.values())[0] ?? null,
+                requestTextSha256: Array.from(requestTextHashes.values())[0] ?? null
+              },
+              tenantId,
+              posterAgentId,
+              selectionStrategy,
+              allowOverBudget,
+              tasks: dispatchTasks,
+              metadata: requestedTaskIds ? { requestedTaskIds } : null,
+              dispatchedAt: dispatchAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid router dispatch", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const responseBody = {
+            ok: true,
+            dispatch,
+            results
+          };
+          if (idemStoreKey) {
+            await commitTx([
+              {
+                kind: "IDEMPOTENCY_PUT",
+                key: idemStoreKey,
+                value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+              }
+            ]);
+          }
+          return sendJson(res, 200, responseBody);
         }
 
         if (req.method === "GET" && path === "/v1/public/agents/resolve") {
@@ -37710,6 +39810,150 @@ export function createApi({
           return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
         }
 
+        if (parts[1] === "router" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = "";
+          const initialScope = typeof url.searchParams.get("scope") === "string" ? url.searchParams.get("scope") : "tenant";
+          const initialScoreStrategy = typeof url.searchParams.get("scoreStrategy") === "string" ? url.searchParams.get("scoreStrategy") : "balanced";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Nooterra Router</title>",
+            "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/>",
+            "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin/>",
+            "<link href=\"https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap\" rel=\"stylesheet\"/>",
+            "<style>",
+            ":root{--bg0:#070A12;--bg1:#0b1222;--card:rgba(255,255,255,.06);--card2:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--ink:#eef3ff;--muted:rgba(238,243,255,.68);--accent:#ffb86b;--accent2:#53f1d3;--bad:#ff5c7a;--good:#4ef2a4;--warn:#ffd37a;--shadow:0 18px 55px rgba(0,0,0,.45)}",
+            "*{box-sizing:border-box} html,body{height:100%}",
+            "body{margin:0;color:var(--ink);background:radial-gradient(900px 500px at 15% 10%,rgba(83,241,211,.12),transparent 55%),radial-gradient(700px 460px at 80% 0%,rgba(255,184,107,.14),transparent 60%),linear-gradient(160deg,var(--bg0),var(--bg1));font:14px/1.55 \"IBM Plex Mono\",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;letter-spacing:.1px}",
+            ".wrap{max-width:1260px;margin:0 auto;padding:22px}",
+            ".top{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}",
+            ".brand{flex:1;min-width:260px}",
+            ".brand h1{margin:0;font:700 34px/1.05 \"Cormorant Garamond\",ui-serif,Georgia,serif;letter-spacing:.6px}",
+            ".brand .sub{color:var(--muted);margin-top:6px;max-width:72ch}",
+            ".pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);font-size:12px}",
+            ".grid{display:grid;grid-template-columns:1.05fr .95fr;gap:14px;margin-top:14px}",
+            "@media (max-width: 980px){.grid{grid-template-columns:1fr}}",
+            ".card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:18px;padding:14px;box-shadow:var(--shadow);backdrop-filter:blur(10px)}",
+            ".row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".field{display:flex;flex-direction:column;gap:6px;min-width:180px;flex:1}",
+            ".field.small{max-width:200px;flex:0 0 200px}",
+            "label{color:var(--muted);font-size:12px}",
+            "input,select,textarea,button{font:inherit}",
+            "input,select,textarea{width:100%;padding:10px 11px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(8,12,20,.7);color:var(--ink);outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}",
+            "textarea{min-height:170px;resize:vertical}",
+            "input:focus,select:focus,textarea:focus{border-color:rgba(83,241,211,.5);box-shadow:0 0 0 4px rgba(83,241,211,.12),inset 0 1px 0 rgba(255,255,255,.06)}",
+            "button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:linear-gradient(180deg,rgba(255,184,107,.26),rgba(255,184,107,.12));color:var(--ink);cursor:pointer;transition:transform .08s ease,filter .12s ease}",
+            "button.secondary{background:linear-gradient(180deg,rgba(83,241,211,.2),rgba(83,241,211,.08));border-color:rgba(83,241,211,.22)}",
+            "button.ghost{background:rgba(255,255,255,.06)}",
+            "button:active{transform:translateY(1px)}",
+            "button:disabled{opacity:.55;cursor:not-allowed}",
+            ".status{margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted)}",
+            ".status.good{border-color:rgba(78,242,164,.35);background:rgba(78,242,164,.08);color:rgba(190,255,224,.95)}",
+            ".status.bad{border-color:rgba(255,92,122,.35);background:rgba(255,92,122,.08);color:rgba(255,205,214,.95)}",
+            ".status.warn{border-color:rgba(255,211,122,.35);background:rgba(255,211,122,.08);color:rgba(255,243,215,.95)}",
+            ".mono{font-family:\"IBM Plex Mono\",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}",
+            "pre{margin:0;white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px}",
+            ".graph{display:flex;flex-direction:column;gap:10px;margin-top:10px}",
+            ".node{position:relative;padding:12px;border-radius:16px;border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.025));cursor:pointer}",
+            ".node:hover{border-color:rgba(255,184,107,.38)}",
+            ".node.selected{border-color:rgba(83,241,211,.55);box-shadow:0 0 0 4px rgba(83,241,211,.10)}",
+            ".node.blocked{border-color:rgba(255,92,122,.48)}",
+            ".node h3{margin:0;font:700 16px/1.1 \"Cormorant Garamond\",ui-serif,Georgia,serif;letter-spacing:.3px}",
+            ".node .meta{margin-top:6px;color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap}",
+            ".node .cap{color:rgba(238,243,255,.86)}",
+            ".node .badge{display:inline-flex;align-items:center;gap:7px;padding:3px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.18)}",
+            ".node .badge.good{border-color:rgba(78,242,164,.35)}",
+            ".node .badge.bad{border-color:rgba(255,92,122,.35)}",
+            "table{width:100%;border-collapse:collapse;margin-top:10px}",
+            "th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.10);vertical-align:top;text-align:left}",
+            "th{color:var(--muted);font-weight:600;font-size:12px}",
+            "tbody tr:hover{background:rgba(255,255,255,.03)}",
+            ".k{color:var(--muted)}",
+            ".small{font-size:12px;color:var(--muted)}",
+            ".right{margin-left:auto}",
+            "</style></head><body><div class=\"wrap\">",
+            "<div class=\"top\">",
+            "<div class=\"brand\">",
+            "<h1>Semantic Router</h1>",
+            "<div class=\"sub\">Text → intent → capability graph → ranked candidates. This is the missing “front door” that routes demand onto Nooterra’s negotiation, work-order, and settlement rails.</div>",
+            "</div>",
+            "<div class=\"pill\"><span style=\"color:var(--accent)\">◆</span> RouterPlan.v1 <span class=\"k\">+ sha256 planHash</span></div>",
+            "</div>",
+            "<div class=\"grid\">",
+            "<section class=\"card\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><label>Tenant ID</label><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><label>Ops token</label><input id=\"opsTokenInput\" type=\"password\" placeholder=\"tok_opsr or tok_opsw\"/></div>",
+            "<div class=\"field small\"><label>Protocol</label><input id=\"protocolInput\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field small\"><label>Discovery scope</label><select id=\"scopeInput\"><option value=\"tenant\">tenant</option><option value=\"public\">public</option></select></div>",
+            "<div class=\"field small\"><label>Score strategy</label><select id=\"scoreStrategyInput\"><option value=\"balanced\">balanced</option><option value=\"trust_weighted\">trust_weighted</option></select></div>",
+            "<div class=\"field\"><label>Requester agentId (optional)</label><input id=\"requesterAgentIdInput\" placeholder=\"agt_...\"/></div>",
+            "<div class=\"field small\"><label>Max candidates</label><input id=\"maxCandidatesInput\" type=\"number\" min=\"1\" max=\"25\" value=\"5\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:10px\">",
+            "<label>Request text</label>",
+            "<textarea id=\"requestTextInput\" placeholder=\"e.g. Implement feature X, open a PR, make tests pass, and do a security review.\"></textarea>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<button id=\"planBtn\">Generate plan</button>",
+            "<button class=\"ghost\" id=\"copyHashBtn\" disabled>Copy planHash</button>",
+            "<button class=\"secondary\" id=\"copyJsonBtn\" disabled>Copy JSON</button>",
+            "<div class=\"right small\">Tip: include an explicit <span class=\"mono\">capability://...</span> in the text to force routing.</div>",
+            "</div>",
+            "<div id=\"status\" class=\"status\">Ready.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<div class=\"row\"><div class=\"field\"><label>Plan summary</label><pre id=\"summary\" class=\"mono\">{}</pre></div></div>",
+            "<div class=\"row\" style=\"margin-top:10px\"><div class=\"field\"><label>Issues</label><pre id=\"issues\" class=\"mono\">[]</pre></div></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"grid\" style=\"margin-top:14px\">",
+            "<section class=\"card\">",
+            "<div class=\"row\"><div class=\"field\"><label>Capability graph</label><div id=\"graph\" class=\"graph\"></div></div></div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<div class=\"row\"><div class=\"field\"><label>Candidates</label><div id=\"candidatesEmpty\" class=\"small\">Select a node to see ranked candidates.</div><div id=\"candidates\"></div></div></div>",
+            "</section>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              scope: initialScope,
+              scoreStrategy: initialScoreStrategy
+            })};`,
+            "const state = { plan: null, selectedTaskId: null };",
+            "function byId(id){ return document.getElementById(id); }",
+            "function setStatus(text, kind){ const el = byId('status'); el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-nooterra-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "async function requestJson(path, { method='GET', body=null, write=false } = {}){ const res = await fetch(path, { method, headers: headers({ write, json: body !== null }), body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "function copy(text){ return navigator.clipboard && typeof navigator.clipboard.writeText === 'function' ? navigator.clipboard.writeText(String(text ?? '')) : Promise.reject(new Error('clipboard unavailable')); }",
+            "function safeJson(value){ try { return JSON.stringify(value, null, 2); } catch { return String(value ?? ''); } }",
+            "function render(){ const plan = state.plan; byId('copyHashBtn').disabled = !plan; byId('copyJsonBtn').disabled = !plan; byId('summary').textContent = plan ? safeJson({ planId: plan.planId, planHash: plan.planHash, scope: plan.scope, intent: plan.intent, taskCount: plan.taskCount, generatedAt: plan.generatedAt }) : '{}'; byId('issues').textContent = plan ? safeJson(plan.issues || []) : '[]'; renderGraph(); renderCandidates(); }",
+            "function renderGraph(){ const root = byId('graph'); root.innerHTML = ''; const plan = state.plan; if(!plan || !Array.isArray(plan.tasks) || plan.tasks.length===0){ root.innerHTML = '<div class=\"small\">No tasks. (Try a request mentioning PR/GitHub, or embed capability://...)</div>'; return; } for(const t of plan.tasks){ const node = document.createElement('div'); node.className = 'node' + (String(state.selectedTaskId||'')===String(t.taskId||'') ? ' selected' : '') + ((Array.isArray(t.candidates)&&t.candidates.length===0) ? ' blocked' : ''); const cap = String(t.requiredCapability||''); const candCount = Array.isArray(t.candidates)?t.candidates.length:0; const badgeKind = candCount>0 ? 'good' : 'bad'; node.innerHTML = `<h3>${t.title || t.taskId}</h3><div class=\\\"meta\\\"><span class=\\\"badge\\\"><span class=\\\"k\\\">task</span> <span class=\\\"mono\\\">${t.taskId||''}</span></span><span class=\\\"badge\\\"><span class=\\\"k\\\">cap</span> <span class=\\\"cap mono\\\">${cap}</span></span><span class=\\\"badge ${badgeKind}\\\"><span class=\\\"k\\\">candidates</span> <span class=\\\"mono\\\">${candCount}</span></span></div>`; node.addEventListener('click', ()=>{ state.selectedTaskId = String(t.taskId||''); render(); }); root.appendChild(node); } if(!state.selectedTaskId){ state.selectedTaskId = String(plan.tasks[0]?.taskId||''); } }",
+            "function selectedTask(){ const plan = state.plan; if(!plan) return null; const id = String(state.selectedTaskId||''); return (Array.isArray(plan.tasks)?plan.tasks:[]).find((t)=>String(t.taskId||'')===id) || null; }",
+            "function renderCandidates(){ const wrap = byId('candidates'); const empty = byId('candidatesEmpty'); wrap.innerHTML = ''; const task = selectedTask(); if(!task){ empty.style.display='block'; return; } empty.style.display='none'; const rows = Array.isArray(task.candidates) ? task.candidates : []; if(rows.length===0){ wrap.innerHTML = '<div class=\"small\">No candidates for this capability under current scope.</div>'; return; } const table = document.createElement('table'); table.innerHTML = `<thead><tr><th>Rank</th><th>Agent</th><th>Trust</th><th>Risk</th><th>Price hint</th><th>Score</th></tr></thead>`; const body = document.createElement('tbody'); for(const c of rows){ const tr = document.createElement('tr'); const price = c.priceHint && typeof c.priceHint==='object' ? `${c.priceHint.amountCents ?? 'n/a'} ${c.priceHint.currency ?? ''}` : 'n/a'; tr.innerHTML = `<td class=\\\"mono\\\">${c.rank ?? ''}</td><td><div class=\\\"mono\\\">${c.agentId}</div><div class=\\\"small\\\">${c.displayName || ''}</div></td><td class=\\\"mono\\\">${c.trustScore ?? 'n/a'}</td><td class=\\\"mono\\\">${c.riskTier ?? 'n/a'}</td><td class=\\\"mono\\\">${price}</td><td class=\\\"mono\\\">${(c.rankingScore ?? '').toString()}</td>`; body.appendChild(tr); } table.appendChild(body); wrap.appendChild(table); }",
+            "async function generatePlan(){ const text = String(byId('requestTextInput').value || '').trim(); if(!text){ setStatus('Enter a request first.', 'bad'); return; } const scope = String(byId('scopeInput').value || 'tenant').trim(); const scoreStrategy = String(byId('scoreStrategyInput').value || 'balanced').trim(); const requesterAgentId = String(byId('requesterAgentIdInput').value || '').trim(); const maxCandidates = Number(byId('maxCandidatesInput').value || 5); setStatus('Planning...', ''); try { const out = await requestJson('/router/plan', { method:'POST', body: { text, scope, scoreStrategy, requesterAgentId: requesterAgentId || null, maxCandidates, includeReputation: true, includeRoutingFactors: true } }); state.plan = out && out.plan ? out.plan : null; state.selectedTaskId = null; const issueCount = Array.isArray(state.plan?.issues) ? state.plan.issues.length : 0; setStatus(`Plan ready. tasks=${state.plan?.taskCount ?? 0} issues=${issueCount}. planHash=${String(state.plan?.planHash||'').slice(0,12)}…`, issueCount>0 ? 'warn' : 'good'); render(); } catch (err){ state.plan = null; state.selectedTaskId = null; render(); setStatus(`Plan failed: ${err.message}`, 'bad'); } }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('scopeInput').value = String(INITIAL.scope || 'tenant');",
+            "byId('scoreStrategyInput').value = String(INITIAL.scoreStrategy || 'balanced');",
+            "byId('planBtn').addEventListener('click', generatePlan);",
+            "byId('copyHashBtn').addEventListener('click', async()=>{ if(!state.plan) return; try { await copy(state.plan.planHash || ''); setStatus('Copied planHash to clipboard.', 'good'); } catch (err){ setStatus(`Copy failed: ${err.message}`, 'bad'); } });",
+            "byId('copyJsonBtn').addEventListener('click', async()=>{ if(!state.plan) return; try { await copy(safeJson(state.plan)); setStatus('Copied plan JSON to clipboard.', 'good'); } catch (err){ setStatus(`Copy failed: ${err.message}`, 'bad'); } });",
+            "render();",
+            "</script></div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
+        }
+
         if (parts[1] === "kernel" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
           const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
           if (!hasScope) return sendError(res, 403, "forbidden");
@@ -39156,6 +41400,44 @@ export function createApi({
               { code: "MONEY_RAIL_PROVIDER_NOT_ALLOWED" }
             );
           }
+          const degradedEnqueueGuard = evaluateMoneyRailDegradedModeGuard({
+            moneyRailControls,
+            providerId: providerIdInput,
+            action: MONEY_RAIL_DEGRADED_ACTION.ENQUEUE_PAYOUT
+          });
+          if (degradedEnqueueGuard.blocked) {
+            if (typeof store.appendOpsAudit === "function") {
+              try {
+                await store.appendOpsAudit({
+                  tenantId,
+                  audit: makeOpsAudit({
+                    action: "MONEY_RAIL_DEGRADED_MODE_REJECTED",
+                    targetType: "money_rail_provider",
+                    targetId: providerIdInput,
+                    details: {
+                      providerId: providerIdInput,
+                      outageAction: degradedEnqueueGuard.outageAction,
+                      outageReasonCode: degradedEnqueueGuard.outageReasonCode,
+                      code: degradedEnqueueGuard.code
+                    }
+                  })
+                });
+              } catch {
+                // best-effort
+              }
+            }
+            return sendError(
+              res,
+              409,
+              "money rail provider is in degraded mode; payout enqueue denied",
+              {
+                providerId: providerIdInput,
+                outageAction: degradedEnqueueGuard.outageAction,
+                outageReasonCode: degradedEnqueueGuard.outageReasonCode
+              },
+              { code: degradedEnqueueGuard.code }
+            );
+          }
           let providerOperationsForChecks = null;
           let payoutAmountCents = payoutAmountCentsGross;
           let chargebackContext = {
@@ -39494,6 +41776,48 @@ export function createApi({
             if (!adapter) return sendError(res, 404, "money rail provider not found");
             const providerConfig = getMoneyRailProviderConfig(providerId);
             if (!providerConfig) return sendError(res, 404, "money rail provider not found");
+            const billingCfg = await getTenantBillingConfig(tenantId);
+            const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+            const degradedSubmitGuard = evaluateMoneyRailDegradedModeGuard({
+              moneyRailControls,
+              providerId,
+              action: MONEY_RAIL_DEGRADED_ACTION.SUBMIT_PAYOUT
+            });
+            if (degradedSubmitGuard.blocked) {
+              if (typeof store.appendOpsAudit === "function") {
+                try {
+                  await store.appendOpsAudit({
+                    tenantId,
+                    audit: makeOpsAudit({
+                      action: "MONEY_RAIL_DEGRADED_MODE_REJECTED",
+                      targetType: "money_rail_provider",
+                      targetId: providerId,
+                      details: {
+                        providerId,
+                        operationId,
+                        outageAction: degradedSubmitGuard.outageAction,
+                        outageReasonCode: degradedSubmitGuard.outageReasonCode,
+                        code: degradedSubmitGuard.code
+                      }
+                    })
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
+              return sendError(
+                res,
+                409,
+                "money rail provider is in degraded mode; payout submit denied",
+                {
+                  providerId,
+                  operationId,
+                  outageAction: degradedSubmitGuard.outageAction,
+                  outageReasonCode: degradedSubmitGuard.outageReasonCode
+                },
+                { code: degradedSubmitGuard.code }
+              );
+            }
 
             const body = (await readJsonBody(req)) ?? {};
             if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -40673,6 +42997,9 @@ export function createApi({
             if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
               return sendError(res, 403, "forbidden");
             }
+            if (store.kind === "pg" && typeof store.listFinanceReconciliationTriages !== "function") {
+              return sendError(res, 501, "finance reconciliation triage listing is not supported for this store");
+            }
 
             const period = url.searchParams.get("period") ?? url.searchParams.get("month");
             if (!period) return sendError(res, 400, "period is required");
@@ -40701,7 +43028,13 @@ export function createApi({
               return sendJson(res, 200, report);
             } catch (err) {
               if (Number.isSafeInteger(err?.statusCode)) {
-                return sendError(res, err.statusCode, err?.message ?? "money rail reconcile failed", { code: err?.code ?? null });
+                return sendError(
+                  res,
+                  err.statusCode,
+                  err?.message ?? "money rail reconcile failed",
+                  null,
+                  { code: err?.code ?? null }
+                );
               }
               throw err;
             }
@@ -41990,6 +44323,9 @@ export function createApi({
             if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
               return sendError(res, 403, "forbidden");
             }
+            if (store.kind === "pg" && typeof store.listFinanceReconciliationTriages !== "function") {
+              return sendError(res, 501, "finance reconciliation triage listing is not supported for this store");
+            }
             let period = null;
             let status = null;
             let sourceType = null;
@@ -42048,6 +44384,12 @@ export function createApi({
 
           if (parts[1] === "finance" && parts[2] === "reconciliation" && parts[3] === "triage" && parts.length === 4 && req.method === "POST") {
             if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            if (
+              store.kind === "pg" &&
+              (typeof store.getFinanceReconciliationTriage !== "function" || typeof store.putFinanceReconciliationTriage !== "function")
+            ) {
+              return sendError(res, 501, "finance reconciliation triage persistence is not supported for this store");
+            }
             const body = (await readJsonBody(req)) ?? {};
             let idemStoreKey = null;
             let idemRequestHash = null;
@@ -48888,6 +51230,36 @@ export function createApi({
         const rfq = getMarketplaceRfq({ tenantId, rfqId });
         if (!rfq) return sendError(res, 404, "marketplace rfq not found");
 
+        async function acceptMarketplaceRfqBid({
+          body,
+          idemStoreKey = null,
+          idemRequestHash = null,
+          responseBodyTransform = (value) => value
+        } = {}) {
+          return acceptMarketplaceRfqBidForRfq({
+            rfq,
+            rfqId,
+            body,
+            idemStoreKey,
+            idemRequestHash,
+            responseBodyTransform
+          });
+        }
+
+        async function autoAcceptMarketplaceRfqBid({
+          body,
+          idemStoreKey = null,
+          idemRequestHash = null
+        } = {}) {
+          return autoAcceptMarketplaceRfqBidForRfq({
+            rfq,
+            rfqId,
+            body,
+            idemStoreKey,
+            idemRequestHash
+          });
+        }
+
         if (req.method === "GET" && marketplaceParts.length === 4 && marketplaceParts[3] === "bids") {
           let status = "all";
           try {
@@ -49407,6 +51779,36 @@ export function createApi({
           return sendJson(res, 200, responseBody);
         }
 
+        if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[3] === "auto-accept") {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          try {
+            const responseBody = await autoAcceptMarketplaceRfqBid({ body, idemStoreKey, idemRequestHash });
+            return sendJson(res, 200, responseBody);
+          } catch (err) {
+            const statusCode = Number.isSafeInteger(Number(err?.statusCode)) ? Number(err.statusCode) : 400;
+            return sendError(res, statusCode, err?.message ?? "marketplace auto-award failed", err?.details ?? null, {
+              code: err?.code ?? null
+            });
+          }
+        }
+
         if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[3] === "accept") {
           const body = await readJsonBody(req);
           let idemStoreKey = null;
@@ -49426,554 +51828,15 @@ export function createApi({
             }
           }
 
-          if (String(rfq.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace rfq is not open");
-
-          const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : null;
-          if (!bidId) return sendError(res, 400, "bidId is required");
-
-          const acceptedByAgentId = body?.acceptedByAgentId && String(body.acceptedByAgentId).trim() !== "" ? String(body.acceptedByAgentId).trim() : null;
-          const acceptanceSignatureInput =
-            body?.acceptanceSignature && typeof body.acceptanceSignature === "object" && !Array.isArray(body.acceptanceSignature)
-              ? body.acceptanceSignature
-              : null;
-          if (body?.acceptanceSignature !== undefined && acceptanceSignatureInput === null) {
-            return sendError(res, 400, "acceptanceSignature must be an object");
-          }
-          if (acceptanceSignatureInput && !acceptedByAgentId) {
-            return sendError(res, 400, "acceptedByAgentId is required when acceptanceSignature is provided");
-          }
-          let acceptedByIdentity = null;
-          if (acceptedByAgentId) {
-            try {
-              acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
-            } catch (err) {
-              return sendError(res, 400, "invalid acceptedByAgentId", { message: err?.message });
-            }
-            if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found");
-          }
-
-          const existingBids = listMarketplaceRfqBids({ tenantId, rfqId, status: "all" });
-          const selectedBid = existingBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
-          if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
-          if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") return sendError(res, 409, "marketplace bid is not pending");
-
-          let rfqDirection = null;
-          let bidDirection = null;
           try {
-            rfqDirection = parseInteractionDirection({ fromTypeRaw: rfq?.fromType, toTypeRaw: rfq?.toType });
-            bidDirection = parseInteractionDirection({
-              fromTypeRaw: selectedBid?.fromType,
-              toTypeRaw: selectedBid?.toType,
-              defaultFromType: rfqDirection.fromType,
-              defaultToType: rfqDirection.toType
-            });
+            const responseBody = await acceptMarketplaceRfqBid({ body, idemStoreKey, idemRequestHash });
+            return sendJson(res, 200, responseBody);
           } catch (err) {
-            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
-          }
-          if (bidDirection.fromType !== rfqDirection.fromType || bidDirection.toType !== rfqDirection.toType) {
-            return sendError(res, 409, "accepted bid interaction direction must match rfq direction");
-          }
-
-          const payeeAgentId = selectedBid?.bidderAgentId ? String(selectedBid.bidderAgentId) : null;
-          if (!payeeAgentId) return sendError(res, 409, "selected bid is missing bidderAgentId");
-          let payeeIdentity = null;
-          try {
-            payeeIdentity = await getAgentIdentityRecord({ tenantId, agentId: payeeAgentId });
-          } catch (err) {
-            return sendError(res, 400, "invalid bidderAgentId", { message: err?.message });
-          }
-          if (!payeeIdentity) return sendError(res, 404, "bidder agent identity not found");
-
-          const settlementInput = body?.settlement && typeof body.settlement === "object" ? body.settlement : {};
-          let acceptDirection = null;
-          try {
-            acceptDirection = parseInteractionDirection({
-              fromTypeRaw: body?.fromType ?? settlementInput?.fromType,
-              toTypeRaw: body?.toType ?? settlementInput?.toType,
-              defaultFromType: rfqDirection.fromType,
-              defaultToType: rfqDirection.toType
-            });
-          } catch (err) {
-            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
-          }
-          if (acceptDirection.fromType !== rfqDirection.fromType || acceptDirection.toType !== rfqDirection.toType) {
-            return sendError(res, 409, "settlement interaction direction must match rfq direction");
-          }
-          const payerAgentIdRaw =
-            settlementInput.payerAgentId ??
-            body?.payerAgentId ??
-            rfq?.posterAgentId ??
-            null;
-          if (typeof payerAgentIdRaw !== "string" || payerAgentIdRaw.trim() === "") {
-            return sendError(res, 400, "payerAgentId is required (rfq poster or settlement.payerAgentId)");
-          }
-          const acceptedAt = nowIso();
-          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ rfq: rfq, bid: selectedBid });
-          let selectedBidNegotiation =
-            selectedBid?.negotiation && typeof selectedBid.negotiation === "object" && !Array.isArray(selectedBid.negotiation)
-              ? selectedBid.negotiation
-              : null;
-          if (!selectedBidNegotiation) {
-            try {
-              selectedBidNegotiation = bootstrapMarketplaceBidNegotiation({
-                rfq: rfq,
-                bid: selectedBid,
-                counterOfferPolicy,
-                at: acceptedAt
-              });
-            } catch (err) {
-              return sendError(res, 409, "unable to bootstrap bid negotiation", { message: err?.message });
-            }
-          }
-          const selectedPolicyApplied = applyMarketplaceBidNegotiationPolicy({
-            negotiation: selectedBidNegotiation,
-            counterOfferPolicy,
-            at: acceptedAt,
-            expireIfTimedOut: true
-          });
-          selectedBidNegotiation = selectedPolicyApplied.negotiation;
-          counterOfferPolicy = selectedPolicyApplied.counterOfferPolicy;
-          if (selectedPolicyApplied.justExpired) {
-            const latestExpiredProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
-            const expiredBid = {
-              ...selectedBid,
-              negotiation: selectedBidNegotiation,
-              counterOfferPolicy,
-              updatedAt: acceptedAt
-            };
-            const expiredBids = existingBids.map((candidate) => {
-              if (!candidate || typeof candidate !== "object") return candidate;
-              if (String(candidate.bidId ?? "") !== bidId) return candidate;
-              return expiredBid;
-            });
-            const expiredRfq = {
-              ...rfq,
-              updatedAt: acceptedAt
-            };
-            await commitTx([
-              { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: expiredRfq },
-              { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: expiredBids }
-            ]);
-            try {
-              await emitMarketplaceLifecycleArtifact({
-                tenantId,
-                eventType: "proposal.expired",
-                rfqId: rfqId,
-                sourceEventId: latestExpiredProposal?.proposalId ?? null,
-                actorAgentId: acceptedByAgentId ?? String(payerAgentIdRaw).trim(),
-                details: {
-                  bidId,
-                  expiresAt: selectedPolicyApplied.expiresAt ?? null,
-                  negotiation: selectedBidNegotiation
-                }
-              });
-            } catch {
-              // Best-effort lifecycle delivery.
-            }
-            return sendError(res, 409, "marketplace bid negotiation expired", {
-              expiresAt: selectedPolicyApplied.expiresAt ?? null
+            const statusCode = Number.isSafeInteger(Number(err?.statusCode)) ? Number(err.statusCode) : 400;
+            return sendError(res, statusCode, err?.message ?? "marketplace bid accept failed", err?.details ?? null, {
+              code: err?.code ?? null
             });
           }
-          const selectedNegotiationState = String(selectedBidNegotiation?.state ?? "open").toLowerCase();
-          if (selectedNegotiationState === "expired") {
-            return sendError(res, 409, "marketplace bid negotiation expired", {
-              expiresAt: selectedPolicyApplied.expiresAt ?? selectedBidNegotiation?.expiresAt ?? null
-            });
-          }
-          if (selectedNegotiationState !== "open") {
-            return sendError(res, 409, "marketplace bid negotiation is not open");
-          }
-          const selectedLatestProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
-          if (!selectedLatestProposal) return sendError(res, 409, "marketplace bid negotiation has no proposals");
-          selectedBidNegotiation = updateMarketplaceBidNegotiationState({
-            negotiation: selectedBidNegotiation,
-            state: "accepted",
-            at: acceptedAt,
-            acceptedByAgentId: acceptedByAgentId ?? null,
-            acceptedProposalId: selectedLatestProposal?.proposalId ?? null,
-            acceptedRevision: selectedLatestProposal?.revision ?? null
-          });
-          const selectedBidAccepted = {
-            ...selectedBid,
-            amountCents: selectedLatestProposal?.amountCents ?? selectedBid?.amountCents,
-            currency: selectedLatestProposal?.currency ?? selectedBid?.currency,
-            etaSeconds: selectedLatestProposal?.etaSeconds ?? null,
-            note: selectedLatestProposal?.note ?? null,
-            verificationMethod: selectedLatestProposal?.verificationMethod ?? selectedBid?.verificationMethod ?? null,
-            policy: selectedLatestProposal?.policy ?? selectedBid?.policy ?? null,
-            policyRef: selectedLatestProposal?.policyRef ?? selectedBid?.policyRef ?? null,
-            policyRefHash: selectedLatestProposal?.policyRefHash ?? null,
-            metadata: selectedLatestProposal?.metadata ?? null,
-            negotiation: selectedBidNegotiation,
-            counterOfferPolicy,
-            status: "accepted",
-            acceptedAt,
-            rejectedAt: null,
-            updatedAt: acceptedAt
-          };
-          const defaultAmountCents = Number(selectedBidAccepted?.amountCents);
-          const fallbackCurrency =
-            typeof selectedBidAccepted?.currency === "string" && selectedBidAccepted.currency.trim() !== ""
-              ? selectedBidAccepted.currency
-              : rfq?.currency ?? "USD";
-          let settlementRequest = null;
-          try {
-            settlementRequest = validateAgentRunSettlementRequest({
-              payerAgentId: String(payerAgentIdRaw).trim(),
-              amountCents: settlementInput.amountCents ?? defaultAmountCents,
-              currency: settlementInput.currency ?? fallbackCurrency
-            });
-          } catch (err) {
-            return sendError(res, 400, "invalid settlement payload", { message: err?.message });
-          }
-
-          let payerIdentity = null;
-          try {
-            payerIdentity = await getAgentIdentityRecord({ tenantId, agentId: settlementRequest.payerAgentId });
-          } catch (err) {
-            return sendError(res, 400, "invalid payerAgentId", { message: err?.message });
-          }
-          if (!payerIdentity) return sendError(res, 404, "payer agent identity not found");
-
-          const acceptLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
-            tenantId,
-            participants: [
-              { role: "payer", agentId: settlementRequest.payerAgentId },
-              { role: "payee", agentId: payeeAgentId },
-              ...(
-                acceptedByAgentId && !acceptanceSignatureInput
-                  ? [{ role: "accepted_by", agentId: acceptedByAgentId }]
-                  : []
-              )
-            ],
-            operation: "marketplace_bid.accept",
-            at: acceptedAt,
-            enforceSignerLifecycle: true
-          });
-          if (acceptLifecycleGuard?.blocked) {
-            return sendError(
-              res,
-              acceptLifecycleGuard.httpStatus ?? 409,
-              acceptLifecycleGuard.message,
-              acceptLifecycleGuard.details ?? null,
-              { code: acceptLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
-            );
-          }
-
-          try {
-            await assertSettlementWithinWalletPolicy({
-              tenantId,
-              agentIdentity: payerIdentity,
-              amountCents: settlementRequest.amountCents,
-              at: acceptedAt
-            });
-          } catch (err) {
-            return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
-          }
-
-          const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${rfqId}_${bidId}`;
-          if (typeof runId !== "string" || runId.trim() === "") return sendError(res, 400, "runId must be a non-empty string");
-          let existingRun = null;
-          if (typeof store.getAgentRun === "function") {
-            existingRun = await store.getAgentRun({ tenantId, runId });
-          } else if (store.agentRuns instanceof Map) {
-            existingRun = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
-          } else {
-            return sendError(res, 501, "agent runs not supported for this store");
-          }
-          if (existingRun && !idemStoreKey) return sendError(res, 409, "run already exists");
-
-          const runCreatedPayload = {
-            runId,
-            agentId: payeeAgentId,
-            tenantId,
-            taskType:
-              body?.taskType && String(body.taskType).trim() !== ""
-                ? String(body.taskType).trim()
-                : rfq?.capability ?? rfq?.title ?? "marketplace-rfq",
-            inputRef:
-              body?.inputRef && String(body.inputRef).trim() !== ""
-                ? String(body.inputRef).trim()
-                : `marketplace://rfqs/${encodeURIComponent(rfqId)}`
-          };
-          try {
-            validateRunCreatedPayload(runCreatedPayload);
-          } catch (err) {
-            return sendError(res, 400, "invalid run payload", { message: err?.message });
-          }
-          const createdEvent = createChainedEvent({
-            streamId: runId,
-            type: AGENT_RUN_EVENT_TYPE.RUN_CREATED,
-            actor: { type: "agent", id: payeeAgentId },
-            payload: runCreatedPayload,
-            at: acceptedAt
-          });
-          const runEvents = normalizeAgentRunEventRecords(appendChainedEvent({ events: [], event: createdEvent, signer: serverSigner }));
-          let run = null;
-          try {
-            run = reduceAgentRun(runEvents);
-          } catch (err) {
-            return sendError(res, 400, "run creation rejected", { message: err?.message });
-          }
-
-          let payerWallet = null;
-          try {
-            const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlementRequest.payerAgentId });
-            const basePayerWallet = ensureAgentWallet({
-              wallet: existingPayerWallet,
-              tenantId,
-              agentId: settlementRequest.payerAgentId,
-              currency: settlementRequest.currency,
-              at: acceptedAt
-            });
-            payerWallet = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents: settlementRequest.amountCents, at: acceptedAt });
-            projectEscrowLedgerOperation({
-              tenantId,
-              settlement: {
-                payerAgentId: settlementRequest.payerAgentId,
-                agentId: payeeAgentId,
-                currency: settlementRequest.currency
-              },
-              operationId: `escrow_hold_${runId}`,
-              type: ESCROW_OPERATION_TYPE.HOLD,
-              amountCents: settlementRequest.amountCents,
-              at: acceptedAt,
-              payerWalletBefore: basePayerWallet,
-              payerWalletAfter: payerWallet,
-              memo: `run:${runId}:hold`
-            });
-          } catch (err) {
-            return sendError(res, 409, "unable to lock settlement escrow", { message: err?.message, code: err?.code ?? null });
-          }
-
-          const disputeWindowDaysRaw = body?.disputeWindowDays ?? settlementInput?.disputeWindowDays ?? 3;
-          const disputeWindowDays =
-            Number.isSafeInteger(Number(disputeWindowDaysRaw)) && Number(disputeWindowDaysRaw) >= 0 ? Number(disputeWindowDaysRaw) : 3;
-          let policySelection = null;
-          try {
-            policySelection = resolveMarketplaceSettlementPolicySelection({
-              tenantId,
-              policyRefInput: body?.policyRef ?? settlementInput?.policyRef ?? selectedBidAccepted?.policyRef ?? null,
-              verificationMethodInput:
-                body?.verificationMethod ?? settlementInput?.verificationMethod ?? selectedBidAccepted?.verificationMethod ?? undefined,
-              settlementPolicyInput: body?.policy ?? settlementInput?.policy ?? selectedBidAccepted?.policy ?? undefined
-            });
-          } catch (err) {
-            if (err?.code === "TENANT_SETTLEMENT_POLICY_NOT_FOUND") {
-              return sendError(res, 404, "policyRef not found");
-            }
-            if (err?.code === "TENANT_SETTLEMENT_POLICY_REF_MISMATCH") {
-              return sendError(res, 409, "policyRef does not match verificationMethod/policy", { message: err?.message });
-            }
-            if (err?.code === "INVALID_VERIFICATION_METHOD") {
-              return sendError(res, 400, "invalid verificationMethod", { message: err?.message });
-            }
-            if (err?.code === "INVALID_SETTLEMENT_POLICY") {
-              return sendError(res, 400, "invalid policy", { message: err?.message });
-            }
-            return sendError(res, 400, "invalid agreement policy selection", { message: err?.message });
-          }
-
-          const verificationMethodInput = policySelection.verificationMethod;
-          const settlementPolicyInput = policySelection.policy;
-          const policyRefInput = policySelection.policyRef;
-          const agreementTermsInput = body?.agreementTerms ?? settlementInput?.agreementTerms ?? null;
-          let agreement = null;
-          try {
-            agreement = buildMarketplaceRfqAgreement({
-              tenantId,
-              rfq: rfq,
-              bid: selectedBidAccepted,
-              runId,
-              acceptedAt,
-              acceptedByAgentId,
-              payerAgentId: settlementRequest.payerAgentId,
-              fromType: acceptDirection.fromType,
-              toType: acceptDirection.toType,
-              disputeWindowDays,
-              verificationMethodInput,
-              settlementPolicyInput,
-              policyRefInput,
-              agreementTermsInput
-            });
-          } catch (err) {
-            return sendError(res, 400, "invalid agreement terms", { message: err?.message });
-          }
-          if (acceptanceSignatureInput) {
-            try {
-              const acceptanceSignature = await parseSignedMarketplaceAgreementAcceptance({
-                tenantId,
-                agreement,
-                acceptedByAgentId,
-                acceptedByIdentity,
-                acceptanceSignatureInput
-              });
-              agreement = {
-                ...agreement,
-                acceptanceSignature
-              };
-            } catch (err) {
-              const details =
-                err?.details && typeof err.details === "object" && !Array.isArray(err.details)
-                  ? { ...err.details, message: err?.message }
-                  : { message: err?.message };
-              return sendError(res, 400, "invalid acceptance signature", details, { code: err?.code ?? null });
-            }
-          }
-          let settlement = createAgentRunSettlement({
-            tenantId,
-            runId,
-            agentId: payeeAgentId,
-            payerAgentId: settlementRequest.payerAgentId,
-            amountCents: settlementRequest.amountCents,
-            currency: settlementRequest.currency,
-            disputeWindowDays,
-            at: acceptedAt
-          });
-          const pendingVerifierRef = resolveAgreementVerifierRef(agreement?.verificationMethod ?? null);
-          const pendingKernelRefs = buildSettlementKernelRefs({
-            settlement,
-            run,
-            agreementId: agreement?.agreementId ?? null,
-            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
-            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
-            decisionReason: null,
-            verificationStatus: null,
-            policyHash: agreement?.policyHash ?? null,
-            verificationMethodHash: agreement?.verificationMethodHash ?? null,
-            verificationMethodMode: pendingVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
-            verifierId: pendingVerifierRef?.verifierId ?? "nooterra.policy-engine",
-            verifierVersion: pendingVerifierRef?.verifierVersion ?? "v1",
-            verifierHash: pendingVerifierRef?.verifierHash ?? null,
-            finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
-            settledAt: null,
-            createdAt: acceptedAt
-          });
-          settlement = updateAgentRunSettlementDecision({
-            settlement,
-            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
-            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
-            decisionPolicyHash: agreement?.policyHash ?? null,
-            decisionReason: null,
-            decisionTrace: {
-              phase: "agreement.accepted",
-              verificationMethod: agreement?.verificationMethod ?? null,
-              policy: agreement?.policy ?? null,
-              decisionRecord: pendingKernelRefs.decisionRecord,
-              settlementReceipt: pendingKernelRefs.settlementReceipt
-            },
-            at: acceptedAt
-          });
-          const nextRfq = {
-            ...rfq,
-            fromType: rfqDirection.fromType,
-            toType: rfqDirection.toType,
-            status: "assigned",
-            acceptedBidId: bidId,
-            acceptedBidderAgentId: selectedBidAccepted.bidderAgentId ?? null,
-            acceptedAt,
-            acceptedByAgentId: acceptedByAgentId ?? null,
-            runId,
-            agreementId: agreement.agreementId,
-            agreement,
-            settlementId: settlement.settlementId,
-            settlementDecisionStatus: settlement.decisionStatus ?? null,
-            updatedAt: acceptedAt
-          };
-          const nextBids = existingBids.map((candidate) => {
-            if (!candidate || typeof candidate !== "object") return candidate;
-            if (String(candidate.bidId ?? "") === bidId) {
-              return selectedBidAccepted;
-            }
-            const status = String(candidate.status ?? "pending").toLowerCase();
-            if (status === "pending") {
-              let rejectedNegotiation =
-                candidate?.negotiation && typeof candidate.negotiation === "object" && !Array.isArray(candidate.negotiation)
-                  ? candidate.negotiation
-                  : null;
-              try {
-                if (rejectedNegotiation) {
-                  rejectedNegotiation = updateMarketplaceBidNegotiationState({
-                    negotiation: rejectedNegotiation,
-                    state: "rejected",
-                    at: acceptedAt
-                  });
-                }
-              } catch {
-                rejectedNegotiation = null;
-              }
-              return {
-                ...candidate,
-                status: "rejected",
-                rejectedAt: acceptedAt,
-                updatedAt: acceptedAt,
-                negotiation: rejectedNegotiation ?? candidate?.negotiation ?? null
-              };
-            }
-            return candidate;
-          });
-
-          const acceptedBid = nextBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
-          const responseBody = {
-            rfq: toMarketplaceRfqResponse(nextRfq),
-            acceptedBid: toMarketplaceBidResponse(acceptedBid),
-            run,
-            settlement,
-            agreement,
-            offer: agreement?.offer ?? null,
-            offerAcceptance: agreement?.offerAcceptance ?? null,
-            decisionRecord: pendingKernelRefs.decisionRecord,
-            settlementReceipt: pendingKernelRefs.settlementReceipt
-          };
-          const ops = [
-            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq },
-            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: nextBids },
-            { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: runEvents },
-            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
-            { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
-          ];
-          if (idemStoreKey) {
-            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
-          }
-          await commitTx(ops);
-          try {
-            await emitMarketplaceLifecycleArtifact({
-              tenantId,
-              eventType: "marketplace.rfq.accepted",
-              rfqId: rfqId,
-              runId,
-              sourceEventId: run?.lastEventId ?? null,
-              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
-              agreement,
-              settlement,
-              details: {
-                bidId,
-                acceptedBidderAgentId: acceptedBid?.bidderAgentId ?? null
-              }
-            });
-          } catch {
-            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
-          }
-          try {
-            await emitMarketplaceLifecycleArtifact({
-              tenantId,
-              eventType: "proposal.accepted",
-              rfqId: rfqId,
-              runId,
-              sourceEventId: selectedLatestProposal?.proposalId ?? null,
-              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
-              agreement,
-              settlement,
-              details: {
-                bidId,
-                proposal: selectedLatestProposal,
-                negotiation: selectedBidNegotiation
-              }
-            });
-          } catch {
-            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
-          }
-          return sendJson(res, 200, responseBody);
         }
 
         return sendError(res, 404, "not found");
@@ -73808,6 +75671,9 @@ export function createApi({
       const statusCode = Number(res?.statusCode ?? 0);
       const durationMs = Date.now() - startedMs;
       metricInc("http_requests_total", { route, method: String(req.method ?? ""), status: String(statusCode) }, 1);
+      if (req.method === "GET") {
+        recordSettlementRouteLatencyMetric({ route, requestPath: path, durationMs });
+      }
 
 	      if (
 	        req.method === "POST" &&
