@@ -17483,6 +17483,28 @@ export function createApi({
         authorityValue: authorityRootGrantHash
       });
     }
+    const delegationParentGrantHash =
+      typeof delegationChain.parentGrantHash === "string" && delegationChain.parentGrantHash.trim() !== ""
+        ? delegationChain.parentGrantHash.trim().toLowerCase()
+        : null;
+    const authorityGrantHash =
+      typeof authorityGrant?.grantHash === "string" && authorityGrant.grantHash.trim() !== ""
+        ? authorityGrant.grantHash.trim().toLowerCase()
+        : null;
+    if (
+      Number.isSafeInteger(authorityDepth) &&
+      authorityDepth > 0 &&
+      authorityGrantHash &&
+      delegationParentGrantHash !== authorityGrantHash
+    ) {
+      throw consistencyError({
+        code: "X402_AUTHORITY_DELEGATION_PARENT_MISMATCH",
+        message: "delegation parent grant hash does not match authority grant hash",
+        field: "chainBinding.parentGrantHash",
+        delegationValue: delegationParentGrantHash,
+        authorityValue: authorityGrantHash
+      });
+    }
     const isAuthorityRootDepthZero = Number.isSafeInteger(authorityDepth) && authorityDepth === 0;
     if (isAuthorityRootDepthZero) return;
 
