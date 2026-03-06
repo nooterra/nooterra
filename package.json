@@ -62,6 +62,7 @@
     "dev:x402-gateway": "node services/x402-gateway/src/server.js",
     "quickstart:x402": "node scripts/quickstart/x402.mjs",
     "setup:onboard": "node scripts/setup/onboard.mjs",
+    "setup:seed-public-workers": "node scripts/setup/seed-public-workers.mjs",
     "setup:circle": "node scripts/setup/circle-bootstrap.mjs",
     "setup:openclaw": "node scripts/setup/openclaw-onboard.mjs",
     "start:prod": "NODE_ENV=production node src/api/server.js",
