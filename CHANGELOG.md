@@ -9,6 +9,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 Current Release: 0.2.8
 
 ### Added
+- Public trust-entry pages now cover `/wallet`, `/approvals`, `/receipts`, and `/disputes` for anonymous visitors using the Lovable-derived frontend, while configured workspaces still resolve those same routes into the live Action Wallet shell; public CTAs now point directly to onboarding instead of looping through developer docs.
 - Action Wallet v1 launch surfaces now include hosted trust and host-readiness improvements across the public frontend and onboarding path:
   - Lovable-derived public site shell for `/`, `/developers`, and `/integrations`
   - onboarding activation telemetry, first-paid-call proof actions, runtime conformance visibility, and install-to-first-approval readiness tracking

@@ -5,6 +5,8 @@ import { docsLinks } from "./site/config/links.js";
 const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
 const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
+const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
+const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
 
 function ExternalRedirect({ href }) {
   useEffect(() => {
@@ -71,8 +73,23 @@ function getRouteMode() {
   return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
 }
 
+function hasManagedRuntimeSession() {
+  if (typeof window === "undefined") return false;
+  try {
+    const onboardingState = JSON.parse(localStorage.getItem(PRODUCT_ONBOARDING_STORAGE_KEY) || "null");
+    if (onboardingState?.buyer) return true;
+    const runtime = JSON.parse(localStorage.getItem(PRODUCT_RUNTIME_STORAGE_KEY) || "null");
+    return Boolean(String(runtime?.apiKey ?? "").trim());
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const route = getRouteMode();
+  const hasManagedRuntime = hasManagedRuntimeSession();
+  const alwaysPublicModes = new Set(["home", "developers", "integrations"]);
+  const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes"]);
   if (route.mode === "operator") {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
@@ -80,7 +97,7 @@ export default function App() {
       </Suspense>
     );
   }
-  if (route.mode === "home" || route.mode === "developers" || route.mode === "integrations") {
+  if (alwaysPublicModes.has(route.mode) || (trustEntryModes.has(route.mode) && !hasManagedRuntime)) {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
         <LovableSite mode={route.mode} />

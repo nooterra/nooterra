@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   Check,
   Clock,
   FileCheck,
@@ -11,6 +12,7 @@ import {
   Shield,
   X
 } from "lucide-react";
+import { docsLinks, ossLinks } from "../site/config/links.js";
 
 function FadeIn({ children, delay = 0, className = "" }) {
   return (
@@ -64,7 +66,7 @@ function SiteNav() {
 
         <div className="hidden lg:block">
           <a
-            href="/developers"
+            href="/onboarding"
             className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
           >
             Get started
@@ -96,7 +98,7 @@ function SiteNav() {
               </a>
             ))}
             <a
-              href="/developers"
+              href="/onboarding"
               onClick={() => setMobileOpen(false)}
               className="mt-2 inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14]"
             >
@@ -134,16 +136,16 @@ function SiteFooter() {
             <div className="space-y-3">
               <a href="/developers" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Documentation</a>
               <a href="/integrations" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Integrations</a>
-              <span className="block text-sm text-stone-300">API Reference</span>
-              <span className="block text-sm text-stone-300">Status</span>
+              <a href={docsLinks.api} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
+              <a href={ossLinks.repo} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">GitHub</a>
             </div>
           </div>
           <div>
             <h4 className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-stone-500">Company</h4>
             <div className="space-y-3">
-              <span className="block text-sm text-stone-300">Security</span>
-              <span className="block text-sm text-stone-300">Privacy</span>
-              <span className="block text-sm text-stone-300">Terms</span>
+              <a href={docsLinks.security} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Security</a>
+              <a href={docsLinks.ops} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Operations</a>
+              <a href={ossLinks.issues} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Support</a>
             </div>
           </div>
         </div>
@@ -194,11 +196,11 @@ function HomePage() {
           </FadeIn>
           <FadeIn delay={0.3}>
             <div className="mt-12 flex flex-wrap gap-4">
-              <a href="/developers" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                Start integrating <ArrowRight size={16} />
+              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                Get started <ArrowRight size={16} />
               </a>
-              <a href="/wallet" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                Explore Action Wallet
+              <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                Explore developer toolkit
               </a>
             </div>
           </FadeIn>
@@ -346,8 +348,8 @@ function HomePage() {
               <a href="/developers" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 View documentation <ArrowRight size={16} />
               </a>
-              <a href="/wallet" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                Explore the Wallet
+              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                Set up Action Wallet
               </a>
             </div>
           </FadeIn>
@@ -478,6 +480,32 @@ nooterra receipts list --wallet prod-agent --last 24h`
           </FadeIn>
         </div>
       </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+          <FadeIn>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Next step</p>
+                <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Issue a real wallet.
+                </h2>
+                <p className="mt-4 max-w-2xl text-stone-400">
+                  Use onboarding to create the workspace identity, API key, and hosted approval surface. You do not need a bloated account setup flow. You need one controlled runtime.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Open onboarding <ArrowRight size={16} />
+                </a>
+                <a href={docsLinks.quickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Quickstart docs <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
     </SiteLayout>
   );
 }
@@ -558,6 +586,104 @@ function IntegrationsPage() {
           </div>
         </div>
       </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+          <FadeIn>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Install once</p>
+                <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Same runtime. Every host.
+                </h2>
+                <p className="mt-4 max-w-2xl text-stone-400">
+                  Claude, OpenClaw, Codex, CLI, or direct API. The integration surface changes. The trust contract does not.
+                </p>
+              </div>
+              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                Set up runtime <ArrowRight size={16} />
+              </a>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function TrustEntryPage({ eyebrow, title, summary, proofTitle, proofBody, bullets, ctaLabel = "Open onboarding" }) {
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[72vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
+            <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              {title}
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
+          </FadeIn>
+          <FadeIn delay={0.15}>
+            <div className="mt-10 flex flex-wrap gap-4">
+              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                {ctaLabel} <ArrowRight size={16} />
+              </a>
+              <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                Read integration docs
+              </a>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-16 px-6 py-24 lg:grid-cols-[1.1fr,0.9fr] lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why it matters</p>
+            <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              {proofTitle}
+            </h2>
+            <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">{proofBody}</p>
+          </FadeIn>
+          <div className="grid gap-4">
+            {bullets.map((bullet, index) => (
+              <FadeIn key={bullet.title} delay={0.1 * index}>
+                <div className="rounded-lg border border-white/10 bg-[#11161e] p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Check className="h-4 w-4 text-[#d2b06f]" />
+                    <h3 className="text-base text-stone-100">{bullet.title}</h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-stone-400">{bullet.body}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+          <FadeIn>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Live product</p>
+                <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Real surface. Real controls.
+                </h2>
+                <p className="mt-4 max-w-2xl text-stone-400">
+                  Once your workspace is issued, this route becomes the live Action Wallet surface. Until then, we show the product clearly instead of dumping you into an empty shell.
+                </p>
+              </div>
+              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                Create workspace <ArrowRight size={16} />
+              </a>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
     </SiteLayout>
   );
 }
@@ -565,5 +691,73 @@ function IntegrationsPage() {
 export default function LovableSite({ mode = "home" }) {
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
+  if (mode === "wallet") {
+    return (
+      <TrustEntryPage
+        eyebrow="Action Wallet"
+        title="One wallet for every consequential AI action."
+        summary="Set one-time approvals, remembered preferences, or durable rules. Action Wallet sits between agent intent and external consequence."
+        proofTitle="Not another dashboard. The permission layer."
+        proofBody="The wallet is where users define who an agent may act for, how much authority it has, when human approval is required, and how recourse works if something goes wrong."
+        bullets={[
+          { title: "One-time approval first", body: "Approve a single action without building a policy system up front." },
+          { title: "Remember what matters", body: "Promote repeated approvals into reusable preferences only after the user sees value." },
+          { title: "Shared control later", body: "Teams can add limits, hosts, thresholds, and delegated scopes on top of the same runtime." }
+        ]}
+        ctaLabel="Set up Action Wallet"
+      />
+    );
+  }
+  if (mode === "approvals") {
+    return (
+      <TrustEntryPage
+        eyebrow="Approvals"
+        title="The moment trust becomes explicit."
+        summary="An agent asks. Nooterra evaluates policy. If the action crosses the line, approval becomes the controlled handoff between autonomy and authority."
+        proofTitle="Approval should feel calm, not bureaucratic."
+        proofBody="The approval surface exists to answer four questions fast: what the agent wants to do, why it is allowed, why it needs review, and what happens after you approve or deny."
+        bullets={[
+          { title: "Scoped, not vague", body: "Every approval is tied to a bounded action, not a fuzzy prompt or broad future permission." },
+          { title: "Host-native by default", body: "The host stays in control until human approval is required, then Nooterra takes over the trust-critical moment." },
+          { title: "Fail closed", body: "Missing context, missing evidence, or mismatched scope means the action does not proceed." }
+        ]}
+        ctaLabel="Open approval flow"
+      />
+    );
+  }
+  if (mode === "receipts") {
+    return (
+      <TrustEntryPage
+        eyebrow="Receipts"
+        title="Every action should end in proof."
+        summary="Receipts are the durable record of what was requested, what was approved, what executed, and what evidence came back."
+        proofTitle="The receipt is the product."
+        proofBody="If an agent buys, cancels, or recovers something real, the most valuable artifact is not the model output. It is the receipt that binds intent, authority, evidence, and outcome together."
+        bullets={[
+          { title: "Bound to the action", body: "Approval, grant, evidence, and final state remain attached to the same run." },
+          { title: "Readable by humans", body: "Operators and users can understand what happened without reverse engineering logs." },
+          { title: "Actionable after the fact", body: "Receipts are not dead history. They are the entry point for disputes, refunds, and reversal." }
+        ]}
+        ctaLabel="Issue first receipt"
+      />
+    );
+  }
+  if (mode === "disputes") {
+    return (
+      <TrustEntryPage
+        eyebrow="Disputes"
+        title="Recourse is not a support feature."
+        summary="If an AI action goes wrong, users need a path back. Disputes turn receipts into live recourse instead of dead evidence."
+        proofTitle="Trust requires a path backward."
+        proofBody="People will not trust agents with consequential actions unless they know how to challenge a result, unwind a bad outcome, or escalate to an operator without losing the evidence chain."
+        bullets={[
+          { title: "Open from the receipt", body: "Disputes begin from the exact artifact that proves the action happened." },
+          { title: "Operator-backed", body: "Refund, resolve, revoke, and quarantine all sit behind the same rescue path." },
+          { title: "Designed for consequence", body: "The product assumes some actions will go wrong and treats recourse as first-class infrastructure." }
+        ]}
+        ctaLabel="Set up recourse"
+      />
+    );
+  }
   return <HomePage />;
 }
