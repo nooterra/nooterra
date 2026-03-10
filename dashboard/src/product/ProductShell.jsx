@@ -4715,6 +4715,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     buyer_link_shared: "Share the hosted approval path or receipt link with a real counterpart.",
     referral_signup: "Drive one external signup or second workspace activation from the same flow."
   };
+  const defaultOnboardingStageCount = Object.keys(onboardingStageLabels).length;
   const reachedStages = Number.isFinite(Number(onboardingFunnel?.reachedStages)) ? Number(onboardingFunnel.reachedStages) : onboardingStages.filter((stage) => stage?.reached).length;
   const totalStages = Number.isFinite(Number(onboardingFunnel?.totalStages)) ? Number(onboardingFunnel.totalStages) : onboardingStages.length;
   const completionPct = Number.isFinite(Number(onboardingFunnel?.completionPct)) ? Math.max(0, Math.min(100, Number(onboardingFunnel.completionPct))) : 0;
@@ -4728,6 +4729,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         : onboardingMetrics
           ? "warn"
           : "neutral";
+  const activationStatusLabel = onboardingMetrics
+    ? humanizeLabel(onboardingMetrics?.status, "pending")
+    : buyer?.tenantId
+      ? "Pending"
+      : "Awaiting workspace";
   const timeToFirstVerifiedLabel = (() => {
     const value = Number(onboardingMetrics?.timeToFirstVerifiedMs);
     if (!Number.isFinite(value) || value < 0) return "Pending";
@@ -4917,11 +4923,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <div className="product-detail-meta">
             <div>
               <strong>Activation</strong>
-              <span>{humanizeLabel(onboardingMetrics?.status, onboardingMetrics ? "pending" : "unknown")}</span>
+              <span>{activationStatusLabel}</span>
             </div>
             <div>
               <strong>Funnel</strong>
-              <span>{reachedStages} / {totalStages || onboardingStageLabels.length}</span>
+              <span>{reachedStages} / {totalStages || defaultOnboardingStageCount}</span>
             </div>
             <div>
               <strong>First verified</strong>
