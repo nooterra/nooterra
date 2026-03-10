@@ -233,6 +233,11 @@ textarea {
   flex-wrap: wrap;
 }
 
+.product-onboarding-top .product-page-top-actions {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
 .product-nav-links {
   gap: 0.5rem;
 }
@@ -517,6 +522,32 @@ textarea {
     linear-gradient(180deg, rgba(255, 251, 246, 0.94), rgba(246, 239, 231, 0.98)),
     radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 18rem);
   box-shadow: var(--product-shadow-soft);
+}
+
+.product-onboarding-top {
+  position: relative;
+  overflow: hidden;
+  padding: 1.7rem;
+  border-color: rgba(31, 104, 92, 0.14);
+  background:
+    linear-gradient(135deg, rgba(255, 252, 247, 0.98), rgba(244, 238, 231, 0.98)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.12), transparent 18rem),
+    radial-gradient(circle at bottom left, rgba(138, 91, 63, 0.08), transparent 16rem);
+  box-shadow:
+    0 24px 56px rgba(22, 31, 45, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.product-onboarding-top::after {
+  content: "";
+  position: absolute;
+  inset: auto -4rem -5rem auto;
+  width: 15rem;
+  height: 15rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(31, 104, 92, 0.14), rgba(31, 104, 92, 0));
+  filter: blur(10px);
+  pointer-events: none;
 }
 
 .product-hero {
@@ -1239,6 +1270,19 @@ textarea {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.product-onboarding-activation-grid,
+.product-onboarding-proof-grid,
+.product-onboarding-setup-grid {
+  align-items: start;
+}
+
+.product-onboarding-host-shortcuts {
+  border-color: rgba(31, 104, 92, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 248, 0.98), rgba(244, 238, 231, 0.98)),
+    radial-gradient(circle at top right, rgba(138, 91, 63, 0.08), transparent 16rem);
+}
+
 .product-status-pill {
   display: inline-flex;
   align-items: center;
@@ -1325,6 +1369,28 @@ textarea {
   line-height: 0.95;
   color: var(--product-accent-strong);
   letter-spacing: -0.04em;
+}
+
+.product-onboarding-metric-grid .product-metric-card {
+  min-height: 10.5rem;
+  padding-top: 1.15rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 241, 234, 0.86)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 11rem);
+}
+
+.product-card-emphasis {
+  border-color: rgba(31, 104, 92, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 248, 0.98), rgba(245, 239, 232, 0.98)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 16rem);
+}
+
+.product-card-spotlight {
+  border-color: rgba(31, 104, 92, 0.16);
+  background:
+    linear-gradient(180deg, rgba(242, 247, 243, 0.97), rgba(255, 252, 248, 0.98)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.11), transparent 15rem);
 }
 
 .product-agent-grid {
