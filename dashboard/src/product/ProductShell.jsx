@@ -4835,7 +4835,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   return (
     <div className="product-page">
-      <section className="product-page-top">
+      <section className="product-page-top product-onboarding-top">
         <div>
           <p className="product-kicker">Workspace Onboarding</p>
           <h1>Turn a new account into a live Action Wallet workspace.</h1>
@@ -4844,18 +4844,23 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           </p>
         </div>
         <div className="product-page-top-actions">
+          {!buyer ? (
+            <a className="product-button product-button-ghost" href="/developers">
+              Open install path
+            </a>
+          ) : null}
           {buyer ? (
             <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
               {busyState === "logout" ? "Signing out..." : "Sign Out"}
             </button>
           ) : null}
-          <a className="product-button product-button-solid" href={buyer ? "/wallet" : "/developers"}>
-            {buyer ? "Continue To Wallet" : "Open Developer Toolkit"}
+          <a className="product-button product-button-solid" href={buyer ? "/wallet" : "#identity-access"}>
+            {buyer ? "Continue To Wallet" : "Create workspace"}
           </a>
         </div>
       </section>
 
-      <section className="product-metric-grid">
+      <section className="product-metric-grid product-onboarding-metric-grid">
         <article className="product-metric-card">
           <span>Readiness</span>
           <strong>{onboardingReadyCount} / {onboardingChecks.length}</strong>
@@ -4878,8 +4883,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
+      <section className="product-grid-two product-onboarding-activation-grid">
+        <article className="product-card product-card-emphasis">
           <div className="product-section-head compact">
             <p>Launch readiness</p>
             <h2>See whether this workspace is actually ready for first approval, first receipt, and first dispute.</h2>
@@ -4945,7 +4950,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ) : null}
         </article>
 
-        <article className="product-card" id="first-governed-action">
+        <article className="product-card product-card-spotlight" id="first-governed-action">
           <div className="product-section-head compact">
             <p>First governed action</p>
             <h2>Walk one run all the way from runtime bootstrap to approval, receipt, and dispute.</h2>
@@ -5016,8 +5021,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card" id="first-live-paid-call">
+      <section className="product-grid-two product-onboarding-proof-grid">
+        <article className="product-card product-card-emphasis" id="first-live-paid-call">
           <div className="product-section-head compact">
             <p>First live paid call</p>
             <h2>Run the first end-to-end proof from this workspace and keep the attempt history visible.</h2>
@@ -5157,8 +5162,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
+      <section className="product-grid-two product-onboarding-setup-grid">
+        <article className="product-card product-card-emphasis" id="identity-access">
           <div className="product-section-head compact">
             <p>Identity + Access</p>
             <h2>Create or recover a workspace.</h2>
@@ -5298,7 +5303,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <div className="product-inline-note">{statusMessage}</div>
         </article>
 
-        <article className="product-card">
+        <article className="product-card product-card-emphasis" id="runtime-bootstrap">
           <div className="product-section-head compact">
             <p>Runtime Bootstrap</p>
             <h2>Issue the API key + MCP bundle the product actually needs.</h2>
@@ -5399,7 +5404,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-card" id="host-shortcuts">
+      <section className="product-card product-onboarding-host-shortcuts" id="host-shortcuts">
         <div className="product-section-head compact">
           <p>Host shortcuts</p>
           <h2>After bootstrap, move directly into the install path that matches your shell.</h2>
