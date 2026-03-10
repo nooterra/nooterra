@@ -3388,7 +3388,7 @@ function NetworkPage({ runtime, onboardingState, lastAgentId, launchId, onLaunch
             </a>
           ) : null}
           <a className="product-button product-button-ghost" href="/onboarding">Finish setup</a>
-          <a className="product-button product-button-solid" href="/developers">Open host setup</a>
+          <a className="product-button product-button-solid" href={docsLinks.hostQuickstart}>Open host setup</a>
         </div>
       </section>
 
@@ -4865,7 +4865,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </div>
         <div className="product-page-top-actions">
           {!buyer ? (
-            <a className="product-button product-button-ghost" href="/developers">
+            <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>
               Open install path
             </a>
           ) : null}
@@ -5438,7 +5438,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             <p>Primary launch host. Use the generated MCP config and aim for first hosted approval fast.</p>
             <div className="product-actions">
               <a className="product-button product-button-ghost" href={docsLinks.claudeDesktopQuickstart}>Claude guide</a>
-              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
             </div>
           </div>
           <div className="product-access-card">
@@ -5449,7 +5449,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             <p>Second launch host. Reuse the same runtime bundle and approval contract without forking the flow.</p>
             <div className="product-actions">
               <a className="product-button product-button-ghost" href={docsLinks.openClawQuickstart}>OpenClaw guide</a>
-              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
             </div>
           </div>
           <div className="product-access-card">
@@ -9554,7 +9554,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
             <div className="product-actions">
               <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
               <a className="product-button product-button-ghost" href="/receipts">Open receipts</a>
-              <a className="product-button product-button-solid" href="/developers">Open developer quickstart</a>
+              <a className="product-button product-button-solid" href={docsLinks.hostQuickstart}>Open host quickstart</a>
             </div>
           </section>
 
