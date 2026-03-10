@@ -1946,7 +1946,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     nullable: true,
     additionalProperties: false,
     properties: {
-      status: { type: "string", enum: ["pass", "attention_required"] },
+      status: { type: "string", enum: ["pass", "fail", "insufficient", "operator_review", "attention_required"] },
       verificationStatus: { type: "string", enum: ["green", "amber", "red"], nullable: true },
       verifierRef: {
         type: "object",

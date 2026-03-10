@@ -15,6 +15,10 @@ Supported channels only:
 - `Claude MCP`
 - `OpenClaw`
 
+Engineering shell note:
+
+- `Codex` can use the same Action Wallet runtime through the API or CLI path, but it is not treated as a separate certified launch host in v1.
+
 Explicitly out of scope for launch:
 
 - booking or rebooking
@@ -45,6 +49,8 @@ Choose:
 
 Launch v1 assumes hosted approvals and host-executed actions under a Nooterra-issued scoped grant.
 Do not use unsupported hosts or BYO payment-rail setup for the launch train.
+
+If you are validating from Codex, keep the same runtime values and follow the API or CLI install path instead of trying to register Codex as a separate MCP host.
 
 ## 2) Activate the host
 

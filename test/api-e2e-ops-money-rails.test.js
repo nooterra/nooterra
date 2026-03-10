@@ -7,6 +7,7 @@ import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { signOperatorActionV1 } from "../src/core/operator-action.js";
 import { computeArtifactHash } from "../src/core/artifacts.js";
+import { makeScopedKey } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 
 const OPS_WRITE_HEADERS = { "x-proxy-ops-token": "tok_opsw" };
@@ -68,6 +69,20 @@ function buildSignedEmergencyOperatorAction({
     publicKeyPem: signer.publicKeyPem,
     privateKeyPem: signer.privateKeyPem
   });
+}
+
+async function overwriteMoneyRailOperation(api, { providerId, operationId, tenantId = "tenant_default", mutate }) {
+  const existing = await api.store.getMoneyRailOperation({ tenantId, providerId, operationId });
+  assert.ok(existing, `money rail operation ${providerId}/${operationId} should exist`);
+  const next = mutate(structuredClone(existing));
+  assert.ok(next && typeof next === "object", "mutate must return an operation object");
+  const written = await api.store.putMoneyRailOperation({
+    tenantId,
+    providerId,
+    operation: next,
+    requestHash: existing.requestHash ?? null
+  });
+  return written.operation;
 }
 
 test("API e2e: payout enqueue creates money rail operation and cancel is idempotent", async () => {
@@ -558,6 +573,7 @@ test("API e2e: production provider event mapping ingests statuses deterministica
   assert.ok(operationId);
   assert.equal(enqueue.json?.moneyRailOperation?.providerId, "stripe_prod_us");
   assert.equal(enqueue.json?.moneyRailOperation?.state, "initiated");
+  const payoutKey = String(enqueue.json?.moneyRailOperation?.payoutKey ?? operationId.replace(/^mop_/u, ""));
 
   const submitted = await request(api, {
     method: "POST",
@@ -614,7 +630,10 @@ test("API e2e: production provider event mapping ingests statuses deterministica
             id: "tr_prod_paid_1",
             status: "paid",
             metadata: {
-              nooterra_operation_id: operationId
+              nooterra_operation_id: operationId,
+              nooterra_payout_key: payoutKey,
+              nooterra_tenant_id: tenantId,
+              nooterra_provider_id: "stripe_prod_us"
             }
           }
         }
@@ -658,6 +677,247 @@ test("API e2e: production provider event mapping ingests statuses deterministica
   });
   assert.equal(mismatch.statusCode, 400);
   assert.match(String(mismatch.json?.error ?? ""), /invalid provider event/i);
+
+  const bindingRequired = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stripe_prod_us/events/ingest",
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_prod_ingest_4"
+    },
+    body: {
+      payload: {
+        id: "evt_prod_paid_binding_required_1",
+        type: "transfer.paid",
+        created: 1770422550,
+        data: {
+          object: {
+            id: "tr_prod_paid_binding_required_1",
+            status: "paid",
+            metadata: {
+              nooterra_operation_id: operationId
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.equal(bindingRequired.statusCode, 409, bindingRequired.body);
+  assert.equal(bindingRequired.json?.code, "MONEY_RAIL_PROVIDER_EVENT_BINDING_REQUIRED");
+  const bindingRequiredMissingFields =
+    bindingRequired.json?.details?.details?.missingFields ?? bindingRequired.json?.details?.missingFields ?? null;
+  assert.deepEqual(bindingRequiredMissingFields, [
+    "metadata.nooterra_payout_key",
+    "metadata.nooterra_tenant_id",
+    "metadata.nooterra_provider_id"
+  ]);
+
+  const bindingMismatch = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stripe_prod_us/events/ingest",
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_prod_ingest_5"
+    },
+    body: {
+      payload: {
+        id: "evt_prod_paid_binding_mismatch_1",
+        type: "transfer.paid",
+        created: 1770422580,
+        data: {
+          object: {
+            id: "tr_prod_paid_mismatch_1",
+            status: "paid",
+            destination: "acct_wrong_destination_1",
+            metadata: {
+              nooterra_operation_id: operationId,
+              nooterra_payout_key: "tenant_default:party:pty_money_ops_prod_1:period:2026-99:statement:badbadbad",
+              nooterra_tenant_id: tenantId,
+              nooterra_provider_id: "stripe_prod_us"
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.equal(bindingMismatch.statusCode, 409, bindingMismatch.body);
+  assert.equal(bindingMismatch.json?.code, "MONEY_RAIL_PROVIDER_EVENT_BINDING_MISMATCH");
+
+  const statusAfterBindingMismatch = await request(api, {
+    method: "GET",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(statusAfterBindingMismatch.statusCode, 200);
+  assert.equal(statusAfterBindingMismatch.json?.operation?.state, "confirmed");
+});
+
+test("API e2e: money rail provider ingest fails closed when payout instruction binding drifts", async () => {
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";"),
+    moneyRailMode: "production",
+    moneyRailDefaultProviderId: "stripe_prod_us",
+    moneyRailProviderConfigs: [
+      {
+        providerId: "stripe_prod_us",
+        mode: "production",
+        allowPayout: true,
+        allowCollection: true
+      }
+    ]
+  });
+
+  const month = "2026-01";
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+  const financeReadHeaders = { "x-proxy-ops-token": "tok_fin" };
+  const tenantId = "tenant_default";
+  const partyId = "pty_money_ingest_binding_1";
+  const partyRole = "operator";
+
+  const monthCloseRequested = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: financeWriteHeaders,
+    body: { month }
+  });
+  assert.equal(monthCloseRequested.statusCode, 202);
+  await api.tickMonthClose({ maxMessages: 50 });
+
+  const statement = {
+    type: "PartyStatementBody.v1",
+    v: 1,
+    currency: "USD",
+    tenantId,
+    partyId,
+    partyRole,
+    period: month,
+    basis: "settledAt",
+    payoutCents: 2400
+  };
+  const statementHash = sha256Hex(JSON.stringify(statement));
+  const artifact = {
+    artifactId: `pstmt_${tenantId}_${partyId}_${month}_${statementHash}`,
+    artifactType: "PartyStatement.v1",
+    partyId,
+    partyRole,
+    period: month,
+    statement,
+    artifactHash: statementHash
+  };
+  await api.store.putArtifact({ tenantId, artifact });
+  await api.store.putPartyStatement({
+    tenantId,
+    statement: {
+      partyId,
+      period: month,
+      basis: "settledAt",
+      status: "CLOSED",
+      statementHash,
+      artifactId: artifact.artifactId,
+      artifactHash: artifact.artifactHash,
+      closedAt: new Date("2026-02-01T00:00:00.000Z").toISOString()
+    }
+  });
+
+  const enableRealMoney = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: financeWriteHeaders,
+    body: {
+      plan: "free",
+      hardLimitEnforced: true,
+      moneyRails: {
+        realMoneyEnabled: true,
+        allowedProviderIds: ["stripe_prod_us"]
+      }
+    }
+  });
+  assert.equal(enableRealMoney.statusCode, 200);
+
+  const enqueue = await request(api, {
+    method: "POST",
+    path: `/ops/payouts/${encodeURIComponent(partyId)}/${encodeURIComponent(month)}/enqueue`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_ingest_binding_enqueue_1"
+    },
+    body: {
+      moneyRailProviderId: "stripe_prod_us",
+      counterpartyRef: "bank:acct_ingest_binding_1"
+    }
+  });
+  assert.equal(enqueue.statusCode, 201);
+  const operationId = String(enqueue.json?.moneyRailOperation?.operationId ?? "");
+  assert.ok(operationId);
+  const payoutKey = String(enqueue.json?.moneyRailOperation?.payoutKey ?? operationId.replace(/^mop_/u, ""));
+
+  const submitted = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stripe_prod_us/events/ingest",
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_ingest_binding_submitted_1"
+    },
+    body: {
+      operationId,
+      eventType: "submitted",
+      eventId: "evt_ingest_binding_submit_1",
+      providerRef: "prov_ref_ingest_binding_1",
+      at: "2026-02-07T00:01:00.000Z"
+    }
+  });
+  assert.equal(submitted.statusCode, 200, submitted.body);
+  assert.equal(submitted.json?.operation?.state, "submitted");
+
+  await overwriteMoneyRailOperation(api, {
+    tenantId,
+    providerId: "stripe_prod_us",
+    operationId,
+    mutate(operation) {
+      operation.metadata = { ...(operation.metadata ?? {}), payoutArtifactHash: "e".repeat(64) };
+      return operation;
+    }
+  });
+
+  const confirmed = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stripe_prod_us/events/ingest",
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_ingest_binding_confirm_1"
+    },
+    body: {
+      payload: {
+        id: "evt_ingest_binding_paid_1",
+        type: "transfer.paid",
+        created: 1770422520,
+        data: {
+          object: {
+            id: "tr_ingest_binding_paid_1",
+            status: "paid",
+            metadata: {
+              nooterra_operation_id: operationId,
+              nooterra_payout_key: payoutKey,
+              nooterra_tenant_id: tenantId,
+              nooterra_provider_id: "stripe_prod_us"
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.equal(confirmed.statusCode, 409, confirmed.body);
+  assert.equal(confirmed.json?.code, "MONEY_RAIL_PAYOUT_BINDING_MISMATCH");
+  const confirmBindingErrors = confirmed.json?.details?.details?.errors ?? confirmed.json?.details?.errors ?? null;
+  assert.deepEqual(confirmBindingErrors, ["artifact_hash_mismatch"]);
+
+  const status = await request(api, {
+    method: "GET",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(status.statusCode, 200);
+  assert.equal(status.json?.operation?.state, "submitted");
 });
 
 test("API e2e: production payout controls enforce kill switch, single-payout cap, and daily cap", async () => {
@@ -1340,6 +1600,368 @@ test("API e2e: Stripe production submit executes transfer and transitions operat
   assert.equal(stripeCalls.length, 1);
 });
 
+test("API e2e: Stripe production submit fails closed when the destination account loses payout eligibility after enqueue", async () => {
+  const stripeCalls = [];
+  const stripeFetchFn = async (url, init = {}) => {
+    const parsedUrl = new URL(String(url));
+    const formData = new URLSearchParams(String(init?.body ?? ""));
+    stripeCalls.push({
+      url: String(url),
+      method: String(init?.method ?? "GET"),
+      authorization:
+        (init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+          ? init.headers.authorization ?? init.headers.Authorization ?? null
+          : null) ?? null,
+      formData
+    });
+    if (parsedUrl.pathname === "/v1/transfers") {
+      return createMockFetchJsonResponse(200, {
+        id: "tr_test_submit_disabled_1",
+        object: "transfer",
+        amount: 1750,
+        currency: "usd",
+        destination: "acct_connect_submit_disabled_1",
+        created: 1765238400
+      });
+    }
+    return createMockFetchJsonResponse(404, { error: { message: "not found" } });
+  };
+
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";"),
+    moneyRailMode: "production",
+    moneyRailDefaultProviderId: "stripe_prod_us",
+    moneyRailProviderConfigs: [
+      {
+        providerId: "stripe_prod_us",
+        mode: "production",
+        allowPayout: true,
+        allowCollection: true
+      }
+    ],
+    billingStripeApiBaseUrl: "https://stripe.mock.local",
+    billingStripeSecretKey: "sk_test_money_rails_456",
+    billingStripeFetchFn: stripeFetchFn
+  });
+
+  const month = "2026-02";
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+  const tenantId = "tenant_default";
+  const partyId = "pty_money_submit_disabled_1";
+  const partyRole = "operator";
+
+  const monthCloseRequested = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: financeWriteHeaders,
+    body: { month }
+  });
+  assert.equal(monthCloseRequested.statusCode, 202);
+  await api.tickMonthClose({ maxMessages: 50 });
+
+  const statement = {
+    type: "PartyStatementBody.v1",
+    v: 1,
+    currency: "USD",
+    tenantId,
+    partyId,
+    partyRole,
+    period: month,
+    basis: "settledAt",
+    payoutCents: 1750
+  };
+  const statementHash = sha256Hex(JSON.stringify(statement));
+  const artifact = {
+    artifactId: `pstmt_${tenantId}_${partyId}_${month}_${statementHash}`,
+    artifactType: "PartyStatement.v1",
+    partyId,
+    partyRole,
+    period: month,
+    statement,
+    artifactHash: statementHash
+  };
+  await api.store.putArtifact({ tenantId, artifact });
+  await api.store.putPartyStatement({
+    tenantId,
+    statement: {
+      partyId,
+      period: month,
+      basis: "settledAt",
+      status: "CLOSED",
+      statementHash,
+      artifactId: artifact.artifactId,
+      artifactHash: artifact.artifactHash,
+      closedAt: new Date("2026-03-01T00:00:00.000Z").toISOString()
+    }
+  });
+
+  const enableMoneyRails = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: financeWriteHeaders,
+    body: {
+      plan: "free",
+      hardLimitEnforced: true,
+      moneyRails: {
+        realMoneyEnabled: true,
+        allowedProviderIds: ["stripe_prod_us"],
+        connect: {
+          enabled: true
+        }
+      }
+    }
+  });
+  assert.equal(enableMoneyRails.statusCode, 200);
+
+  const upsertConnectAccount = await request(api, {
+    method: "PUT",
+    path: `/ops/finance/money-rails/stripe-connect/accounts/${encodeURIComponent("acct_connect_submit_disabled_1")}`,
+    headers: financeWriteHeaders,
+    body: {
+      partyId,
+      status: "active",
+      payoutsEnabled: true,
+      transfersEnabled: true,
+      setDefault: true,
+      enableConnect: true
+    }
+  });
+  assert.equal(upsertConnectAccount.statusCode, 200);
+
+  const enqueue = await request(api, {
+    method: "POST",
+    path: `/ops/payouts/${encodeURIComponent(partyId)}/${encodeURIComponent(month)}/enqueue`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_submit_disabled_enqueue_1"
+    },
+    body: {
+      moneyRailProviderId: "stripe_prod_us"
+    }
+  });
+  assert.equal(enqueue.statusCode, 201, enqueue.body);
+  const operationId = String(enqueue.json?.moneyRailOperation?.operationId ?? "");
+  assert.ok(operationId);
+  assert.equal(enqueue.json?.moneyRailOperation?.counterpartyRef, "stripe_connect:acct_connect_submit_disabled_1");
+
+  const disableConnectAccount = await request(api, {
+    method: "PUT",
+    path: `/ops/finance/money-rails/stripe-connect/accounts/${encodeURIComponent("acct_connect_submit_disabled_1")}`,
+    headers: financeWriteHeaders,
+    body: {
+      partyId,
+      status: "active",
+      payoutsEnabled: false,
+      transfersEnabled: false,
+      setDefault: true,
+      enableConnect: true
+    }
+  });
+  assert.equal(disableConnectAccount.statusCode, 200, disableConnectAccount.body);
+
+  const submit = await request(api, {
+    method: "POST",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}/submit`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_submit_disabled_1"
+    },
+    body: {}
+  });
+  assert.equal(submit.statusCode, 409, submit.body);
+  assert.equal(submit.json?.code, "STRIPE_CONNECT_ACCOUNT_PAYOUTS_DISABLED");
+  assert.equal(submit.json?.details?.stripeConnectAccountId, "acct_connect_submit_disabled_1");
+  assert.equal(submit.json?.details?.payoutsEnabled, false);
+  assert.equal(submit.json?.details?.transfersEnabled, false);
+  assert.equal(stripeCalls.length, 0);
+
+  const operationRead = await request(api, {
+    method: "GET",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}`,
+    headers: { "x-proxy-ops-token": "tok_fin" }
+  });
+  assert.equal(operationRead.statusCode, 200, operationRead.body);
+  assert.equal(operationRead.json?.operation?.state, "initiated");
+});
+
+test("API e2e: Stripe production submit fails closed when payout instruction binding drifts after enqueue", async () => {
+  const stripeCalls = [];
+  const stripeFetchFn = async (url, init = {}) => {
+    const parsedUrl = new URL(String(url));
+    const formData = new URLSearchParams(String(init?.body ?? ""));
+    stripeCalls.push({
+      url: String(url),
+      method: String(init?.method ?? "GET"),
+      authorization:
+        (init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+          ? init.headers.authorization ?? init.headers.Authorization ?? null
+          : null) ?? null,
+      formData
+    });
+    if (parsedUrl.pathname === "/v1/transfers") {
+      return createMockFetchJsonResponse(200, {
+        id: "tr_test_submit_binding_drift_1",
+        object: "transfer",
+        amount: 1900,
+        currency: "usd",
+        destination: "acct_connect_submit_binding_1",
+        created: 1765238400
+      });
+    }
+    return createMockFetchJsonResponse(404, { error: { message: "not found" } });
+  };
+
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";"),
+    moneyRailMode: "production",
+    moneyRailDefaultProviderId: "stripe_prod_us",
+    moneyRailProviderConfigs: [
+      {
+        providerId: "stripe_prod_us",
+        mode: "production",
+        allowPayout: true,
+        allowCollection: true
+      }
+    ],
+    billingStripeApiBaseUrl: "https://stripe.mock.local",
+    billingStripeSecretKey: "sk_test_money_rails_binding_submit",
+    billingStripeFetchFn: stripeFetchFn
+  });
+
+  const month = "2026-02";
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+  const financeReadHeaders = { "x-proxy-ops-token": "tok_fin" };
+  const tenantId = "tenant_default";
+  const partyId = "pty_money_submit_binding_1";
+  const partyRole = "operator";
+
+  const monthCloseRequested = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: financeWriteHeaders,
+    body: { month }
+  });
+  assert.equal(monthCloseRequested.statusCode, 202);
+  await api.tickMonthClose({ maxMessages: 50 });
+
+  const statement = {
+    type: "PartyStatementBody.v1",
+    v: 1,
+    currency: "USD",
+    tenantId,
+    partyId,
+    partyRole,
+    period: month,
+    basis: "settledAt",
+    payoutCents: 1900
+  };
+  const statementHash = sha256Hex(JSON.stringify(statement));
+  const artifact = {
+    artifactId: `pstmt_${tenantId}_${partyId}_${month}_${statementHash}`,
+    artifactType: "PartyStatement.v1",
+    partyId,
+    partyRole,
+    period: month,
+    statement,
+    artifactHash: statementHash
+  };
+  await api.store.putArtifact({ tenantId, artifact });
+  await api.store.putPartyStatement({
+    tenantId,
+    statement: {
+      partyId,
+      period: month,
+      basis: "settledAt",
+      status: "CLOSED",
+      statementHash,
+      artifactId: artifact.artifactId,
+      artifactHash: artifact.artifactHash,
+      closedAt: new Date("2026-03-01T00:00:00.000Z").toISOString()
+    }
+  });
+
+  const enableMoneyRails = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: financeWriteHeaders,
+    body: {
+      plan: "free",
+      hardLimitEnforced: true,
+      moneyRails: {
+        realMoneyEnabled: true,
+        allowedProviderIds: ["stripe_prod_us"],
+        connect: {
+          enabled: true
+        }
+      }
+    }
+  });
+  assert.equal(enableMoneyRails.statusCode, 200);
+
+  const upsertConnectAccount = await request(api, {
+    method: "PUT",
+    path: `/ops/finance/money-rails/stripe-connect/accounts/${encodeURIComponent("acct_connect_submit_binding_1")}`,
+    headers: financeWriteHeaders,
+    body: {
+      partyId,
+      status: "active",
+      payoutsEnabled: true,
+      transfersEnabled: true,
+      setDefault: true,
+      enableConnect: true
+    }
+  });
+  assert.equal(upsertConnectAccount.statusCode, 200);
+
+  const enqueue = await request(api, {
+    method: "POST",
+    path: `/ops/payouts/${encodeURIComponent(partyId)}/${encodeURIComponent(month)}/enqueue`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_submit_binding_enqueue_1"
+    },
+    body: {
+      moneyRailProviderId: "stripe_prod_us"
+    }
+  });
+  assert.equal(enqueue.statusCode, 201, enqueue.body);
+  const operationId = String(enqueue.json?.moneyRailOperation?.operationId ?? "");
+  assert.ok(operationId);
+
+  await overwriteMoneyRailOperation(api, {
+    tenantId,
+    providerId: "stripe_prod_us",
+    operationId,
+    mutate(operation) {
+      operation.metadata = { ...(operation.metadata ?? {}), payoutArtifactHash: "f".repeat(64) };
+      return operation;
+    }
+  });
+
+  const submit = await request(api, {
+    method: "POST",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}/submit`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_submit_binding_1"
+    },
+    body: {}
+  });
+  assert.equal(submit.statusCode, 409, submit.body);
+  assert.equal(submit.json?.code, "MONEY_RAIL_PAYOUT_BINDING_MISMATCH");
+  const submitBindingErrors = submit.json?.details?.details?.errors ?? submit.json?.details?.errors ?? null;
+  assert.deepEqual(submitBindingErrors, ["artifact_hash_mismatch"]);
+  assert.equal(stripeCalls.length, 0);
+
+  const operationRead = await request(api, {
+    method: "GET",
+    path: `/ops/money-rails/stripe_prod_us/operations/${operationId}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(operationRead.statusCode, 200, operationRead.body);
+  assert.equal(operationRead.json?.operation?.state, "initiated");
+});
+
 test("API e2e: Stripe Connect KYB sync updates payout eligibility from provider account state", async () => {
   let stripeAccountSnapshot = {
     id: "acct_connect_kyb_1",
@@ -1900,23 +2522,38 @@ test("API e2e: finance money rail reconciliation reports deterministic critical 
   assert.equal(firstRecon.json?.summary?.operationCount, 1);
   assert.equal(firstRecon.json?.summary?.criticalMismatchCount, 0);
 
-  const failed = await request(api, {
-    method: "POST",
-    path: `/ops/money-rails/${encodeURIComponent(providerId)}/events/ingest`,
-    headers: {
-      ...financeWriteHeaders,
-      "x-idempotency-key": "ops_money_rail_recon_ingest_failed_1"
-    },
-    body: {
-      operationId,
-      eventType: "failed",
-      eventId: "evt_recon_failed_1",
-      reasonCode: "insufficient_liquidity",
-      at: "2026-02-07T00:01:00.000Z"
+  const payoutArtifactId = `payout_${tenantId}_${partyId}_${month}_${statementHash}`;
+  const storedPayoutArtifact = await api.store.getArtifact({
+    tenantId,
+    artifactId: payoutArtifactId
+  });
+  assert.equal(storedPayoutArtifact?.artifactType, "PayoutInstruction.v1");
+  const destinationMismatchPayoutArtifact = {
+    ...storedPayoutArtifact,
+    payout: {
+      ...(storedPayoutArtifact?.payout ?? {}),
+      destinationRef: "bank:acct_recon_expected_1"
+    }
+  };
+  delete destinationMismatchPayoutArtifact.artifactHash;
+  destinationMismatchPayoutArtifact.artifactHash = computeArtifactHash(destinationMismatchPayoutArtifact);
+  api.store.artifacts.set(
+    makeScopedKey({ tenantId, id: payoutArtifactId }),
+    { ...destinationMismatchPayoutArtifact, tenantId, artifactId: payoutArtifactId }
+  );
+
+  const failedOperation = await overwriteMoneyRailOperation(api, {
+    tenantId,
+    providerId,
+    operationId,
+    mutate(operation) {
+      operation.state = "failed";
+      operation.reasonCode = "insufficient_liquidity";
+      operation.failedAt = "2026-02-07T00:01:00.000Z";
+      return operation;
     }
   });
-  assert.equal(failed.statusCode, 200);
-  assert.equal(failed.json?.operation?.state, "failed");
+  assert.equal(failedOperation?.state, "failed");
 
   const missingPayoutKey = `${tenantId}:party:pty_missing:period:${month}:statement:sha_missing`;
   const missingArtifactCore = {
@@ -1953,7 +2590,10 @@ test("API e2e: finance money rail reconciliation reports deterministic critical 
   });
   assert.equal(secondRecon.statusCode, 200);
   assert.equal(secondRecon.json?.status, "fail");
-  assert.equal(secondRecon.json?.summary?.criticalMismatchCount, 2);
+  assert.equal(secondRecon.json?.summary?.criticalMismatchCount, 3);
+  assert.equal(secondRecon.json?.mismatches?.destinationMismatches?.length, 1);
+  assert.equal(secondRecon.json?.mismatches?.destinationMismatches?.[0]?.expectedDestinationRef, "bank:acct_recon_expected_1");
+  assert.equal(secondRecon.json?.mismatches?.destinationMismatches?.[0]?.actualCounterpartyRef, "bank:acct_recon_1");
   assert.equal(secondRecon.json?.mismatches?.terminalFailures?.length, 1);
   assert.equal(secondRecon.json?.mismatches?.missingOperations?.length, 1);
   assert.equal(secondRecon.json?.mismatches?.missingOperations?.[0]?.operationId, `mop_${missingPayoutKey}`);

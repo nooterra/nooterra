@@ -1,0 +1,59 @@
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap");
+
+:root {
+  --lovable-font-serif: "Instrument Serif", Georgia, serif;
+}
+
+.lovable-site {
+  background:
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.08), transparent 28rem),
+    radial-gradient(circle at 80% 10%, rgba(210, 176, 111, 0.06), transparent 22rem),
+    #07090d;
+}
+
+.lovable-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+.lovable-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(72px);
+  pointer-events: none;
+}
+
+.lovable-orb-a {
+  width: 28rem;
+  height: 28rem;
+  background: rgba(210, 176, 111, 0.12);
+  top: -10rem;
+  left: -8rem;
+}
+
+.lovable-orb-b {
+  width: 24rem;
+  height: 24rem;
+  background: rgba(210, 176, 111, 0.08);
+  right: -8rem;
+  top: 8rem;
+}
+
+.lovable-fade {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: lovable-fade-in 0.72s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+@keyframes lovable-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

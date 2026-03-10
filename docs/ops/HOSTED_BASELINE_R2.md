@@ -124,6 +124,9 @@ npm run ops:hosted-baseline:evidence -- \
 Important:
 
 - `DATABASE_URL` and `RESTORE_DATABASE_URL` must be real connection strings (not redacted placeholders like `postgres://...`).
+- If `--backup-restore-evidence-path` is used instead of `--run-backup-restore true`, the referenced artifact must prove a passing drill. Raw text must include `=== Backup/Restore Verification PASSED ===`, or JSON evidence must carry an explicit passing signal such as `ok=true`, `status="pass"`, or `verdict.ok=true`.
+- The billing catalog check is fail-closed against the launch billing contract. `GET /ops/finance/billing/catalog` must return `schemaVersion="BillingPlanCatalog.v1"` and valid `free|builder|growth|enterprise` plan objects with matching `planId`, `displayName`, and required numeric launch fields.
+- Rate-limit probing is not a cosmetic check. If a probe is run, the target path must show at least one successful `2xx` response and no unexpected `4xx`/`5xx` responses; `required` mode additionally requires a visible `429`, and `disabled` mode fails if a `429` appears.
 - Hosted baseline now includes an explicit S8 rollout guard (`checks.s8ApprovalRollout`):
   - if `config.s8Approval.enforceX402AuthorizePayment=false`, the check passes as disabled;
   - if enabled, fail-closed requires a present policy object with explicit shape (`highRiskActionTypes[]`, `requireApprovalAboveCents`, `strictEvidenceRefs`).

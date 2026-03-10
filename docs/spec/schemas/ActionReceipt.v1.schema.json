@@ -106,7 +106,7 @@
       "additionalProperties": false,
       "required": ["status", "verificationStatus", "verifierRef", "reasonCodes"],
       "properties": {
-        "status": { "type": "string", "enum": ["pass", "attention_required"] },
+        "status": { "type": "string", "enum": ["pass", "fail", "insufficient", "operator_review", "attention_required"] },
         "verificationStatus": { "type": ["string", "null"], "enum": ["green", "amber", "red", null] },
         "verifierRef": {
           "type": ["object", "null"],

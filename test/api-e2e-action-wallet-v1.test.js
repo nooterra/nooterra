@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import {
+  buildSubAgentCompletionReceiptV1,
+  completeSubAgentWorkOrderV1,
+  validateSubAgentCompletionReceiptV1,
+  validateSubAgentWorkOrderV1
+} from "../src/core/subagent-work-order.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -107,6 +113,164 @@ async function createCompletedRun(api, { tenantId = "tenant_default", payerAgent
     }
   });
   assert.equal(completed.statusCode, 201, completed.body);
+}
+
+function buildVerifierVerdict({
+  status = "pass",
+  verificationStatus = undefined,
+  reasonCodes = [],
+  verifierId = "nooterra.action-wallet-verifier"
+} = {}) {
+  return {
+    status,
+    ...(verificationStatus === undefined ? {} : { verificationStatus }),
+    verifierRef: {
+      verifierId,
+      verifierVersion: "v1",
+      verifierHash: null,
+      modality: "deterministic"
+    },
+    reasonCodes
+  };
+}
+
+async function createMaterializedActionWallet(api, { suffix }) {
+  const principalAgentId = `agt_action_wallet_principal_${suffix}`;
+  const subAgentId = `agt_action_wallet_worker_${suffix}`;
+  const capability = "capability://workflow.intake";
+  const grantId = `dgrant_action_wallet_${suffix}`;
+  const workOrderId = `workord_action_wallet_${suffix}`;
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: [capability] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: [capability] });
+  await issueDelegationGrant(api, {
+    grantId,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: subAgentId,
+    capability
+  });
+
+  const seededBlockedWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": `v1_action_wallet_seed_${suffix}_1` },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1900,
+        currency: "USD",
+        quoteId: `quote_action_wallet_${suffix}_seed`
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1900,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: `trace_action_wallet_${suffix}_seed`
+    }
+  });
+  assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+  const authorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+  const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+  assert.ok(authorityEnvelope?.envelopeId);
+  assert.ok(seededApprovalRequest?.requestId);
+
+  const actionIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: { "x-idempotency-key": `v1_action_intent_create_${suffix}_1` },
+    body: {
+      actionIntentId: authorityEnvelope.envelopeId,
+      authorityEnvelope,
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(actionIntent.statusCode, 200, actionIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(authorityEnvelope.envelopeId)}/approval-requests`,
+    headers: { "x-idempotency-key": `v1_action_intent_request_${suffix}_1` },
+    body: {
+      approvalRequest: seededApprovalRequest,
+      requestedBy: seededApprovalRequest.requestedBy
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+  const approvalRequest = approvalRequested.json?.approvalRequest;
+  assert.ok(approvalRequest?.requestId);
+
+  const approved = await request(api, {
+    method: "POST",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+    headers: { "x-idempotency-key": `v1_action_intent_decide_${suffix}_1` },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-08T16:05:00.000Z",
+      note: `Approved from Action Wallet ${suffix} e2e test`,
+      evidenceRefs: [`ticket:NOO-ACTION-WALLET-${suffix}`]
+    }
+  });
+  assert.equal(approved.statusCode, 201, approved.body);
+
+  const createdWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": `v1_action_wallet_materialize_${suffix}_1` },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1900,
+        currency: "USD",
+        quoteId: `quote_action_wallet_${suffix}_1`
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1900,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: `trace_action_wallet_${suffix}_1`,
+      authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+      approvalRequest,
+      approvalDecision: approved.json?.approvalDecision
+    }
+  });
+  assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+  return {
+    authorityEnvelope,
+    approvalRequest,
+    approvalDecision: approved.json?.approvalDecision,
+    principalAgentId,
+    subAgentId,
+    capability,
+    grantId,
+    workOrderId,
+    workOrder: createdWorkOrder.json?.workOrder
+  };
 }
 
 async function openDisputeCase(api, {
@@ -1372,6 +1536,7 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
       completion: {
         receiptId,
         status: "success",
+        verifierVerdict: buildVerifierVerdict(),
         outputs: {
           orderId: "order_action_wallet_1"
         },
@@ -1407,6 +1572,7 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
       completion: {
         receiptId,
         status: "success",
+        verifierVerdict: buildVerifierVerdict(),
         outputs: {
           orderId: "order_action_wallet_1"
         },
@@ -1441,6 +1607,7 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
       completion: {
         receiptId,
         status: "success",
+        verifierVerdict: buildVerifierVerdict(),
         outputs: {
           orderId: "order_action_wallet_2"
         },
@@ -1529,4 +1696,889 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
       "verifying->completed:receipt.issued"
     ]
   );
+});
+
+test("API e2e: v1 action wallet finalize fails closed when settlement evidence is missing", async () => {
+  const api = createApi({ now: () => "2026-03-08T18:00:00.000Z", opsToken: "tok_ops" });
+  const principalAgentId = "agt_action_wallet_principal_fail_closed";
+  const subAgentId = "agt_action_wallet_worker_fail_closed";
+  const capability = "capability://workflow.intake";
+  const grantId = "dgrant_action_wallet_fail_closed_1";
+  const workOrderId = "workord_action_wallet_fail_closed_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: [capability] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: [capability] });
+  await issueDelegationGrant(api, {
+    grantId,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: subAgentId,
+    capability
+  });
+
+  const seededBlockedWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_seed_fail_closed_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 2200,
+        currency: "USD",
+        quoteId: "quote_action_wallet_fail_closed_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 2200,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_fail_closed_1"
+    }
+  });
+  assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+  const seededAuthorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+  const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+  assert.ok(seededAuthorityEnvelope?.envelopeId);
+  assert.ok(seededApprovalRequest?.requestId);
+
+  const actionIntentId = seededAuthorityEnvelope.envelopeId;
+  const createdIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: { "x-idempotency-key": "v1_action_wallet_fail_closed_create_1" },
+    body: {
+      actionIntentId,
+      authorityEnvelope: seededAuthorityEnvelope,
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(createdIntent.statusCode, 200, createdIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+    headers: { "x-idempotency-key": "v1_action_wallet_fail_closed_request_1" },
+    body: {
+      approvalRequest: seededApprovalRequest,
+      requestedBy: seededApprovalRequest.requestedBy
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+  const approvalRequest = approvalRequested.json?.approvalRequest;
+  assert.ok(approvalRequest?.requestId);
+
+  const approved = await request(api, {
+    method: "POST",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+    headers: { "x-idempotency-key": "v1_action_wallet_fail_closed_decide_1" },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-08T18:05:00.000Z",
+      evidenceRefs: ["ticket:NOO-ACTION-WALLET-FAIL-CLOSED-1"]
+    }
+  });
+  assert.equal(approved.statusCode, 201, approved.body);
+
+  const createdWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_fail_closed_materialize_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 2200,
+        currency: "USD",
+        quoteId: "quote_action_wallet_fail_closed_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 2200,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_fail_closed_1",
+      authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+      approvalRequest,
+      approvalDecision: approved.json?.approvalDecision
+    }
+  });
+  assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+  const finalizeBlocked = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
+    headers: { "x-idempotency-key": "v1_action_wallet_fail_closed_finalize_1" },
+    body: {
+      workOrderId,
+      completion: {
+        receiptId: "worec_action_wallet_fail_closed_1",
+        status: "success",
+        verifierVerdict: buildVerifierVerdict(),
+        outputs: {
+          orderId: "order_action_wallet_fail_closed_1"
+        },
+        metrics: {
+          steps: 1
+        },
+        evidenceRefs: [],
+        amountCents: 2200,
+        currency: "USD",
+        deliveredAt: "2026-03-08T18:06:00.000Z",
+        completedAt: "2026-03-08T18:06:30.000Z"
+      },
+      settlement: {
+        status: "released",
+        x402GateId: "x402gate_action_wallet_fail_closed_1",
+        x402RunId: "run_action_wallet_fail_closed_1",
+        x402SettlementStatus: "released",
+        x402ReceiptId: "x402rcpt_action_wallet_fail_closed_1",
+        settledAt: "2026-03-08T18:07:00.000Z"
+      }
+    }
+  });
+  assert.equal(finalizeBlocked.statusCode, 409, finalizeBlocked.body);
+  assert.equal(finalizeBlocked.json?.code, "EXECUTION_GRANT_EVIDENCE_BINDING_BLOCKED");
+  assert.equal(finalizeBlocked.json?.details?.reasonCode, "WORK_ORDER_EVIDENCE_MISSING");
+  assert.equal(finalizeBlocked.json?.details?.requiredMinEvidenceRefs, 1);
+  assert.equal(finalizeBlocked.json?.details?.actualEvidenceRefs, 0);
+
+  const executionGrant = await request(api, {
+    method: "GET",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}`
+  });
+  assert.equal(executionGrant.statusCode, 200, executionGrant.body);
+  assert.equal(executionGrant.json?.executionGrant?.status, "materialized");
+
+  const blockedStatus = await request(api, {
+    method: "GET",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}`
+  });
+  assert.equal(blockedStatus.statusCode, 200, blockedStatus.body);
+  assert.equal(blockedStatus.json?.actionIntent?.status, "executing");
+});
+
+test("API e2e: v1 action wallet verifier can fail a finalize into a failed governed outcome", async () => {
+  const api = createApi({ now: () => "2026-03-08T18:20:00.000Z", opsToken: "tok_ops" });
+  const principalAgentId = "agt_action_wallet_principal_verifier_fail";
+  const subAgentId = "agt_action_wallet_worker_verifier_fail";
+  const capability = "capability://workflow.intake";
+  const grantId = "dgrant_action_wallet_verifier_fail_1";
+  const workOrderId = "workord_action_wallet_verifier_fail_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: [capability] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: [capability] });
+  await issueDelegationGrant(api, {
+    grantId,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: subAgentId,
+    capability
+  });
+
+  const seededBlockedWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_seed_verifier_fail_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1800,
+        currency: "USD",
+        quoteId: "quote_action_wallet_verifier_fail_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1800,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_verifier_fail_1"
+    }
+  });
+  assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+  const seededAuthorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+  const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+  const actionIntentId = seededAuthorityEnvelope.envelopeId;
+
+  const createdIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_create_1" },
+    body: {
+      actionIntentId,
+      authorityEnvelope: seededAuthorityEnvelope,
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(createdIntent.statusCode, 200, createdIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_request_1" },
+    body: {
+      approvalRequest: seededApprovalRequest,
+      requestedBy: seededApprovalRequest.requestedBy
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+  const approvalRequest = approvalRequested.json?.approvalRequest;
+
+  const approved = await request(api, {
+    method: "POST",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_decide_1" },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-08T18:22:00.000Z",
+      evidenceRefs: ["ticket:NOO-ACTION-WALLET-VERIFIER-FAIL-1"]
+    }
+  });
+  assert.equal(approved.statusCode, 201, approved.body);
+
+  const createdWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_materialize_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1800,
+        currency: "USD",
+        quoteId: "quote_action_wallet_verifier_fail_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1800,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_verifier_fail_1",
+      authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+      approvalRequest,
+      approvalDecision: approved.json?.approvalDecision
+    }
+  });
+  assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+  const evidence = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/evidence`,
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_evidence_1" },
+    body: {
+      workOrderId,
+      evidenceRefs: ["artifact://checkout/cart-verifier-fail-1", "report://verification/action-wallet-verifier-fail-1"],
+      message: "Attached failing verification evidence."
+    }
+  });
+  assert.equal(evidence.statusCode, 200, evidence.body);
+
+  const finalized = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
+    headers: { "x-idempotency-key": "v1_action_wallet_verifier_fail_finalize_1" },
+    body: {
+      workOrderId,
+      completion: {
+        receiptId: "worec_action_wallet_verifier_fail_1",
+        status: "success",
+        verifierVerdict: buildVerifierVerdict({
+          status: "fail",
+          verificationStatus: "red",
+          reasonCodes: ["verification_mismatch_detected"]
+        }),
+        outputs: {
+          orderId: "order_action_wallet_verifier_fail_1"
+        },
+        metrics: {
+          steps: 2
+        },
+        evidenceRefs: ["artifact://checkout/cart-verifier-fail-1", "report://verification/action-wallet-verifier-fail-1"],
+        amountCents: 1800,
+        currency: "USD",
+        deliveredAt: "2026-03-08T18:23:00.000Z",
+        completedAt: "2026-03-08T18:23:30.000Z"
+      },
+      settlement: {
+        status: "refunded",
+        x402GateId: "x402gate_action_wallet_verifier_fail_1",
+        x402RunId: "run_action_wallet_verifier_fail_1",
+        x402SettlementStatus: "refunded",
+        x402ReceiptId: "x402rcpt_action_wallet_verifier_fail_1",
+        settledAt: "2026-03-08T18:24:00.000Z"
+      }
+    }
+  });
+  assert.equal(finalized.statusCode, 200, finalized.body);
+  assert.equal(finalized.json?.workOrder?.status, "settled");
+  assert.equal(finalized.json?.completionReceipt?.status, "failed");
+  assert.equal(finalized.json?.actionReceipt?.verifierVerdict?.status, "fail");
+  assert.equal(finalized.json?.actionReceipt?.verifierVerdict?.verificationStatus, "red");
+
+  const failedStatus = await request(api, {
+    method: "GET",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}`
+  });
+  assert.equal(failedStatus.statusCode, 200, failedStatus.body);
+  assert.equal(failedStatus.json?.actionIntent?.status, "refunded");
+});
+
+test("API e2e: v1 action wallet verifier blocks insufficient and operator-review finalize requests", async () => {
+  for (const scenario of [
+    {
+      suffix: "insufficient",
+      verdict: buildVerifierVerdict({
+        status: "insufficient",
+        verificationStatus: "amber",
+        reasonCodes: ["additional_evidence_required"]
+      }),
+      expectedCode: "EXECUTION_GRANT_VERIFIER_INSUFFICIENT"
+    },
+    {
+      suffix: "operator_review",
+      verdict: buildVerifierVerdict({
+        status: "operator_review",
+        verificationStatus: "amber",
+        reasonCodes: ["manual_review_required"]
+      }),
+      expectedCode: "EXECUTION_GRANT_OPERATOR_REVIEW_REQUIRED"
+    }
+  ]) {
+    const api = createApi({ now: () => "2026-03-08T18:40:00.000Z", opsToken: "tok_ops" });
+    const principalAgentId = `agt_action_wallet_principal_${scenario.suffix}`;
+    const subAgentId = `agt_action_wallet_worker_${scenario.suffix}`;
+    const capability = "capability://workflow.intake";
+    const grantId = `dgrant_action_wallet_${scenario.suffix}_1`;
+    const workOrderId = `workord_action_wallet_${scenario.suffix}_1`;
+
+    await registerAgent(api, { agentId: principalAgentId, capabilities: [capability] });
+    await registerAgent(api, { agentId: subAgentId, capabilities: [capability] });
+    await issueDelegationGrant(api, {
+      grantId,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: subAgentId,
+      capability
+    });
+
+    const seededBlockedWorkOrder = await request(api, {
+      method: "POST",
+      path: "/work-orders",
+      headers: { "x-idempotency-key": `v1_action_wallet_seed_${scenario.suffix}_1` },
+      body: {
+        workOrderId,
+        principalAgentId,
+        subAgentId,
+        requiredCapability: capability,
+        pricing: {
+          amountCents: 1700,
+          currency: "USD",
+          quoteId: `quote_action_wallet_${scenario.suffix}_1`
+        },
+        constraints: {
+          maxDurationSeconds: 300,
+          maxCostCents: 1700,
+          retryLimit: 1
+        },
+        delegationGrantRef: grantId,
+        approvalMode: "require",
+        approvalPolicy: {
+          requireApprovalAboveCents: 0,
+          strictEvidenceRefs: true
+        },
+        traceId: `trace_action_wallet_${scenario.suffix}_1`
+      }
+    });
+    assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+    const seededAuthorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+    const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+    const actionIntentId = seededAuthorityEnvelope.envelopeId;
+
+    const createdIntent = await request(api, {
+      method: "POST",
+      path: "/v1/action-intents",
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_create_1` },
+      body: {
+        actionIntentId,
+        authorityEnvelope: seededAuthorityEnvelope,
+        host: {
+          runtime: "claude-desktop",
+          channel: "mcp",
+          source: "test"
+        }
+      }
+    });
+    assert.equal(createdIntent.statusCode, 200, createdIntent.body);
+
+    const approvalRequested = await request(api, {
+      method: "POST",
+      path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_request_1` },
+      body: {
+        approvalRequest: seededApprovalRequest,
+        requestedBy: seededApprovalRequest.requestedBy
+      }
+    });
+    assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+    const approvalRequest = approvalRequested.json?.approvalRequest;
+
+    const approved = await request(api, {
+      method: "POST",
+      path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_decide_1` },
+      body: {
+        approved: true,
+        decidedBy: "human.ops",
+        decidedAt: "2026-03-08T18:42:00.000Z",
+        evidenceRefs: [`ticket:NOO-ACTION-WALLET-${scenario.suffix.toUpperCase()}-1`]
+      }
+    });
+    assert.equal(approved.statusCode, 201, approved.body);
+
+    const createdWorkOrder = await request(api, {
+      method: "POST",
+      path: "/work-orders",
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_materialize_1` },
+      body: {
+        workOrderId,
+        principalAgentId,
+        subAgentId,
+        requiredCapability: capability,
+        pricing: {
+          amountCents: 1700,
+          currency: "USD",
+          quoteId: `quote_action_wallet_${scenario.suffix}_1`
+        },
+        constraints: {
+          maxDurationSeconds: 300,
+          maxCostCents: 1700,
+          retryLimit: 1
+        },
+        delegationGrantRef: grantId,
+        approvalMode: "require",
+        approvalPolicy: {
+          requireApprovalAboveCents: 0,
+          strictEvidenceRefs: true
+        },
+        traceId: `trace_action_wallet_${scenario.suffix}_1`,
+        authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+        approvalRequest,
+        approvalDecision: approved.json?.approvalDecision
+      }
+    });
+    assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+    const evidence = await request(api, {
+      method: "POST",
+      path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/evidence`,
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_evidence_1` },
+      body: {
+        workOrderId,
+        evidenceRefs: [`artifact://checkout/cart-${scenario.suffix}-1`, `report://verification/action-wallet-${scenario.suffix}-1`],
+        message: "Attached verification evidence."
+      }
+    });
+    assert.equal(evidence.statusCode, 200, evidence.body);
+
+    const finalizeBlocked = await request(api, {
+      method: "POST",
+      path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
+      headers: { "x-idempotency-key": `v1_action_wallet_${scenario.suffix}_finalize_1` },
+      body: {
+        workOrderId,
+        completion: {
+          receiptId: `worec_action_wallet_${scenario.suffix}_1`,
+          status: "success",
+          verifierVerdict: scenario.verdict,
+          outputs: {
+            orderId: `order_action_wallet_${scenario.suffix}_1`
+          },
+          metrics: {
+            steps: 2
+          },
+          evidenceRefs: [`artifact://checkout/cart-${scenario.suffix}-1`, `report://verification/action-wallet-${scenario.suffix}-1`],
+          amountCents: 1700,
+          currency: "USD",
+          deliveredAt: "2026-03-08T18:43:00.000Z",
+          completedAt: "2026-03-08T18:43:30.000Z"
+        },
+        settlement: {
+          status: "released",
+          x402GateId: `x402gate_action_wallet_${scenario.suffix}_1`,
+          x402RunId: `run_action_wallet_${scenario.suffix}_1`,
+          x402SettlementStatus: "released",
+          x402ReceiptId: `x402rcpt_action_wallet_${scenario.suffix}_1`,
+          settledAt: "2026-03-08T18:44:00.000Z"
+        }
+      }
+    });
+    assert.equal(finalizeBlocked.statusCode, 409, finalizeBlocked.body);
+    assert.equal(finalizeBlocked.json?.code, scenario.expectedCode);
+
+    const grantStatus = await request(api, {
+      method: "GET",
+      path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}`
+    });
+    assert.equal(grantStatus.statusCode, 200, grantStatus.body);
+    assert.equal(grantStatus.json?.executionGrant?.status, "materialized");
+
+    const actionIntentStatus = await request(api, {
+      method: "GET",
+      path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}`
+    });
+    assert.equal(actionIntentStatus.statusCode, 200, actionIntentStatus.body);
+    assert.equal(actionIntentStatus.json?.actionIntent?.status, "evidence_submitted");
+  }
+});
+
+test("API e2e: legacy work-order completion fails closed without an explicit verifier verdict for Action Wallet runs", async () => {
+  const api = createApi({ now: () => "2026-03-08T16:00:00.000Z", opsToken: "tok_ops" });
+  const materialized = await createMaterializedActionWallet(api, { suffix: "legacy_complete_gate" });
+
+  const blockedCompletion = await request(api, {
+    method: "POST",
+    path: `/work-orders/${encodeURIComponent(materialized.workOrderId)}/complete`,
+    headers: { "x-idempotency-key": "v1_action_wallet_legacy_complete_gate_1" },
+    body: {
+      outputs: {
+        orderId: "order_action_wallet_legacy_complete_gate_1"
+      },
+      evidenceRefs: ["artifact://checkout/legacy-complete-gate-1"],
+      amountCents: 1900,
+      currency: "USD",
+      deliveredAt: "2026-03-08T16:12:00.000Z",
+      completedAt: "2026-03-08T16:12:30.000Z"
+    }
+  });
+  assert.equal(blockedCompletion.statusCode, 409, blockedCompletion.body);
+  assert.equal(blockedCompletion.json?.code, "WORK_ORDER_COMPLETION_BLOCKED");
+  assert.equal(blockedCompletion.json?.details?.reasonCode, "ACTION_WALLET_VERIFIER_REQUIRED");
+});
+
+test("API e2e: legacy work-order settlement fails closed when an Action Wallet receipt is missing verifier verdict", async () => {
+  const api = createApi({ now: () => "2026-03-08T16:00:00.000Z", opsToken: "tok_ops" });
+  const materialized = await createMaterializedActionWallet(api, { suffix: "legacy_settle_gate" });
+  const receiptId = "worec_action_wallet_legacy_settle_gate_1";
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/work-orders/${encodeURIComponent(materialized.workOrderId)}/complete`,
+    headers: { "x-idempotency-key": "v1_action_wallet_legacy_settle_complete_1" },
+    body: {
+      receiptId,
+      outputs: {
+        orderId: "order_action_wallet_legacy_settle_gate_1"
+      },
+      evidenceRefs: ["artifact://checkout/legacy-settle-gate-1"],
+      amountCents: 1900,
+      currency: "USD",
+      deliveredAt: "2026-03-08T16:12:00.000Z",
+      completedAt: "2026-03-08T16:12:30.000Z",
+      metadata: {
+        actionWalletVerifierVerdict: buildVerifierVerdict()
+      }
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+
+  const tamperedReceipt = buildSubAgentCompletionReceiptV1({
+    receiptId,
+    tenantId: "tenant_default",
+    workOrder: materialized.workOrder,
+    status: completed.json?.completionReceipt?.status,
+    outputs: completed.json?.completionReceipt?.outputs ?? null,
+    metrics: completed.json?.completionReceipt?.metrics ?? null,
+    evidenceRefs: completed.json?.completionReceipt?.evidenceRefs ?? [],
+    executionAttestation: completed.json?.completionReceipt?.executionAttestation ?? null,
+    amountCents: completed.json?.completionReceipt?.amountCents ?? null,
+    currency: completed.json?.completionReceipt?.currency ?? null,
+    intentHash: completed.json?.completionReceipt?.intentHash ?? null,
+    traceId: completed.json?.completionReceipt?.traceId ?? null,
+    deliveredAt: completed.json?.completionReceipt?.deliveredAt,
+    metadata: {}
+  });
+  validateSubAgentCompletionReceiptV1(tamperedReceipt);
+  const tamperedWorkOrder = completeSubAgentWorkOrderV1({
+    workOrder: materialized.workOrder,
+    completionReceipt: tamperedReceipt,
+    completedAt: "2026-03-08T16:12:30.000Z"
+  });
+  validateSubAgentWorkOrderV1(tamperedWorkOrder);
+  await api.store.putSubAgentCompletionReceipt({ tenantId: "tenant_default", receiptId, completionReceipt: tamperedReceipt });
+  await api.store.putSubAgentWorkOrder({ tenantId: "tenant_default", workOrder: tamperedWorkOrder });
+
+  const blockedSettlement = await request(api, {
+    method: "POST",
+    path: `/work-orders/${encodeURIComponent(materialized.workOrderId)}/settle`,
+    headers: { "x-idempotency-key": "v1_action_wallet_legacy_settle_gate_1" },
+    body: {
+      completionReceiptId: receiptId,
+      status: "released",
+      x402GateId: "x402gate_action_wallet_legacy_settle_gate_1",
+      x402RunId: "run_action_wallet_legacy_settle_gate_1",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_action_wallet_legacy_settle_gate_1",
+      settledAt: "2026-03-08T16:13:00.000Z"
+    }
+  });
+  assert.equal(blockedSettlement.statusCode, 409, blockedSettlement.body);
+  assert.equal(blockedSettlement.json?.code, "WORK_ORDER_SETTLEMENT_BLOCKED");
+  assert.equal(blockedSettlement.json?.details?.reasonCode, "ACTION_WALLET_VERIFIER_REQUIRED");
+  assert.equal(blockedSettlement.json?.details?.completionReceiptId, receiptId);
+});
+
+test("API e2e: v1 disputes can open directly from an Action Wallet receipt context", async () => {
+  const api = createApi({ now: () => "2026-03-08T19:00:00.000Z", opsToken: "tok_ops" });
+  const principalAgentId = "agt_action_wallet_principal_dispute";
+  const subAgentId = "agt_action_wallet_worker_dispute";
+  const arbiterAgentId = "agt_action_wallet_arbiter_dispute";
+  const capability = "capability://workflow.intake";
+  const grantId = "dgrant_action_wallet_dispute_receipt_1";
+  const workOrderId = "workord_action_wallet_dispute_receipt_1";
+  const runId = "run_action_wallet_dispute_receipt_1";
+  const receiptId = "worec_action_wallet_dispute_receipt_1";
+  const disputeId = "dsp_action_wallet_dispute_receipt_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: [capability] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: [capability] });
+  await registerAgent(api, { agentId: arbiterAgentId, capabilities: [capability] });
+  await issueDelegationGrant(api, {
+    grantId,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: subAgentId,
+    capability
+  });
+  await creditWallet(api, {
+    agentId: principalAgentId,
+    amountCents: 9_000,
+    idempotencyKey: "credit_action_wallet_dispute_receipt_1"
+  });
+  await createCompletedRun(api, {
+    payerAgentId: principalAgentId,
+    payeeAgentId: subAgentId,
+    runId,
+    amountCents: 2100,
+    idempotencyPrefix: "action_wallet_dispute_receipt_1"
+  });
+
+  const seededBlockedWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_seed_dispute_receipt_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 2100,
+        currency: "USD",
+        quoteId: "quote_action_wallet_dispute_receipt_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 2100,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_dispute_receipt_1"
+    }
+  });
+  assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+  const seededAuthorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+  const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+  const actionIntentId = seededAuthorityEnvelope.envelopeId;
+
+  const createdIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_create_1" },
+    body: {
+      actionIntentId,
+      authorityEnvelope: seededAuthorityEnvelope,
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(createdIntent.statusCode, 200, createdIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_request_1" },
+    body: {
+      approvalRequest: seededApprovalRequest,
+      requestedBy: seededApprovalRequest.requestedBy
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+  const approvalRequest = approvalRequested.json?.approvalRequest;
+
+  const approved = await request(api, {
+    method: "POST",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_decide_1" },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-08T19:05:00.000Z",
+      evidenceRefs: ["ticket:NOO-ACTION-WALLET-DISPUTE-RECEIPT-1"]
+    }
+  });
+  assert.equal(approved.statusCode, 201, approved.body);
+
+  const createdWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_materialize_1" },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 2100,
+        currency: "USD",
+        quoteId: "quote_action_wallet_dispute_receipt_1"
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 2100,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: "trace_action_wallet_dispute_receipt_1",
+      authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+      approvalRequest,
+      approvalDecision: approved.json?.approvalDecision
+    }
+  });
+  assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+  const evidence = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/evidence`,
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_evidence_1" },
+    body: {
+      workOrderId,
+      evidenceRefs: ["artifact://checkout/cart-dispute-1", "report://verification/action-wallet-dispute-1"],
+      message: "Attached checkout evidence."
+    }
+  });
+  assert.equal(evidence.statusCode, 200, evidence.body);
+
+  const finalized = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
+    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_finalize_1" },
+    body: {
+      workOrderId,
+      completion: {
+        receiptId,
+        status: "success",
+        verifierVerdict: buildVerifierVerdict(),
+        outputs: {
+          orderId: "order_action_wallet_dispute_receipt_1"
+        },
+        metrics: {
+          steps: 3
+        },
+        evidenceRefs: ["artifact://checkout/cart-dispute-1", "report://verification/action-wallet-dispute-1"],
+        amountCents: 2100,
+        currency: "USD",
+        deliveredAt: "2026-03-08T19:06:00.000Z",
+        completedAt: "2026-03-08T19:06:30.000Z"
+      },
+      settlement: {
+        status: "released",
+        x402GateId: "x402gate_action_wallet_dispute_receipt_1",
+        x402RunId: runId,
+        x402SettlementStatus: "released",
+        x402ReceiptId: "x402rcpt_action_wallet_dispute_receipt_1",
+        settledAt: "2026-03-08T19:07:00.000Z"
+      }
+    }
+  });
+  assert.equal(finalized.statusCode, 200, finalized.body);
+
+  const opened = await request(api, {
+    method: "POST",
+    path: "/v1/disputes",
+    headers: {
+      "x-idempotency-key": "v1_action_wallet_dispute_receipt_open_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      receiptId,
+      disputeId,
+      reason: "Merchant delivered the wrong item",
+      openedByAgentId: principalAgentId
+    }
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
+  assert.equal(opened.json?.disputeCase?.disputeId, disputeId);
+  assert.equal(opened.json?.disputeCase?.status, "opened");
+
+  const openedReceipt = await request(api, {
+    method: "GET",
+    path: `/v1/receipts/${encodeURIComponent(receiptId)}`
+  });
+  assert.equal(openedReceipt.statusCode, 200, openedReceipt.body);
+  assert.equal(openedReceipt.json?.actionReceipt?.disputeState?.disputeId, disputeId);
+  assert.equal(openedReceipt.json?.actionReceipt?.disputeState?.status, "open");
+  assert.equal(openedReceipt.json?.detail?.disputeState?.disputeId, disputeId);
+  assert.equal(openedReceipt.json?.detail?.disputeState?.status, "open");
 });

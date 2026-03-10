@@ -9,6 +9,7 @@ const STATUS_OPTIONS = ["all", "pending", "approved", "denied"];
 const RESCUE_SOURCE_OPTIONS = ["all", "approval_continuation", "router_launch", "run"];
 const RESCUE_PRIORITY_OPTIONS = ["all", "normal", "high", "critical"];
 const RESCUE_TRIAGE_STATUS_OPTIONS = ["open", "acknowledged", "in_progress", "resolved", "dismissed"];
+const RESOLUTION_OUTCOME_OPTIONS = ["accepted", "rejected", "partial"];
 const LAUNCH_SCOPE = Object.freeze({
   actions: Object.freeze(["buy", "cancel/recover"]),
   channels: Object.freeze(["Claude MCP", "OpenClaw"]),
@@ -315,6 +316,26 @@ function isLaunchRescueItem(item) {
   return isLaunchMetricCategory(item?.phase1?.categoryId);
 }
 
+function rescueDisputeId(item) {
+  const refId = String(item?.refs?.disputeId ?? "").trim();
+  if (refId) return refId;
+  const detailId = String(item?.details?.disputeId ?? "").trim();
+  if (detailId) return detailId;
+  return "";
+}
+
+function hasOpenRescueDispute(item) {
+  return rescueDisputeId(item) !== "";
+}
+
+function hasRetryFinalizeContext(item) {
+  const executionGrantId =
+    String(item?.refs?.requestId ?? "").trim() ||
+    String(item?.details?.executionGrantId ?? "").trim();
+  const workOrderId = String(item?.details?.workOrderId ?? "").trim();
+  return executionGrantId !== "" && workOrderId !== "";
+}
+
 function launchGateTone(status) {
   if (status === LAUNCH_GATE_STATUS.FAIL) return "operator-pill operator-pill-critical";
   if (status === LAUNCH_GATE_STATUS.WARN) return "operator-pill operator-pill-high";
@@ -498,17 +519,209 @@ function buildAvailableRescueActions(item) {
   const sourceType = String(item?.sourceType ?? "").trim().toLowerCase();
   const rescueState = String(item?.rescueState ?? "").trim().toLowerCase();
   if (sourceType === "approval_continuation" && rescueState === "approved_resume_pending") {
-    return [{ action: "resume", label: "Resume launch", tone: "operator-approve-btn" }];
+    return [
+      {
+        action: "resume",
+        label: "Resume approved launch",
+        tone: "operator-approve-btn",
+        summary: "Use the approved continuation and let the host pick execution back up inside the existing boundary."
+      },
+      {
+        action: "revoke",
+        label: "Revoke approval grant",
+        tone: "operator-deny-btn",
+        summary: "Revoke the approved execution grant before the host resumes so the intent is cancelled instead of silently continuing."
+      }
+    ];
   }
   if (sourceType === "run") {
     const actions = [];
     if (rescueState === "run_failed" || rescueState === "run_stalled" || rescueState === "run_attention_required") {
-      actions.push({ action: "request_info", label: "Request user info", tone: "operator-ghost-btn" });
+      actions.push({
+        action: "request_info",
+        label: "Request evidence or user input",
+        tone: "operator-ghost-btn",
+        summary: "Fail closed until the missing fields or evidence are attached to the same run."
+      });
     }
-    actions.push({ action: "escalate_refund", label: "Escalate refund/dispute", tone: "operator-deny-btn" });
+    actions.push({
+      action: "escalate_refund",
+      label: "Escalate refund / dispute",
+      tone: "operator-deny-btn",
+        summary: "Move the run into refund or dispute handling without pretending execution succeeded."
+      });
+    if (hasOpenRescueDispute(item)) {
+      actions.push({
+        action: "resolve_dispute",
+        label: "Resolve dispute",
+        tone: "operator-approve-btn",
+        summary: "Close the open dispute and resolve the settlement with an explicit outcome and evidence binding."
+      });
+    }
+    if (hasRetryFinalizeContext(item)) {
+      actions.push({
+        action: "retry_finalize",
+        label: "Retry finalize",
+        tone: "operator-ghost-btn",
+        summary: "Replay Action Wallet finalize with explicit completion and settlement payloads when the run already has linked grant and work-order context."
+      });
+    }
     return actions;
   }
   return [];
+}
+
+function containsRef(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function buildRescueTrustSurfaceRows(item) {
+  if (!item || typeof item !== "object") return [];
+  const refs = item?.refs && typeof item.refs === "object" && !Array.isArray(item.refs) ? item.refs : {};
+  const details = item?.details && typeof item.details === "object" && !Array.isArray(item.details) ? item.details : {};
+  const latestUserResponse =
+    details?.latestUserResponse && typeof details.latestUserResponse === "object" && !Array.isArray(details.latestUserResponse)
+      ? details.latestUserResponse
+      : null;
+  const approvalPresent =
+    containsRef(refs.approvalRequestId) ||
+    containsRef(refs.approvalId) ||
+    containsRef(item?.links?.approvals) ||
+    item?.sourceType === "approval_continuation";
+  const grantPresent =
+    containsRef(refs.executionGrantId) ||
+    containsRef(refs.grantId) ||
+    containsRef(details?.executionGrantId) ||
+    containsRef(details?.grantId) ||
+    containsRef(details?.workOrderId);
+  const evidenceCount =
+    Number.isFinite(Number(latestUserResponse?.evidenceRefCount))
+      ? Number(latestUserResponse.evidenceRefCount)
+      : Array.isArray(details?.evidenceRefs)
+        ? details.evidenceRefs.length
+        : 0;
+  const receiptPresent =
+    containsRef(refs.receiptId) ||
+    containsRef(refs.workOrderReceiptId) ||
+    containsRef(item?.links?.receipt) ||
+    containsRef(details?.receiptId);
+  const disputePresent = containsRef(refs.disputeId) || containsRef(item?.links?.dispute) || containsRef(details?.disputeId);
+  const verificationStatus = containsRef(item?.phase1?.verificationStatus) ? String(item.phase1.verificationStatus) : "";
+
+  return [
+    {
+      title: "Approval",
+      statusTone: approvalPresent ? "operator-pill operator-pill-normal" : "operator-pill operator-pill-critical",
+      statusLabel: approvalPresent ? "present" : "missing",
+      detail: approvalPresent ? "Hosted approval context is attached to this rescue item." : "No approval context is attached."
+    },
+    {
+      title: "Grant",
+      statusTone: grantPresent ? "operator-pill operator-pill-normal" : "operator-pill operator-pill-high",
+      statusLabel: grantPresent ? "bound" : "not bound",
+      detail: grantPresent ? "Execution boundary or work-order context exists." : "Grant context is missing or not exposed here yet."
+    },
+    {
+      title: "Evidence",
+      statusTone:
+        evidenceCount > 0
+          ? "operator-pill operator-pill-normal"
+          : verificationStatus === "insufficient" || verificationStatus === "failed"
+            ? "operator-pill operator-pill-critical"
+            : "operator-pill operator-pill-high",
+      statusLabel: evidenceCount > 0 ? `${evidenceCount} refs` : "needs proof",
+      detail:
+        evidenceCount > 0
+          ? "The run already has attached evidence or user-provided artifacts."
+          : "This rescue item still needs explicit proof or user input before completion."
+    },
+    {
+      title: "Receipt",
+      statusTone: receiptPresent ? "operator-pill operator-pill-normal" : "operator-pill operator-pill-high",
+      statusLabel: receiptPresent ? "issued" : "pending",
+      detail: receiptPresent ? "A receipt object is linked from this rescue item." : "No receipt has been issued yet."
+    },
+    {
+      title: "Dispute",
+      statusTone: disputePresent ? "operator-pill operator-pill-high" : "operator-pill operator-pill-normal",
+      statusLabel: disputePresent ? "open" : "clear",
+      detail: disputePresent ? "This run already has a dispute path or case attached." : "No dispute is attached yet."
+    }
+  ];
+}
+
+function buildRescueInterventionRows(item, rescueActions) {
+  if (!item || typeof item !== "object") return [];
+  const sourceType = String(item?.sourceType ?? "").trim().toLowerCase();
+  const priority = String(item?.priority ?? "").trim().toLowerCase();
+  const actionsById = new Map((Array.isArray(rescueActions) ? rescueActions : []).map((row) => [row.action, row]));
+  const rows = [];
+
+  if (actionsById.has("request_info")) {
+    rows.push({
+      title: "Request evidence",
+      mode: "wired",
+      tone: "operator-pill operator-pill-normal",
+      detail: actionsById.get("request_info")?.summary ?? "Ask the user for missing fields or evidence."
+    });
+  }
+  if (actionsById.has("resume")) {
+    rows.push({
+      title: "Retry finalize / resume",
+      mode: "wired",
+      tone: "operator-pill operator-pill-high",
+      detail: actionsById.get("resume")?.summary ?? "Resume the approved continuation."
+    });
+  }
+  if (sourceType === "run") {
+    rows.push({
+      title: "Pause or revoke",
+      mode: "runbook",
+      tone: "operator-pill operator-pill-high",
+      detail: "If the host is still acting unsafely, use emergency pause or revoke controls before continuing rescue."
+    });
+  }
+  if (actionsById.has("revoke")) {
+    rows.push({
+      title: "Revoke approval grant",
+      mode: "wired",
+      tone: "operator-pill operator-pill-critical",
+      detail: actionsById.get("revoke")?.summary ?? "Revoke the approved execution grant before resuming."
+    });
+  }
+  if (actionsById.has("escalate_refund")) {
+    rows.push({
+      title: "Refund / dispute",
+      mode: "wired",
+      tone: "operator-pill operator-pill-critical",
+      detail: actionsById.get("escalate_refund")?.summary ?? "Move the run into recourse."
+    });
+  }
+  if (actionsById.has("resolve_dispute")) {
+    rows.push({
+      title: "Resolve dispute",
+      mode: "wired",
+      tone: "operator-pill operator-pill-normal",
+      detail: actionsById.get("resolve_dispute")?.summary ?? "Close the dispute and drive the settlement to a final state."
+    });
+  }
+  if (actionsById.has("retry_finalize")) {
+    rows.push({
+      title: "Retry finalize",
+      mode: "wired",
+      tone: "operator-pill operator-pill-high",
+      detail: actionsById.get("retry_finalize")?.summary ?? "Replay Action Wallet finalize with an explicit verifier-backed payload."
+    });
+  }
+  if (sourceType === "run" || priority === "critical") {
+    rows.push({
+      title: "Quarantine host",
+      mode: "runbook",
+      tone: "operator-pill operator-pill-critical",
+      detail: "If the rescue suggests systemic host risk, quarantine the host through emergency controls and stop new launches."
+    });
+  }
+  return rows;
 }
 
 function buildRescueLinks(item) {
@@ -554,6 +767,10 @@ export default function OperatorDashboard() {
   const [rescueRequestedFields, setRescueRequestedFields] = useState("");
   const [rescueRequestedEvidenceKinds, setRescueRequestedEvidenceKinds] = useState("");
   const [rescueActionTitle, setRescueActionTitle] = useState("");
+  const [rescueRevocationReasonCode, setRescueRevocationReasonCode] = useState("operator_revoked");
+  const [rescueResolutionOutcome, setRescueResolutionOutcome] = useState("rejected");
+  const [rescueCompletionJson, setRescueCompletionJson] = useState("");
+  const [rescueSettlementJson, setRescueSettlementJson] = useState("");
   const [savingRescueTriage, setSavingRescueTriage] = useState(false);
   const [runningRescueAction, setRunningRescueAction] = useState(false);
   const [rescueMutationError, setRescueMutationError] = useState(null);
@@ -741,6 +958,11 @@ export default function OperatorDashboard() {
   const launchRescueItems = useMemo(() => rescueQueue.filter((item) => isLaunchRescueItem(item)), [rescueQueue]);
   const rescueLinks = useMemo(() => buildRescueLinks(selectedRescue), [selectedRescue]);
   const rescueActions = useMemo(() => buildAvailableRescueActions(selectedRescue), [selectedRescue]);
+  const rescueTrustSurfaceRows = useMemo(() => buildRescueTrustSurfaceRows(selectedRescue), [selectedRescue]);
+  const rescueInterventionRows = useMemo(
+    () => buildRescueInterventionRows(selectedRescue, rescueActions),
+    [selectedRescue, rescueActions]
+  );
   const selectedRescueDetails = useMemo(
     () => buildLaunchSafeRescueDetails(selectedRescue?.details),
     [selectedRescue?.details]
@@ -781,6 +1003,10 @@ export default function OperatorDashboard() {
     setRescueRequestedFields("");
     setRescueRequestedEvidenceKinds("");
     setRescueActionTitle("");
+    setRescueRevocationReasonCode("operator_revoked");
+    setRescueResolutionOutcome("rejected");
+    setRescueCompletionJson("");
+    setRescueSettlementJson("");
     setRescueMutationError(null);
     setRescueMutationOutput(null);
   }, [selectedRescue?.rescueId, selectedRescue?.triage?.revision]);
@@ -813,6 +1039,30 @@ export default function OperatorDashboard() {
 
   async function runRescueAction(action) {
     if (!selectedRescueId || !action) return;
+    let retryFinalizeCompletion = null;
+    let retryFinalizeSettlement = null;
+    if (action === "retry_finalize") {
+      try {
+        retryFinalizeCompletion = rescueCompletionJson.trim() ? JSON.parse(rescueCompletionJson) : null;
+      } catch (err) {
+        setRescueMutationError(`Completion JSON is invalid: ${err?.message ?? String(err)}`);
+        return;
+      }
+      if (!retryFinalizeCompletion || typeof retryFinalizeCompletion !== "object" || Array.isArray(retryFinalizeCompletion)) {
+        setRescueMutationError("Retry finalize requires a completion JSON object.");
+        return;
+      }
+      try {
+        retryFinalizeSettlement = rescueSettlementJson.trim() ? JSON.parse(rescueSettlementJson) : null;
+      } catch (err) {
+        setRescueMutationError(`Settlement JSON is invalid: ${err?.message ?? String(err)}`);
+        return;
+      }
+      if (retryFinalizeSettlement !== null && (typeof retryFinalizeSettlement !== "object" || Array.isArray(retryFinalizeSettlement))) {
+        setRescueMutationError("Settlement JSON must be an object when provided.");
+        return;
+      }
+    }
     setRunningRescueAction(true);
     setRescueMutationError(null);
     setRescueMutationOutput(null);
@@ -829,7 +1079,22 @@ export default function OperatorDashboard() {
           ...(action === "request_info" && rescueRequestedEvidenceKinds.trim()
             ? { requestedEvidenceKinds: rescueRequestedEvidenceKinds }
             : {}),
-          ...(action === "request_info" && rescueActionTitle.trim() ? { title: rescueActionTitle.trim() } : {})
+          ...(action === "request_info" && rescueActionTitle.trim() ? { title: rescueActionTitle.trim() } : {}),
+          ...(action === "revoke" && rescueRevocationReasonCode.trim()
+            ? { reasonCode: rescueRevocationReasonCode.trim() }
+            : {}),
+          ...(action === "resolve_dispute"
+            ? {
+                resolutionOutcome: rescueResolutionOutcome,
+                ...(rescueDisputeId(selectedRescue) ? { disputeId: rescueDisputeId(selectedRescue) } : {})
+              }
+            : {}),
+          ...(action === "retry_finalize"
+            ? {
+                completion: retryFinalizeCompletion,
+                ...(retryFinalizeSettlement ? { settlement: retryFinalizeSettlement } : {})
+              }
+            : {})
         }
       });
       setRescueMutationOutput(out);
@@ -1260,6 +1525,40 @@ export default function OperatorDashboard() {
                     </article>
                   </div>
 
+                  {rescueTrustSurfaceRows.length > 0 ? (
+                    <section className="operator-json-block">
+                      <p>Trust surface state</p>
+                      <div className="operator-rescue-surface-grid">
+                        {rescueTrustSurfaceRows.map((row) => (
+                          <article key={row.title} className="operator-rescue-surface-card">
+                            <div className="operator-rescue-surface-head">
+                              <strong>{row.title}</strong>
+                              <span className={row.statusTone}>{row.statusLabel}</span>
+                            </div>
+                            <span>{row.detail}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {rescueInterventionRows.length > 0 ? (
+                    <section className="operator-json-block">
+                      <p>Launch-scoped interventions</p>
+                      <div className="operator-rescue-action-grid">
+                        {rescueInterventionRows.map((row) => (
+                          <article key={row.title} className="operator-rescue-action-card">
+                            <div className="operator-rescue-action-head">
+                              <strong>{row.title}</strong>
+                              <span className={row.tone}>{row.mode === "wired" ? "wired here" : "runbook"}</span>
+                            </div>
+                            <span>{row.detail}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
                   <section className="operator-json-block">
                     <p>Triage</p>
                     <div className="operator-triage-grid">
@@ -1316,6 +1615,17 @@ export default function OperatorDashboard() {
                   {rescueActions.length > 0 ? (
                     <section className="operator-json-block">
                       <p>Actions</p>
+                      {rescueActions.some((action) => action.action === "revoke") ? (
+                        <label className="operator-textarea-wrap">
+                          <span>Revocation reason code</span>
+                          <input
+                            value={rescueRevocationReasonCode}
+                            onChange={(event) => setRescueRevocationReasonCode(event.target.value)}
+                            placeholder="operator_revoked"
+                            disabled={savingRescueTriage || runningRescueAction}
+                          />
+                        </label>
+                      ) : null}
                       {selectedRescue?.sourceType === "run" ? (
                         <div className="operator-triage-grid">
                           <label>
@@ -1337,6 +1647,57 @@ export default function OperatorDashboard() {
                             />
                           </label>
                         </div>
+                      ) : null}
+                      {rescueActions.some((action) => action.action === "resolve_dispute") ? (
+                        <div className="operator-triage-grid">
+                          <label>
+                            <span>Resolution outcome</span>
+                            <select
+                              value={rescueResolutionOutcome}
+                              onChange={(event) => setRescueResolutionOutcome(event.target.value)}
+                              disabled={savingRescueTriage || runningRescueAction}
+                            >
+                              {RESOLUTION_OUTCOME_OPTIONS.map((outcome) => (
+                                <option key={outcome} value={outcome}>
+                                  {outcome}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Dispute</span>
+                            <input
+                              value={rescueDisputeId(selectedRescue) || "linked dispute will be inferred"}
+                              readOnly
+                              disabled
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                      {rescueActions.some((action) => action.action === "retry_finalize") ? (
+                        <>
+                          <label className="operator-textarea-wrap">
+                            <span>Completion JSON</span>
+                            <textarea
+                              value={rescueCompletionJson}
+                              onChange={(event) => setRescueCompletionJson(event.target.value)}
+                              placeholder={'{"receiptId":"worec_...","status":"success","verifierVerdict":{"decision":"pass","reasonCode":"verified"},"evidenceRefs":["artifact://..."],"completedAt":"2026-03-08T16:12:30.000Z"}'}
+                              disabled={savingRescueTriage || runningRescueAction}
+                            />
+                          </label>
+                          <label className="operator-textarea-wrap">
+                            <span>Settlement JSON</span>
+                            <textarea
+                              value={rescueSettlementJson}
+                              onChange={(event) => setRescueSettlementJson(event.target.value)}
+                              placeholder={'{"status":"released","x402GateId":"x402gate_...","x402ReceiptId":"x402rcpt_...","settledAt":"2026-03-08T16:13:00.000Z"}'}
+                              disabled={savingRescueTriage || runningRescueAction}
+                            />
+                          </label>
+                          <p className="operator-muted operator-small">
+                            Retry finalize is operator-only and expects the same fail-closed payload the public finalize route requires. Leave settlement blank if only completion needs replay.
+                          </p>
+                        </>
                       ) : null}
                       {selectedRescue?.sourceType === "run" ? (
                         <p className="operator-muted operator-small">
@@ -1363,6 +1724,9 @@ export default function OperatorDashboard() {
                           disabled={savingRescueTriage || runningRescueAction}
                         />
                       </label>
+                      <p className="operator-muted operator-small">
+                        Only launch-safe interventions are wired from this screen. Pause, revoke, and quarantine stay explicit but remain separate emergency controls until the operator console gets dedicated dual-control flows.
+                      </p>
                       <div className="operator-decision-actions">
                         {rescueActions.map((action) => (
                           <button
@@ -1371,6 +1735,7 @@ export default function OperatorDashboard() {
                             className={action.tone}
                             onClick={() => void runRescueAction(action.action)}
                             disabled={savingRescueTriage || runningRescueAction}
+                            title={action.summary ?? action.label}
                           >
                             {runningRescueAction ? "Working..." : action.label}
                           </button>

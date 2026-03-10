@@ -7,12 +7,15 @@ import { buildAuthorityEnvelopeV1 } from "../src/core/authority-envelope.js";
 import { APPROVAL_CONTINUATION_KIND, APPROVAL_CONTINUATION_STATUS, buildApprovalContinuationV1 } from "../src/core/approval-continuation.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem, sha256Hex } from "../src/core/crypto.js";
 import { computeNooterraPayRequestBindingSha256V1 } from "../src/core/nooterra-pay-token.js";
+import { signOperatorActionV1 } from "../src/core/operator-action.js";
 import { signToolProviderSignatureV1 } from "../src/core/tool-provider-signature.js";
 import { buildTaskWalletV1 } from "../src/core/task-wallet.js";
 import { getPhase1SupportedTaskFamily } from "../src/core/phase1-task-policy.js";
 import { makeScopedKey } from "../src/core/tenancy.js";
 import { buildDelegatedAccountSessionBindingHeaderValue, buildDelegatedBrowserProfileHeaderValue } from "../packages/provider-kit/src/index.js";
 import { request } from "./api-test-harness.js";
+
+let emergencyOperatorActionSeq = 0;
 
 async function listenServer(server, host = "127.0.0.1") {
   await new Promise((resolve) => server.listen(0, host, resolve));
@@ -76,6 +79,89 @@ async function upsertAgentCard(api, { tenantId, agentId, capabilities, visibilit
       visibility,
       host: { runtime: "nooterra" },
       priceHint: { amountCents: 500, currency: "USD", unit: "task" }
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+}
+
+async function registerEmergencyOperatorSigner(api, { tenantId = "tenant_default", description = "ops rescue emergency signer" } = {}) {
+  const keypair = createEd25519Keypair();
+  const registered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    headers: {
+      "x-proxy-ops-token": "tok_opsrw",
+      "x-proxy-tenant-id": tenantId
+    },
+    body: {
+      publicKeyPem: keypair.publicKeyPem,
+      purpose: "operator",
+      description
+    }
+  });
+  assert.equal(registered.statusCode, 201, registered.body);
+  return {
+    ...keypair,
+    keyId: String(registered.json?.signerKey?.keyId ?? "")
+  };
+}
+
+function buildSignedEmergencyOperatorAction({
+  signer,
+  action = "OVERRIDE_DENY",
+  operatorId = "op_ops_rescue_oncall",
+  role = "oncall",
+  tenantId = "tenant_default",
+  caseIdPrefix = "ops_rescue_emergency"
+} = {}) {
+  emergencyOperatorActionSeq += 1;
+  return signOperatorActionV1({
+    action: {
+      actionId: `oa_ops_rescue_${emergencyOperatorActionSeq}`,
+      caseRef: { kind: "escalation", caseId: `${caseIdPrefix}_${emergencyOperatorActionSeq}` },
+      action,
+      justificationCode: "OPS_EMERGENCY_CONTROL",
+      justification: "ops rescue containment action",
+      actor: { operatorId, role, tenantId },
+      actedAt: new Date().toISOString()
+    },
+    publicKeyPem: signer.publicKeyPem,
+    privateKeyPem: signer.privateKeyPem
+  });
+}
+
+async function issueDelegationGrant(api, { tenantId, grantId, delegatorAgentId, delegateeAgentId, capability }) {
+  const response = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `delegation_grant_${tenantId}_${grantId}`
+    },
+    body: {
+      grantId,
+      delegatorAgentId,
+      delegateeAgentId,
+      scope: {
+        allowedProviderIds: [delegateeAgentId],
+        allowedToolIds: ["workflow_intake"],
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 25_000,
+        maxTotalCents: 25_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-03-08T16:00:00.000Z",
+        notBefore: "2026-03-08T16:00:00.000Z",
+        expiresAt: "2027-03-08T16:00:00.000Z"
+      }
     }
   });
   assert.equal(response.statusCode, 201, response.body);
@@ -413,6 +499,195 @@ async function createPendingApprovalContinuation(api, { tenantId, agentId }) {
   return continuation;
 }
 
+async function createLinkedMaterializedActionWalletForRun(api, { tenantId, principalAgentId, subAgentId, runId, suffix }) {
+  const capability = "capability://workflow.intake";
+  const grantId = `dgrant_ops_rescue_retry_finalize_${suffix}`;
+  const workOrderId = `workord_ops_rescue_retry_finalize_${suffix}`;
+
+  await issueDelegationGrant(api, {
+    tenantId,
+    grantId,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: subAgentId,
+    capability
+  });
+
+  const seededBlockedWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_seed_${suffix}`
+    },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1900,
+        currency: "USD",
+        quoteId: `quote_ops_rescue_retry_finalize_${suffix}_seed`
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1900,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: `trace_ops_rescue_retry_finalize_${suffix}_seed`
+    }
+  });
+  assert.equal(seededBlockedWorkOrder.statusCode, 409, seededBlockedWorkOrder.body);
+  const authorityEnvelope = seededBlockedWorkOrder.json?.details?.authorityEnvelope;
+  const seededApprovalRequest = seededBlockedWorkOrder.json?.details?.approvalRequest;
+  assert.ok(authorityEnvelope?.envelopeId);
+  assert.ok(seededApprovalRequest?.requestId);
+
+  const actionIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_intent_${suffix}`
+    },
+    body: {
+      actionIntentId: authorityEnvelope.envelopeId,
+      authorityEnvelope,
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(actionIntent.statusCode, 200, actionIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(authorityEnvelope.envelopeId)}/approval-requests`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_request_${suffix}`
+    },
+    body: {
+      approvalRequest: seededApprovalRequest,
+      requestedBy: seededApprovalRequest.requestedBy
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 200, approvalRequested.body);
+  const approvalRequest = approvalRequested.json?.approvalRequest;
+  assert.ok(approvalRequest?.requestId);
+
+  const approved = await request(api, {
+    method: "POST",
+    path: `/v1/approval-requests/${encodeURIComponent(approvalRequest.requestId)}/decisions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_decide_${suffix}`
+    },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-08T16:05:00.000Z",
+      note: `Approved from ops rescue retry finalize ${suffix}`,
+      evidenceRefs: [`ticket:NOO-OPS-RETRY-FINALIZE-${suffix}`]
+    }
+  });
+  assert.equal(approved.statusCode, 201, approved.body);
+
+  const createdWorkOrder = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_materialize_${suffix}`
+    },
+    body: {
+      workOrderId,
+      principalAgentId,
+      subAgentId,
+      requiredCapability: capability,
+      pricing: {
+        amountCents: 1900,
+        currency: "USD",
+        quoteId: `quote_ops_rescue_retry_finalize_${suffix}_1`
+      },
+      constraints: {
+        maxDurationSeconds: 300,
+        maxCostCents: 1900,
+        retryLimit: 1
+      },
+      delegationGrantRef: grantId,
+      approvalMode: "require",
+      approvalPolicy: {
+        requireApprovalAboveCents: 0,
+        strictEvidenceRefs: true
+      },
+      traceId: `trace_ops_rescue_retry_finalize_${suffix}_1`,
+      authorityEnvelope: approvalRequested.json?.authorityEnvelope,
+      approvalRequest,
+      approvalDecision: approved.json?.approvalDecision
+    }
+  });
+  assert.equal(createdWorkOrder.statusCode, 201, createdWorkOrder.body);
+
+  const evidence = await request(api, {
+    method: "POST",
+    path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/evidence`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `ops_rescue_retry_finalize_evidence_${suffix}`
+    },
+    body: {
+      workOrderId,
+      evidenceRefs: ["artifact://checkout/cart-ops-rescue", "report://verification/ops-rescue"],
+      message: "Attached checkout evidence."
+    }
+  });
+  assert.equal(evidence.statusCode, 200, evidence.body);
+
+  const workOrderKey = makeScopedKey({ tenantId, id: workOrderId });
+  const storedWorkOrder = api.store.subAgentWorkOrders.get(workOrderKey);
+  assert.ok(storedWorkOrder);
+  api.store.subAgentWorkOrders.set(workOrderKey, {
+    ...storedWorkOrder,
+    settlement: {
+      ...(storedWorkOrder?.settlement && typeof storedWorkOrder.settlement === "object" ? storedWorkOrder.settlement : {}),
+      x402RunId: runId
+    }
+  });
+
+  return {
+    workOrderId,
+    approvalRequestId: approvalRequest.requestId
+  };
+}
+
+function buildVerifierVerdict({
+  status = "pass",
+  verificationStatus = undefined,
+  reasonCodes = [],
+  verifierId = "nooterra.action-wallet-verifier"
+} = {}) {
+  return {
+    status,
+    ...(verificationStatus === undefined ? {} : { verificationStatus }),
+    verifierRef: {
+      verifierId,
+      verifierVersion: "v1",
+      verifierHash: null,
+      modality: "deterministic"
+    },
+    reasonCodes
+  };
+}
+
 test("API e2e: ops rescue queue aggregates approval, launch, and run rescue items deterministically", async () => {
   const api = createApi({
     now: () => "2026-03-06T18:00:00.000Z",
@@ -674,6 +949,116 @@ test("API e2e: ops rescue action resumes approved router launch continuations", 
   assert.equal(queue.json?.rescueQueue?.total, 0);
 });
 
+test("API e2e: ops rescue action revokes approved execution grants before launch resumes", async () => {
+  const api = createApi({
+    now: () => "2026-03-06T19:05:00.000Z",
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_revoke";
+  const orchestratorAgentId = "agt_ops_rescue_revoke_orchestrator";
+  await registerAgent(api, {
+    tenantId,
+    agentId: orchestratorAgentId,
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: orchestratorAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_revoke_1"
+  });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/router/launch",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "ops_rescue_revoke_blocked_1"
+    },
+    body: {
+      text: "Book a dentist appointment next Tuesday afternoon.",
+      posterAgentId: orchestratorAgentId,
+      scope: "public",
+      approvalMode: "require",
+      approvalContinuation: {
+        dispatchNow: true
+      },
+      taskOverrides: {
+        t_schedule: {
+          rfqId: "rfq_ops_rescue_revoke_1"
+        }
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  const requestId = blocked.json?.details?.approvalRequest?.requestId;
+  assert.ok(requestId);
+
+  const decided = await request(api, {
+    method: "POST",
+    path: `/approval-inbox/${encodeURIComponent(requestId)}/decide`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "ops_rescue_revoke_decide_1"
+    },
+    body: {
+      approved: true,
+      decidedBy: "human.ops",
+      decidedAt: "2026-03-06T19:06:00.000Z",
+      note: "Approved before revoke test",
+      evidenceRefs: ["ticket:NOO-ops-rescue-revoke-1"]
+    }
+  });
+  assert.equal(decided.statusCode, 201, decided.body);
+
+  const rescueId = `approval:${requestId}`;
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    },
+    body: {
+      action: "revoke",
+      note: "Operator revoked the approved launch.",
+      reasonCode: "operator_revoked"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(revoked.json?.triage?.status, "resolved");
+  assert.equal(revoked.json?.actionResult?.action, "revoke");
+  assert.equal(revoked.json?.actionResult?.approvalStatus, "revoked");
+  assert.equal(revoked.json?.actionResult?.actionIntent?.status, "cancelled");
+  assert.equal(revoked.json?.actionResult?.executionGrant?.status, "denied");
+  assert.equal(revoked.json?.actionResult?.revocationReasonCode, "operator_revoked");
+
+  const approvalStatus = await request(api, {
+    method: "GET",
+    path: `/v1/execution-grants/${encodeURIComponent(requestId)}`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-nooterra-protocol": "1.0"
+    }
+  });
+  assert.equal(approvalStatus.statusCode, 200, approvalStatus.body);
+  assert.equal(approvalStatus.json?.approvalStatus, "revoked");
+  assert.equal(approvalStatus.json?.actionIntent?.status, "cancelled");
+  assert.equal(approvalStatus.json?.executionGrant?.status, "denied");
+
+  const queue = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=approval_continuation",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queue.statusCode, 200, queue.body);
+  assert.equal(queue.json?.rescueQueue?.total, 0);
+});
+
 test("API e2e: ops rescue action dispatches ready router launch tasks", async () => {
   const api = createApi({
     now: () => "2026-03-06T19:30:00.000Z",
@@ -854,6 +1239,390 @@ test("API e2e: ops rescue action can request additional user input for run rescu
   assert.equal(updatedItem?.details?.actionRequiredCode, "needs_user_input");
 });
 
+test("API e2e: ops rescue request_evidence defaults to missing phase1 evidence kinds", async () => {
+  const api = createApi({
+    now: () => "2026-03-06T21:40:00.000Z",
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_request_evidence";
+  const payerAgentId = "agt_ops_rescue_request_evidence_payer";
+  const payeeAgentId = "agt_ops_rescue_request_evidence_payee";
+  await registerAgent(api, {
+    tenantId,
+    agentId: payerAgentId,
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: payeeAgentId,
+    capabilities: ["capability://consumer.scheduling.booking"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_request_evidence_1"
+  });
+
+  await createPhase1RunNeedingRescue(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_ops_rescue_request_evidence_1",
+    categoryId: "scheduling_booking"
+  });
+
+  const queueBefore = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueBefore.statusCode, 200, queueBefore.body);
+  const rescueItem =
+    queueBefore.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === "run_ops_rescue_request_evidence_1") ?? null;
+  assert.ok(rescueItem);
+  assert.ok(Array.isArray(rescueItem?.details?.missingEvidence));
+  assert.ok(rescueItem.details.missingEvidence.includes("booking_confirmation"));
+
+  const requested = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueItem.rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    },
+    body: {
+      action: "request_evidence",
+      note: "Upload the booking confirmation so the run can be finalized."
+    }
+  });
+  assert.equal(requested.statusCode, 200, requested.body);
+  assert.equal(requested.json?.triage?.status, "in_progress");
+  assert.equal(requested.json?.actionResult?.action, "request_evidence");
+  assert.equal(requested.json?.actionResult?.event?.type, "RUN_ACTION_REQUIRED");
+  assert.deepEqual(requested.json?.actionResult?.requestedFields, []);
+  assert.ok(requested.json?.actionResult?.requestedEvidenceKinds.includes("booking_confirmation"));
+  assert.equal(requested.json?.actionResult?.run?.actionRequired?.code, "needs_evidence");
+  assert.equal(requested.json?.actionResult?.run?.actionRequired?.title, "Scheduling and booking needs proof");
+
+  const queueAfter = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueAfter.statusCode, 200, queueAfter.body);
+  const updatedItem =
+    queueAfter.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === "run_ops_rescue_request_evidence_1") ?? null;
+  assert.ok(updatedItem);
+  assert.equal(updatedItem?.rescueState, "run_action_required");
+  assert.equal(updatedItem?.details?.actionRequiredCode, "needs_evidence");
+});
+
+test("API e2e: ops rescue queue carries linked Action Wallet handles for run rescue items", async () => {
+  const api = createApi({
+    now: () => "2026-03-06T21:50:00.000Z",
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_action_wallet_links";
+  const payerAgentId = "agt_ops_rescue_action_wallet_links_payer";
+  const payeeAgentId = "agt_ops_rescue_action_wallet_links_payee";
+  const runId = "run_ops_rescue_action_wallet_links_1";
+  await registerAgent(api, {
+    tenantId,
+    agentId: payerAgentId,
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: payeeAgentId,
+    capabilities: ["capability://consumer.scheduling.booking"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_action_wallet_links_1"
+  });
+
+  await createPhase1RunNeedingRescue(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId,
+    categoryId: "scheduling_booking"
+  });
+
+  api.store.subAgentWorkOrders.set(
+    makeScopedKey({ tenantId, id: "workord_ops_rescue_action_wallet_links_1" }),
+    {
+      schemaVersion: "SubAgentWorkOrder.v1",
+      tenantId,
+      workOrderId: "workord_ops_rescue_action_wallet_links_1",
+      principalAgentId: payerAgentId,
+      subAgentId: payeeAgentId,
+      status: "settled",
+      approvalRequest: {
+        requestId: "apr_ops_rescue_action_wallet_links_1"
+      },
+      completionReceiptId: "worec_ops_rescue_action_wallet_links_1",
+      settlement: {
+        x402RunId: runId,
+        x402ReceiptId: "x402rcpt_ops_rescue_action_wallet_links_1"
+      },
+      createdAt: "2026-03-06T21:49:00.000Z",
+      updatedAt: "2026-03-06T21:49:30.000Z"
+    }
+  );
+
+  const queue = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queue.statusCode, 200, queue.body);
+  const rescueItem = queue.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === runId) ?? null;
+  assert.ok(rescueItem);
+  assert.equal(rescueItem?.refs?.requestId, "apr_ops_rescue_action_wallet_links_1");
+  assert.equal(rescueItem?.refs?.receiptId, "worec_ops_rescue_action_wallet_links_1");
+  assert.equal(rescueItem?.links?.approvals, "/approvals?requestId=apr_ops_rescue_action_wallet_links_1");
+  assert.equal(rescueItem?.details?.workOrderId, "workord_ops_rescue_action_wallet_links_1");
+  assert.equal(rescueItem?.details?.executionGrantId, "apr_ops_rescue_action_wallet_links_1");
+  assert.equal(rescueItem?.details?.completionReceiptId, "worec_ops_rescue_action_wallet_links_1");
+});
+
+test("API e2e: ops rescue action can retry Action Wallet finalization for linked run rescue items", async () => {
+  const api = createApi({
+    now: () => "2026-03-08T16:10:00.000Z",
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_retry_finalize";
+  const payerAgentId = "agt_ops_rescue_retry_finalize_payer";
+  const payeeAgentId = "agt_ops_rescue_retry_finalize_payee";
+  const runId = "run_ops_rescue_retry_finalize_1";
+
+  await registerAgent(api, {
+    tenantId,
+    agentId: payerAgentId,
+    capabilities: ["capability://workflow.orchestrator", "capability://workflow.intake"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: payeeAgentId,
+    capabilities: ["capability://consumer.scheduling.booking", "capability://workflow.intake"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_retry_finalize_1"
+  });
+
+  await createPhase1RunNeedingRescue(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId,
+    categoryId: "scheduling_booking"
+  });
+
+  const linkedActionWallet = await createLinkedMaterializedActionWalletForRun(api, {
+    tenantId,
+    principalAgentId: payerAgentId,
+    subAgentId: payeeAgentId,
+    runId,
+    suffix: "ops_rescue_retry_finalize_1"
+  });
+
+  const queueBefore = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueBefore.statusCode, 200, queueBefore.body);
+  const rescueItem = queueBefore.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === runId) ?? null;
+  assert.ok(rescueItem);
+  assert.equal(rescueItem?.refs?.requestId, linkedActionWallet.approvalRequestId);
+  assert.equal(rescueItem?.details?.workOrderId, linkedActionWallet.workOrderId);
+
+  const workOrderKey = makeScopedKey({ tenantId, id: linkedActionWallet.workOrderId });
+  const storedWorkOrder = api.store.subAgentWorkOrders.get(workOrderKey);
+  assert.ok(storedWorkOrder);
+  api.store.subAgentWorkOrders.set(workOrderKey, {
+    ...storedWorkOrder,
+    settlement: null
+  });
+
+  const finalized = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueItem.rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    },
+    body: {
+      action: "retry_finalize",
+      executionGrantId: linkedActionWallet.approvalRequestId,
+      workOrderId: linkedActionWallet.workOrderId,
+      completion: {
+        receiptId: "worec_ops_rescue_retry_finalize_1",
+        status: "success",
+        verifierVerdict: buildVerifierVerdict(),
+        outputs: {
+          bookingId: "booking_ops_rescue_retry_finalize_1"
+        },
+        metrics: {
+          steps: 3
+        },
+        evidenceRefs: ["artifact://checkout/cart-ops-rescue", "report://verification/ops-rescue"],
+        amountCents: 1900,
+        currency: "USD",
+        deliveredAt: "2026-03-08T16:12:00.000Z",
+        completedAt: "2026-03-08T16:12:30.000Z"
+      },
+      settlement: {
+        status: "released",
+        x402GateId: "x402gate_ops_rescue_retry_finalize_1",
+        x402RunId: runId,
+        x402SettlementStatus: "released",
+        x402ReceiptId: "x402rcpt_ops_rescue_retry_finalize_1",
+        settledAt: "2026-03-08T16:13:00.000Z"
+      }
+    }
+  });
+  assert.equal(finalized.statusCode, 200, finalized.body);
+  assert.equal(finalized.json?.triage?.status, "resolved");
+  assert.equal(finalized.json?.actionResult?.action, "retry_finalize");
+  assert.equal(finalized.json?.actionResult?.executionGrant?.executionGrantId, linkedActionWallet.approvalRequestId);
+  assert.equal(finalized.json?.actionResult?.workOrder?.status, "settled");
+  assert.equal(finalized.json?.actionResult?.completionReceipt?.receiptId, "worec_ops_rescue_retry_finalize_1");
+  assert.equal(finalized.json?.actionResult?.actionReceipt?.receiptId, "worec_ops_rescue_retry_finalize_1");
+
+  const receiptRead = await request(api, {
+    method: "GET",
+    path: "/v1/receipts/worec_ops_rescue_retry_finalize_1",
+    headers: {
+      "x-proxy-tenant-id": tenantId
+    }
+  });
+  assert.equal(receiptRead.statusCode, 200, receiptRead.body);
+  assert.equal(receiptRead.json?.actionReceipt?.receiptId, "worec_ops_rescue_retry_finalize_1");
+  assert.equal(receiptRead.json?.detail?.workOrder?.workOrderId, linkedActionWallet.workOrderId);
+});
+
+test("API e2e: ops rescue action can pause linked run agents through emergency controls", async () => {
+  const api = createApi({
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_pause";
+  const payerAgentId = "agt_ops_rescue_pause_payer";
+  const payeeAgentId = "agt_ops_rescue_pause_payee";
+  const runId = "run_ops_rescue_pause_1";
+  const emergencySigner = await registerEmergencyOperatorSigner(api, {
+    tenantId,
+    description: "ops rescue pause signer"
+  });
+
+  await registerAgent(api, {
+    tenantId,
+    agentId: payerAgentId,
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: payeeAgentId,
+    capabilities: ["capability://consumer.scheduling.booking"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_pause_1"
+  });
+  await createPhase1RunNeedingRescue(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId,
+    categoryId: "scheduling_booking"
+  });
+
+  const queueBefore = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run&limit=20",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueBefore.statusCode, 200, queueBefore.body);
+  const rescueItem = queueBefore.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === runId) ?? null;
+  assert.ok(rescueItem, queueBefore.body);
+  assert.equal(rescueItem?.details?.agentId, payeeAgentId);
+
+  const paused = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueItem.rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw",
+      "x-idempotency-key": "ops_rescue_pause_1"
+    },
+    body: {
+      action: "pause",
+      note: "Pause this host until support reviews the run.",
+      operatorAction: buildSignedEmergencyOperatorAction({
+        signer: emergencySigner,
+        tenantId,
+        caseIdPrefix: "ops_rescue_pause"
+      })
+    }
+  });
+  assert.equal(paused.statusCode, 200, paused.body);
+  assert.equal(paused.json?.triage?.status, "in_progress");
+  assert.equal(paused.json?.actionResult?.action, "pause");
+  assert.equal(paused.json?.actionResult?.scope?.type, "agent");
+  assert.equal(paused.json?.actionResult?.scope?.id, payeeAgentId);
+  assert.equal(paused.json?.actionResult?.controlType, "pause");
+
+  const currentRun = api.store.agentRuns.get(makeScopedKey({ tenantId, id: runId }));
+  assert.ok(currentRun?.lastChainHash, "run must have a lastChainHash before the blocked write");
+  const blocked = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payeeAgentId)}/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "ops_rescue_pause_blocked_1",
+      "x-proxy-expected-prev-chain-hash": currentRun.lastChainHash
+    },
+    body: {
+      type: "RUN_ACTION_REQUIRED",
+      payload: {
+        code: "needs_user_input",
+        title: "blocked after pause",
+        detail: "this should fail closed"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "EMERGENCY_PAUSE_ACTIVE");
+});
+
 test("API e2e: ops rescue queue surfaces latest user response bindings for run rescue items", async () => {
   const api = createApi({
     now: () => "2026-03-06T21:30:00.000Z",
@@ -1004,6 +1773,128 @@ test("API e2e: ops rescue action can escalate refund handling for run rescue ite
   assert.equal(settlement.statusCode, 200, settlement.body);
   assert.equal(settlement.json?.settlement?.disputeStatus, "open");
   assert.equal(settlement.json?.settlement?.disputeId, escalated.json?.actionResult?.disputeId);
+});
+
+test("API e2e: ops rescue action can close disputes and resolve settlement for run rescue items", async () => {
+  const api = createApi({
+    now: () => "2026-03-06T20:35:00.000Z",
+    opsTokens: "tok_opsrw:ops_read,ops_write"
+  });
+
+  const tenantId = "tenant_ops_rescue_resolve_dispute";
+  const payerAgentId = "agt_ops_rescue_resolve_dispute_payer";
+  const payeeAgentId = "agt_ops_rescue_resolve_dispute_payee";
+  const operatorAgentId = "agt_ops_rescue_resolve_dispute_operator";
+  await registerAgent(api, {
+    tenantId,
+    agentId: payerAgentId,
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: payeeAgentId,
+    capabilities: ["capability://consumer.scheduling.booking"]
+  });
+  await registerAgent(api, {
+    tenantId,
+    agentId: operatorAgentId,
+    capabilities: ["capability://ops.resolver"]
+  });
+  await creditWallet(api, {
+    tenantId,
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "credit_ops_rescue_resolve_dispute_1"
+  });
+
+  await createPhase1RunNeedingRescue(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_ops_rescue_resolve_dispute_1",
+    categoryId: "scheduling_booking"
+  });
+
+  const queueBefore = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueBefore.statusCode, 200, queueBefore.body);
+  const rescueItem = queueBefore.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === "run_ops_rescue_resolve_dispute_1") ?? null;
+  assert.ok(rescueItem);
+
+  const escalated = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueItem.rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    },
+    body: {
+      action: "escalate_refund",
+      note: "Booking proof is incomplete. Escalate before dispute resolution."
+    }
+  });
+  assert.equal(escalated.statusCode, 200, escalated.body);
+  const disputeId = escalated.json?.actionResult?.disputeId;
+  assert.ok(typeof disputeId === "string" && disputeId.length > 0);
+
+  const resolved = await request(api, {
+    method: "POST",
+    path: `/ops/network/rescue-queue/${encodeURIComponent(rescueItem.rescueId)}/actions`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    },
+    body: {
+      action: "resolve_dispute",
+      disputeId,
+      resolutionOutcome: "rejected",
+      resolutionSummary: "Proof remained incomplete after review; refund the payer.",
+      resolvedByAgentId: operatorAgentId
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.triage?.status, "resolved");
+  assert.equal(resolved.json?.actionResult?.action, "resolve_dispute");
+  assert.equal(resolved.json?.actionResult?.disputeId, disputeId);
+  assert.equal(resolved.json?.actionResult?.resolutionOutcome, "rejected");
+  assert.equal(resolved.json?.actionResult?.dispute?.disputeStatus, "closed");
+  assert.equal(resolved.json?.actionResult?.settlement?.status, "refunded");
+  assert.ok(
+    Array.isArray(resolved.json?.actionResult?.evidenceRefs) &&
+      resolved.json.actionResult.evidenceRefs.some((value) => String(value).startsWith("http:request_sha256:")),
+    resolved.json?.actionResult?.evidenceRefs
+  );
+
+  const settlement = await request(api, {
+    method: "GET",
+    path: "/runs/run_ops_rescue_resolve_dispute_1/settlement",
+    headers: {
+      "x-proxy-tenant-id": tenantId
+    }
+  });
+  assert.equal(settlement.statusCode, 200, settlement.body);
+  assert.equal(settlement.json?.settlement?.disputeStatus, "none");
+  assert.equal(settlement.json?.settlement?.status, "refunded");
+  assert.equal(settlement.json?.settlement?.disputeId, null);
+
+  const queueAfter = await request(api, {
+    method: "GET",
+    path: "/ops/network/rescue-queue?sourceType=run",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_opsrw"
+    }
+  });
+  assert.equal(queueAfter.statusCode, 200, queueAfter.body);
+  const updatedItem = queueAfter.json?.rescueQueue?.queue?.find((row) => row?.refs?.runId === "run_ops_rescue_resolve_dispute_1") ?? null;
+  assert.ok(updatedItem);
+  assert.equal(updatedItem?.triage?.status, "resolved");
 });
 
 test("API e2e: ops rescue action can recommend a managed reroute specialist for run rescue items", async () => {

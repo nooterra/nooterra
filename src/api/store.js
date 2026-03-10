@@ -22,6 +22,7 @@ import { validateSessionV1 } from "../core/session-collab.js";
 import { validateStateCheckpointV1 } from "../core/state-checkpoint.js";
 import { normalizeCapabilityIdentifier } from "../core/capability-attestation.js";
 import { makeOpsAuditRecord } from "../core/ops-audit.js";
+import { normalizeForCanonicalJson } from "../core/canonical-json.js";
 import {
   buildIdentityLogEntry,
   buildIdentityLogCheckpoint,
@@ -3533,6 +3534,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         : typeof gate.resolvedAt === "string" && gate.resolvedAt.trim() !== ""
           ? gate.resolvedAt.trim()
           : null;
+    const dispute = buildX402ReceiptDisputeSummary({ settlement });
     const base = {
       schemaVersion: "X402ReceiptRecord.v1",
       tenantId,
@@ -3560,6 +3562,12 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         typeof decisionTrace?.verificationStatus === "string" && decisionTrace.verificationStatus.trim() !== ""
           ? decisionTrace.verificationStatus.trim().toLowerCase()
           : null,
+      finalityState:
+        typeof settlementReceipt?.finalityState === "string" && settlementReceipt.finalityState.trim() !== ""
+          ? settlementReceipt.finalityState.trim().toLowerCase()
+          : typeof settlement?.finalityState === "string" && settlement.finalityState.trim() !== ""
+            ? settlement.finalityState.trim().toLowerCase()
+            : null,
       settledAt,
       createdAt:
         typeof settlementReceipt.createdAt === "string" && settlementReceipt.createdAt.trim() !== ""
@@ -3590,6 +3598,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         gate?.zkProof && typeof gate.zkProof === "object" && !Array.isArray(gate.zkProof)
           ? gate.zkProof
           : null,
+      dispute,
       decisionRecord:
         decisionTrace?.decisionRecord && typeof decisionTrace.decisionRecord === "object" && !Array.isArray(decisionTrace.decisionRecord)
           ? decisionTrace.decisionRecord
@@ -3605,6 +3614,94 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
           : null,
       reversalEvents: listX402ReversalEventsForReceiptSync({ tenantId, receiptId })
     };
+  }
+
+  function buildX402ReceiptDisputeSummary({ settlement, receipt = null } = {}) {
+    const disputeStatusFromSettlement =
+      typeof settlement?.disputeStatus === "string" && settlement.disputeStatus.trim() !== ""
+        ? settlement.disputeStatus.trim().toLowerCase()
+        : null;
+    const disputeStatusFromReceipt =
+      receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.status === "string"
+        ? receipt.dispute.status.trim().toLowerCase()
+        : null;
+    const disputeStatus = disputeStatusFromSettlement ?? disputeStatusFromReceipt ?? null;
+    const disputeId =
+      typeof settlement?.disputeId === "string" && settlement.disputeId.trim() !== ""
+        ? settlement.disputeId.trim()
+        : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.disputeId === "string"
+          ? receipt.dispute.disputeId.trim()
+          : null;
+    const openedAt =
+      typeof settlement?.disputeOpenedAt === "string" && settlement.disputeOpenedAt.trim() !== ""
+        ? settlement.disputeOpenedAt.trim()
+        : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.openedAt === "string"
+          ? receipt.dispute.openedAt.trim()
+          : null;
+    const closedAt =
+      typeof settlement?.disputeClosedAt === "string" && settlement.disputeClosedAt.trim() !== ""
+        ? settlement.disputeClosedAt.trim()
+        : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.closedAt === "string"
+          ? receipt.dispute.closedAt.trim()
+          : null;
+    const disputeContext =
+      settlement?.disputeContext && typeof settlement.disputeContext === "object" && !Array.isArray(settlement.disputeContext)
+        ? settlement.disputeContext
+        : null;
+    const disputeResolution =
+      settlement?.disputeResolution && typeof settlement.disputeResolution === "object" && !Array.isArray(settlement.disputeResolution)
+        ? settlement.disputeResolution
+        : null;
+    const outcome =
+      typeof disputeResolution?.outcome === "string" && disputeResolution.outcome.trim() !== ""
+        ? disputeResolution.outcome.trim().toLowerCase()
+        : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.outcome === "string"
+          ? receipt.dispute.outcome.trim().toLowerCase()
+          : null;
+    if (!disputeId && !disputeStatus && !openedAt && !closedAt && !outcome) return null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402ReceiptDisputeSummary.v1",
+        disputeId,
+        status: disputeStatus,
+        openedAt,
+        closedAt,
+        openedByAgentId:
+          typeof disputeContext?.openedByAgentId === "string" && disputeContext.openedByAgentId.trim() !== ""
+            ? disputeContext.openedByAgentId.trim()
+            : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.openedByAgentId === "string"
+              ? receipt.dispute.openedByAgentId.trim()
+              : null,
+        closedByAgentId:
+          typeof disputeResolution?.closedByAgentId === "string" && disputeResolution.closedByAgentId.trim() !== ""
+            ? disputeResolution.closedByAgentId.trim()
+            : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.closedByAgentId === "string"
+              ? receipt.dispute.closedByAgentId.trim()
+              : null,
+        priority:
+          typeof disputeContext?.priority === "string" && disputeContext.priority.trim() !== ""
+            ? disputeContext.priority.trim().toLowerCase()
+            : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.priority === "string"
+              ? receipt.dispute.priority.trim().toLowerCase()
+              : null,
+        channel:
+          typeof disputeContext?.channel === "string" && disputeContext.channel.trim() !== ""
+            ? disputeContext.channel.trim().toLowerCase()
+            : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.channel === "string"
+              ? receipt.dispute.channel.trim().toLowerCase()
+              : null,
+        escalationLevel:
+          typeof disputeResolution?.escalationLevel === "string" && disputeResolution.escalationLevel.trim() !== ""
+            ? disputeResolution.escalationLevel.trim()
+            : typeof disputeContext?.escalationLevel === "string" && disputeContext.escalationLevel.trim() !== ""
+              ? disputeContext.escalationLevel.trim()
+              : receipt?.dispute && typeof receipt.dispute === "object" && !Array.isArray(receipt.dispute) && typeof receipt.dispute.escalationLevel === "string"
+                ? receipt.dispute.escalationLevel.trim()
+                : null,
+        outcome
+      },
+      { path: "$.x402Receipt.dispute" }
+    );
   }
 
   function normalizeX402ReceiptRecordForStorage({ receipt } = {}) {
@@ -3635,20 +3732,52 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       gateId && store.x402Gates instanceof Map
         ? store.x402Gates.get(makeScopedKey({ tenantId, id: gateId })) ?? null
         : null;
+    const runId = typeof receipt.runId === "string" && receipt.runId.trim() !== "" ? receipt.runId.trim() : "";
+    const settlement =
+      runId && store.agentRunSettlements instanceof Map
+        ? store.agentRunSettlements.get(makeScopedKey({ tenantId, id: runId })) ?? null
+        : null;
+    const currentSettlementReceipt =
+      settlement?.decisionTrace?.settlementReceipt &&
+      typeof settlement.decisionTrace.settlementReceipt === "object" &&
+      !Array.isArray(settlement.decisionTrace.settlementReceipt)
+        ? settlement.decisionTrace.settlementReceipt
+        : null;
     const reversalEvents = listX402ReversalEventsForReceiptSync({ tenantId, receiptId });
     const latestEvent = reversalEvents.length > 0 ? reversalEvents[reversalEvents.length - 1] : null;
     const derivedState =
       typeof latestEvent?.settlementStatusAfter === "string" && latestEvent.settlementStatusAfter.trim() !== ""
         ? latestEvent.settlementStatusAfter.trim().toLowerCase()
         : null;
-    const updatedAtCandidates = [receipt.updatedAt, latestEvent?.occurredAt]
+    const updatedAtCandidates = [receipt.updatedAt, latestEvent?.occurredAt, currentSettlementReceipt?.settledAt]
       .map((value) => (typeof value === "string" && value.trim() !== "" && Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value)).toISOString() : null))
       .filter(Boolean);
     const updatedAt = updatedAtCandidates.length > 0 ? updatedAtCandidates.sort((a, b) => Date.parse(a) - Date.parse(b))[updatedAtCandidates.length - 1] : null;
     return {
       ...receipt,
-      settlementState: derivedState ?? receipt.settlementState ?? null,
+      settlementState:
+        derivedState ??
+        (typeof settlement?.status === "string" && settlement.status.trim() !== "" ? settlement.status.trim().toLowerCase() : null) ??
+        receipt.settlementState ??
+        null,
+      finalityState:
+        typeof currentSettlementReceipt?.finalityState === "string" && currentSettlementReceipt.finalityState.trim() !== ""
+          ? currentSettlementReceipt.finalityState.trim().toLowerCase()
+          : typeof settlement?.finalityState === "string" && settlement.finalityState.trim() !== ""
+          ? settlement.finalityState.trim().toLowerCase()
+          : receipt.finalityState ?? null,
+      settledAt:
+        typeof currentSettlementReceipt?.settledAt === "string" && currentSettlementReceipt.settledAt.trim() !== ""
+          ? currentSettlementReceipt.settledAt.trim()
+          : receipt.settledAt ?? null,
       updatedAt: updatedAt ?? receipt.updatedAt ?? null,
+      dispute: buildX402ReceiptDisputeSummary({ settlement, receipt }),
+      settlementReceipt:
+        currentSettlementReceipt && typeof currentSettlementReceipt === "object" && !Array.isArray(currentSettlementReceipt)
+          ? currentSettlementReceipt
+          : receipt?.settlementReceipt && typeof receipt.settlementReceipt === "object" && !Array.isArray(receipt.settlementReceipt)
+            ? receipt.settlementReceipt
+            : null,
       reversal:
         gate?.reversal && typeof gate.reversal === "object" && !Array.isArray(gate.reversal)
           ? gate.reversal
@@ -3769,6 +3898,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (String(receipt.receiptId ?? "") === wanted) return receipt;
     }
     return null;
+  };
+
+  store.hasStoredX402Receipt = async function hasStoredX402Receipt({ tenantId = DEFAULT_TENANT_ID, receiptId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof receiptId !== "string" || receiptId.trim() === "") throw new TypeError("receiptId is required");
+    const wanted = receiptId.trim();
+    const key = x402ReceiptStoreKey({ tenantId, receiptId: wanted });
+    return store.x402Receipts instanceof Map ? store.x402Receipts.has(key) : false;
   };
 
   store.listX402ReceiptsPage = async function listX402ReceiptsPage({

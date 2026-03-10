@@ -748,6 +748,164 @@ test("API e2e: high-risk x402 financial routes require finance_write scope", asy
   assert.equal(escalationResolveOpsOnly.json?.details?.routeId, "x402_gate_escalation_resolve");
 });
 
+test("API e2e: x402 verify fails closed to manual review without moving funds when auto-release is disabled", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_manual_review_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_manual_review_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_manual_review_1" });
+
+  const gateId = "gate_x402_manual_review_1";
+  const amountCents = 500;
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_manual_review_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_manual_review_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const responseSha256 = sha256Hex("{\"ok\":true,\"scenario\":\"manual_review_required\"}");
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_manual_review_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: false,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: false,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verify.statusCode, 409, verify.body);
+  assert.equal(verify.json?.code, "X402_SETTLEMENT_MANUAL_REVIEW_REQUIRED");
+  assert.deepEqual(verify.json?.details?.reasonCodes, ["auto_release_disabled_for_green"]);
+  assert.equal(verify.json?.details?.releaseAmountCents, 500);
+  assert.equal(verify.json?.details?.refundAmountCents, 0);
+
+  const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
+  const settlementAfter = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(String(storedGate?.runId ?? ""))}/settlement`
+  });
+  assert.equal(settlementAfter.statusCode, 200, settlementAfter.body);
+  assert.equal(settlementAfter.json?.settlement?.status, "locked");
+  assert.equal(settlementAfter.json?.settlement?.releasedAmountCents, 0);
+  assert.equal(settlementAfter.json?.settlement?.refundedAmountCents, 0);
+  assert.equal(String(storedGate?.status ?? "").toLowerCase(), "held");
+
+  const payerWallet = await request(api, { method: "GET", path: `/agents/${encodeURIComponent(payerAgentId)}/wallet` });
+  assert.equal(payerWallet.statusCode, 200, payerWallet.body);
+  assert.equal(payerWallet.json?.wallet?.availableCents, 4500);
+  assert.equal(payerWallet.json?.wallet?.escrowLockedCents, 500);
+
+  const payeeWallet = await request(api, { method: "GET", path: `/agents/${encodeURIComponent(payeeAgentId)}/wallet` });
+  assert.equal(payeeWallet.statusCode, 200, payeeWallet.body);
+  assert.equal(payeeWallet.json?.wallet?.availableCents, 0);
+});
+
+test("API e2e: x402 verify blocks positive release unless verification is explicitly green", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_green_only_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_green_only_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_green_only_1" });
+
+  const gateId = "gate_x402_green_only_1";
+  const amountCents = 500;
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_green_only_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_green_only_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const responseSha256 = sha256Hex("{\"ok\":true,\"scenario\":\"green_only_capture\"}");
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_green_only_1" },
+    body: {
+      gateId,
+      verificationStatus: "amber",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: true,
+          amberReleaseRatePct: 50,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verify.statusCode, 409, verify.body);
+  assert.equal(verify.json?.code, "X402_CAPTURE_REQUIRES_GREEN_VERIFICATION");
+  assert.equal(verify.json?.details?.verificationStatus, "amber");
+  assert.equal(verify.json?.details?.releaseAmountCents, 250);
+  assert.equal(verify.json?.details?.refundAmountCents, 250);
+
+  const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
+  assert.equal(String(storedGate?.status ?? "").toLowerCase(), "held");
+
+  const payerWallet = await request(api, { method: "GET", path: `/agents/${encodeURIComponent(payerAgentId)}/wallet` });
+  assert.equal(payerWallet.statusCode, 200, payerWallet.body);
+  assert.equal(payerWallet.json?.wallet?.availableCents, 4500);
+  assert.equal(payerWallet.json?.wallet?.escrowLockedCents, 500);
+
+  const payeeWallet = await request(api, { method: "GET", path: `/agents/${encodeURIComponent(payeeAgentId)}/wallet` });
+  assert.equal(payeeWallet.statusCode, 200, payeeWallet.body);
+  assert.equal(payeeWallet.json?.wallet?.availableCents, 0);
+});
+
 test("API e2e: x402 authorize-payment fails closed without S8 approval and succeeds with bound approval decision", async () => {
   const api = createApi({
     opsToken: "tok_ops",

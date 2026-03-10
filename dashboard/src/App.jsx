@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect } from "react";
 
 import { docsLinks } from "./site/config/links.js";
 
+const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
 const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
 
@@ -15,43 +16,47 @@ function ExternalRedirect({ href }) {
 }
 
 function getRouteMode() {
-  if (typeof window === "undefined") return { mode: "home", launchId: null, agentId: null, runId: null };
+  if (typeof window === "undefined") {
+    return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
+  }
   const rawPath = window.location.pathname;
   const path = rawPath.length > 1 && rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath;
 
-  if (path === "/operator") return { mode: "operator", launchId: null, agentId: null };
-  if (path === "/network" || path === "/app") return { mode: "network", launchId: null, agentId: null };
-  if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null };
-  if (path === "/approvals") return { mode: "approvals", launchId: null, agentId: null };
-  if (path === "/wallet") return { mode: "wallet", launchId: null, agentId: null };
-  if (path === "/integrations") return { mode: "integrations", launchId: null, agentId: null };
-  if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null };
-  if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null };
-  if (path === "/agents") return { mode: "agents", launchId: null, agentId: null };
-  if (path === "/onboarding" || path === "/login") return { mode: "onboarding", launchId: null, agentId: null };
-  if (path === "/studio") return { mode: "studio", launchId: null, agentId: null };
-  if (path === "/developers") return { mode: "developers", launchId: null, agentId: null };
-  if (path === "/docs") return { mode: "docs", launchId: null, agentId: null };
-  if (path === "/docs/quickstart") return { mode: "docs_quickstart", launchId: null, agentId: null };
-  if (path === "/docs/architecture") return { mode: "docs_architecture", launchId: null, agentId: null };
-  if (path === "/docs/integrations") return { mode: "docs_integrations", launchId: null, agentId: null };
-  if (path === "/docs/api") return { mode: "docs_api", launchId: null, agentId: null };
-  if (path === "/docs/security") return { mode: "docs_security", launchId: null, agentId: null };
-  if (path === "/docs/ops") return { mode: "docs_ops", launchId: null, agentId: null };
+  if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
+  if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/approvals") return { mode: "approvals", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/wallet") return { mode: "wallet", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/integrations") return { mode: "integrations", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
+  if (path === "/onboarding" || path === "/login") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/studio") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
+  if (path === "/developers") return { mode: "developers", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs") return { mode: "docs", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/quickstart") return { mode: "docs_quickstart", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/architecture") return { mode: "docs_architecture", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/integrations") return { mode: "docs_integrations", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/api") return { mode: "docs_api", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/security") return { mode: "docs_security", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/ops") return { mode: "docs_ops", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path.startsWith("/launch/")) {
     return {
-      mode: "launch",
+      mode: "legacy",
       launchId: decodeURIComponent(path.slice("/launch/".length)),
       agentId: null,
-      runId: null
+      runId: null,
+      requestedPath: path
     };
   }
   if (path.startsWith("/agents/")) {
     return {
-      mode: "agent",
+      mode: "legacy",
       launchId: null,
       agentId: decodeURIComponent(path.slice("/agents/".length)),
-      runId: null
+      runId: null,
+      requestedPath: path
     };
   }
   if (path.startsWith("/runs/")) {
@@ -59,10 +64,11 @@ function getRouteMode() {
       mode: "run",
       launchId: null,
       agentId: null,
-      runId: decodeURIComponent(path.slice("/runs/".length))
+      runId: decodeURIComponent(path.slice("/runs/".length)),
+      requestedPath: null
     };
   }
-  return { mode: "home", launchId: null, agentId: null, runId: null };
+  return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
 }
 
 export default function App() {
@@ -71,6 +77,13 @@ export default function App() {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
         <OperatorDashboard />
+      </Suspense>
+    );
+  }
+  if (route.mode === "home" || route.mode === "developers" || route.mode === "integrations") {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
+        <LovableSite mode={route.mode} />
       </Suspense>
     );
   }
@@ -83,7 +96,13 @@ export default function App() {
   if (route.mode === "docs_ops") return <ExternalRedirect href={docsLinks.ops} />;
   return (
     <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
-      <ProductShell mode={route.mode} launchId={route.launchId} agentId={route.agentId} runId={route.runId} />
+      <ProductShell
+        mode={route.mode}
+        launchId={route.launchId}
+        agentId={route.agentId}
+        runId={route.runId}
+        requestedPath={route.requestedPath}
+      />
     </Suspense>
   );
 }

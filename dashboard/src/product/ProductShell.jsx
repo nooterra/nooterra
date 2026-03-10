@@ -1,4 +1,3 @@
-import * as Accordion from "@radix-ui/react-accordion";
 import * as Tabs from "@radix-ui/react-tabs";
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import {
@@ -8,7 +7,6 @@ import {
   Bell,
   BookOpen,
   Cable,
-  ChevronDown,
   ChevronRight,
   CircleCheck,
   Clock3,
@@ -165,79 +163,95 @@ const RUN_ACTION_REQUIRED_MESSAGES = Object.freeze({
   needs_user_document: "This run is paused until you upload a document or attachment."
 });
 
-const productNarrative = [
+const homePrinciples = [
   {
-    title: "Approve Real Actions",
+    title: "Approve Before It Happens",
     icon: Workflow,
-    body: "Every consequential AI action gets one plain-language approval boundary with scope, spend, timing, and undo context."
+    body: "The model can propose. Nooterra decides whether the action may actually happen."
   },
   {
-    title: "Keep Authority Attached",
+    title: "Keep Proof Attached",
     icon: ShieldCheck,
-    body: "Authority, budgets, receipts, and disputes stay attached to the same execution record from intent through settlement."
+    body: "Approval, scope, evidence, receipt, and dispute stay bound to the same run."
   },
   {
-    title: "Stay Inside The Host",
+    title: "Stay In The Host",
     icon: PlugZap,
-    body: "Launch with Claude MCP and OpenClaw first, then keep hosted approvals and grants attached to the same host flow."
+    body: "The host keeps working. Nooterra only appears at the moment trust becomes necessary."
   }
 ];
 
-const platformLayers = [
+const homeTrustRail = [
   {
-    title: "Action Wallet",
-    icon: ShieldCheck,
-    body: "Approve, deny, or auto-approve bounded AI actions from one wallet instead of scattered prompts."
+    title: "Host-first",
+    icon: PlugZap,
+    body: "Designed to live inside Claude MCP and other hosts, not replace them."
   },
   {
-    title: "Grants, Receipts, Disputes",
+    title: "Fail-closed",
     icon: BookOpen,
-    body: "Mint scoped execution grants, bind evidence to completion, and keep disputes attached to the same run record."
+    body: "Missing proof, missing scope, or missing approval means the action stops."
   },
   {
-    title: "Launch Channels",
-    icon: Cable,
-    body: "Support Claude MCP and OpenClaw at launch, with hosted approval links and host-side polling or webhooks."
+    title: "Scoped grants",
+    icon: ShieldCheck,
+    body: "Authority stays bounded to time, capability, and spend."
   },
   {
-    title: "Host Pack",
+    title: "Receipts + disputes",
     icon: SquareTerminal,
-    body: "Use the CLI, SDKs, and APIs to create intents, request approvals, fetch grants, and issue receipts."
+    body: "Every consequential action ends with proof and a recourse path."
   }
 ];
 
-const siteSections = [
+const homeSurfaces = [
   {
     title: "Wallet",
-    body: "Manage payment methods, trusted hosts, session controls, and standing rules."
+    body: "Your standing rules, trusted sessions, and live control state."
   },
   {
     title: "Approvals",
-    body: "Review pending actions, approve them once, and let the host continue safely."
+    body: "Review the action. Decide once. Let the host continue."
   },
   {
     title: "Integrations",
-    body: "See which hosts are connected, revoke them, and confirm the launch channel footprint."
+    body: "Connect accounts, browser state, and outbound systems."
   },
   {
     title: "Receipts",
-    body: "See what happened, what evidence was collected, and what can still be reversed."
+    body: "See what happened and what can still be challenged."
+  },
+  {
+    title: "Disputes",
+    body: "Open recourse, add evidence, and keep the reversal path explicit."
   },
   {
     title: "Developers",
-    body: "Install Claude MCP, package OpenClaw, and wire hosted approvals in code."
+    body: "Install the host pack and wire approvals into code."
   }
 ];
 
-const cleanCapabilities = [
-  "Approve consequential AI actions from one place",
-  "Issue hosted approval links and scoped execution grants",
-  "Keep policy, spend, and evidence attached to execution",
-  "Track receipts, settlement state, and dispute outcomes",
-  "Launch only through Claude MCP and OpenClaw",
-  "Integrate hosts through CLI, SDKs, MCP, and API",
-  "Support buy plus cancel / recover at launch",
-  "Fail closed on everything outside the launch envelope"
+const homeSequence = [
+  {
+    label: "01",
+    title: "Intent",
+    body: "The host proposes a real action with actor, scope, and risk context."
+  },
+  {
+    label: "02",
+    title: "Decision",
+    body: "Policy decides green, yellow, or red before anything external happens."
+  },
+  {
+    label: "03",
+    title: "Execution",
+    body: "If approved, the host continues inside a bounded authority grant."
+  },
+  {
+    label: "04",
+    title: "Proof",
+    body: "Evidence, receipt, and dispute stay attached to the same action record."
+  }
 ];
 
 const ideModes = [
@@ -250,34 +264,34 @@ const ideModes = [
     body: "Use the same runtime credentials and hosted approval flow for the second launch channel without adding another consumer surface."
   },
   {
-    title: "Integrate By API",
-    body: "Create intents, request hosted approvals, fetch grants, and read receipts directly when you are building toward the next phase."
+    title: "Run Through Codex, CLI, Or API",
+    body: "Use the public host pack directly when you want the same governed runtime inside Codex, local scripts, or a custom engineering shell."
   }
 ];
 
 const launchActionCards = [
   {
     title: "Buy",
-    body: "Hosted approval, scoped spend, evidence submission, verification, receipt, and dispute support."
+    body: "Approve spend, keep scope tight, and get a receipt at the end."
   },
   {
     title: "Cancel / Recover",
-    body: "Recovery flows with confirmation artifacts, recovered-value metadata, and final receipt state."
+    body: "Cancel with proof. Recover value. Keep the record."
   },
   {
     title: "Approval -> Grant -> Receipt",
-    body: "Hosts create intents, Nooterra hosts the approval page, then grants, evidence, and receipts stay bound to the same run."
+    body: "One clean path from decision to proof."
   }
 ];
 
 const launchChannelCards = [
   {
     title: "Claude MCP",
-    body: "Primary launch host for MCP-native approval and grant flows."
+    body: "Primary launch channel."
   },
   {
     title: "OpenClaw",
-    body: "Second launch channel with the same hosted approval and receipt contract."
+    body: "Second launch channel. Same contract."
   }
 ];
 
@@ -320,29 +334,6 @@ const agentBrowsePresets = [
     body: "Runbook execution, intake, and operational handoff.",
     capability: "capability://workflow.intake",
     runtime: ""
-  }
-];
-
-const faqItems = [
-  {
-    value: "what-is-nooterra",
-    title: "What is Nooterra?",
-    body: "Nooterra is the neutral action layer for consequential AI. It gives connected hosts a shared approval wallet, authority boundary, receipt trail, and dispute path."
-  },
-  {
-    value: "who-is-it-for",
-    title: "Who is it for?",
-    body: "It is for people and teams using AI hosts that can plan work but still need safe approval, payment, receipt, and recourse handling before real actions happen."
-  },
-  {
-    value: "how-do-i-start",
-    title: "How do I start?",
-    body: "Start with Claude MCP or OpenClaw quickstart if you want the shortest launch path. Use onboarding when you need hosted approvals and runtime credentials. Use developers when you are ready to integrate the host pack by code."
-  },
-  {
-    value: "do-i-need-the-network",
-    title: "Do I need the legacy product surfaces?",
-    body: "No. Launch is host-first. Action Wallet v1 does not depend on the older routing or publishing surfaces."
   }
 ];
 
@@ -600,19 +591,23 @@ async function copyText(value) {
 function linkToneForMode(mode, href) {
   if (mode === "home" && href === "/") return "active";
   if (mode === "onboarding" && href === "/onboarding") return "active";
-  if (mode === "network" && href === "/network") return "active";
   if (mode === "inbox" && href === "/inbox") return "active";
   if (mode === "approvals" && href === "/approvals") return "active";
   if ((mode === "wallet" || mode === "integrations") && href === "/wallet") return "active";
   if (mode === "integrations" && href === "/integrations") return "active";
   if (mode === "receipts" && href === "/receipts") return "active";
   if (mode === "disputes" && href === "/disputes") return "active";
-  if ((mode === "agents" || mode === "agent") && href === "/agents") return "active";
-  if (mode === "studio" && href === "/studio") return "active";
   if (mode === "developers" && href === "/developers") return "active";
-  if (mode === "launch" && href === "/network") return "active";
-  if (mode === "run" && href === "/network") return "active";
   return "";
+}
+
+function describeLegacySurface(requestedPath) {
+  const path = String(requestedPath ?? "").trim();
+  if (!path) return "a legacy prototype surface";
+  if (path === "/network" || path === "/app" || path.startsWith("/launch/")) return "the older routing and launch-tracking surface";
+  if (path === "/studio") return "the older builder and publishing surface";
+  if (path === "/agents" || path.startsWith("/agents/")) return "the public directory surface";
+  return `the legacy surface at ${path}`;
 }
 
 function formatEtaSeconds(value) {
@@ -852,6 +847,121 @@ function humanizeLabel(value, fallback = "n/a") {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b[a-z]/g, (match) => match.toUpperCase());
+}
+
+function buildDeadlineState(deadlineAt) {
+  const iso = String(deadlineAt ?? "").trim();
+  const deadlineMs = Date.parse(iso);
+  if (!Number.isFinite(deadlineMs)) {
+    return {
+      hasDeadline: false,
+      isExpired: false,
+      isUrgent: false,
+      tone: "neutral",
+      label: "Open-ended"
+    };
+  }
+  const nowMs = Date.now();
+  const remainingMs = deadlineMs - nowMs;
+  if (remainingMs <= 0) {
+    return {
+      hasDeadline: true,
+      isExpired: true,
+      isUrgent: false,
+      tone: "bad",
+      label: "Expired"
+    };
+  }
+  const remainingMinutes = Math.round(remainingMs / 60000);
+  if (remainingMinutes <= 60) {
+    return {
+      hasDeadline: true,
+      isExpired: false,
+      isUrgent: true,
+      tone: "warn",
+      label: remainingMinutes <= 1 ? "Due now" : `Due in ${remainingMinutes}m`
+    };
+  }
+  const remainingHours = Math.round(remainingMs / 3600000);
+  return {
+    hasDeadline: true,
+    isExpired: false,
+    isUrgent: false,
+    tone: "neutral",
+    label: remainingHours <= 24 ? `Due in ${remainingHours}h` : formatDateTime(iso)
+  };
+}
+
+function buildDisputeWindowState({
+  disputeId = null,
+  disputeStatus = null,
+  disputeWindowEndsAt = null,
+  settlementStatus = null
+} = {}) {
+  const normalizedDisputeId = String(disputeId ?? "").trim();
+  const normalizedDisputeStatus = String(disputeStatus ?? "").trim().toLowerCase();
+  const normalizedSettlementStatus = String(settlementStatus ?? "").trim().toLowerCase();
+  const iso = String(disputeWindowEndsAt ?? "").trim();
+  const deadlineMs = Date.parse(iso);
+  const hasWindow = Number.isFinite(deadlineMs);
+  const remainingMs = hasWindow ? deadlineMs - Date.now() : null;
+  const isExpired = hasWindow ? remainingMs <= 0 : false;
+  const isUrgent = hasWindow ? remainingMs > 0 && remainingMs <= 3600000 : false;
+  if (normalizedDisputeStatus === "open" || normalizedDisputeId) {
+    return {
+      hasWindow,
+      isExpired: false,
+      isUrgent: false,
+      tone: "accent",
+      label: "Dispute open",
+      summary: "Recourse is already active on this settlement. Keep the linked dispute packet as the source of truth before releasing or closing anything else."
+    };
+  }
+  if (normalizedSettlementStatus === "refunded") {
+    return {
+      hasWindow,
+      isExpired: false,
+      isUrgent: false,
+      tone: "good",
+      label: "Resolved by refund",
+      summary: "This settlement has already been refunded. The receipt remains available for support and replay, but active recourse is no longer the main path."
+    };
+  }
+  if (!hasWindow) {
+    return {
+      hasWindow: false,
+      isExpired: false,
+      isUrgent: false,
+      tone: "neutral",
+      label: "Window unavailable",
+      summary: "No dispute window was reported for this settlement. Use the linked run and receipt as the support record if review is still needed."
+    };
+  }
+  if (isExpired) {
+    return {
+      hasWindow: true,
+      isExpired: true,
+      isUrgent: false,
+      tone: "bad",
+      label: "Window closed",
+      summary: `The standard dispute window closed at ${formatDateTime(iso)}. This receipt is still readable, but opening new recourse now likely requires operator intervention.`
+    };
+  }
+  const remainingMinutes = Math.round(remainingMs / 60000);
+  const label =
+    remainingMinutes <= 1
+      ? "Window closes now"
+      : remainingMinutes <= 60
+        ? `Window closes in ${remainingMinutes}m`
+        : `Window closes ${formatDateTime(iso)}`;
+  return {
+    hasWindow: true,
+    isExpired: false,
+    isUrgent,
+    tone: isUrgent ? "warn" : "good",
+    label,
+    summary: `Recourse is still available for this settlement until ${formatDateTime(iso)}. If the execution proof or amount looks wrong, open the linked dispute before the window closes.`
+  };
 }
 
 function normalizeApprovalStatus(value, approved, fallback = "pending") {
@@ -1670,10 +1780,9 @@ function describeRunActionRequired(task) {
   return RUN_ACTION_REQUIRED_MESSAGES[code] ?? "This run is paused until you provide more information.";
 }
 
-function buildLaunchTaskHref(launchId, task) {
+function buildLaunchTaskHref(_launchId, task) {
   if (String(task?.runId ?? "").trim()) return `/runs/${encodeURIComponent(task.runId)}`;
-  if (String(launchId ?? "").trim()) return `/launch/${encodeURIComponent(launchId)}`;
-  return "/network";
+  return "/inbox";
 }
 
 function buildInboxActionItems({ pendingItems = [], openDisputes = [], launchStatus = null } = {}) {
@@ -1735,7 +1844,7 @@ function buildInboxActionItems({ pendingItems = [], openDisputes = [], launchSta
       status: task.runStatus || task.state,
       occurredAt: launchStatus?.generatedAt,
       href: buildLaunchTaskHref(launchStatus?.launchId, task),
-      cta: task.runId ? "Inspect execution" : "Open launch",
+      cta: task.runId ? "Inspect execution" : "Review task state",
       meta: [
         task.requiredCapability ? humanizeLabel(task.requiredCapability) : null,
         task.bidCount !== null ? `${task.bidCount} bid${task.bidCount === 1 ? "" : "s"}` : null,
@@ -1992,15 +2101,15 @@ nooterra login
     },
     {
       value: "api",
-      label: "API",
-      title: "Integrate the host pack",
-      body: "Use the public API when you want to create intents, request hosted approvals, and fetch receipts in code.",
+      label: "Codex / API",
+      title: "Run through Codex or code",
+      body: "Use the public API when you want to create intents, request hosted approvals, and fetch receipts from Codex, custom shells, or application code.",
       code: apiSnippet
     }
   ];
 
   return (
-    <Tabs.Root className="product-tabs" defaultValue="cli">
+    <Tabs.Root className="product-tabs" defaultValue="mcp">
       <Tabs.List className="product-tab-list" aria-label="Install methods">
         {installMethods.map((method) => (
           <Tabs.Trigger key={method.value} className="product-tab-trigger" value={method.value}>
@@ -2021,92 +2130,140 @@ nooterra login
   );
 }
 
-function FaqAccordion() {
-  return (
-    <Accordion.Root className="product-accordion" type="single" collapsible>
-      {faqItems.map((item) => (
-        <Accordion.Item key={item.value} className="product-accordion-item" value={item.value}>
-          <Accordion.Header>
-            <Accordion.Trigger className="product-accordion-trigger">
-              <span>{item.title}</span>
-              <ChevronDown size={18} />
-            </Accordion.Trigger>
-          </Accordion.Header>
-          <Accordion.Content className="product-accordion-content">
-            <p>{item.body}</p>
-          </Accordion.Content>
-        </Accordion.Item>
-      ))}
-    </Accordion.Root>
-  );
-}
-
 function HomePage({ lastAgentId, onboardingState }) {
   const buyer = onboardingState?.buyer ?? null;
+  const primaryHref = buyer ? "/wallet" : "/onboarding";
+  const primaryLabel = buyer ? "Open Action Wallet" : "Set up Action Wallet";
+  const secondaryHref = buyer ? "/approvals" : "/developers";
+  const secondaryLabel = buyer ? "Review approvals" : "Open developer toolkit";
   return (
     <div className="product-page">
-      <section className="product-hero">
-        <div className="product-hero-copy">
-          <p className="product-kicker">Nooterra</p>
-          <h1>Approve consequential AI actions without losing control.</h1>
-          <p className="product-lead">
-            Connected hosts keep planning in place. Nooterra adds hosted approvals, scoped grants, receipts, and disputes without adding another consumer surface.
-          </p>
-          <div className="product-hero-actions">
-            <a className="product-button product-button-solid" href={buyer ? "/wallet" : "/onboarding"}>
-              {buyer ? "Open wallet" : "Set up Action Wallet"}
-            </a>
-            <a className="product-button product-button-ghost" href={buyer ? "/approvals" : "/developers"}>
-              {buyer ? "Review approvals" : "Open developer toolkit"}
-            </a>
+      <section className="product-home-hero-shell">
+        <div className="product-home-command">
+          <div className="product-home-command-lines" aria-hidden="true">
+            <span />
+            <span />
           </div>
-          <div className="product-badge-row">
-            <span className="product-badge">Claude MCP</span>
-            <span className="product-badge">OpenClaw</span>
-            <span className="product-badge">Hosted approvals</span>
-            <span className="product-badge">Receipts + disputes</span>
+          <div className="product-home-command-copy">
+            <p className="product-kicker">Delegated Authority Infrastructure</p>
+            <h1>Let AI act. Keep control.</h1>
+            <p className="product-lead">
+              Nooterra is the host-first authority layer for consequential AI actions. Policy decides what may happen, humans step in only when needed, and every approved action ends with proof.
+            </p>
+            <div className="product-hero-actions">
+              <a className="product-button product-button-solid" href={primaryHref}>{primaryLabel}</a>
+              <a className="product-button product-button-ghost" href={secondaryHref}>{secondaryLabel}</a>
+            </div>
+            <div className="product-badge-row">
+              <span className="product-badge">Claude MCP</span>
+              <span className="product-badge">OpenClaw</span>
+              <span className="product-badge">Hosted approvals</span>
+              <span className="product-badge">Scoped grants</span>
+              <span className="product-badge">Receipts + disputes</span>
+            </div>
+          </div>
+          <div className="product-home-command-stage">
+            <div className="product-home-stage-card product-home-stage-card-main">
+              <span>Action Wallet v1</span>
+              <strong>Approve consequential actions before anything external happens.</strong>
+              <p>One authority contract from decision to receipt.</p>
+            </div>
+            <div className="product-home-stage-card">
+              <span>Decision</span>
+              <strong>Green · Yellow · Red</strong>
+              <p>Safe actions flow, risky actions escalate, out-of-policy actions stop.</p>
+            </div>
+            <div className="product-home-stage-card">
+              <span>Boundaries</span>
+              <strong>Time · Capability · Spend</strong>
+              <p>Authority grants stay explicit, reviewable, and small.</p>
+            </div>
           </div>
         </div>
-        <div className="product-hero-panel">
-          <div className="product-hero-panel-grid">
-            {platformLayers.map((layer) => {
-              const Icon = layer.icon;
-              return (
-                <article key={layer.title} className="product-mini-card">
-                  <div className="product-mini-card-head">
-                    <Icon size={18} />
-                    <span>{layer.title}</span>
-                  </div>
-                  <p>{layer.body}</p>
-                </article>
-              );
-            })}
+
+        <div className="product-home-proofband">
+          {homeTrustRail.map((item) => {
+            const Icon = item.icon;
+            return (
+              <article key={item.title} className="product-home-proofband-item">
+                <div className="product-mini-card-head">
+                  <Icon size={18} />
+                  <span>{item.title}</span>
+                </div>
+                <p>{item.body}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="product-home-manifesto">
+        <article className="product-card product-home-manifesto-copy">
+          <div className="product-section-head compact">
+            <p>Why This Exists</p>
+            <h2>The model is not the product. The decision is.</h2>
           </div>
+          <p className="product-lead">
+            Enterprises do not need another chat box. They need a system that decides what an AI operator may do, under what conditions, with what approvals, and how the action can be challenged later.
+          </p>
+          <div className="product-inline-note accent">
+            Nooterra is not the agent and not the payment rail. It is the control layer between intent and action.
+          </div>
+        </article>
+
+        <div className="product-home-principles">
+          {homePrinciples.map((item) => {
+            const Icon = item.icon;
+            return (
+              <article key={item.title} className="product-card product-home-principle-card">
+                <div className="product-mini-card-head">
+                  <Icon size={18} />
+                  <span>{item.title}</span>
+                </div>
+                <p>{item.body}</p>
+              </article>
+            );
+          })}
         </div>
       </section>
 
       <section className="product-section">
         <div className="product-section-head">
-          <p>What It Does</p>
-          <h2>One place to approve, verify, and recover real AI actions.</h2>
+          <p>How It Works</p>
+          <h2>One clean path from intent to proof.</h2>
         </div>
-        <div className="product-card product-capability-card">
-          <ul className="product-capability-list">
-            {cleanCapabilities.map((row) => (
-              <li key={row}>
-                <ChevronRight size={16} />
-                <span>{row}</span>
-              </li>
-            ))}
-          </ul>
+        <div className="product-home-sequence">
+          {homeSequence.map((item) => (
+            <article key={item.label} className="product-home-sequence-step">
+              <span>{item.label}</span>
+              <strong>{item.title}</strong>
+              <p>{item.body}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
+      <section className="product-section">
+        <div className="product-section-head">
+          <p>Product Surfaces</p>
+          <h2>Small product. Sharp boundaries.</h2>
+        </div>
+        <div className="product-home-surface-grid">
+          {homeSurfaces.map((section) => (
+            <a key={section.title} className="product-home-surface-card" href={`/${section.title.toLowerCase() === "wallet" ? "wallet" : section.title.toLowerCase()}`}>
+              <strong>{section.title}</strong>
+              <span>{section.body}</span>
+              <ArrowUpRight size={16} />
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section className="product-home-boundary">
+        <article className="product-card product-home-boundary-panel">
           <div className="product-section-head compact">
-            <p>Launch v1</p>
-            <h2>The launch train is locked to two actions and two channels.</h2>
+            <p>Now Shipping</p>
+            <h2>Two actions. Two channels. Nothing fuzzy.</h2>
           </div>
           <div className="product-bullet-grid">
             {launchActionCards.map((item) => (
@@ -2124,10 +2281,10 @@ function HomePage({ lastAgentId, onboardingState }) {
           </div>
         </article>
 
-        <article className="product-card">
+        <article className="product-card product-home-boundary-panel">
           <div className="product-section-head compact">
-            <p>Hard Boundaries</p>
-            <h2>What stays out of scope for launch instead of leaking into v1.</h2>
+            <p>Not Now</p>
+            <h2>We are not pretending to be a bigger product than we are.</h2>
           </div>
           <div className="product-badge-row">
             {launchNonGoals.map((item) => (
@@ -2140,110 +2297,107 @@ function HomePage({ lastAgentId, onboardingState }) {
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
-          <div className="product-section-head compact">
-            <p>Why Teams Use It</p>
-            <h2>Start with a trust layer that already exists.</h2>
-          </div>
-          <div className="product-access-grid">
-            {productNarrative.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div key={item.title} className="product-access-card">
-                  <div className="product-mini-card-head">
-                    <Icon size={18} />
-                    <span>{item.title}</span>
-                  </div>
-                  <p>{item.body}</p>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="product-card">
-          <div className="product-section-head compact">
-            <p>Where To Go</p>
-            <h2>The main places to start.</h2>
-          </div>
-          <div className="product-link-list">
-            <a className="product-link-card" href="/wallet">
-              <div>
-                <strong>Wallet</strong>
-                <span>Manage payment methods, trusted hosts, sessions, and standing rules.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-            <a className="product-link-card" href="/approvals">
-              <div>
-                <strong>Approvals</strong>
-                <span>Review pending actions, approve them once, and let the host continue safely.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-            <a className="product-link-card" href="/integrations">
-              <div>
-                <strong>Integrations</strong>
-                <span>Review connected hosts, launch channels, and linked systems from one place.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-            <a className="product-link-card" href="/receipts">
-              <div>
-                <strong>Receipts</strong>
-                <span>See what happened, what evidence was collected, and what can still be disputed.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-            <a className="product-link-card" href="/developers">
-              <div>
-                <strong>Developer Toolkit</strong>
-                <span>CLI, MCP, host APIs, and SDK usage in one place.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-            <a className="product-link-card" href={docsLinks.quickstart}>
-              <div>
-                <strong>Quickstart</strong>
-                <span>Install locally and get the first host-connected action flow running.</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </a>
-          </div>
-        </article>
-      </section>
-
-      <section className="product-section">
+      <section className="product-card product-home-install-card">
+        <div className="product-home-install-head">
           <div className="product-section-head">
             <p>Install</p>
-            <h2>Install it through the launch channels your team already uses.</h2>
+            <h2>Install it where the action already starts.</h2>
           </div>
+          <p className="product-lead">
+            The host stays primary. Nooterra adds authority, proof, and recourse at the point where the action becomes real.
+          </p>
+        </div>
         <InstallTabs onboardingState={onboardingState} agentId={lastAgentId || "host_action_wallet"} />
-        </section>
+      </section>
+    </div>
+  );
+}
+
+function LaunchScopePage({ requestedPath, onboardingState }) {
+  const primaryHref = onboardingState?.buyer ? "/approvals" : "/onboarding";
+  const primaryLabel = onboardingState?.buyer ? "Open approvals" : "Complete onboarding";
+  return (
+    <div className="product-page">
+      <section className="product-page-top">
+        <div>
+          <p className="product-kicker">Action Wallet v1</p>
+          <h1>This route is outside the production shell.</h1>
+          <p className="product-lead">
+            You opened {describeLegacySurface(requestedPath)}. Action Wallet v1 is intentionally limited to approvals,
+            wallet state, receipts, disputes, integrations, and developer tooling.
+          </p>
+        </div>
+        <div className="product-page-top-actions">
+          <a className="product-button product-button-solid" href={primaryHref}>{primaryLabel}</a>
+          <a className="product-button product-button-ghost" href="/wallet">Open wallet</a>
+        </div>
+      </section>
+
+      <div className="product-inline-note warn">
+        Unsupported routes stay out of the production shell and fail closed instead of silently dropping users into older prototype surfaces.
+      </div>
 
       <section className="product-grid-two">
         <article className="product-card">
           <div className="product-section-head compact">
-            <p>Product Surfaces</p>
-            <h2>Pick the surface that matches what you need.</h2>
+            <p>Supported surfaces</p>
+            <h2>Use the launch-safe pages that are part of the v1 contract.</h2>
           </div>
           <div className="product-access-grid">
-            {siteSections.map((section) => (
-              <div key={section.title} className="product-access-card">
-                <h3>{section.title}</h3>
-                <p>{section.body}</p>
-              </div>
+            {[
+              {
+                href: "/approvals",
+                title: "Approvals",
+                body: "Review human decisions and manage standing policy boundaries."
+              },
+              {
+                href: "/wallet",
+                title: "Wallet",
+                body: "Inspect scoped grants, sessions, connectors, and live workspace state."
+              },
+              {
+                href: "/receipts",
+                title: "Receipts",
+                body: "Inspect proof, settlement references, and final completion artifacts."
+              },
+              {
+                href: "/disputes",
+                title: "Disputes",
+                body: "Open recourse, add evidence, and track arbitration state."
+              },
+              {
+                href: "/integrations",
+                title: "Integrations",
+                body: "Connect the host-side systems and browser state the wallet needs."
+              },
+              {
+                href: "/developers",
+                title: "Developers",
+                body: "Get the API, SDK, CLI, and host-pack entry points for the v1 wedge."
+              }
+            ].map((surface) => (
+              <a key={surface.href} className="product-access-card" href={surface.href}>
+                <h3>{surface.title}</h3>
+                <p>{surface.body}</p>
+              </a>
             ))}
           </div>
         </article>
 
         <article className="product-card">
           <div className="product-section-head compact">
-            <p>FAQ</p>
-            <h2>Common questions.</h2>
+            <p>Requested route</p>
+            <h2>Keep the legacy footprint explicit while the v1 shell stays narrow.</h2>
           </div>
-          <FaqAccordion />
+          <div className="product-badge-row">
+            <span className="product-badge">{requestedPath || "unknown route"}</span>
+            <span className="product-badge product-badge-muted">legacy</span>
+            <span className="product-badge product-badge-muted">out of scope</span>
+          </div>
+          <p className="product-lead" style={{ margin: "0.75rem 0 0" }}>
+            {Object.keys(LEGACY_PROTOTYPE_COMPONENTS).length} legacy prototype surfaces are still gated in the repo.
+            If this one needs to return later, it should come back as a deliberate post-v1 product decision rather than an accidental carry-over from earlier prototypes.
+          </p>
         </article>
       </section>
     </div>
@@ -3631,6 +3785,23 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     label: "This browser"
   });
   const [storedPasskey, setStoredPasskey] = useState(null);
+  const [firstPaidCallState, setFirstPaidCallState] = useState({
+    latest: null,
+    history: [],
+    selectedAttemptId: "",
+    loading: false,
+    error: ""
+  });
+  const [onboardingMetricsState, setOnboardingMetricsState] = useState({
+    metrics: null,
+    loading: false,
+    error: ""
+  });
+  const [conformanceState, setConformanceState] = useState({
+    matrix: null,
+    loading: false,
+    error: ""
+  });
   const [busyState, setBusyState] = useState("");
   const [statusMessage, setStatusMessage] = useState("Create or unlock a workspace with a saved browser passkey. Email OTP stays available as the recovery path.");
   const browserPasskeyReady = typeof window !== "undefined" && Boolean(globalThis.crypto?.subtle);
@@ -3738,6 +3909,134 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const email = buyer?.email || loginForm.email || signupForm.email;
     setStoredPasskey(loadStoredBuyerPasskeyBundle({ tenantId, email }));
   }, [buyer, loginForm.tenantId, loginForm.email, runtime.tenantId, signupForm.tenantId, signupForm.email]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    if (!tenantId) {
+      setFirstPaidCallState({
+        latest: null,
+        history: [],
+        selectedAttemptId: "",
+        loading: false,
+        error: ""
+      });
+      setOnboardingMetricsState({
+        metrics: null,
+        loading: false,
+        error: ""
+      });
+      setConformanceState({
+        matrix: null,
+        loading: false,
+        error: ""
+      });
+      return;
+    }
+
+    async function loadOnboardingMetrics() {
+      try {
+        const out = await requestJson({
+          baseUrl: runtime.authBaseUrl,
+          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
+          method: "GET",
+          credentials: "include"
+        });
+        if (cancelled) return;
+        setOnboardingMetricsState({
+          metrics: out,
+          loading: false,
+          error: ""
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setOnboardingMetricsState({
+          metrics: null,
+          loading: false,
+          error: error.message
+        });
+      }
+    }
+
+    async function loadFirstPaidHistory() {
+      try {
+        const out = await requestJson({
+          baseUrl: runtime.authBaseUrl,
+          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
+          method: "GET",
+          credentials: "include"
+        });
+        if (cancelled) return;
+        const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
+        setFirstPaidCallState((previous) => ({
+          ...previous,
+          history: attempts,
+          selectedAttemptId:
+            previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
+              ? previous.selectedAttemptId
+              : String(attempts[attempts.length - 1]?.attemptId ?? ""),
+          error: ""
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setFirstPaidCallState((previous) => ({
+          ...previous,
+          history: [],
+          selectedAttemptId: "",
+          error: error.message
+        }));
+      }
+    }
+
+    setOnboardingMetricsState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    void loadOnboardingMetrics();
+    void loadFirstPaidHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [buyer?.tenantId, runtime.authBaseUrl, runtime.tenantId]);
+
+  async function refreshOnboardingMetrics() {
+    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    if (!tenantId) {
+      setOnboardingMetricsState({
+        metrics: null,
+        loading: false,
+        error: ""
+      });
+      return null;
+    }
+    setOnboardingMetricsState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    try {
+      const out = await requestJson({
+        baseUrl: runtime.authBaseUrl,
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
+        method: "GET",
+        credentials: "include"
+      });
+      setOnboardingMetricsState({
+        metrics: out,
+        loading: false,
+        error: ""
+      });
+      return out;
+    } catch (error) {
+      setOnboardingMetricsState({
+        metrics: null,
+        loading: false,
+        error: error.message
+      });
+      throw error;
+    }
+  }
 
   async function loadBuyerSession() {
     const meOut = await requestJson({
@@ -4144,6 +4443,147 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setStatusMessage(ok ? `${label} copied to the clipboard.` : `${label} copy failed.`);
   }
 
+  async function refreshFirstPaidHistory() {
+    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    if (!tenantId) {
+      setStatusMessage("A tenant must be active before loading first paid call history.");
+      return;
+    }
+    setFirstPaidCallState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    try {
+      const out = await requestJson({
+        baseUrl: runtime.authBaseUrl,
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
+        method: "GET",
+        credentials: "include"
+      });
+      const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
+      setFirstPaidCallState((previous) => ({
+        ...previous,
+        history: attempts,
+        selectedAttemptId:
+          previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
+            ? previous.selectedAttemptId
+            : String(attempts[attempts.length - 1]?.attemptId ?? ""),
+        loading: false,
+        error: ""
+      }));
+      setStatusMessage(`Loaded ${attempts.length} first paid call attempt${attempts.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setFirstPaidCallState((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message
+      }));
+      setStatusMessage(`First paid call history failed: ${error.message}`);
+    }
+  }
+
+  async function handleRunFirstPaidCall({ replayAttemptId = null } = {}) {
+    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    if (!tenantId) {
+      setStatusMessage("A tenant must be active before running the first paid call.");
+      return;
+    }
+    setBusyState(replayAttemptId ? "first_paid_replay" : "first_paid");
+    setFirstPaidCallState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    setStatusMessage(replayAttemptId ? "Replaying stored first paid call attempt..." : "Running first paid call...");
+    try {
+      const out = await requestJson({
+        baseUrl: runtime.authBaseUrl,
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`,
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: replayAttemptId ? { replayAttemptId } : {},
+        credentials: "include"
+      });
+      const historyOut = await requestJson({
+        baseUrl: runtime.authBaseUrl,
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
+        method: "GET",
+        credentials: "include"
+      }).catch(() => null);
+      const attempts = Array.isArray(historyOut?.attempts) ? historyOut.attempts : [];
+      setFirstPaidCallState((previous) => ({
+        ...previous,
+        latest: out,
+        history: attempts.length ? attempts : previous.history,
+        selectedAttemptId: String(out?.attemptId ?? replayAttemptId ?? previous.selectedAttemptId ?? ""),
+        loading: false,
+        error: ""
+      }));
+      setStatusMessage(
+        replayAttemptId
+          ? `Replayed first paid call ${out?.attemptId ?? replayAttemptId}. Verification ${out?.verificationStatus ?? "unknown"}, settlement ${out?.settlementStatus ?? "unknown"}.`
+          : `First paid call ${out?.attemptId ?? "completed"}. Verification ${out?.verificationStatus ?? "unknown"}, settlement ${out?.settlementStatus ?? "unknown"}.`
+      );
+      await refreshOnboardingMetrics().catch(() => {});
+    } catch (error) {
+      setFirstPaidCallState((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message
+      }));
+      setStatusMessage(`First paid call failed: ${error.message}`);
+    } finally {
+      setBusyState("");
+    }
+  }
+
+  async function handleRunConformanceMatrix() {
+    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    if (!tenantId) {
+      setStatusMessage("A tenant must be active before running the conformance matrix.");
+      return;
+    }
+    setBusyState("conformance");
+    setConformanceState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    setStatusMessage("Running runtime conformance matrix...");
+    try {
+      const out = await requestJson({
+        baseUrl: runtime.authBaseUrl,
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: { targets: ["nooterra", "claude", "openclaw"] },
+        credentials: "include"
+      });
+      setConformanceState({
+        matrix: out,
+        loading: false,
+        error: ""
+      });
+      setStatusMessage(
+        out?.matrix?.ready
+          ? `Runtime conformance passed for ${tenantId}.`
+          : `Runtime conformance completed with gaps for ${tenantId}.`
+      );
+      await refreshFirstPaidHistory().catch(() => {});
+      await refreshOnboardingMetrics().catch(() => {});
+    } catch (error) {
+      setConformanceState({
+        matrix: null,
+        loading: false,
+        error: error.message
+      });
+      setStatusMessage(`Runtime conformance failed: ${error.message}`);
+    } finally {
+      setBusyState("");
+    }
+  }
+
   async function handleLogout() {
     setBusyState("logout");
     setStatusMessage("Signing out of the buyer session...");
@@ -4189,6 +4629,118 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
 # Reuse this tenant-scoped runtime for Claude MCP and OpenClaw.
 # Keep the host runtime pointed at one approval surface and one receipt trail.`;
+  const onboardingChecks = [
+    {
+      id: "identity",
+      label: "Workspace identity is active",
+      ready: Boolean(buyer?.tenantId),
+      detail: buyer
+        ? `${buyer.email} is signed into ${buyer.tenantId}.`
+        : "Create or recover a workspace before you issue runtime credentials."
+    },
+    {
+      id: "passkey",
+      label: "Primary sign-in path is available",
+      ready: browserPasskeyReady,
+      detail: browserPasskeyReady
+        ? "This browser can hold the primary passkey path for same-device sign-in."
+        : "This browser cannot use the passkey path cleanly. Recovery OTP remains available."
+    },
+    {
+      id: "bootstrap",
+      label: "Runtime bootstrap is issued",
+      ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId),
+      detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? `API key ${bootstrapBundle.bootstrap.apiKey.keyId} is ready for host installs.`
+        : "Issue the runtime bootstrap so hosts can create intents and fetch receipts."
+    },
+    {
+      id: "smoke",
+      label: "Hosted smoke is green",
+      ready: Boolean(smokeBundle?.smoke?.initialized),
+      detail: smokeBundle?.smoke?.initialized
+        ? `${smokeBundle.smoke.toolsCount ?? 0} tools were visible in the last smoke run.`
+        : "Run the smoke after bootstrap before handing the install path to a partner."
+    },
+    {
+      id: "runtime",
+      label: "Runtime endpoint is configured",
+      ready: Boolean(String(runtime.baseUrl ?? "").trim() && String(runtime.apiKey ?? "").trim()),
+      detail: String(runtime.baseUrl ?? "").trim() && String(runtime.apiKey ?? "").trim()
+        ? "The dashboard is currently pointed at a tenant-scoped Action Wallet runtime."
+        : "Keep the dashboard and host pack pointed at the same runtime base URL and API key."
+    }
+  ];
+  const onboardingReadyCount = onboardingChecks.filter((check) => check.ready).length;
+  const onboardingNextAction = onboardingChecks.find((check) => !check.ready)?.label ?? "Ready for first governed action";
+  const onboardingMetrics = onboardingMetricsState.metrics;
+  const onboardingFunnel = onboardingMetrics?.funnel ?? null;
+  const onboardingStages = Array.isArray(onboardingFunnel?.stages) ? onboardingFunnel.stages : [];
+  const onboardingStageLabels = {
+    wizard_viewed: "Open onboarding wizard",
+    template_selected: "Select template",
+    template_validated: "Validate configuration",
+    artifact_generated: "Generate first artifact",
+    real_upload_generated: "Run real upload",
+    first_verified: "Reach first verified result",
+    buyer_link_shared: "Share buyer link",
+    referral_signup: "Convert first referral"
+  };
+  const onboardingNextActionByStage = {
+    wizard_viewed: "Open the onboarding path and bootstrap the workspace once.",
+    template_selected: "Pick one concrete install path so partners are not choosing between hosts blindly.",
+    template_validated: "Finish bootstrap values and verify the runtime can be reused by hosts and CLI.",
+    artifact_generated: "Generate one real governed artifact instead of stopping at setup.",
+    real_upload_generated: "Run the first real upload or paid call so the workspace stops being theoretical.",
+    first_verified: "Push one successful governed action all the way to verified receipt.",
+    buyer_link_shared: "Share the hosted approval path or receipt link with a real counterpart.",
+    referral_signup: "Drive one external signup or second workspace activation from the same flow."
+  };
+  const reachedStages = Number.isFinite(Number(onboardingFunnel?.reachedStages)) ? Number(onboardingFunnel.reachedStages) : onboardingStages.filter((stage) => stage?.reached).length;
+  const totalStages = Number.isFinite(Number(onboardingFunnel?.totalStages)) ? Number(onboardingFunnel.totalStages) : onboardingStages.length;
+  const completionPct = Number.isFinite(Number(onboardingFunnel?.completionPct)) ? Math.max(0, Math.min(100, Number(onboardingFunnel.completionPct))) : 0;
+  const nextStageKey = String(onboardingFunnel?.nextStageKey ?? "").trim() || null;
+  const onboardingNextInstruction = nextStageKey ? onboardingNextActionByStage[nextStageKey] ?? `Complete ${humanizeLabel(nextStageKey)}.` : "The onboarding funnel is complete. Keep burn-in evidence, smokes, and host reliability current.";
+  const onboardingStatusTone =
+    onboardingMetricsState.error
+      ? "bad"
+      : onboardingMetrics?.status === "active"
+        ? "good"
+        : onboardingMetrics
+          ? "warn"
+          : "neutral";
+  const timeToFirstVerifiedLabel = (() => {
+    const value = Number(onboardingMetrics?.timeToFirstVerifiedMs);
+    if (!Number.isFinite(value) || value < 0) return "Pending";
+    const totalMinutes = Math.max(0, Math.round(value / 60000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  })();
+  const latestFirstPaidAttempt = firstPaidCallState.latest;
+  const latestFirstPaidRunId = String(latestFirstPaidAttempt?.ids?.runId ?? "").trim();
+  const latestFirstPaidReceiptId = String(
+    latestFirstPaidAttempt?.ids?.receiptId ??
+    latestFirstPaidAttempt?.receiptId ??
+    latestFirstPaidAttempt?.settlementReceipt?.receiptId ??
+    ""
+  ).trim();
+  const firstPaidTone =
+    latestFirstPaidAttempt?.verificationStatus === "green" && latestFirstPaidAttempt?.settlementStatus === "released"
+      ? "good"
+      : latestFirstPaidAttempt
+        ? "warn"
+        : "neutral";
+  const hostedApprovalReady = Boolean(smokeBundle?.smoke?.initialized || onboardingMetrics?.firstBuyerLinkSharedAt);
+  const proofAndRecourseReady = Boolean(
+    onboardingMetrics?.firstVerifiedAt ||
+    latestFirstPaidReceiptId ||
+    (latestFirstPaidAttempt?.verificationStatus === "green" && latestFirstPaidAttempt?.settlementStatus === "released")
+  );
+  const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
+  const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
 
   return (
     <div className="product-page">
@@ -4210,6 +4762,273 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             {buyer ? "Continue To Wallet" : "Open Developer Toolkit"}
           </a>
         </div>
+      </section>
+
+      <section className="product-metric-grid">
+        <article className="product-metric-card">
+          <span>Readiness</span>
+          <strong>{onboardingReadyCount} / {onboardingChecks.length}</strong>
+          <small>Core checks from account creation to first approval.</small>
+        </article>
+        <article className="product-metric-card">
+          <span>Next action</span>
+          <strong>{onboardingNextAction}</strong>
+          <small>The first missing step that still blocks launch-host setup.</small>
+        </article>
+        <article className="product-metric-card">
+          <span>Certified hosts</span>
+          <strong>2</strong>
+          <small>Claude MCP and OpenClaw remain the locked launch hosts.</small>
+        </article>
+        <article className="product-metric-card">
+          <span>Shared runtime</span>
+          <strong>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? "Live" : "Pending"}</strong>
+          <small>Codex, CLI, and API all reuse the same Action Wallet runtime contract.</small>
+        </article>
+      </section>
+
+      <section className="product-grid-two">
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>Launch readiness</p>
+            <h2>See whether this workspace is actually ready for first approval, first receipt, and first dispute.</h2>
+          </div>
+          <div className="product-step-list">
+            {onboardingChecks.map((check) => (
+              <div key={`onboarding_check:${check.id}`} className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>{check.label}</strong>
+                  <span>{check.detail}</span>
+              </div>
+              <StatusPill value={check.ready ? "active" : "pending"} />
+            </div>
+          ))}
+          </div>
+          <div className="product-detail-meta">
+            <div>
+              <strong>Activation</strong>
+              <span>{humanizeLabel(onboardingMetrics?.status, onboardingMetrics ? "pending" : "unknown")}</span>
+            </div>
+            <div>
+              <strong>Funnel</strong>
+              <span>{reachedStages} / {totalStages || onboardingStageLabels.length}</span>
+            </div>
+            <div>
+              <strong>First verified</strong>
+              <span>{onboardingMetrics?.firstVerifiedAt ? formatDateTime(onboardingMetrics.firstVerifiedAt) : "Pending"}</span>
+            </div>
+            <div>
+              <strong>Time to verified</strong>
+              <span>{timeToFirstVerifiedLabel}</span>
+            </div>
+          </div>
+          <div className={`product-inline-note ${onboardingStatusTone}`}>
+            {onboardingMetricsState.error
+              ? `Activation telemetry unavailable: ${onboardingMetricsState.error}`
+              : onboardingMetrics
+                ? `Activation is ${humanizeLabel(onboardingMetrics.status, "pending")} with funnel completion at ${completionPct}%. ${onboardingNextInstruction}`
+                : "Activation telemetry will appear once a tenant is active and the auth service is reachable."}
+          </div>
+          <div className="product-actions">
+            <button className="product-button product-button-ghost" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void refreshOnboardingMetrics().catch(() => {})}>
+              {onboardingMetricsState.loading && busyState === "" ? "Refreshing telemetry..." : "Refresh telemetry"}
+            </button>
+          </div>
+          {onboardingStages.length ? (
+            <div className="product-step-list">
+              {onboardingStages.map((stage, index) => {
+                const stageKey = String(stage?.stageKey ?? "").trim();
+                const stageLabel = onboardingStageLabels[stageKey] ?? humanizeLabel(stageKey, `Stage ${index + 1}`);
+                const reached = stage?.reached === true;
+                return (
+                  <div key={`onboarding_stage:${stageKey || index}`} className="product-step-item">
+                    <div className="product-step-copy">
+                      <strong>{stageLabel}</strong>
+                      <span>{reached ? `Completed ${stage?.at ? formatDateTime(stage.at) : "recently"}` : `Pending${stageKey === nextStageKey ? " · next critical step" : ""}`}</span>
+                    </div>
+                    <StatusPill value={reached ? "active" : stageKey === nextStageKey ? "warn" : "pending"} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </article>
+
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>First governed action</p>
+            <h2>Once onboarding is green, the next steps should be boring.</h2>
+          </div>
+          <div className="product-step-list">
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>1. Install one host</strong>
+                <span>Use Claude MCP or OpenClaw first. Codex, CLI, and API should reuse the same runtime values, not fork the install logic.</span>
+              </div>
+              <StatusPill value={bootstrapBundle?.bootstrap?.apiKey?.keyId ? "active" : "pending"} />
+            </div>
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>2. Reach hosted approval</strong>
+                <span>Create one action intent and verify the host returns a hosted approval URL with stable action and request ids.</span>
+              </div>
+              <StatusPill value={hostedApprovalReady ? "active" : "pending"} />
+            </div>
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>3. Finish proof and recourse</strong>
+                <span>Fetch the execution grant, finalize with evidence, then confirm the receipt and dispute pages resolve against the same run.</span>
+              </div>
+              <StatusPill value={proofAndRecourseReady ? "active" : "pending"} />
+            </div>
+          </div>
+          <div className="product-actions">
+            <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+            <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
+            <a className="product-button product-button-solid" href="/receipts">Open receipts</a>
+          </div>
+        </article>
+      </section>
+
+      <section className="product-grid-two">
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>First live paid call</p>
+            <h2>Run the first end-to-end proof from this workspace and keep the attempt history visible.</h2>
+          </div>
+          <div className="product-detail-meta">
+            <div>
+              <strong>Latest attempt</strong>
+              <span>{latestFirstPaidAttempt?.attemptId ?? "Not run yet"}</span>
+            </div>
+            <div>
+              <strong>Verification</strong>
+              <span>{humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "unknown")}</span>
+            </div>
+            <div>
+              <strong>Settlement</strong>
+              <span>{humanizeLabel(latestFirstPaidAttempt?.settlementStatus, "unknown")}</span>
+            </div>
+            <div>
+              <strong>Saved attempts</strong>
+              <span>{firstPaidCallState.history.length}</span>
+            </div>
+          </div>
+          <div className={`product-inline-note ${firstPaidTone}`}>
+            {latestFirstPaidAttempt
+              ? `Latest attempt ${latestFirstPaidAttempt.attemptId ?? "n/a"} ended with verification ${latestFirstPaidAttempt.verificationStatus ?? "unknown"} and settlement ${latestFirstPaidAttempt.settlementStatus ?? "unknown"}.`
+              : "Use this to prove the first real Action Wallet flow from bootstrap to released settlement without leaving onboarding."}
+          </div>
+          {firstPaidCallState.error ? <div className="product-inline-note bad">{firstPaidCallState.error}</div> : null}
+          <div className="product-actions">
+            <button className="product-button product-button-solid" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void handleRunFirstPaidCall()}>
+              {busyState === "first_paid" ? "Running..." : "Run first paid call"}
+            </button>
+            <button className="product-button product-button-ghost" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void refreshFirstPaidHistory()}>
+              {firstPaidCallState.loading && busyState === "" ? "Refreshing..." : "Refresh history"}
+            </button>
+            <button
+              className="product-button product-button-ghost"
+              disabled={busyState !== "" || !buyer?.tenantId || !firstPaidCallState.selectedAttemptId}
+              onClick={() => void handleRunFirstPaidCall({ replayAttemptId: firstPaidCallState.selectedAttemptId })}
+            >
+              {busyState === "first_paid_replay" ? "Replaying..." : "Replay selected"}
+            </button>
+          </div>
+          <div className="product-form-grid">
+            <label className="wide">
+              <span>Attempt history</span>
+              <select
+                value={firstPaidCallState.selectedAttemptId}
+                onChange={(event) => setFirstPaidCallState((previous) => ({ ...previous, selectedAttemptId: event.target.value }))}
+              >
+                <option value="">No attempts yet</option>
+                {firstPaidCallState.history.slice().reverse().map((attempt) => {
+                  const attemptId = String(attempt?.attemptId ?? "").trim();
+                  if (!attemptId) return null;
+                  const startedAt = attempt?.startedAt ? formatDateTime(attempt.startedAt) : "time unavailable";
+                  const status = humanizeLabel(attempt?.status, "unknown");
+                  const runId = String(attempt?.ids?.runId ?? "n/a");
+                  return (
+                    <option key={`first_paid_attempt:${attemptId}`} value={attemptId}>
+                      {startedAt} · {status} · {runId}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+          </div>
+          {(latestFirstPaidRunId || latestFirstPaidReceiptId) ? (
+            <div className="product-actions">
+              {latestFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/runs/${encodeURIComponent(latestFirstPaidRunId)}`}>Open run</a> : null}
+              {latestFirstPaidReceiptId ? <a className="product-button product-button-ghost" href={`/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`}>Open receipt</a> : null}
+              {latestFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`}>Open dispute state</a> : null}
+            </div>
+          ) : null}
+          {latestFirstPaidAttempt ? (
+            <details className="product-details">
+              <summary>Latest first paid call payload</summary>
+              <pre><code>{prettyJson(latestFirstPaidAttempt)}</code></pre>
+            </details>
+          ) : null}
+        </article>
+
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>Runtime conformance</p>
+            <h2>Run the launch-host matrix and keep failing checks visible on the same page.</h2>
+          </div>
+          <div className="product-detail-meta">
+            <div>
+              <strong>Run</strong>
+              <span>{conformanceMatrix?.runId ?? "Not run yet"}</span>
+            </div>
+            <div>
+              <strong>Ready</strong>
+              <span>{conformanceMatrix?.ready === true ? "Yes" : conformanceMatrix ? "Not yet" : "Unknown"}</span>
+            </div>
+            <div>
+              <strong>Checks</strong>
+              <span>{conformanceChecks.length}</span>
+            </div>
+            <div>
+              <strong>Targets</strong>
+              <span>{Array.isArray(conformanceMatrix?.targets) ? conformanceMatrix.targets.length : 0}</span>
+            </div>
+          </div>
+          <div className={`product-inline-note ${conformanceMatrix?.ready === true ? "good" : conformanceMatrix ? "warn" : "neutral"}`}>
+            {conformanceMatrix
+              ? conformanceMatrix.ready
+                ? "Conformance is green for the current onboarding target set."
+                : "Conformance completed but at least one launch-host or runtime check still needs attention."
+              : "Run the conformance matrix after bootstrap to verify runtime bootstrap, smoke, and first paid flow together."}
+          </div>
+          {conformanceState.error ? <div className="product-inline-note bad">{conformanceState.error}</div> : null}
+          <div className="product-actions">
+            <button className="product-button product-button-solid" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void handleRunConformanceMatrix()}>
+              {busyState === "conformance" ? "Running..." : "Run conformance matrix"}
+            </button>
+          </div>
+          {conformanceChecks.length ? (
+            <div className="product-step-list">
+              {conformanceChecks.map((check, index) => (
+                <div key={`conformance_check:${check?.checkId ?? index}`} className="product-step-item">
+                  <div className="product-step-copy">
+                    <strong>{humanizeLabel(check?.checkId, "Check")}</strong>
+                    <span>{check?.message ?? check?.detail ?? "No detail provided."}</span>
+                  </div>
+                  <StatusPill value={String(check?.status ?? "").trim().toLowerCase() === "pass" ? "active" : "failed"} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {conformanceState.matrix ? (
+            <details className="product-details">
+              <summary>Conformance payload</summary>
+              <pre><code>{prettyJson(conformanceState.matrix)}</code></pre>
+            </details>
+          ) : null}
+        </article>
       </section>
 
       <section className="product-grid-two">
@@ -4452,6 +5271,48 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <CodeBlock title="Shell Exports" code={exportCommands} hint="Use this in Terminal or any hosted worker environment that needs the Action Wallet runtime values." />
           <CodeBlock title="Host Runtime Notes" code={builderCliSnippet} hint="Keep the host runtime deterministic and attached to the same tenant credentials." />
         </article>
+      </section>
+
+      <section className="product-card">
+        <div className="product-section-head compact">
+          <p>Host shortcuts</p>
+          <h2>After bootstrap, move directly into the install path that matches your shell.</h2>
+        </div>
+        <div className="product-access-grid">
+          <div className="product-access-card">
+            <div className="product-mini-card-head">
+              <Cable size={18} />
+              <span>Claude MCP</span>
+            </div>
+            <p>Primary launch host. Use the generated MCP config and aim for first hosted approval fast.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href={docsLinks.integrations}>Host guide</a>
+              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+            </div>
+          </div>
+          <div className="product-access-card">
+            <div className="product-mini-card-head">
+              <GitBranchPlus size={18} />
+              <span>OpenClaw</span>
+            </div>
+            <p>Second launch host. Reuse the same runtime bundle and approval contract without forking the flow.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href={docsLinks.integrations}>OpenClaw guide</a>
+              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+            </div>
+          </div>
+          <div className="product-access-card">
+            <div className="product-mini-card-head">
+              <SquareTerminal size={18} />
+              <span>Codex / API / CLI</span>
+            </div>
+            <p>Engineering shells reuse the same Action Wallet runtime. Keep approval, receipt, and dispute on the hosted surfaces.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href="/wallet">Open wallet</a>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -6336,12 +7197,12 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
           <p className="product-kicker">Action Inbox</p>
           <h1>Watch long-running work without hunting through separate screens.</h1>
           <p className="product-lead">
-            The inbox turns approvals, launch watchpoints, dispute state, and recent proof into one async control surface for hosted Action Wallet runs.
+            The inbox turns approvals, action-required follow-ups, dispute state, and recent proof into one async control surface for hosted Action Wallet runs.
           </p>
         </div>
         <div className="product-page-top-actions">
-          {lastLaunchId ? <a className="product-button product-button-ghost" href={`/launch/${encodeURIComponent(lastLaunchId)}`}>Open latest launch</a> : null}
           <a className="product-button product-button-ghost" href="/approvals">Approval center</a>
+          <a className="product-button product-button-ghost" href="/receipts">Receipt vault</a>
           <a className="product-button product-button-solid" href="/wallet">Open wallet</a>
         </div>
       </section>
@@ -6360,7 +7221,7 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
         <article className="product-metric-card">
           <span><Bell size={16} /> Action required</span>
           <strong>{actionItems.length}</strong>
-          <small>Approvals, rescue-worthy launch states, and active disputes that need attention.</small>
+          <small>Approvals, action-required host flow states, and active disputes that need attention.</small>
         </article>
         <article className="product-metric-card">
           <span><Bell size={16} /> Unread</span>
@@ -6370,7 +7231,7 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
         <article className="product-metric-card">
           <span><Clock3 size={16} /> In progress</span>
           <strong>{activeLaunchTasks.length}</strong>
-          <small>Tracked tasks that are still sourcing, waiting, or actively executing in the latest launch.</small>
+          <small>Tracked tasks that are still sourcing, waiting, or actively executing in the latest monitored host flow.</small>
         </article>
         <article className="product-metric-card">
           <span><CircleCheck size={16} /> Recent proof</span>
@@ -6447,14 +7308,14 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
 
         <article className="product-card">
           <div className="product-section-head compact">
-            <p>Launch Watch</p>
-            <h2>Stay on top of the latest routed launch without reopening the launch page.</h2>
+            <p>Host Flow Watch</p>
+            <h2>Stay on top of the latest monitored host flow without reopening separate detail screens.</h2>
           </div>
           {launchStatus ? (
             <>
               <div className="product-detail-meta">
                 <div>
-                  <strong>Launch</strong>
+                  <strong>Flow</strong>
                   <span>{launchStatus.launchId}</span>
                 </div>
                 <div>
@@ -6546,21 +7407,21 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
                           </button>
                         ) : null}
                         <a className="product-button product-button-ghost" href={buildLaunchTaskHref(launchStatus.launchId, task)}>
-                          {task.runId ? "Open run" : "Open launch"}
+                          {task.runId ? "Open run" : "Review task state"}
                         </a>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="product-inline-note good">The latest launch has no active tasks waiting for sourcing, execution, or upstream dependencies.</div>
+                <div className="product-inline-note good">The latest monitored host flow has no active tasks waiting for sourcing, execution, or upstream dependencies.</div>
               )}
             </>
           ) : (
             <div className="product-empty-state">
               {lastLaunchId
-                ? "The latest launch could not be loaded from the live kernel."
-                : "Launch a supported task from Ask the Network to populate live async execution state here."}
+                ? "The latest monitored host flow could not be loaded from the live kernel."
+                : "Start a supported host action to populate live async execution state here."}
             </div>
           )}
         </article>
@@ -6925,6 +7786,11 @@ function ApprovalsPage({ runtime, onboardingState }) {
 
   async function handleDecision(item, approved) {
     if (!item?.requestId) return;
+    const deadlineState = buildDeadlineState(item.deadlineAt);
+    if (deadlineState.isExpired) {
+      setStatusMessage(`Approval ${item.requestId} is expired. Refresh the inbox before making a decision.`);
+      return;
+    }
     const note = String(decisionNotes[item.requestId] ?? "").trim();
     const continuation = asPlainObject(item.continuation);
     const shouldResume =
@@ -6934,7 +7800,7 @@ function ApprovalsPage({ runtime, onboardingState }) {
     setBusyState(`decision:${item.requestId}`);
     setStatusMessage(
       shouldResume
-        ? `Approving ${item.requestId} and resuming the blocked launch...`
+        ? `Approving ${item.requestId} and resuming the blocked hosted action...`
         : `${approved ? "Approving" : "Denying"} ${item.requestId}...`
     );
     try {
@@ -6958,7 +7824,7 @@ function ApprovalsPage({ runtime, onboardingState }) {
           const resumedLaunchId = resumed?.launchOut?.launch?.launchId ?? null;
           if (resumedLaunchId) {
             writeStoredValue(LAST_LAUNCH_STORAGE_KEY, resumedLaunchId);
-            window.location.assign(`/launch/${encodeURIComponent(resumedLaunchId)}`);
+            window.location.assign("/inbox");
             return;
           }
           setStatusMessage(`${item.requestId} approved and resumed. Refreshing inbox state...`);
@@ -7059,7 +7925,7 @@ function ApprovalsPage({ runtime, onboardingState }) {
           </p>
         </div>
         <div className="product-page-top-actions">
-          <a className="product-button product-button-ghost" href="/network">Open launches</a>
+          <a className="product-button product-button-ghost" href="/inbox">Open inbox</a>
           <button className="product-button product-button-solid" type="button" disabled={busyState !== ""} onClick={() => setReloadToken((value) => value + 1)}>
             {busyState === "loading" ? "Refreshing..." : "Refresh"}
           </button>
@@ -7113,9 +7979,11 @@ function ApprovalsPage({ runtime, onboardingState }) {
               {pendingItems.map((item) => {
                 const decisionBusy = busyState === `decision:${item.requestId}`;
                 const continuation = asPlainObject(item.continuation);
+                const deadlineState = buildDeadlineState(item.deadlineAt);
                 const resumeReady =
                   continuation?.kind === "router_launch" &&
                   (continuation?.status === "pending" || continuation?.status === "approved");
+                const disableDecision = busyState !== "" || deadlineState.isExpired;
                 return (
                   <article
                     key={item.requestId}
@@ -7126,7 +7994,10 @@ function ApprovalsPage({ runtime, onboardingState }) {
                         <p>{item.policyId ? `Policy ${item.policyId}` : "Pending approval"}</p>
                         <h3>{item.title}</h3>
                       </div>
-                      <StatusPill value={item.status} />
+                      <div className="product-approval-step-meta">
+                        <StatusPill value={item.status} />
+                        {deadlineState.hasDeadline ? <StatusPill value={deadlineState.isExpired ? "expired" : deadlineState.isUrgent ? "pending" : "active"} /> : null}
+                      </div>
                     </div>
                     {item.description ? <p className="product-agent-description">{item.description}</p> : null}
                     <div className="product-approval-meta">
@@ -7156,9 +8027,21 @@ function ApprovalsPage({ runtime, onboardingState }) {
                         <strong>{item.deadlineAt ? formatDateTime(item.deadlineAt) : "Open-ended"}</strong>
                       </div>
                       <div>
+                        <span>Evidence</span>
+                        <strong>{item.evidenceRefs.length}</strong>
+                      </div>
+                      <div>
                         <span>Binding</span>
                         <strong>{item.actionSha256 ? abbreviateHash(item.actionSha256, 16) : abbreviateHash(item.envelopeHash, 16)}</strong>
                       </div>
+                    </div>
+                    <div className="product-badge-row">
+                      {item.policyId ? <span className="product-badge">Policy {item.policyId}</span> : null}
+                      {item.riskClass ? <span className="product-badge">Risk {humanizeLabel(item.riskClass)}</span> : null}
+                      {item.reversibilityClass ? <span className="product-badge">Reversibility {humanizeLabel(item.reversibilityClass)}</span> : null}
+                      {item.dataClassesRequested.slice(0, 2).map((entry) => (
+                        <span key={`${item.requestId}:data:${entry}`} className="product-badge">{entry}</span>
+                      ))}
                     </div>
                     <label className="product-approval-note">
                       <span>Operator note</span>
@@ -7168,16 +8051,26 @@ function ApprovalsPage({ runtime, onboardingState }) {
                         placeholder="Reason, ticket, or evidence handle"
                       />
                     </label>
+                    {deadlineState.isExpired ? (
+                      <div className="product-inline-note bad">
+                        This approval window is closed. Refresh the inbox and reopen the action from the host if it still needs a decision.
+                      </div>
+                    ) : null}
+                    {deadlineState.isUrgent ? (
+                      <div className="product-inline-note warn">
+                        Approval window is nearly closed: {deadlineState.label.toLowerCase()}.
+                      </div>
+                    ) : null}
                     {resumeReady ? (
                       <div className="product-inline-note accent">
-                        This decision will resume the blocked Ask the Network launch automatically.
+                        This decision will resume the blocked hosted action automatically.
                       </div>
                     ) : null}
                     <div className="product-approval-card-actions">
-                      <button className="product-button product-button-ghost" type="button" disabled={busyState !== ""} onClick={() => void handleDecision(item, false)}>
+                      <button className="product-button product-button-ghost" type="button" disabled={disableDecision} onClick={() => void handleDecision(item, false)}>
                         {decisionBusy ? "Saving..." : "Deny"}
                       </button>
-                      <button className="product-button product-button-solid" type="button" disabled={busyState !== ""} onClick={() => void handleDecision(item, true)}>
+                      <button className="product-button product-button-solid" type="button" disabled={disableDecision} onClick={() => void handleDecision(item, true)}>
                         {decisionBusy ? "Saving..." : resumeReady ? "Approve + Resume" : "Approve"}
                       </button>
                     </div>
@@ -7456,7 +8349,7 @@ function ApprovalsPage({ runtime, onboardingState }) {
   );
 }
 
-function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId = null }) {
+function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId = null, surface = "wallet" }) {
   const [reloadToken, setReloadToken] = useState(0);
   const [busyState, setBusyState] = useState("loading");
   const [statusMessage, setStatusMessage] = useState("Loading authority wallet state...");
@@ -7559,6 +8452,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
   const buyer = onboardingState?.buyer ?? null;
   const bootstrapBundle = onboardingState?.bootstrap ?? null;
   const runtimeReady = Boolean(String(runtime?.apiKey ?? "").trim());
+  const isIntegrationsSurface = surface === "integrations";
 
   useEffect(() => {
     let cancelled = false;
@@ -7857,6 +8751,42 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
   const activeAccountSessions = accountSessions.filter((session) => !session.revokedAt);
   const consumerDataSources = normalizeConsumerDataSourcesRecord(tenantSettingsState.settings?.consumerDataSources);
   const activeDataSources = [consumerDataSources.email, consumerDataSources.calendar].filter((row) => row.enabled);
+  const integrationReadinessChecks = [
+    {
+      id: "identity",
+      label: "Workspace identity issued",
+      ready: runtimeReady,
+      detail: runtimeReady ? "Runtime key and tenant binding are live." : "Finish onboarding and issue a runtime key first."
+    },
+    {
+      id: "sources",
+      label: "At least one connected account",
+      ready: activeConsumerConnectors.length > 0 || activeDataSources.length > 0,
+      detail:
+        activeConsumerConnectors.length > 0 || activeDataSources.length > 0
+          ? "An email, calendar, or connector record is already available to the host."
+          : "Link a connector or enable an email/calendar source before asking a host to act."
+    },
+    {
+      id: "session",
+      label: "Delegated session or browser state bound",
+      ready: activeAccountSessions.length > 0 || activeBrowserStates.length > 0,
+      detail:
+        activeAccountSessions.length > 0 || activeBrowserStates.length > 0
+          ? "A wallet-owned browser/session handle is available for certified adapters."
+          : "Add a delegated session or browser state if the host needs to act inside a consumer account."
+    },
+    {
+      id: "delivery",
+      label: "Approval and receipt delivery path visible",
+      ready: connectedIntegrations.length > 0,
+      detail:
+        connectedIntegrations.length > 0
+          ? "At least one downstream delivery target is connected for notifications or workflow handoff."
+          : "Connect Slack or Zapier if you want approvals and receipts to land outside the hosted pages."
+    }
+  ];
+  const integrationReadyCount = integrationReadinessChecks.filter((check) => check.ready).length;
   const activePolicyTone =
     busyState !== ""
       ? "warn"
@@ -8163,7 +9093,9 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
   function handleStartConnectorOauth(kind, provider) {
     try {
       const returnTo =
-        typeof window !== "undefined" ? `${window.location.origin}/wallet` : null;
+        typeof window !== "undefined"
+          ? `${window.location.origin}${isIntegrationsSurface ? "/integrations" : "/wallet"}`
+          : null;
       const href = buildTenantConsumerConnectorOauthStartUrl(runtime, {
         kind,
         provider,
@@ -8388,17 +9320,23 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
     <div className="product-page">
       <section className="product-page-top">
         <div>
-          <p className="product-kicker">Action Wallet</p>
-          <h1>See the access, policy, evidence, and spend boundaries behind execution.</h1>
+          <p className="product-kicker">{isIntegrationsSurface ? "Integrations" : "Action Wallet"}</p>
+          <h1>
+            {isIntegrationsSurface
+              ? "Connect the accounts, browser state, and tools your host can safely use."
+              : "See the access, policy, evidence, and spend boundaries behind execution."}
+          </h1>
           <p className="product-lead">
-            This is the consumer-facing read model for the Action Wallet: approvals, standing rules, trusted hosts, sessions, and payment guardrails before and after a run.
+            {isIntegrationsSurface
+              ? "This is the focused control surface for linked systems: email and calendar connectors, browser state, delegated sessions, documents, and outbound integrations that the wallet can revoke."
+              : "This is the consumer-facing read model for the Action Wallet: approvals, standing rules, trusted hosts, sessions, and payment guardrails before and after a run."}
           </p>
         </div>
         <div className="product-page-top-actions">
-          <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
-          <a className="product-button product-button-ghost" href="/onboarding">Manage identity</a>
+          {isIntegrationsSurface ? <a className="product-button product-button-ghost" href="/wallet">Open wallet</a> : <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>}
+          <a className="product-button product-button-ghost" href="/onboarding">{isIntegrationsSurface ? "Manage identity" : "Manage identity"}</a>
           <button className="product-button product-button-solid" type="button" disabled={busyState !== ""} onClick={() => setReloadToken((value) => value + 1)}>
-            {busyState === "loading" ? "Refreshing..." : "Refresh wallet"}
+            {busyState === "loading" ? "Refreshing..." : isIntegrationsSurface ? "Refresh integrations" : "Refresh wallet"}
           </button>
         </div>
       </section>
@@ -8411,204 +9349,342 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
 
       <div className={`product-inline-note ${activePolicyTone}`}>{statusMessage}</div>
 
-      <section className="product-metric-grid">
-        <article className="product-metric-card">
-          <span>Standing Rules</span>
-          <strong>{activePolicies.length}</strong>
-          <small>Active policies shaping approvals and spend.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Pending Requests</span>
-          <strong>{pendingItems.length}</strong>
-          <small>Authority boundaries still waiting for a human answer.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Data Scopes</span>
-          <strong>{dataScopes.length}</strong>
-          <small>Distinct data classes already represented in policy or approved runs.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Linked Systems</span>
-          <strong>{connectedIntegrations.length + activeDocuments.length + activeDataSources.length + activeAccountSessions.length}</strong>
-          <small>Wallet-owned integrations, source records, delegated sessions, and uploaded documents that the user can revoke.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Spend Caps</span>
-          <strong>{spendCaps.length}</strong>
-          <small>Distinct max-spend guardrails already configured.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Live Wallets</span>
-          <strong>{walletRefs.length}</strong>
-          <small>x402 sponsor wallets visible to the current runtime.</small>
-        </article>
-        <article className="product-metric-card">
-          <span>Execution Grants</span>
-          <strong>{visibleAuthorityGrants.length + visibleDelegationGrants.length}</strong>
-          <small>Active authority and delegation paths the wallet can still revoke.</small>
-        </article>
-      </section>
+      {isIntegrationsSurface ? (
+        <>
+          <section className="product-bullet-grid">
+            <div className="product-bullet-card">
+              <strong>1. Connect accounts</strong>
+              <span>Link email, calendar, and outbound systems with revocable connector records instead of hidden runtime state.</span>
+            </div>
+            <div className="product-bullet-card">
+              <strong>2. Bind session state</strong>
+              <span>Store browser state and delegated sessions as wallet-owned handles with explicit mode and spend boundaries.</span>
+            </div>
+            <div className="product-bullet-card">
+              <strong>3. Keep delivery observable</strong>
+              <span>See downstream integrations, delivery health, retries, and attached documents from the same control surface.</span>
+            </div>
+          </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
-          <div className="product-section-head compact">
-            <p>Identity</p>
-            <h2>Identity, sessions, and runtime access stay linked.</h2>
-          </div>
-          <div className="product-detail-meta">
-            <div>
-              <strong>Principal</strong>
-              <span>{buyer?.email ?? "Guest mode"}</span>
+          <section className="product-card">
+            <div className="product-section-head compact">
+              <p>Install to first approval</p>
+              <h2>Use this checklist to get one host from setup to a governed action without hidden prerequisites.</h2>
             </div>
-            <div>
-              <strong>Tenant</strong>
-              <span>{buyer?.tenantId ?? runtime.tenantId ?? "Not resolved"}</span>
+            <div className="product-detail-meta">
+              <div>
+                <strong>Ready checks</strong>
+                <span>{integrationReadyCount} / {integrationReadinessChecks.length}</span>
+              </div>
+              <div>
+                <strong>Recommended hosts</strong>
+                <span>Claude MCP, OpenClaw, Codex, API, CLI</span>
+              </div>
+              <div>
+                <strong>Approval surface</strong>
+                <span>Hosted, durable, and tenant-scoped</span>
+              </div>
+              <div>
+                <strong>Receipt + recourse</strong>
+                <span>Always routed through Nooterra</span>
+              </div>
             </div>
-            <div>
-              <strong>Role</strong>
-              <span>{buyer?.role ?? "guest"}</span>
-            </div>
-            <div>
-              <strong>Runtime key</strong>
-              <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? maskToken(runtime.apiKey)}</span>
-            </div>
-            <div>
-              <strong>Documents</strong>
-              <span>{activeDocuments.length}</span>
-            </div>
-            <div>
-              <strong>Browser states</strong>
-              <span>{activeBrowserStates.length}</span>
-            </div>
-            <div>
-              <strong>Connectors</strong>
-              <span>{activeConsumerConnectors.length}</span>
-            </div>
-          </div>
-          <div className="product-sidebar-list">
-            <div>
-              <strong>Session status</strong>
-              <span>{buyer ? "Authenticated and bootstrapped for Action Wallet approvals." : "Preview only until you sign in and issue runtime bootstrap."}</span>
-            </div>
-            <div>
-              <strong>Trusted client</strong>
-              <span>{bootstrapBundle?.bootstrap?.apiKey?.issuedAt ? `Current runtime issued ${formatDateTime(bootstrapBundle.bootstrap.apiKey.issuedAt)}` : "No hosted runtime bootstrap issued yet."}</span>
-            </div>
-            <div>
-              <strong>Recent launch</strong>
-              <span>{lastLaunchId ? `Latest tracked launch is ${lastLaunchId}.` : "No launch has been recorded in this browser yet."}</span>
-            </div>
-            <div>
-              <strong>Document vault</strong>
-              <span>{activeDocuments.length ? `${activeDocuments.length} uploaded document${activeDocuments.length === 1 ? "" : "s"} currently sit in the workspace data wallet.` : "No uploaded documents are currently available."}</span>
-            </div>
-            <div>
-              <strong>Data sources</strong>
-              <span>{activeDataSources.length ? `${activeDataSources.length} wallet-owned source${activeDataSources.length === 1 ? "" : "s"} can be reused by approved runs.` : "No email or calendar sources are enabled yet."}</span>
-            </div>
-            <div>
-              <strong>Connected accounts</strong>
-              <span>{activeConsumerConnectors.length ? `${activeConsumerConnectors.length} connector${activeConsumerConnectors.length === 1 ? "" : "s"} are active for email and calendar workflows.` : "No consumer connectors are active yet."}</span>
-            </div>
-            <div>
-              <strong>Delegated sessions</strong>
-              <span>{activeAccountSessions.length ? `${activeAccountSessions.length} consumer site session${activeAccountSessions.length === 1 ? "" : "s"} are available for bounded execution.` : "No delegated consumer sessions are active yet."}</span>
-            </div>
-            <div>
-              <strong>Browser-state vault</strong>
-              <span>{activeBrowserStates.length ? `${activeBrowserStates.length} revocable browser state${activeBrowserStates.length === 1 ? "" : "s"} are ready for certified adapters.` : "No stored browser states are available yet."}</span>
-            </div>
-          </div>
-        </article>
-
-        <article className="product-card">
-          <div className="product-section-head compact">
-            <p>Policy Wallet</p>
-            <h2>Standing rules are the reusable approval layer.</h2>
-          </div>
-          <div className="product-detail-meta">
-            <div>
-              <strong>Auto-approve rules</strong>
-              <span>{approvalAutoAllowCount}</span>
-            </div>
-            <div>
-              <strong>Deny rules</strong>
-              <span>{approvalDenyCount}</span>
-            </div>
-            <div>
-              <strong>Pending boundaries</strong>
-              <span>{pendingItems.length}</span>
-            </div>
-            <div>
-              <strong>Approved decisions</strong>
-              <span>{approvedItems.length}</span>
-            </div>
-          </div>
-          {activePolicies.length > 0 ? (
             <div className="product-step-list">
-              {activePolicies.slice(0, 6).map((policy) => (
-                <div key={policy.policyId} className="product-step-item">
+              {integrationReadinessChecks.map((check) => (
+                <div key={`integration_readiness:${check.id}`} className="product-step-item">
                   <div className="product-step-copy">
-                    <strong>{policy.name}</strong>
-                    <span>{policy.description || `${humanizeLabel(policy.effect)} ${policy.capabilitiesRequested.length ? "for selected capabilities" : "for matched requests"}.`}</span>
+                    <strong>{check.label}</strong>
+                    <span>{check.detail}</span>
                   </div>
-                  <StatusPill value={policy.effect === "deny" ? "denied" : policy.status} />
+                  <StatusPill value={check.ready ? "active" : "pending"} />
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="product-empty-state">No standing policies are configured yet.</div>
-          )}
-        </article>
-      </section>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
+              <a className="product-button product-button-ghost" href="/receipts">Open receipts</a>
+              <a className="product-button product-button-solid" href="/developers">Open developer quickstart</a>
+            </div>
+          </section>
+
+          <section className="product-metric-grid">
+            <article className="product-metric-card">
+            <span>Linked integrations</span>
+            <strong>{connectedIntegrations.length}</strong>
+            <small>Workspace integrations connected for outbound delivery or automation hooks.</small>
+          </article>
+          <article className="product-metric-card">
+            <span>Data sources</span>
+            <strong>{activeDataSources.length}</strong>
+            <small>Email and calendar defaults reusable by approved host actions.</small>
+          </article>
+          <article className="product-metric-card">
+            <span>Connectors</span>
+            <strong>{activeConsumerConnectors.length}</strong>
+            <small>Revocable linked accounts available to the wallet.</small>
+          </article>
+          <article className="product-metric-card">
+            <span>Browser states</span>
+            <strong>{activeBrowserStates.length}</strong>
+            <small>Bound browser-state artifacts available to certified adapters.</small>
+          </article>
+          <article className="product-metric-card">
+            <span>Delegated sessions</span>
+            <strong>{activeAccountSessions.length}</strong>
+            <small>Reusable delegated sessions with explicit mode and spend boundaries.</small>
+          </article>
+          <article className="product-metric-card">
+            <span>Documents</span>
+            <strong>{activeDocuments.length}</strong>
+            <small>Wallet-owned documents that can be attached to governed actions.</small>
+          </article>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="product-metric-grid">
+            <article className="product-metric-card">
+              <span>Standing Rules</span>
+              <strong>{activePolicies.length}</strong>
+              <small>Active policies shaping approvals and spend.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Pending Requests</span>
+              <strong>{pendingItems.length}</strong>
+              <small>Authority boundaries still waiting for a human answer.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Data Scopes</span>
+              <strong>{dataScopes.length}</strong>
+              <small>Distinct data classes already represented in policy or approved runs.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Linked Systems</span>
+              <strong>{connectedIntegrations.length + activeDocuments.length + activeDataSources.length + activeAccountSessions.length}</strong>
+              <small>Wallet-owned integrations, source records, delegated sessions, and uploaded documents that the user can revoke.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Spend Caps</span>
+              <strong>{spendCaps.length}</strong>
+              <small>Distinct max-spend guardrails already configured.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Live Wallets</span>
+              <strong>{walletRefs.length}</strong>
+              <small>x402 sponsor wallets visible to the current runtime.</small>
+            </article>
+            <article className="product-metric-card">
+              <span>Execution Grants</span>
+              <strong>{visibleAuthorityGrants.length + visibleDelegationGrants.length}</strong>
+              <small>Active authority and delegation paths the wallet can still revoke.</small>
+            </article>
+          </section>
+
+          <section className="product-grid-two">
+            <article className="product-card">
+              <div className="product-section-head compact">
+                <p>Identity</p>
+                <h2>Identity, sessions, and runtime access stay linked.</h2>
+              </div>
+              <div className="product-detail-meta">
+                <div>
+                  <strong>Principal</strong>
+                  <span>{buyer?.email ?? "Guest mode"}</span>
+                </div>
+                <div>
+                  <strong>Tenant</strong>
+                  <span>{buyer?.tenantId ?? runtime.tenantId ?? "Not resolved"}</span>
+                </div>
+                <div>
+                  <strong>Role</strong>
+                  <span>{buyer?.role ?? "guest"}</span>
+                </div>
+                <div>
+                  <strong>Runtime key</strong>
+                  <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? maskToken(runtime.apiKey)}</span>
+                </div>
+                <div>
+                  <strong>Documents</strong>
+                  <span>{activeDocuments.length}</span>
+                </div>
+                <div>
+                  <strong>Browser states</strong>
+                  <span>{activeBrowserStates.length}</span>
+                </div>
+                <div>
+                  <strong>Connectors</strong>
+                  <span>{activeConsumerConnectors.length}</span>
+                </div>
+              </div>
+              <div className="product-sidebar-list">
+                <div>
+                  <strong>Session status</strong>
+                  <span>{buyer ? "Authenticated and bootstrapped for Action Wallet approvals." : "Preview only until you sign in and issue runtime bootstrap."}</span>
+                </div>
+                <div>
+                  <strong>Trusted client</strong>
+                  <span>{bootstrapBundle?.bootstrap?.apiKey?.issuedAt ? `Current runtime issued ${formatDateTime(bootstrapBundle.bootstrap.apiKey.issuedAt)}` : "No hosted runtime bootstrap issued yet."}</span>
+                </div>
+                <div>
+                  <strong>Recent host flow</strong>
+                  <span>{lastLaunchId ? `Latest tracked host flow is ${lastLaunchId}.` : "No host flow has been recorded in this browser yet."}</span>
+                </div>
+                <div>
+                  <strong>Document vault</strong>
+                  <span>{activeDocuments.length ? `${activeDocuments.length} uploaded document${activeDocuments.length === 1 ? "" : "s"} currently sit in the workspace data wallet.` : "No uploaded documents are currently available."}</span>
+                </div>
+                <div>
+                  <strong>Data sources</strong>
+                  <span>{activeDataSources.length ? `${activeDataSources.length} wallet-owned source${activeDataSources.length === 1 ? "" : "s"} can be reused by approved runs.` : "No email or calendar sources are enabled yet."}</span>
+                </div>
+                <div>
+                  <strong>Connected accounts</strong>
+                  <span>{activeConsumerConnectors.length ? `${activeConsumerConnectors.length} connector${activeConsumerConnectors.length === 1 ? "" : "s"} are active for email and calendar workflows.` : "No consumer connectors are active yet."}</span>
+                </div>
+                <div>
+                  <strong>Delegated sessions</strong>
+                  <span>{activeAccountSessions.length ? `${activeAccountSessions.length} consumer site session${activeAccountSessions.length === 1 ? "" : "s"} are available for bounded execution.` : "No delegated consumer sessions are active yet."}</span>
+                </div>
+                <div>
+                  <strong>Browser-state vault</strong>
+                  <span>{activeBrowserStates.length ? `${activeBrowserStates.length} revocable browser state${activeBrowserStates.length === 1 ? "" : "s"} are ready for certified adapters.` : "No stored browser states are available yet."}</span>
+                </div>
+              </div>
+            </article>
+
+            <article className="product-card">
+              <div className="product-section-head compact">
+                <p>Policy Wallet</p>
+                <h2>Standing rules are the reusable approval layer.</h2>
+              </div>
+              <div className="product-detail-meta">
+                <div>
+                  <strong>Auto-approve rules</strong>
+                  <span>{approvalAutoAllowCount}</span>
+                </div>
+                <div>
+                  <strong>Deny rules</strong>
+                  <span>{approvalDenyCount}</span>
+                </div>
+                <div>
+                  <strong>Pending boundaries</strong>
+                  <span>{pendingItems.length}</span>
+                </div>
+                <div>
+                  <strong>Approved decisions</strong>
+                  <span>{approvedItems.length}</span>
+                </div>
+              </div>
+              {activePolicies.length > 0 ? (
+                <div className="product-step-list">
+                  {activePolicies.slice(0, 6).map((policy) => (
+                    <div key={policy.policyId} className="product-step-item">
+                      <div className="product-step-copy">
+                        <strong>{policy.name}</strong>
+                        <span>{policy.description || `${humanizeLabel(policy.effect)} ${policy.capabilitiesRequested.length ? "for selected capabilities" : "for matched requests"}.`}</span>
+                      </div>
+                      <StatusPill value={policy.effect === "deny" ? "denied" : policy.status} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="product-empty-state">No standing policies are configured yet.</div>
+              )}
+            </article>
+          </section>
+        </>
+      )}
 
       <section className="product-grid-two">
         <article className="product-card">
           <div className="product-section-head compact">
-            <p>Data Wallet</p>
-            <h2>Keep the granted scope and linked systems readable.</h2>
+            <p>{isIntegrationsSurface ? "Connection Inventory" : "Data Wallet"}</p>
+            <h2>
+              {isIntegrationsSurface
+                ? "Provision linked systems, reusable inputs, and revocable handles from one inventory."
+                : "Keep the granted scope and linked systems readable."}
+            </h2>
           </div>
           <div className="product-detail-meta">
-            <div>
-              <strong>Capabilities</strong>
-              <span>{capabilityScopes.length}</span>
-            </div>
-            <div>
-              <strong>Data classes</strong>
-              <span>{dataScopes.length}</span>
-            </div>
-            <div>
-              <strong>Side effects</strong>
-              <span>{sideEffects.length}</span>
-            </div>
-            <div>
-              <strong>Downstream recipients</strong>
-              <span>{downstreamRecipients.length}</span>
-            </div>
-            <div>
-              <strong>Linked integrations</strong>
-              <span>{connectedIntegrations.length}</span>
-            </div>
-            <div>
-              <strong>Email / calendar sources</strong>
-              <span>{activeDataSources.length}</span>
-            </div>
-            <div>
-              <strong>Connectors</strong>
-              <span>{activeConsumerConnectors.length}</span>
-            </div>
-            <div>
-              <strong>Uploaded documents</strong>
-              <span>{activeDocuments.length}</span>
-            </div>
-            <div>
-              <strong>Browser states</strong>
-              <span>{activeBrowserStates.length}</span>
-            </div>
-            <div>
-              <strong>Delegated sessions</strong>
-              <span>{activeAccountSessions.length}</span>
-            </div>
+            {isIntegrationsSurface ? (
+              <>
+                <div>
+                  <strong>Linked integrations</strong>
+                  <span>{connectedIntegrations.length}</span>
+                </div>
+                <div>
+                  <strong>Email / calendar sources</strong>
+                  <span>{activeDataSources.length}</span>
+                </div>
+                <div>
+                  <strong>Connectors</strong>
+                  <span>{activeConsumerConnectors.length}</span>
+                </div>
+                <div>
+                  <strong>Uploaded documents</strong>
+                  <span>{activeDocuments.length}</span>
+                </div>
+                <div>
+                  <strong>Browser states</strong>
+                  <span>{activeBrowserStates.length}</span>
+                </div>
+                <div>
+                  <strong>Delegated sessions</strong>
+                  <span>{activeAccountSessions.length}</span>
+                </div>
+                <div>
+                  <strong>Downstream recipients</strong>
+                  <span>{downstreamRecipients.length}</span>
+                </div>
+                <div>
+                  <strong>Capabilities in scope</strong>
+                  <span>{capabilityScopes.length}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <strong>Capabilities</strong>
+                  <span>{capabilityScopes.length}</span>
+                </div>
+                <div>
+                  <strong>Data classes</strong>
+                  <span>{dataScopes.length}</span>
+                </div>
+                <div>
+                  <strong>Side effects</strong>
+                  <span>{sideEffects.length}</span>
+                </div>
+                <div>
+                  <strong>Downstream recipients</strong>
+                  <span>{downstreamRecipients.length}</span>
+                </div>
+                <div>
+                  <strong>Linked integrations</strong>
+                  <span>{connectedIntegrations.length}</span>
+                </div>
+                <div>
+                  <strong>Email / calendar sources</strong>
+                  <span>{activeDataSources.length}</span>
+                </div>
+                <div>
+                  <strong>Connectors</strong>
+                  <span>{activeConsumerConnectors.length}</span>
+                </div>
+                <div>
+                  <strong>Uploaded documents</strong>
+                  <span>{activeDocuments.length}</span>
+                </div>
+                <div>
+                  <strong>Browser states</strong>
+                  <span>{activeBrowserStates.length}</span>
+                </div>
+                <div>
+                  <strong>Delegated sessions</strong>
+                  <span>{activeAccountSessions.length}</span>
+                </div>
+              </>
+            )}
           </div>
           {integrationState.error ? <div className="product-inline-note bad">{integrationState.error}</div> : null}
           {integrationState.message ? <div className="product-inline-note good">{integrationState.message}</div> : null}
@@ -8656,7 +9732,11 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
               ) : null}
             </>
           ) : (
-            <div className="product-empty-state">No granted scopes are visible yet. Approvals and policies will populate this surface.</div>
+            <div className="product-empty-state">
+              {isIntegrationsSurface
+                ? "No linked systems or granted scopes are visible yet. Start by linking connectors, browser state, or delegated sessions."
+                : "No granted scopes are visible yet. Approvals and policies will populate this surface."}
+            </div>
           )}
           <div className="product-grid-two">
             <article className="product-card product-card-subtle">
@@ -9163,6 +10243,10 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
               <div className="product-empty-state">No delegated consumer account sessions are active yet.</div>
             )}
           </article>
+          <div className="product-section-head compact">
+            <p>Outbound Integrations</p>
+            <h2>Track connected delivery targets and retry posture from the same inventory.</h2>
+          </div>
           {linkedIntegrations.length ? (
             <div className="product-step-list">
               {linkedIntegrations.map((integration) => {
@@ -9208,6 +10292,10 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
           ) : (
             <div className="product-empty-state">No linked integrations are visible yet. Connected systems will appear here once the wallet has delegated access to them.</div>
           )}
+          <div className="product-section-head compact">
+            <p>Documents</p>
+            <h2>Keep governed attachments revocable and visible to the wallet.</h2>
+          </div>
           {activeDocuments.length ? (
             <div className="product-step-list">
               {activeDocuments.slice(0, 8).map((document) => (
@@ -9239,6 +10327,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
           )}
         </article>
 
+        {!isIntegrationsSurface ? (
         <article className="product-card">
           <div className="product-section-head compact">
             <p>Payment Guardrails</p>
@@ -9278,8 +10367,10 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
             <div className="product-empty-state">No spend caps are configured yet.</div>
           )}
         </article>
+        ) : null}
       </section>
 
+      {!isIntegrationsSurface ? (
       <section className="product-grid-two">
         <article className="product-card">
           <div className="product-section-head compact">
@@ -9438,7 +10529,9 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
           )}
         </article>
       </section>
+      ) : null}
 
+      {!isIntegrationsSurface ? (
       <section className="product-grid-two">
         <article className="product-card">
           <div className="product-section-head compact">
@@ -9593,6 +10686,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
           )}
         </article>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -9734,12 +10828,26 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
   const selectedReceiptRecord = receipts.find((receipt) => receipt.receiptId === selectedReceiptId) ?? null;
   const selectedCompletionReceipt = detailState.completionReceipt ?? selectedReceiptRecord;
   const selectedReceiptDetail = detailState.detail ?? null;
+  const selectedReceiptSettlement = asPlainObject(selectedReceiptDetail?.settlement);
   const selectedIntegrityTone =
     selectedReceiptDetail?.integrityStatus === "verified"
       ? "good"
       : selectedReceiptDetail?.integrityStatus
         ? "warn"
         : "";
+  const selectedRecourseState = buildDisputeWindowState({
+    disputeId: selectedReceiptSettlement?.disputeId,
+    disputeStatus: selectedReceiptSettlement?.disputeStatus,
+    disputeWindowEndsAt: selectedReceiptSettlement?.disputeWindowEndsAt,
+    settlementStatus: selectedReceiptSettlement?.status
+  });
+  const selectedReceiptDisputeHref = selectedReceiptDetail?.settlementRunId
+    ? `/disputes?runId=${encodeURIComponent(selectedReceiptDetail.settlementRunId)}${
+        selectedReceiptSettlement?.disputeId
+          ? `&selectedDisputeId=${encodeURIComponent(String(selectedReceiptSettlement.disputeId).trim())}`
+          : ""
+      }`
+    : "/disputes";
 
   function applyFilters(event) {
     event.preventDefault();
@@ -9761,7 +10869,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
           </p>
         </div>
         <div className="product-page-top-actions">
-          {lastLaunchId ? <a className="product-button product-button-ghost" href={`/launch/${encodeURIComponent(lastLaunchId)}`}>Open latest launch</a> : null}
+          <a className="product-button product-button-ghost" href="/inbox">Open inbox</a>
           <a className="product-button product-button-ghost" href="/disputes">Open disputes</a>
           <a className="product-button product-button-solid" href="/wallet">Open wallet</a>
         </div>
@@ -9846,8 +10954,8 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
               <span>{buyer?.email ?? "Tenant-scoped runtime"}</span>
             </div>
             <div>
-              <strong>Last launch</strong>
-              <span>{lastLaunchId ?? "No tracked launch"}</span>
+              <strong>Latest host flow</strong>
+              <span>{lastLaunchId ?? "No tracked host flow"}</span>
             </div>
           </div>
         </article>
@@ -9936,6 +11044,11 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                       : "This receipt is still readable, but one or more linked integrity checks require attention."}
                   </div>
                 ) : null}
+                {selectedReceiptDetail ? (
+                  <div className={`product-inline-note ${selectedRecourseState.tone}`}>
+                    <strong>{selectedRecourseState.label}.</strong> {selectedRecourseState.summary}
+                  </div>
+                ) : null}
                 <div className="product-task-head">
                   <div>
                     <p>{selectedCompletionReceipt.workOrderId || "Work order unavailable"}</p>
@@ -9955,9 +11068,9 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                   {selectedReceiptDetail?.settlementRunId ? (
                     <a
                       className="product-button product-button-ghost"
-                      href={`/disputes?runId=${encodeURIComponent(selectedReceiptDetail.settlementRunId)}`}
+                      href={selectedReceiptDisputeHref}
                     >
-                      Open dispute state
+                      {selectedReceiptSettlement?.disputeId ? "Open dispute state" : "Open recourse"}
                     </a>
                   ) : null}
                   {selectedCompletionReceipt.workOrderId ? (
@@ -9982,6 +11095,14 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                   <div>
                     <strong>Settlement</strong>
                     <span>{selectedReceiptDetail?.settlement?.status ?? "Not settled"}</span>
+                  </div>
+                  <div>
+                    <strong>Recourse</strong>
+                    <span>{selectedReceiptSettlement?.disputeStatus ? humanizeLabel(selectedReceiptSettlement.disputeStatus, selectedRecourseState.label) : selectedRecourseState.label}</span>
+                  </div>
+                  <div>
+                    <strong>Window</strong>
+                    <span>{selectedReceiptSettlement?.disputeWindowEndsAt ? formatDateTime(selectedReceiptSettlement.disputeWindowEndsAt) : "No window reported"}</span>
                   </div>
                   <div>
                     <strong>Settlement run</strong>
@@ -10416,6 +11537,15 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
   const selectedTimeline = Array.isArray(workspaceState.timeline) ? workspaceState.timeline : [];
   const selectedRelatedCases = Array.isArray(workspaceState.relatedCases) ? workspaceState.relatedCases : [];
   const selectedEvidenceRefs = asPlainObject(workspaceState.evidenceRefs);
+  const selectedDisputeWindowState = buildDisputeWindowState({
+    disputeId: selectedSettlement?.disputeId ?? selectedDetailItem?.disputeId ?? selectedInboxItem?.disputeId,
+    disputeStatus: selectedSettlement?.disputeStatus ?? selectedDetailItem?.disputeStatus ?? selectedInboxItem?.disputeStatus,
+    disputeWindowEndsAt: selectedSettlement?.disputeWindowEndsAt ?? selectedDetailItem?.disputeWindowEndsAt ?? selectedInboxItem?.disputeWindowEndsAt,
+    settlementStatus: selectedSettlement?.status ?? selectedDetailItem?.settlementStatus ?? selectedInboxItem?.settlementStatus
+  });
+  const selectedReceiptHref = selectedSettlement?.receiptId
+    ? `/receipts?selectedReceiptId=${encodeURIComponent(String(selectedSettlement.receiptId).trim())}`
+    : null;
 
   return (
     <div className="product-page">
@@ -10428,7 +11558,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
           </p>
         </div>
         <div className="product-page-top-actions">
-          {lastLaunchId ? <a className="product-button product-button-ghost" href={`/launch/${encodeURIComponent(lastLaunchId)}`}>Open latest launch</a> : null}
+          <a className="product-button product-button-ghost" href="/inbox">Open inbox</a>
           <a className="product-button product-button-ghost" href="/receipts">Open receipts</a>
           <button className="product-button product-button-solid" type="button" disabled={busyState !== ""} onClick={() => setReloadToken((value) => value + 1)}>
             {busyState === "loading" ? "Refreshing..." : "Refresh disputes"}
@@ -10445,7 +11575,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-card">
         <div className="product-section-head compact">
           <p>Open new recourse</p>
-          <h2>Use the latest launch or add a run ID when you need to open a fresh dispute.</h2>
+          <h2>Use the latest monitored host flow or add a run ID when you need to open a fresh dispute.</h2>
         </div>
         <div className="product-form-grid">
           <label className="wide">
@@ -10599,6 +11729,9 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
                 {selectedSettlement?.disputeResolution?.summary ? (
                   <div className="product-inline-note good">{selectedSettlement.disputeResolution.summary}</div>
                 ) : null}
+                <div className={`product-inline-note ${selectedDisputeWindowState.tone}`}>
+                  <strong>{selectedDisputeWindowState.label}.</strong> {selectedDisputeWindowState.summary}
+                </div>
                 <div className="product-sidebar-list">
                   <div>
                     <strong>Refunded</strong>
@@ -10623,6 +11756,11 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
                 </div>
                 {selectedDetailItem?.runId || selectedInboxItem?.runId || selectedArbitrationCase?.runId ? (
                   <div className="product-actions">
+                    {selectedReceiptHref ? (
+                      <a className="product-button product-button-ghost" href={selectedReceiptHref}>
+                        Open receipt
+                      </a>
+                    ) : null}
                     <a
                       className="product-button product-button-ghost"
                       href={`/runs/${encodeURIComponent(selectedDetailItem?.runId ?? selectedInboxItem?.runId ?? selectedArbitrationCase?.runId ?? "")}`}
@@ -10806,14 +11944,14 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
             })}
           </div>
         ) : (
-          <div className="product-empty-state">No runs are ready for dispute review yet. Dispatch work from Ask the Network or paste a run ID above.</div>
+          <div className="product-empty-state">No runs are ready for dispute review yet. Start from the wallet or paste a run ID above.</div>
         )}
       </section>
     </div>
   );
 }
 
-function RunDetailPage({ runtime, onboardingState, runId, lastLaunchId = null }) {
+function RunDetailPage({ runtime, onboardingState, runId }) {
   const [detailState, setDetailState] = useState({
     loading: true,
     error: "",
@@ -11476,7 +12614,7 @@ function RunDetailPage({ runtime, onboardingState, runId, lastLaunchId = null })
           </p>
         </div>
         <div className="product-page-top-actions">
-          {lastLaunchId ? <a className="product-button product-button-ghost" href={`/launch/${encodeURIComponent(lastLaunchId)}`}>Open latest launch</a> : null}
+          <a className="product-button product-button-ghost" href="/wallet">Open wallet</a>
           <a className="product-button product-button-ghost" href={receiptHref}>Open receipts</a>
           <button className="product-button product-button-ghost" type="button" disabled={detailState.loading || actionBusyState !== ""} onClick={() => startTransition(() => setReloadToken((value) => value + 1))}>
             {detailState.loading ? "Refreshing..." : "Refresh execution"}
@@ -12616,6 +13754,47 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
   const bootstrapBundle = onboardingState?.bootstrap ?? null;
   const smokeBundle = onboardingState?.smoke ?? null;
   const agentId = lastAgentId || "host_action_wallet";
+  const bootstrapIssued = Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId);
+  const smokeGreen = Boolean(smokeBundle?.smoke?.initialized);
+  const developerChecks = [
+    {
+      id: "bootstrap",
+      label: "Runtime bootstrap issued",
+      ready: bootstrapIssued,
+      detail: bootstrapIssued
+        ? `API key ${bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "issued"} is ready for host installs.`
+        : "Use workspace onboarding to issue the tenant-scoped API key and MCP bundle first."
+    },
+    {
+      id: "smoke",
+      label: "Host runtime smoke is green",
+      ready: smokeGreen,
+      detail: smokeGreen
+        ? `${smokeBundle?.smoke?.toolsCount ?? 0} tools were visible in the last smoke run.`
+        : "Run the hosted smoke before packaging Claude MCP or OpenClaw for a design partner."
+    },
+    {
+      id: "approval",
+      label: "Hosted approval path is reachable",
+      ready: Boolean(String(runtime?.baseUrl ?? "").trim()),
+      detail: String(runtime?.baseUrl ?? "").trim()
+        ? "Approval, receipt, and dispute pages resolve against the configured runtime."
+        : "Set the runtime base URL before wiring the host pack."
+    },
+    {
+      id: "trust",
+      label: "Trust surfaces are ready for handoff",
+      ready: true,
+      detail: "Approvals, receipts, disputes, and wallet controls are exposed as the durable web layer for host actions."
+    }
+  ];
+  const developerReadyCount = developerChecks.filter((check) => check.ready).length;
+  const firstActionFlow = [
+    "Issue one tenant-scoped runtime bootstrap.",
+    "Install Claude MCP, OpenClaw, Codex, CLI, or API against the same runtime.",
+    "Create an action intent and route yellow-state decisions to the hosted approval page.",
+    "After execution, fetch the receipt and keep dispute/recourse on the same run."
+  ];
 
   return (
     <div className="product-page">
@@ -12624,13 +13803,93 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
           <p className="product-kicker">Developers</p>
           <h1>Install once. Use the same product through CLI, MCP, or API.</h1>
           <p className="product-lead">
-            Set up Nooterra once, then install Claude MCP, package OpenClaw, or integrate the host pack by code.
+            Set up Nooterra once, then run the same Action Wallet contract through Claude MCP, OpenClaw, Codex, CLI, or API without rebuilding approvals, receipts, or disputes per host.
           </p>
         </div>
         <div className="product-page-top-actions">
           <a className="product-button product-button-ghost" href={docsLinks.quickstart}>Quickstart</a>
           <a className="product-button product-button-solid" href={docsLinks.integrations}>Host Integration Guide</a>
         </div>
+      </section>
+
+      <section className="product-metric-grid">
+        <article className="product-metric-card">
+          <span>Launch hosts</span>
+          <strong>5</strong>
+          <small>Claude MCP, OpenClaw, Codex, CLI, and API all share the same runtime contract.</small>
+        </article>
+        <article className="product-metric-card">
+          <span>Bootstrap</span>
+          <strong>{bootstrapIssued ? "Ready" : "Pending"}</strong>
+          <small>{bootstrapIssued ? "Tenant-scoped credentials already issued." : "Issue runtime credentials before installing a host."}</small>
+        </article>
+        <article className="product-metric-card">
+          <span>Smoke</span>
+          <strong>{smokeGreen ? "Green" : "Pending"}</strong>
+          <small>{smokeGreen ? "The current runtime passed the hosted smoke path." : "Use the smoke run before sending the install to a partner."}</small>
+        </article>
+        <article className="product-metric-card">
+          <span>First governed action</span>
+          <strong>{developerReadyCount} / {developerChecks.length}</strong>
+          <small>Readiness checks for install-to-first-approval across the launch channels.</small>
+        </article>
+      </section>
+
+      <section className="product-grid-two">
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>Install readiness</p>
+            <h2>Use one runtime, then clear the shortest path to the first hosted approval.</h2>
+          </div>
+          <div className="product-step-list">
+            {developerChecks.map((check) => (
+              <div key={`developer_check:${check.id}`} className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>{check.label}</strong>
+                  <span>{check.detail}</span>
+                </div>
+                <StatusPill value={check.ready ? "active" : "pending"} />
+              </div>
+            ))}
+          </div>
+          <div className="product-actions">
+            <a className="product-button product-button-ghost" href="/onboarding">Workspace onboarding</a>
+            <a className="product-button product-button-ghost" href="/approvals">Hosted approvals</a>
+            <a className="product-button product-button-solid" href="/receipts">Receipts vault</a>
+          </div>
+        </article>
+
+        <article className="product-card">
+          <div className="product-section-head compact">
+            <p>First flow</p>
+            <h2>Keep the install story boring: one runtime, one host, one governed action.</h2>
+          </div>
+          <div className="product-step-list">
+            {firstActionFlow.map((step, index) => (
+              <div key={`developer_flow:${index + 1}`} className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>Step {index + 1}</strong>
+                  <span>{step}</span>
+                </div>
+                <StatusPill value={index === 0 && !bootstrapIssued ? "pending" : "active"} />
+              </div>
+            ))}
+          </div>
+          <div className="product-sidebar-list">
+            <div>
+              <strong>Same runtime everywhere</strong>
+              <span>Claude MCP and OpenClaw should not get custom approval logic. They should call the same hosted Action Wallet path as Codex, API, and CLI installs.</span>
+            </div>
+            <div>
+              <strong>Hosted trust layer</strong>
+              <span>The web product exists for approval, proof, and recourse. Keep day-to-day work inside the host.</span>
+            </div>
+            <div>
+              <strong>Launch discipline</strong>
+              <span>Do not widen channels or add extra connector dreams before install-to-first-approval is repeatable.</span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section className="product-grid-two">
@@ -12664,9 +13923,9 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
             <div className="product-access-card">
               <div className="product-mini-card-head">
                 <SquareTerminal size={18} />
-                <span>API + SDKs</span>
+                <span>Codex + API</span>
               </div>
-              <p>Use the public host pack to create intents, request approvals, fetch grants, and read receipts.</p>
+              <p>Use the public host pack to create intents, request approvals, fetch grants, and read receipts from Codex or application code.</p>
             </div>
           </div>
         </article>
@@ -12695,7 +13954,7 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
             </div>
             <div>
               <strong>Keep launch scope tight</strong>
-              <span>Launch supports Claude MCP and OpenClaw only. Booking, extra launch channels, enterprise connectors, and extra consumer shells stay out of the v1 path.</span>
+              <span>Launch certification stays anchored on Claude MCP and OpenClaw. Codex, CLI, and API use the same runtime contract without widening the launch channel boundary.</span>
             </div>
           </div>
         </article>
@@ -12736,7 +13995,14 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
   );
 }
 
-export default function ProductShell({ mode = "home", launchId = null, agentId = null, runId = null }) {
+const LEGACY_PROTOTYPE_COMPONENTS = Object.freeze({
+  network: NetworkPage,
+  studio: StudioPage,
+  agents: AgentsPage,
+  agentProfile: AgentProfilePage
+});
+
+export default function ProductShell({ mode = "home", runId = null, requestedPath = null }) {
   const [runtime, setRuntime] = useState(() => loadRuntimeConfig());
   const [lastLaunchId, setLastLaunchId] = useState(() => readStoredValue(LAST_LAUNCH_STORAGE_KEY));
   const [lastAgentId, setLastAgentId] = useState(() => readStoredValue(LAST_AGENT_STORAGE_KEY));
@@ -12879,18 +14145,13 @@ export default function ProductShell({ mode = "home", launchId = null, agentId =
   const hasManagedRuntime = Boolean(onboardingState?.buyer) || Boolean(String(runtime?.apiKey ?? "").trim());
   const showRuntimeBar =
     (
-      mode === "network" ||
-      mode === "launch" ||
       mode === "inbox" ||
       mode === "approvals" ||
       mode === "wallet" ||
       mode === "integrations" ||
       mode === "receipts" ||
       mode === "disputes" ||
-      mode === "run" ||
-      mode === "studio" ||
-      mode === "agents" ||
-      mode === "agent"
+      mode === "run"
     ) &&
     debugMode;
   const inboxBadgeCount = inboxSummary.unreadCount > 0 ? inboxSummary.unreadCount : inboxSummary.actionRequiredCount;
@@ -12909,37 +14170,22 @@ export default function ProductShell({ mode = "home", launchId = null, agentId =
         setOnboardingState={setOnboardingState}
       />
     );
-  } else if (mode === "network" || mode === "launch") {
-    page = (
-      <NetworkPage
-        runtime={runtime}
-        onboardingState={onboardingState}
-        lastAgentId={lastAgentId}
-        launchId={launchId}
-        onLaunchRecorded={setLastLaunchId}
-        debugMode={debugMode}
-      />
-    );
   } else if (mode === "inbox") {
     page = <InboxPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} />;
   } else if (mode === "approvals") {
     page = <ApprovalsPage runtime={runtime} onboardingState={onboardingState} />;
   } else if (mode === "wallet") {
-    page = <WalletPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} lastAgentId={lastAgentId} />;
+    page = <WalletPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} lastAgentId={lastAgentId} surface="wallet" />;
   } else if (mode === "integrations") {
-    page = <WalletPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} lastAgentId={lastAgentId} />;
+    page = <WalletPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} lastAgentId={lastAgentId} surface="integrations" />;
   } else if (mode === "receipts") {
     page = <ReceiptsPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} />;
   } else if (mode === "disputes") {
     page = <DisputesPage runtime={runtime} onboardingState={onboardingState} lastLaunchId={lastLaunchId} />;
   } else if (mode === "run") {
-    page = <RunDetailPage runtime={runtime} onboardingState={onboardingState} runId={runId} lastLaunchId={lastLaunchId} />;
-  } else if (mode === "studio") {
-    page = <StudioPage runtime={runtime} onboardingState={onboardingState} onAgentRecorded={setLastAgentId} lastAgentId={lastAgentId} debugMode={debugMode} />;
-  } else if (mode === "agents") {
-    page = <AgentsPage runtime={runtime} />;
-  } else if (mode === "agent") {
-    page = <AgentProfilePage runtime={runtime} agentId={agentId} />;
+    page = <RunDetailPage runtime={runtime} onboardingState={onboardingState} runId={runId} />;
+  } else if (mode === "legacy") {
+    page = <LaunchScopePage requestedPath={requestedPath} onboardingState={onboardingState} />;
   } else if (mode === "developers") {
     page = <DeveloperPage runtime={runtime} onboardingState={onboardingState} lastAgentId={lastAgentId} />;
   }
@@ -12956,7 +14202,7 @@ export default function ProductShell({ mode = "home", launchId = null, agentId =
             <span className="product-brand-mark"><ShieldCheck size={16} /></span>
             <span>
               <strong>Nooterra</strong>
-              <small>Host-First Wallet</small>
+              <small>Agent Control Layer</small>
             </span>
           </a>
           <div className="product-nav-links">
@@ -12996,7 +14242,7 @@ export default function ProductShell({ mode = "home", launchId = null, agentId =
       <footer className="product-footer">
         <div>
           <strong>Nooterra</strong>
-          <span>Hosted approvals, scoped grants, receipts, disputes, and operator recovery for host-first AI actions.</span>
+          <span>Approvals, scoped authority, receipts, disputes, and recourse for AI actions that matter.</span>
         </div>
         <div className="product-footer-links">
           <a href={docsLinks.quickstart}>Quickstart</a>

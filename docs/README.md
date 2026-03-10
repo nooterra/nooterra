@@ -4,6 +4,7 @@ This root docs index is for GitBook sync setups using project directory `docs`.
 
 Launch v1 is the host-first Action Wallet for `buy` and `cancel/recover` through `Claude MCP` and `OpenClaw`.
 If a doc implies a first-party assistant shell, booking, BYO payment rails, or unsupported hosts, treat that as Phase 1.5+ unless the doc is linked below.
+If you are working from Codex, use the same Action Wallet runtime through the API or CLI path; Codex is an engineering shell on the same contract, not a separate certified launch channel.
 
 For curated public docs, start here:
 
@@ -15,6 +16,7 @@ For curated public docs, start here:
 - [Host quickstart](./QUICKSTART_MCP_HOSTS.md)
 - [Claude Desktop quickstart](./integrations/claude-desktop/PUBLIC_QUICKSTART.md)
 - [OpenClaw quickstart](./integrations/openclaw/PUBLIC_QUICKSTART.md)
+- [Codex engineering quickstart](./integrations/codex/ENGINEERING_QUICKSTART.md)
 - [Nooterra Docs home](./gitbook/README.md)
 - [Quickstart: Agent Bootstrap](./QUICKSTART_AGENT_BOOTSTRAP.md)
 - [Quickstart: Profiles CLI](./QUICKSTART_PROFILES.md)
@@ -35,6 +37,8 @@ For curated public docs, start here:
 3. In the host, ask Nooterra to create an action intent and request approval.
 4. Open the hosted approval URL, approve or deny, then return to the host.
 5. Fetch the execution grant, finalize the action, and open the receipt or dispute flow.
+
+If you are testing from Codex instead of a launch host, reuse the same runtime values through the API or CLI examples in the developers page and docs. The approval, receipt, and dispute surfaces stay identical.
 
 ```bash
 npm run mcp:probe
