@@ -500,6 +500,17 @@ function replaceCurrentSearchParams(updates = {}) {
   if (nextHref !== currentHref) window.history.replaceState({}, "", nextHref);
 }
 
+function validateWorkspaceSignupForm(signupForm) {
+  const email = String(signupForm?.email ?? "").trim();
+  const company = String(signupForm?.company ?? "").trim();
+  const fullName = String(signupForm?.fullName ?? "").trim();
+  if (!email) return "Work email is required.";
+  if (!email.includes("@")) return "Enter a valid work email before creating the workspace.";
+  if (!company) return "Company name is required.";
+  if (!fullName) return "Full name is required.";
+  return null;
+}
+
 async function resumeRouterLaunchFromApproval({ runtime, continuation, approvalDecision }) {
   const resume = asPlainObject(continuation?.resume);
   const taskId = typeof resume?.taskId === "string" && resume.taskId.trim() !== "" ? resume.taskId.trim() : null;
@@ -4134,6 +4145,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function handlePublicSignup() {
+    const signupValidationError = validateWorkspaceSignupForm(signupForm);
+    if (signupValidationError) {
+      setStatusMessage(signupValidationError);
+      return;
+    }
     setBusyState("signup");
     setStatusMessage("Creating the workspace and issuing the first recovery code...");
     try {
@@ -4189,6 +4205,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }
     if (authMode?.publicSignupEnabled === false) {
       setStatusMessage("Public signup is disabled on this control plane. Use a tenant-scoped saved passkey or the recovery path below.");
+      return;
+    }
+    const signupValidationError = validateWorkspaceSignupForm(signupForm);
+    if (signupValidationError) {
+      setStatusMessage(signupValidationError);
       return;
     }
     setBusyState("passkey_signup");
