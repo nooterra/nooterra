@@ -3772,7 +3772,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     tenantId: ""
   });
   const [loginForm, setLoginForm] = useState({
-    tenantId: buyer?.tenantId ?? runtime.tenantId ?? "",
+    tenantId: buyer?.tenantId ?? "",
     email: buyer?.email ?? "",
     code: ""
   });
@@ -3912,7 +3912,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   useEffect(() => {
     let cancelled = false;
-    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = buyer?.tenantId;
     if (!tenantId) {
       setFirstPaidCallState({
         latest: null,
@@ -4001,7 +4001,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }, [buyer?.tenantId, runtime.authBaseUrl, runtime.tenantId]);
 
   async function refreshOnboardingMetrics() {
-    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = buyer?.tenantId;
     if (!tenantId) {
       setOnboardingMetricsState({
         metrics: null,
@@ -4444,7 +4444,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function refreshFirstPaidHistory() {
-    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = buyer?.tenantId;
     if (!tenantId) {
       setStatusMessage("A tenant must be active before loading first paid call history.");
       return;
@@ -4484,7 +4484,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function handleRunFirstPaidCall({ replayAttemptId = null } = {}) {
-    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = buyer?.tenantId;
     if (!tenantId) {
       setStatusMessage("A tenant must be active before running the first paid call.");
       return;
@@ -4539,7 +4539,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function handleRunConformanceMatrix() {
-    const tenantId = buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = buyer?.tenantId;
     if (!tenantId) {
       setStatusMessage("A tenant must be active before running the conformance matrix.");
       return;
