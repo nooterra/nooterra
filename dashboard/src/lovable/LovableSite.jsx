@@ -611,29 +611,77 @@ function IntegrationsPage() {
   );
 }
 
-function TrustEntryPage({ eyebrow, title, summary, proofTitle, proofBody, bullets, ctaLabel = "Open onboarding" }) {
+function TrustEntryPage({
+  eyebrow,
+  title,
+  summary,
+  proofTitle,
+  proofBody,
+  bullets,
+  rail,
+  artifactTitle,
+  artifactBody,
+  artifactStats,
+  ctaLabel = "Open onboarding",
+  supportHref = "/developers",
+  supportLabel = "Read integration docs"
+}) {
   return (
     <SiteLayout>
       <section className="relative flex min-h-[72vh] items-end overflow-hidden">
         <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
         <div className="lovable-orb lovable-orb-a" />
         <div className="lovable-orb lovable-orb-b" />
-        <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
-          <FadeIn>
-            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
-            <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              {title}
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
-          </FadeIn>
-          <FadeIn delay={0.15}>
-            <div className="mt-10 flex flex-wrap gap-4">
-              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                {ctaLabel} <ArrowRight size={16} />
-              </a>
-              <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                Read integration docs
-              </a>
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                {title}
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  {ctaLabel} <ArrowRight size={16} />
+                </a>
+                <a href={supportHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  {supportLabel}
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Decision rail</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    What this surface controls.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Live trust layer
+                </div>
+              </div>
+              <div className="space-y-3">
+                {rail.map((item, index) => (
+                  <div key={item.title} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                          {item.state}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </FadeIn>
         </div>
@@ -651,7 +699,7 @@ function TrustEntryPage({ eyebrow, title, summary, proofTitle, proofBody, bullet
           <div className="grid gap-4">
             {bullets.map((bullet, index) => (
               <FadeIn key={bullet.title} delay={0.1 * index}>
-                <div className="rounded-lg border border-white/10 bg-[#11161e] p-6">
+                <div className="lovable-panel">
                   <div className="mb-3 flex items-center gap-2">
                     <Check className="h-4 w-4 text-[#d2b06f]" />
                     <h3 className="text-base text-stone-100">{bullet.title}</h3>
@@ -665,9 +713,34 @@ function TrustEntryPage({ eyebrow, title, summary, proofTitle, proofBody, bullet
       </section>
 
       <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto grid max-w-7xl gap-10 px-6 py-20 lg:grid-cols-[1.1fr,0.9fr] lg:px-8">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Surface anatomy</p>
+            <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              {artifactTitle}
+            </h2>
+            <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">{artifactBody}</p>
+          </FadeIn>
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+            {artifactStats.map((stat, index) => (
+              <FadeIn key={stat.label} delay={0.08 * index}>
+                <div className="lovable-stat-card">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{stat.label}</p>
+                  <p className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {stat.value}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-400">{stat.body}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
         <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
           <FadeIn>
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="lovable-panel lovable-cta-band flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Live product</p>
                 <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
@@ -699,10 +772,22 @@ export default function LovableSite({ mode = "home" }) {
         summary="Set one-time approvals, remembered preferences, or durable rules. Action Wallet sits between agent intent and external consequence."
         proofTitle="Not another dashboard. The permission layer."
         proofBody="The wallet is where users define who an agent may act for, how much authority it has, when human approval is required, and how recourse works if something goes wrong."
+        rail={[
+          { title: "Issue authority", state: "scoped", body: "Set a one-time approval, a remembered preference, or a reusable rule with an explicit ceiling." },
+          { title: "Bind a host", state: "revocable", body: "Claude, OpenClaw, Codex, CLI, or API all run through the same wallet contract instead of custom glue." },
+          { title: "Carry limits forward", state: "enforced", body: "Spend caps, approvals, dispute windows, and reversibility travel with the action." }
+        ]}
         bullets={[
           { title: "One-time approval first", body: "Approve a single action without building a policy system up front." },
           { title: "Remember what matters", body: "Promote repeated approvals into reusable preferences only after the user sees value." },
           { title: "Shared control later", body: "Teams can add limits, hosts, thresholds, and delegated scopes on top of the same runtime." }
+        ]}
+        artifactTitle="A wallet should read like an authority ledger."
+        artifactBody="The live wallet is where users see active hosts, pending grants, revocations, and the exact guardrails attached to future actions. It should feel closer to a cap table for machine authority than a typical settings page."
+        artifactStats={[
+          { label: "Authority", value: "One-time, remembered, durable", body: "Users can start with a single permission, then graduate into stored preferences and team policy." },
+          { label: "Hosts", value: "Claude, OpenClaw, Codex", body: "Every runtime uses the same grant and receipt model, so trust does not fork by host." },
+          { label: "Controls", value: "Limits, revokes, windows", body: "Real constraints stay attached to actions instead of hiding in prompts or tribal knowledge." }
         ]}
         ctaLabel="Set up Action Wallet"
       />
@@ -716,10 +801,22 @@ export default function LovableSite({ mode = "home" }) {
         summary="An agent asks. Nooterra evaluates policy. If the action crosses the line, approval becomes the controlled handoff between autonomy and authority."
         proofTitle="Approval should feel calm, not bureaucratic."
         proofBody="The approval surface exists to answer four questions fast: what the agent wants to do, why it is allowed, why it needs review, and what happens after you approve or deny."
+        rail={[
+          { title: "Inspect the action", state: "clear", body: "Users see the exact vendor, amount, scope, and host before committing authority." },
+          { title: "Approve or deny", state: "durable", body: "The decision becomes a bounded grant, not a vague yes hidden in conversation history." },
+          { title: "Resume safely", state: "gated", body: "The host only resumes if approval, evidence requirements, and expiry rules still line up." }
+        ]}
         bullets={[
           { title: "Scoped, not vague", body: "Every approval is tied to a bounded action, not a fuzzy prompt or broad future permission." },
           { title: "Host-native by default", body: "The host stays in control until human approval is required, then Nooterra takes over the trust-critical moment." },
           { title: "Fail closed", body: "Missing context, missing evidence, or mismatched scope means the action does not proceed." }
+        ]}
+        artifactTitle="Approvals are the handoff between autonomy and authority."
+        artifactBody="This page should behave like a financial sign-off sheet, not a toy confirmation modal. It explains the consequence, the reason it needs review, the authority window, and the next state after approval."
+        artifactStats={[
+          { label: "Decisioning", value: "Green, yellow, red", body: "Auto-approve, require review, or block outright based on explicit policy." },
+          { label: "Binding", value: "Grant + expiry + proof", body: "Approval creates a scoped grant with a real window and downstream evidence requirements." },
+          { label: "Posture", value: "Fail closed", body: "If state drifts or proof is missing, the action stops instead of silently succeeding." }
         ]}
         ctaLabel="Open approval flow"
       />
@@ -733,10 +830,22 @@ export default function LovableSite({ mode = "home" }) {
         summary="Receipts are the durable record of what was requested, what was approved, what executed, and what evidence came back."
         proofTitle="The receipt is the product."
         proofBody="If an agent buys, cancels, or recovers something real, the most valuable artifact is not the model output. It is the receipt that binds intent, authority, evidence, and outcome together."
+        rail={[
+          { title: "Bind the run", state: "canonical", body: "Intent, approval, grant, and execution all resolve to the same artifact chain." },
+          { title: "Verify evidence", state: "deterministic", body: "The verifier decides pass, fail, insufficient, or operator review before final state is trusted." },
+          { title: "Open recourse", state: "actionable", body: "The same receipt can trigger a dispute, reversal, or operator intervention when something is wrong." }
+        ]}
         bullets={[
           { title: "Bound to the action", body: "Approval, grant, evidence, and final state remain attached to the same run." },
           { title: "Readable by humans", body: "Operators and users can understand what happened without reverse engineering logs." },
           { title: "Actionable after the fact", body: "Receipts are not dead history. They are the entry point for disputes, refunds, and reversal." }
+        ]}
+        artifactTitle="Receipts are where AI actions become auditable."
+        artifactBody="The live receipt vault should make it obvious what happened, why it was allowed, what proof came back, and whether the action is still inside its recourse window. That is the trust surface users come back to."
+        artifactStats={[
+          { label: "Artifact chain", value: "Intent -> grant -> evidence", body: "Each completed action can be reconstructed without chasing logs across systems." },
+          { label: "Human legibility", value: "Proof without parsing", body: "Users should understand the action outcome in seconds, not by reading raw event payloads." },
+          { label: "Recourse", value: "Refunds, disputes, reversals", body: "Receipts are live records with follow-on rights, not inert history." }
         ]}
         ctaLabel="Issue first receipt"
       />
@@ -750,10 +859,22 @@ export default function LovableSite({ mode = "home" }) {
         summary="If an AI action goes wrong, users need a path back. Disputes turn receipts into live recourse instead of dead evidence."
         proofTitle="Trust requires a path backward."
         proofBody="People will not trust agents with consequential actions unless they know how to challenge a result, unwind a bad outcome, or escalate to an operator without losing the evidence chain."
+        rail={[
+          { title: "Open from proof", state: "bound", body: "Every dispute starts from the exact receipt that proves the action occurred." },
+          { title: "Route operator action", state: "recoverable", body: "Refund, revoke, retry finalize, and quarantine sit behind the same rescue path." },
+          { title: "Close with evidence", state: "audited", body: "Resolutions become part of the record instead of disappearing into support tickets." }
+        ]}
         bullets={[
           { title: "Open from the receipt", body: "Disputes begin from the exact artifact that proves the action happened." },
           { title: "Operator-backed", body: "Refund, resolve, revoke, and quarantine all sit behind the same rescue path." },
           { title: "Designed for consequence", body: "The product assumes some actions will go wrong and treats recourse as first-class infrastructure." }
+        ]}
+        artifactTitle="A dispute should preserve the evidence chain, not break it."
+        artifactBody="Users need a visible route from receipt to challenge to resolution. Operators need enough state to unwind a bad action without losing the underlying artifacts, verifier verdicts, or host context."
+        artifactStats={[
+          { label: "Entry point", value: "Receipt-linked", body: "The challenge begins from the same artifact chain that authorized and finalized the action." },
+          { label: "Operator tools", value: "Refund, revoke, quarantine", body: "Real recourse requires real interventions, not just a support form." },
+          { label: "Outcome", value: "Resolved with lineage", body: "The resolution becomes part of the permanent history of that run." }
         ]}
         ctaLabel="Set up recourse"
       />
