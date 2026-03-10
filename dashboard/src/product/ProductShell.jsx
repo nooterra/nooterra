@@ -4744,6 +4744,19 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     if (hours > 0) return `${hours}h`;
     return `${minutes}m`;
   })();
+  const firstPaidVerificationLabel = latestFirstPaidAttempt
+    ? humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "Pending")
+    : "Pending";
+  const firstPaidSettlementLabel = latestFirstPaidAttempt
+    ? humanizeLabel(latestFirstPaidAttempt?.settlementStatus, "Pending")
+    : "Pending";
+  const conformanceReadyLabel = conformanceMatrix?.ready === true
+    ? "Yes"
+    : conformanceMatrix
+      ? "Not yet"
+      : buyer?.tenantId
+        ? "Pending"
+        : "Awaiting workspace";
   const latestFirstPaidAttempt = firstPaidCallState.latest;
   const latestFirstPaidRunId = String(latestFirstPaidAttempt?.ids?.runId ?? "").trim();
   const latestFirstPaidReceiptId = String(
@@ -4801,7 +4814,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
       href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
-      cta: hostedApprovalReady ? "Open approvals" : "Open install path"
+      cta: hostedApprovalReady ? "Open approvals" : "Open Claude quickstart"
     },
     {
       title: "Produce the first receipt",
@@ -5054,11 +5067,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <div>
               <strong>Verification</strong>
-              <span>{humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "unknown")}</span>
+              <span>{firstPaidVerificationLabel}</span>
             </div>
             <div>
               <strong>Settlement</strong>
-              <span>{humanizeLabel(latestFirstPaidAttempt?.settlementStatus, "unknown")}</span>
+              <span>{firstPaidSettlementLabel}</span>
             </div>
             <div>
               <strong>Saved attempts</strong>
@@ -5067,7 +5080,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           </div>
           <div className={`product-inline-note ${firstPaidTone}`}>
             {latestFirstPaidAttempt
-              ? `Latest attempt ${latestFirstPaidAttempt.attemptId ?? "n/a"} ended with verification ${latestFirstPaidAttempt.verificationStatus ?? "unknown"} and settlement ${latestFirstPaidAttempt.settlementStatus ?? "unknown"}.`
+              ? `Latest attempt ${latestFirstPaidAttempt.attemptId ?? "n/a"} ended with verification ${firstPaidVerificationLabel.toLowerCase()} and settlement ${firstPaidSettlementLabel.toLowerCase()}.`
               : "Use this to prove the first real Action Wallet flow from bootstrap to released settlement without leaving onboarding."}
           </div>
           {firstPaidCallState.error ? <div className="product-inline-note bad">{firstPaidCallState.error}</div> : null}
@@ -5136,7 +5149,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <div>
               <strong>Ready</strong>
-              <span>{conformanceMatrix?.ready === true ? "Yes" : conformanceMatrix ? "Not yet" : "Unknown"}</span>
+              <span>{conformanceReadyLabel}</span>
             </div>
             <div>
               <strong>Checks</strong>
