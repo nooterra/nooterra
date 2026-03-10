@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ExecutionGrant.v1.schema.json",
+  "title": "ExecutionGrant.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionGrantId",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ExecutionGrant.v1" },
+    "executionGrantId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "grantHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "status": { "type": "string", "enum": ["pending", "approval_requested", "approved", "denied", "materialized"] },
+    "createdAt": { "type": ["string", "null"], "format": "date-time" },
+    "principal": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["principalType", "principalId"],
+      "properties": {
+        "principalType": { "type": "string", "enum": ["human", "org", "service", "agent"] },
+        "principalId": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "actionType": { "type": ["string", "null"], "enum": ["buy", "cancel/recover", null] },
+    "hostId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "vendorOrDomainAllowlist": {
+      "type": ["array", "null"],
+      "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+    },
+    "spendCap": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["currency", "maxPerCallCents", "maxTotalCents"],
+      "properties": {
+        "currency": { "type": "string", "minLength": 3, "maxLength": 12 },
+        "maxPerCallCents": { "type": "integer", "minimum": 0 },
+        "maxTotalCents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "grantNonce": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "delegationLineageRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["authorityEnvelopeRef", "authorityGrantRef", "delegationGrantRef", "mayDelegate", "maxDepth"],
+      "properties": {
+        "authorityEnvelopeRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["envelopeId", "envelopeHash"],
+          "properties": {
+            "envelopeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "envelopeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "authorityGrantRef": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "delegationGrantRef": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "mayDelegate": { "type": "boolean" },
+        "maxDepth": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workOrderId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "requiredCapability": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "spendEnvelope": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["currency", "maxPerCallCents", "maxTotalCents"],
+      "properties": {
+        "currency": { "type": "string", "minLength": 3, "maxLength": 12 },
+        "maxPerCallCents": { "type": "integer", "minimum": 0 },
+        "maxTotalCents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "evidenceRequirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "authorityEnvelopeRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["envelopeId", "envelopeHash"],
+      "properties": {
+        "envelopeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "envelopeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "approvalRequestRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["requestId", "requestHash"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "requestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "approvalDecisionRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["decisionId", "decisionHash", "approved", "decidedAt"],
+      "properties": {
+        "decisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "decisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "approved": { "type": "boolean" },
+        "decidedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "continuation": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    }
+  }
+}

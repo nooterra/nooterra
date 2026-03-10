@@ -279,6 +279,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "TRUSTED_HOST_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const trustedHost = op.trustedHost ?? null;
+      if (!trustedHost || typeof trustedHost !== "object" || Array.isArray(trustedHost)) {
+        throw new TypeError("TRUSTED_HOST_UPSERT requires trustedHost");
+      }
+      const hostId = trustedHost.hostId ?? op.hostId ?? null;
+      if (!hostId) throw new TypeError("TRUSTED_HOST_UPSERT requires trustedHost.hostId");
+      if (!(store.trustedHosts instanceof Map)) store.trustedHosts = new Map();
+      const key = makeScopedKey({ tenantId, id: String(hostId) });
+      store.trustedHosts.set(key, { ...trustedHost, tenantId, hostId: String(hostId) });
+      continue;
+    }
+
     if (kind === "SIMULATION_HARNESS_RUN_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const artifact = op.artifact ?? null;
@@ -988,6 +1002,76 @@ export function applyTxRecord(store, record) {
       if (!(store.authorityGrants instanceof Map)) store.authorityGrants = new Map();
       const key = makeScopedKey({ tenantId, id: String(grantId) });
       store.authorityGrants.set(key, { ...authorityGrant, tenantId, grantId: String(grantId) });
+      continue;
+    }
+
+    if (kind === "AUTHORITY_ENVELOPE_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const authorityEnvelope = op.authorityEnvelope ?? null;
+      if (!authorityEnvelope || typeof authorityEnvelope !== "object" || Array.isArray(authorityEnvelope)) {
+        throw new TypeError("AUTHORITY_ENVELOPE_UPSERT requires authorityEnvelope");
+      }
+      const envelopeId = authorityEnvelope.envelopeId ?? op.envelopeId ?? null;
+      if (!envelopeId) throw new TypeError("AUTHORITY_ENVELOPE_UPSERT requires authorityEnvelope.envelopeId");
+      if (!(store.authorityEnvelopes instanceof Map)) store.authorityEnvelopes = new Map();
+      const key = makeScopedKey({ tenantId, id: String(envelopeId) });
+      store.authorityEnvelopes.set(key, { ...authorityEnvelope, tenantId, envelopeId: String(envelopeId) });
+      continue;
+    }
+
+    if (kind === "APPROVAL_REQUEST_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const approvalRequest = op.approvalRequest ?? null;
+      if (!approvalRequest || typeof approvalRequest !== "object" || Array.isArray(approvalRequest)) {
+        throw new TypeError("APPROVAL_REQUEST_UPSERT requires approvalRequest");
+      }
+      const requestId = approvalRequest.requestId ?? op.requestId ?? null;
+      if (!requestId) throw new TypeError("APPROVAL_REQUEST_UPSERT requires approvalRequest.requestId");
+      if (!(store.approvalRequests instanceof Map)) store.approvalRequests = new Map();
+      const key = makeScopedKey({ tenantId, id: String(requestId) });
+      store.approvalRequests.set(key, { ...approvalRequest, tenantId, requestId: String(requestId) });
+      continue;
+    }
+
+    if (kind === "APPROVAL_DECISION_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const approvalDecision = op.approvalDecision ?? null;
+      if (!approvalDecision || typeof approvalDecision !== "object" || Array.isArray(approvalDecision)) {
+        throw new TypeError("APPROVAL_DECISION_UPSERT requires approvalDecision");
+      }
+      const decisionId = approvalDecision.decisionId ?? op.decisionId ?? null;
+      if (!decisionId) throw new TypeError("APPROVAL_DECISION_UPSERT requires approvalDecision.decisionId");
+      if (!(store.approvalDecisions instanceof Map)) store.approvalDecisions = new Map();
+      const key = makeScopedKey({ tenantId, id: String(decisionId) });
+      store.approvalDecisions.set(key, { ...approvalDecision, tenantId, decisionId: String(decisionId) });
+      continue;
+    }
+
+    if (kind === "APPROVAL_STANDING_POLICY_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const approvalStandingPolicy = op.approvalStandingPolicy ?? null;
+      if (!approvalStandingPolicy || typeof approvalStandingPolicy !== "object" || Array.isArray(approvalStandingPolicy)) {
+        throw new TypeError("APPROVAL_STANDING_POLICY_UPSERT requires approvalStandingPolicy");
+      }
+      const policyId = approvalStandingPolicy.policyId ?? op.policyId ?? null;
+      if (!policyId) throw new TypeError("APPROVAL_STANDING_POLICY_UPSERT requires approvalStandingPolicy.policyId");
+      if (!(store.approvalStandingPolicies instanceof Map)) store.approvalStandingPolicies = new Map();
+      const key = makeScopedKey({ tenantId, id: String(policyId) });
+      store.approvalStandingPolicies.set(key, { ...approvalStandingPolicy, tenantId, policyId: String(policyId) });
+      continue;
+    }
+
+    if (kind === "APPROVAL_CONTINUATION_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const approvalContinuation = op.approvalContinuation ?? null;
+      if (!approvalContinuation || typeof approvalContinuation !== "object" || Array.isArray(approvalContinuation)) {
+        throw new TypeError("APPROVAL_CONTINUATION_UPSERT requires approvalContinuation");
+      }
+      const requestId = approvalContinuation.requestId ?? op.requestId ?? null;
+      if (!requestId) throw new TypeError("APPROVAL_CONTINUATION_UPSERT requires approvalContinuation.requestId");
+      if (!(store.approvalContinuations instanceof Map)) store.approvalContinuations = new Map();
+      const key = makeScopedKey({ tenantId, id: String(requestId) });
+      store.approvalContinuations.set(key, { ...approvalContinuation, tenantId, requestId: String(requestId) });
       continue;
     }
 

@@ -11,6 +11,7 @@ export const AGENT_RUN_STATUS = Object.freeze({
 export const AGENT_RUN_EVENT_TYPE = Object.freeze({
   RUN_CREATED: "RUN_CREATED",
   RUN_STARTED: "RUN_STARTED",
+  RUN_ACTION_REQUIRED: "RUN_ACTION_REQUIRED",
   RUN_HEARTBEAT: "RUN_HEARTBEAT",
   EVIDENCE_ADDED: "EVIDENCE_ADDED",
   RUN_COMPLETED: "RUN_COMPLETED",
@@ -56,6 +57,27 @@ export function validateRunStartedPayload(payload) {
   return payload;
 }
 
+export function validateRunActionRequiredPayload(payload) {
+  assertPlainObject(payload, "payload");
+  assertNonEmptyString(payload.runId, "payload.runId");
+  assertNonEmptyString(payload.code, "payload.code");
+  assertOptionalString(payload.title, "payload.title");
+  assertOptionalString(payload.detail, "payload.detail");
+  if (payload.requestedFields !== undefined && payload.requestedFields !== null) {
+    if (!Array.isArray(payload.requestedFields)) throw new TypeError("payload.requestedFields must be an array");
+    for (const [index, value] of payload.requestedFields.entries()) {
+      assertNonEmptyString(value, `payload.requestedFields[${index}]`);
+    }
+  }
+  if (payload.requestedEvidenceKinds !== undefined && payload.requestedEvidenceKinds !== null) {
+    if (!Array.isArray(payload.requestedEvidenceKinds)) throw new TypeError("payload.requestedEvidenceKinds must be an array");
+    for (const [index, value] of payload.requestedEvidenceKinds.entries()) {
+      assertNonEmptyString(value, `payload.requestedEvidenceKinds[${index}]`);
+    }
+  }
+  return payload;
+}
+
 export function validateRunHeartbeatPayload(payload) {
   assertPlainObject(payload, "payload");
   assertNonEmptyString(payload.runId, "payload.runId");
@@ -93,6 +115,7 @@ export function validateRunFailedPayload(payload) {
 function validatePayloadForType(type, payload) {
   if (type === AGENT_RUN_EVENT_TYPE.RUN_CREATED) return validateRunCreatedPayload(payload);
   if (type === AGENT_RUN_EVENT_TYPE.RUN_STARTED) return validateRunStartedPayload(payload);
+  if (type === AGENT_RUN_EVENT_TYPE.RUN_ACTION_REQUIRED) return validateRunActionRequiredPayload(payload);
   if (type === AGENT_RUN_EVENT_TYPE.RUN_HEARTBEAT) return validateRunHeartbeatPayload(payload);
   if (type === AGENT_RUN_EVENT_TYPE.EVIDENCE_ADDED) return validateEvidenceAddedPayload(payload);
   if (type === AGENT_RUN_EVENT_TYPE.RUN_COMPLETED) return validateRunCompletedPayload(payload);
@@ -131,6 +154,7 @@ export function reduceAgentRun(events) {
         inputRef: payload.inputRef ?? null,
         status: AGENT_RUN_STATUS.CREATED,
         evidenceRefs: [],
+        actionRequired: null,
         metrics: null,
         failure: null,
         startedAt: null,
@@ -152,17 +176,34 @@ export function reduceAgentRun(events) {
       if (isTerminalStatus(run.status)) throw new TypeError("cannot start a terminal run");
       run.status = AGENT_RUN_STATUS.RUNNING;
       run.startedAt = run.startedAt ?? event.at;
+      run.actionRequired = null;
+    } else if (event.type === AGENT_RUN_EVENT_TYPE.RUN_ACTION_REQUIRED) {
+      if (isTerminalStatus(run.status)) throw new TypeError("cannot mark a terminal run action-required");
+      run.status = AGENT_RUN_STATUS.RUNNING;
+      run.startedAt = run.startedAt ?? event.at;
+      run.actionRequired = {
+        code: payload.code,
+        title: payload.title ?? null,
+        detail: payload.detail ?? null,
+        requestedFields: Array.isArray(payload.requestedFields) ? [...new Set(payload.requestedFields.map((value) => String(value)))] : [],
+        requestedEvidenceKinds: Array.isArray(payload.requestedEvidenceKinds)
+          ? [...new Set(payload.requestedEvidenceKinds.map((value) => String(value)))]
+          : [],
+        requestedAt: event.at
+      };
     } else if (event.type === AGENT_RUN_EVENT_TYPE.RUN_HEARTBEAT) {
       if (run.status === AGENT_RUN_STATUS.CREATED) {
         run.status = AGENT_RUN_STATUS.RUNNING;
         run.startedAt = run.startedAt ?? event.at;
       }
       if (isTerminalStatus(run.status)) throw new TypeError("cannot heartbeat a terminal run");
+      run.actionRequired = null;
     } else if (event.type === AGENT_RUN_EVENT_TYPE.EVIDENCE_ADDED) {
       if (isTerminalStatus(run.status)) throw new TypeError("cannot append evidence to a terminal run");
       const evidenceRef = String(payload.evidenceRef);
       if (!run.evidenceRefs.includes(evidenceRef)) run.evidenceRefs.push(evidenceRef);
       run.evidenceRefs.sort((a, b) => a.localeCompare(b));
+      run.actionRequired = null;
     } else if (event.type === AGENT_RUN_EVENT_TYPE.RUN_COMPLETED) {
       if (isTerminalStatus(run.status)) throw new TypeError("run already terminal");
       run.status = AGENT_RUN_STATUS.COMPLETED;
@@ -170,6 +211,7 @@ export function reduceAgentRun(events) {
       run.completedAt = event.at;
       run.failedAt = null;
       run.failure = null;
+      run.actionRequired = null;
       run.metrics = payload.metrics && typeof payload.metrics === "object" && !Array.isArray(payload.metrics) ? { ...payload.metrics } : run.metrics;
     } else if (event.type === AGENT_RUN_EVENT_TYPE.RUN_FAILED) {
       if (isTerminalStatus(run.status)) throw new TypeError("run already terminal");
@@ -177,6 +219,7 @@ export function reduceAgentRun(events) {
       run.startedAt = run.startedAt ?? event.at;
       run.failedAt = event.at;
       run.completedAt = null;
+      run.actionRequired = null;
       run.failure = {
         code: payload.code ?? null,
         message: payload.message ?? null
@@ -216,6 +259,13 @@ export function computeAgentRunVerification({ run, events = [] } = {}) {
   let verificationStatus = "amber";
   const reasonCodes = [];
   let settlementReleaseRatePct = null;
+  if (run.actionRequired && typeof run.actionRequired === "object" && !Array.isArray(run.actionRequired)) {
+    verificationStatus = "amber";
+    reasonCodes.push("RUN_ACTION_REQUIRED");
+    if (typeof run.actionRequired.code === "string" && run.actionRequired.code.trim() !== "") {
+      reasonCodes.push(`RUN_ACTION_REQUIRED_${run.actionRequired.code}`);
+    }
+  }
   if (run.status === AGENT_RUN_STATUS.COMPLETED) {
     const metricRateRaw = run?.metrics?.settlementReleaseRatePct;
     const metricRate = Number(metricRateRaw);

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ApprovalStandingPolicy.v1.schema.json",
+  "title": "ApprovalStandingPolicy.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyId",
+    "principalRef",
+    "displayName",
+    "status",
+    "constraints",
+    "decision",
+    "createdAt",
+    "policyHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ApprovalStandingPolicy.v1" },
+    "policyId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "principalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principalType", "principalId"],
+      "properties": {
+        "principalType": { "type": "string", "enum": ["human", "org", "service", "agent"] },
+        "principalId": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": ["string", "null"], "maxLength": 2000 },
+    "status": { "type": "string", "enum": ["active", "disabled"] },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actorAgentIds",
+        "capabilitiesRequested",
+        "dataClassesRequested",
+        "sideEffectsRequested",
+        "maxSpendCents",
+        "maxRiskClass",
+        "reversibilityClasses"
+      ],
+      "properties": {
+        "actorAgentIds": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "uniqueItems": true },
+        "capabilitiesRequested": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "uniqueItems": true },
+        "dataClassesRequested": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1, "maxLength": 120 }, "uniqueItems": true },
+        "sideEffectsRequested": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1, "maxLength": 120 }, "uniqueItems": true },
+        "maxSpendCents": { "type": ["integer", "null"], "minimum": 0 },
+        "maxRiskClass": { "type": ["string", "null"], "enum": ["low", "medium", "high", null] },
+        "reversibilityClasses": {
+          "type": ["array", "null"],
+          "items": { "type": "string", "enum": ["reversible", "partially_reversible", "irreversible"] },
+          "uniqueItems": true
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect", "decidedBy", "expiresAfterSeconds", "evidenceRefs", "metadata"],
+      "properties": {
+        "effect": { "type": "string", "enum": ["approve", "deny"] },
+        "decidedBy": { "type": ["string", "null"], "maxLength": 200 },
+        "expiresAfterSeconds": { "type": ["integer", "null"], "minimum": 1 },
+        "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "uniqueItems": true },
+        "metadata": { "type": ["object", "null"], "additionalProperties": true }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": ["string", "null"], "format": "date-time" },
+    "policyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

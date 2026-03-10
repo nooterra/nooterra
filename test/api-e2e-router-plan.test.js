@@ -121,3 +121,65 @@ test("API e2e: /router/plan fails closed when intent cannot be derived", async (
   assert.ok(issues.some((issue) => issue?.code === "ROUTER_INTENT_NO_MATCH"));
 });
 
+test("API e2e: /router/plan supports Phase 1 consumer purchase requests on the product surface", async () => {
+  const api = createApi({ store: createStore() });
+
+  await registerAgent(api, {
+    agentId: "agt_router_consumer_research",
+    capabilities: ["capability://research.analysis"]
+  });
+  await registerAgent(api, {
+    agentId: "agt_router_consumer_ops",
+    capabilities: ["capability://consumer.purchase.execute"]
+  });
+
+  await upsertAgentCard(api, {
+    agentId: "agt_router_consumer_research",
+    capabilities: ["capability://research.analysis"],
+    visibility: "public"
+  });
+  await upsertAgentCard(api, {
+    agentId: "agt_router_consumer_ops",
+    capabilities: ["capability://consumer.purchase.execute"],
+    visibility: "public"
+  });
+
+  const planned = await request(api, {
+    method: "POST",
+    path: "/router/plan",
+    body: {
+      text: "Find the best replacement office chair under $400 and order it.",
+      scope: "public",
+      metadata: {
+        source: "dashboard.network",
+        productSurface: "consumer_shell"
+      }
+    }
+  });
+
+  assert.equal(planned.statusCode, 200, planned.body);
+  assert.equal(planned.json?.plan?.taskCount, 2);
+  assert.ok(planned.json?.plan?.tasks?.some((task) => task.requiredCapability === "capability://research.analysis"));
+  assert.ok(planned.json?.plan?.tasks?.some((task) => task.requiredCapability === "capability://consumer.purchase.execute"));
+  assert.equal(planned.json?.plan?.issues?.some((issue) => issue?.code === "ROUTER_PHASE1_TASK_UNSUPPORTED"), false);
+});
+
+test("API e2e: /router/plan blocks unsupported Phase 1 consumer requests without deriving tasks", async () => {
+  const api = createApi({ store: createStore() });
+
+  const planned = await request(api, {
+    method: "POST",
+    path: "/router/plan",
+    body: {
+      text: "Diagnose my symptoms and prescribe the best medication.",
+      metadata: {
+        source: "dashboard.network",
+        productSurface: "consumer_shell"
+      }
+    }
+  });
+
+  assert.equal(planned.statusCode, 200, planned.body);
+  assert.equal(planned.json?.plan?.taskCount, 0);
+  assert.ok(planned.json?.plan?.issues?.some((issue) => issue?.code === "ROUTER_PHASE1_TASK_UNSUPPORTED"));
+});

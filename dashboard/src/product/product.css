@@ -209,6 +209,28 @@ textarea {
   border-radius: 999px;
   color: var(--product-ink);
   font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.product-nav-link-label {
+  display: inline-flex;
+  align-items: center;
+}
+
+.product-nav-notice {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(133, 82, 31, 0.14);
+  color: #85521f;
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .product-nav-links a.active,
@@ -242,6 +264,10 @@ textarea {
   border: 1px solid var(--product-line);
   background: linear-gradient(180deg, rgba(252, 250, 246, 0.98), rgba(250, 247, 241, 0.98));
   box-shadow: var(--product-shadow);
+}
+
+.product-card-subtle {
+  background: linear-gradient(180deg, rgba(249, 245, 237, 0.98), rgba(246, 241, 232, 0.98));
 }
 
 .product-runtime::before,
@@ -477,8 +503,22 @@ textarea {
   border: 1px solid var(--product-line);
   background: rgba(96, 112, 72, 0.08);
   color: var(--product-accent);
+  appearance: none;
+  cursor: pointer;
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.73rem;
+  text-decoration: none;
+}
+
+.product-badge:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.product-badge-muted {
+  background: rgba(77, 86, 98, 0.06);
+  color: var(--product-ink-soft);
+  border-color: rgba(77, 86, 98, 0.12);
 }
 
 .product-hero-panel {
@@ -572,6 +612,32 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.product-bullet-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.product-bullet-card {
+  display: grid;
+  gap: 0.38rem;
+  padding: 0.98rem 1rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid var(--product-line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 241, 234, 0.9)),
+    radial-gradient(circle at top right, rgba(108, 127, 148, 0.05), transparent 9rem);
+}
+
+.product-bullet-card strong {
+  color: var(--product-ink-strong);
+}
+
+.product-bullet-card span {
+  color: var(--product-ink);
+  line-height: 1.55;
+}
+
 .product-option-card {
   width: 100%;
   padding: 1rem 1.05rem;
@@ -655,6 +721,10 @@ textarea {
   border-radius: var(--product-radius-md);
   border: 1px solid var(--product-line);
   background: rgba(255, 255, 255, 0.84);
+}
+
+.product-step-list-tight {
+  gap: 0.65rem;
 }
 
 .product-step-copy {
@@ -780,6 +850,11 @@ textarea {
   color: var(--product-warn);
 }
 
+.product-inline-note.accent {
+  background: var(--product-secondary-soft);
+  color: var(--product-secondary);
+}
+
 .product-metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -797,6 +872,61 @@ textarea {
 .product-agent-card {
   display: grid;
   gap: 0.9rem;
+}
+
+.product-managed-contract {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.product-managed-contract.compact {
+  padding: 0.9rem 0.95rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid rgba(96, 112, 72, 0.18);
+  background:
+    linear-gradient(180deg, rgba(240, 244, 233, 0.74), rgba(255, 255, 255, 0.86)),
+    radial-gradient(circle at top right, rgba(96, 112, 72, 0.08), transparent 10rem);
+}
+
+.product-managed-contract-head,
+.product-managed-proof-copy,
+.product-managed-family-head {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.product-managed-contract-head span,
+.product-managed-proof-copy span,
+.product-managed-family-head span,
+.product-managed-contract-copy,
+.product-managed-family-card p {
+  color: var(--product-ink);
+  line-height: 1.58;
+}
+
+.product-managed-contract.compact p {
+  margin: 0;
+  color: var(--product-ink);
+  line-height: 1.58;
+}
+
+.product-managed-family-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.product-managed-family-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid var(--product-line);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.product-badge.subtle {
+  background: rgba(96, 112, 72, 0.08);
+  border-color: rgba(96, 112, 72, 0.14);
 }
 
 .product-agent-description {
@@ -828,9 +958,88 @@ textarea {
   color: var(--product-ink);
 }
 
+.product-wallet-sheet {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem;
+  border-radius: calc(var(--product-radius-lg) - 2px);
+  border: 1px solid rgba(96, 112, 72, 0.18);
+  background:
+    linear-gradient(180deg, rgba(96, 112, 72, 0.1), rgba(96, 112, 72, 0.04)),
+    rgba(255, 255, 255, 0.9);
+}
+
+.product-wallet-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.product-wallet-sheet-head p {
+  margin: 0 0 0.18rem;
+  color: var(--product-ink-soft);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.product-wallet-sheet-head h3 {
+  margin: 0;
+}
+
+.product-wallet-sheet-copy {
+  margin: 0;
+  color: var(--product-ink);
+  line-height: 1.6;
+}
+
+.product-wallet-fact-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-wallet-fact-grid div {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid rgba(31, 36, 48, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.product-wallet-fact-grid strong {
+  color: var(--product-ink-strong);
+}
+
+.product-wallet-fact-grid span {
+  color: var(--product-ink);
+}
+
 .product-task-card {
   display: grid;
   gap: 0.9rem;
+}
+
+.product-wallet-inline {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid rgba(96, 112, 72, 0.16);
+  background: rgba(96, 112, 72, 0.07);
+}
+
+.product-wallet-inline strong {
+  color: var(--product-ink-strong);
+}
+
+.product-wallet-inline span {
+  color: var(--product-ink);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
 .product-task-head {
@@ -1008,6 +1217,106 @@ textarea {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.product-approval-list,
+.product-approval-policy-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.product-approval-card,
+.product-approval-policy-card {
+  gap: 0.95rem;
+}
+
+.product-approval-card-focused {
+  border-color: rgba(150, 168, 108, 0.5);
+  box-shadow:
+    0 18px 44px rgba(150, 168, 108, 0.12),
+    0 0 0 1px rgba(150, 168, 108, 0.22);
+}
+
+.product-approval-meta,
+.product-approval-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.product-approval-meta,
+.product-approval-step-meta {
+  color: var(--product-ink-soft);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+}
+
+.product-approval-fact-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-approval-fact-grid div {
+  display: grid;
+  gap: 0.26rem;
+  padding: 0.86rem 0.92rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid var(--product-line);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.product-approval-fact-grid span,
+.product-approval-note span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--product-secondary);
+}
+
+.product-approval-fact-grid strong {
+  color: var(--product-ink-strong);
+}
+
+.product-approval-note {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.product-approval-note input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.86rem 0.92rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid var(--product-line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--product-ink-strong);
+}
+
+.product-approval-note input::placeholder {
+  color: rgba(79, 86, 101, 0.5);
+}
+
+.product-approval-note input:focus {
+  outline: none;
+  border-color: rgba(150, 168, 108, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(150, 168, 108, 0.35),
+    0 0 0 6px rgba(150, 168, 108, 0.08);
+}
+
+.product-approval-card-actions {
+  justify-content: flex-end;
+}
+
+.product-approval-step-meta {
+  display: grid;
+  gap: 0.42rem;
+  justify-items: end;
+  text-align: right;
+}
+
 .product-footer {
   padding-top: 0.4rem;
   padding-bottom: 2.5rem;
@@ -1116,6 +1425,15 @@ textarea {
 
   .product-detail-meta {
     grid-template-columns: 1fr;
+  }
+
+  .product-approval-fact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-approval-step-meta {
+    justify-items: start;
+    text-align: left;
   }
 
   .product-page-top h1,

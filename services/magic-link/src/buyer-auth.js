@@ -216,7 +216,7 @@ export function createBuyerSessionToken({ sessionKey, tenantId, email, ttlSecond
   const issuedAt = nowIso();
   const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
   const nonce = crypto.randomBytes(16).toString("hex");
-  const payload = { schemaVersion: "MagicLinkBuyerSession.v1", tenantId: t, email: e, issuedAt, expiresAt, nonce };
+  const payload = { schemaVersion: "MagicLinkBuyerSession.v1", tenantId: t, email: e, issuedAt, expiresAt, nonce, sessionId: nonce };
   const payloadB64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const sigB64 = hmacBase64Url(sessionKey, payloadB64);
   return { ok: true, token: `${payloadB64}.${sigB64}`, payload };
@@ -243,9 +243,11 @@ export function verifyBuyerSessionToken({ sessionKey, token }) {
   const tenantId = String(payload.tenantId ?? "").trim();
   const email = normalizeEmailLower(payload.email);
   if (!tenantId || !email) return { ok: false, error: "SESSION_INVALID" };
+  const sessionId = typeof payload.sessionId === "string" && payload.sessionId.trim() ? payload.sessionId.trim() : typeof payload.nonce === "string" ? payload.nonce.trim() : "";
+  if (!sessionId) return { ok: false, error: "SESSION_INVALID" };
 
   const expiresMs = Date.parse(String(payload.expiresAt ?? ""));
   if (!Number.isFinite(expiresMs) || Date.now() > expiresMs) return { ok: false, error: "SESSION_EXPIRED" };
 
-  return { ok: true, payload: { ...payload, tenantId, email } };
+  return { ok: true, payload: { ...payload, tenantId, email, sessionId } };
 }

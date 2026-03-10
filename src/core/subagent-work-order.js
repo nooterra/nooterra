@@ -1,5 +1,10 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { sha256Hex } from "./crypto.js";
+import {
+  validateApprovalDecisionV1,
+  validateApprovalRequestV1,
+  validateAuthorityEnvelopeV1
+} from "./authority-envelope.js";
 
 export const SUB_AGENT_WORK_ORDER_SCHEMA_VERSION = "SubAgentWorkOrder.v1";
 export const SUB_AGENT_COMPLETION_RECEIPT_SCHEMA_VERSION = "SubAgentCompletionReceipt.v1";
@@ -271,6 +276,9 @@ export function buildSubAgentWorkOrderV1({
   evidencePolicy = null,
   delegationGrantRef = null,
   authorityGrantRef = null,
+  authorityEnvelope = null,
+  approvalRequest = null,
+  approvalDecision = null,
   intentBinding = null,
   metadata = null,
   createdAt = new Date().toISOString()
@@ -296,6 +304,18 @@ export function buildSubAgentWorkOrderV1({
       evidencePolicy: normalizeEvidencePolicy(evidencePolicy),
       delegationGrantRef: normalizeOptionalString(delegationGrantRef, "delegationGrantRef", { max: 200 }),
       authorityGrantRef: normalizeOptionalString(authorityGrantRef, "authorityGrantRef", { max: 200 }),
+      authorityEnvelope:
+        authorityEnvelope && typeof authorityEnvelope === "object" && !Array.isArray(authorityEnvelope)
+          ? normalizeForCanonicalJson(authorityEnvelope, { path: "$.authorityEnvelope" })
+          : null,
+      approvalRequest:
+        approvalRequest && typeof approvalRequest === "object" && !Array.isArray(approvalRequest)
+          ? normalizeForCanonicalJson(approvalRequest, { path: "$.approvalRequest" })
+          : null,
+      approvalDecision:
+        approvalDecision && typeof approvalDecision === "object" && !Array.isArray(approvalDecision)
+          ? normalizeForCanonicalJson(approvalDecision, { path: "$.approvalDecision" })
+          : null,
       intentBinding: normalizeIntentBinding(intentBinding, { fieldName: "intentBinding", allowNull: true }),
       status: SUB_AGENT_WORK_ORDER_STATUS.CREATED,
       progressEvents: [],
@@ -343,6 +363,30 @@ export function validateSubAgentWorkOrderV1(workOrder) {
   }
   if (workOrder.authorityGrantRef !== null && workOrder.authorityGrantRef !== undefined) {
     normalizeOptionalString(workOrder.authorityGrantRef, "workOrder.authorityGrantRef", { max: 200 });
+  }
+  if (workOrder.authorityEnvelope !== null && workOrder.authorityEnvelope !== undefined) {
+    validateAuthorityEnvelopeV1(workOrder.authorityEnvelope);
+  }
+  if (workOrder.approvalRequest !== null && workOrder.approvalRequest !== undefined) {
+    validateApprovalRequestV1(workOrder.approvalRequest);
+    if (!workOrder.authorityEnvelope) {
+      throw new TypeError("workOrder.authorityEnvelope is required when workOrder.approvalRequest is set");
+    }
+    if (workOrder.approvalRequest.envelopeRef?.envelopeHash !== workOrder.authorityEnvelope.envelopeHash) {
+      throw new TypeError("workOrder.approvalRequest.envelopeRef.envelopeHash must match workOrder.authorityEnvelope.envelopeHash");
+    }
+  }
+  if (workOrder.approvalDecision !== null && workOrder.approvalDecision !== undefined) {
+    validateApprovalDecisionV1(workOrder.approvalDecision);
+    if (!workOrder.authorityEnvelope || !workOrder.approvalRequest) {
+      throw new TypeError("workOrder.authorityEnvelope and workOrder.approvalRequest are required when workOrder.approvalDecision is set");
+    }
+    if (workOrder.approvalDecision.envelopeHash !== workOrder.authorityEnvelope.envelopeHash) {
+      throw new TypeError("workOrder.approvalDecision.envelopeHash must match workOrder.authorityEnvelope.envelopeHash");
+    }
+    if (workOrder.approvalDecision.requestId !== workOrder.approvalRequest.requestId) {
+      throw new TypeError("workOrder.approvalDecision.requestId must match workOrder.approvalRequest.requestId");
+    }
   }
   if (workOrder.intentBinding !== null && workOrder.intentBinding !== undefined) {
     normalizeIntentBinding(workOrder.intentBinding, { fieldName: "workOrder.intentBinding", allowNull: false });

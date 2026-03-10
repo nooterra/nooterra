@@ -1,6 +1,13 @@
-# OpenClaw Public Quickstart (No Repo Clone)
+# OpenClaw Public Quickstart (Action Wallet v1)
 
-Use this when you want a public user to set up Nooterra from npm in a fresh machine.
+Use this when you want the shortest path from npm setup to a hosted approval page in OpenClaw.
+
+Execution model: OpenClaw or its connected adapter executes the external action after approval. Nooterra only handles approval, scoped grants, evidence submission, receipts, and disputes.
+
+Launch v1 on this channel supports only:
+
+- `buy`
+- `cancel/recover`
 
 Prereqs:
 
@@ -38,61 +45,23 @@ Choose:
 
 1. `host`: `openclaw`
 2. setup mode: `quick`
-3. wallet mode (`managed` recommended first)
-4. login with OTP (new tenant is created if needed)
-5. let setup run guided fund + first paid check
+3. sign in or create account
+4. let setup write the OpenClaw MCP config
 
-Non-interactive path (automation/support):
-
-```bash
-npx -y nooterra@latest setup \
-  --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --nooterra-api-key 'sk_live_xxx.yyy' \
-  --wallet-mode managed \
-  --wallet-bootstrap remote \
-  --profile-id engineering-spend \
-  --smoke
-```
-
-Advanced non-interactive key/bootstrap paths are still supported:
-
-```bash
-npx -y nooterra@latest setup \
-  --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --bootstrap-api-key 'ml_admin_xxx' \
-  --wallet-mode managed \
-  --wallet-bootstrap remote
-```
-
-## 3) Verify OpenClaw + Nooterra are wired
+## 3) First approval proof
 
 Run:
 
 ```bash
 openclaw doctor
-openclaw plugins install nooterra@latest
-openclaw agent --local --agent main --session-id nooterra-smoke --message "Use the tool named nooterra_about with empty arguments. Return only JSON." --json
+openclaw agent --local --agent main --session-id nooterra-smoke --message "Use Nooterra to create a buy action intent, request approval, and return only JSON with approvalUrl, actionIntentId, and requestId." --json
 ```
 
-Then from OpenClaw chat/test prompt:
+Expected result:
 
-- `Use tool nooterra_about and return JSON only.`
-
-Expected result: success payload with Nooterra tool metadata.
-
-Optional packaging smoke (public ClawHub install + MCP initialize/tools/list/tools/call):
-
-```bash
-npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug nooterra-mcp-payments --bootstrap-local
-```
-
-If install is blocked by suspicious-skill gating, add `--force`.
+- a Nooterra-hosted approval URL
+- stable action and approval ids
+- no unsupported marketplace or booking flow
 
 If your TUI is in a channel-bound session (`whatsapp:*`, `telegram:*`), switch to `main` first:
 
@@ -100,38 +69,28 @@ If your TUI is in a channel-bound session (`whatsapp:*`, `telegram:*`), switch t
 openclaw tui --session main
 ```
 
-## 4) Run first paid tool call
+Stop here first. This is the launch proof path.
 
-From OpenClaw prompt:
+## 4) After approval
 
-- `Use tool nooterra_call with tool=nooterra.weather_current_paid and arguments={"city":"Chicago","unit":"f"}.`
+After opening the approval URL and making a decision, continue with:
+
+- `Use Nooterra to check the approval status for requestId <requestId>. If it is approved, fetch the execution grant and return only JSON.`
 
 Expected result:
 
-- tool call succeeds
-- response includes policy/decision/settlement headers (`x-nooterra-*`)
+- approval state changes from `pending`
+- approved run returns an execution grant OpenClaw can use for the host-side execution step
 
-## 4.1) First collaboration flow (copy/paste prompts)
+## 5) Complete the loop
 
-Run these in order inside OpenClaw:
+After OpenClaw or the connected adapter completes the external action, run:
 
-1. `Use Nooterra to discover the top 3 agents for code.generation.frontend.react with min reputation 92 and max price $3. Return JSON only.`
-2. `Use Nooterra to issue a delegation grant so agt_manager can spend up to $50 for travel.booking tasks. Return JSON with grant id and constraints.`
-3. `Use Nooterra to create a work order for "Build a React + Tailwind booking summary card", then accept, complete, and settle it. Return JSON only.`
-4. `Use Nooterra to show settlement and receipt state for the work order id from step 3. Return JSON only.`
+- `Use Nooterra to submit host-captured evidence if needed, finalize the host-completed run, and fetch the receipt. Return only JSON with receiptId, settlement status, and dispute state.`
 
-Optional slash trigger (skill is user-invocable):
+Expected result:
 
-- `/nooterra-mcp-payments discover top 3 weather agents under $1`
-- `/nooterra-mcp-payments issue delegation grant for agt_worker cap $20`
-
-## 5) Verify receipt artifact (when available)
-
-If you exported a receipt JSON from your Nooterra environment, verify it offline:
-
-```bash
-npx -y nooterra@latest x402 receipt verify ./receipt.json --format json
-```
+- finalization returns a hosted receipt path and a dispute path
 
 ## Notes for operators
 

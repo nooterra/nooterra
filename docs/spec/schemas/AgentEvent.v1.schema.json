@@ -17,7 +17,7 @@
     },
     "type": {
       "type": "string",
-      "enum": ["RUN_CREATED", "RUN_STARTED", "RUN_HEARTBEAT", "EVIDENCE_ADDED", "RUN_COMPLETED", "RUN_FAILED"]
+      "enum": ["RUN_CREATED", "RUN_STARTED", "RUN_ACTION_REQUIRED", "RUN_HEARTBEAT", "EVIDENCE_ADDED", "RUN_COMPLETED", "RUN_FAILED"]
     },
     "at": { "type": "string", "format": "date-time" },
     "actor": {

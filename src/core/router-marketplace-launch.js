@@ -1,5 +1,6 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { sha256Hex } from "./crypto.js";
+import { validateTaskWalletV1 } from "./task-wallet.js";
 
 export const ROUTER_MARKETPLACE_LAUNCH_SCHEMA_VERSION = "RouterMarketplaceLaunch.v1";
 export const ROUTER_MARKETPLACE_LAUNCH_TASK_SCHEMA_VERSION = "RouterMarketplaceLaunchTask.v1";
@@ -98,6 +99,11 @@ function normalizeTasks(value) {
   const tasks = Array.isArray(value) ? value : [];
   return tasks.map((task, index) => {
     assertPlainObject(task, `tasks[${index}]`);
+    let taskWallet = null;
+    if (task.taskWallet !== null && task.taskWallet !== undefined) {
+      validateTaskWalletV1(task.taskWallet);
+      taskWallet = normalizeForCanonicalJson(task.taskWallet, { path: `$.tasks[${index}].taskWallet` });
+    }
     return normalizeForCanonicalJson(
       {
         schemaVersion: ROUTER_MARKETPLACE_LAUNCH_TASK_SCHEMA_VERSION,
@@ -110,7 +116,8 @@ function normalizeTasks(value) {
         currency: normalizeCurrency(task.currency, `tasks[${index}].currency`, { allowNull: true }),
         deadlineAt: normalizeIsoDateTime(task.deadlineAt, `tasks[${index}].deadlineAt`, { allowNull: true }),
         candidateCount: normalizePositiveSafeInt(task.candidateCount ?? 0, `tasks[${index}].candidateCount`, { min: 0 }),
-        candidateAgentIds: normalizeCandidateAgentIds(task.candidateAgentIds, `tasks[${index}].candidateAgentIds`)
+        candidateAgentIds: normalizeCandidateAgentIds(task.candidateAgentIds, `tasks[${index}].candidateAgentIds`),
+        taskWallet
       },
       { path: `$.tasks[${index}]` }
     );

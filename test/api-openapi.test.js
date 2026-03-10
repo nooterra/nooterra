@@ -135,3 +135,144 @@ test("API: intent + session checkpoint OpenAPI contracts are published", async (
     "missing checkpointConsumerId query on GET /sessions/{sessionId}/events/stream"
   );
 });
+
+test("API: action-wallet alias OpenAPI contracts are published", async () => {
+  const api = createApi();
+  const res = await request(api, {
+    method: "GET",
+    path: "/openapi.json",
+    headers: { "x-nooterra-protocol": "1.0" }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+
+  for (const path of [
+    "/v1/action-intents",
+    "/v1/action-intents/{actionIntentId}",
+    "/v1/action-intents/{actionIntentId}/approval-requests",
+    "/v1/approval-requests/{requestId}",
+    "/v1/approval-requests/{requestId}/decisions",
+    "/v1/execution-grants/{executionGrantId}",
+    "/v1/execution-grants/{executionGrantId}/revoke",
+    "/v1/execution-grants/{executionGrantId}/evidence",
+    "/v1/execution-grants/{executionGrantId}/finalize",
+    "/v1/receipts/{receiptId}",
+    "/v1/disputes",
+    "/v1/disputes/{disputeId}",
+    "/v1/integrations/install",
+    "/v1/integrations/{hostId}/revoke",
+    "/approval-policies/{policyId}/revoke"
+  ]) {
+    assert.ok(res.json?.paths?.[path], `missing ${path}`);
+  }
+
+  assert.equal(
+    res.json?.paths?.["/v1/action-intents/{actionIntentId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.executionGrant?.nullable,
+    true
+  );
+  assert.equal(
+    res.json?.paths?.["/v1/disputes/{disputeId}"]?.get?.parameters?.some((row) => row?.in === "query" && row?.name === "caseId"),
+    true
+  );
+
+  assert.deepEqual(
+    res.json?.paths?.["/v1/action-intents"]?.post?.responses?.["201"]?.content?.["application/json"]?.schema?.properties?.actionIntent?.properties?.status?.enum,
+    [
+      "draft",
+      "approval_required",
+      "approved",
+      "executing",
+      "evidence_submitted",
+      "verifying",
+      "completed",
+      "failed",
+      "disputed",
+      "refunded",
+      "cancelled"
+    ]
+  );
+  assert.equal(
+    res.json?.paths?.["/v1/action-intents"]?.post?.responses?.["201"]?.content?.["application/json"]?.schema?.properties?.actionIntent?.properties
+      ?.intentHash?.pattern,
+    "^[0-9a-f]{64}$"
+  );
+  assert.deepEqual(
+    res.json?.paths?.["/v1/approval-requests/{requestId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.approvalStatus?.enum,
+    ["pending", "approved", "denied", "expired", "revoked"]
+  );
+  assert.deepEqual(
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.executionGrant?.properties?.actionType?.enum,
+    ["buy", "cancel/recover"]
+  );
+  assert.equal(
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.executionGrant?.properties?.grantHash?.pattern,
+    "^[0-9a-f]{64}$"
+  );
+  assert.equal(
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.executionGrant?.properties?.grantNonce?.pattern,
+    "^[0-9a-f]{64}$"
+  );
+  assert.ok(
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.executionGrant?.properties?.delegationLineageRef?.properties?.authorityEnvelopeRef,
+    "missing delegationLineageRef.authorityEnvelopeRef on execution grant"
+  );
+  const actionReceiptProperties =
+    res.json?.paths?.["/v1/receipts/{receiptId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.actionReceipt
+      ?.properties ?? {};
+  assert.ok(actionReceiptProperties.originatingApproval, "missing actionReceipt.originatingApproval");
+  assert.ok(actionReceiptProperties.executionGrantRef, "missing actionReceipt.executionGrantRef");
+  assert.ok(actionReceiptProperties.evidenceBundle, "missing actionReceipt.evidenceBundle");
+  assert.equal(actionReceiptProperties.executionGrantRef?.properties?.grantHash?.pattern, "^[0-9a-f]{64}$");
+  assert.equal(actionReceiptProperties.evidenceBundle?.properties?.evidenceBundleHash?.pattern, "^[0-9a-f]{64}$");
+  assert.ok(actionReceiptProperties.settlementState, "missing actionReceipt.settlementState");
+  assert.ok(actionReceiptProperties.verifierVerdict, "missing actionReceipt.verifierVerdict");
+  assert.ok(actionReceiptProperties.disputeState, "missing actionReceipt.disputeState");
+
+  const receiptDetailProperties =
+    res.json?.paths?.["/v1/receipts/{receiptId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.detail
+      ?.properties ?? {};
+  assert.ok(receiptDetailProperties.originatingApproval, "missing receipt detail originatingApproval");
+  assert.ok(receiptDetailProperties.executionGrantRef, "missing receipt detail executionGrantRef");
+  assert.ok(receiptDetailProperties.evidenceBundle, "missing receipt detail evidenceBundle");
+  assert.equal(receiptDetailProperties.executionGrantRef?.properties?.grantHash?.pattern, "^[0-9a-f]{64}$");
+  assert.equal(receiptDetailProperties.evidenceBundle?.properties?.evidenceBundleHash?.pattern, "^[0-9a-f]{64}$");
+  assert.ok(receiptDetailProperties.settlementState, "missing receipt detail settlementState");
+  assert.ok(receiptDetailProperties.verifierVerdict, "missing receipt detail verifierVerdict");
+  assert.ok(receiptDetailProperties.disputeState, "missing receipt detail disputeState");
+  const evidenceResponseProperties =
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}/evidence"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties ??
+    {};
+  assert.equal(evidenceResponseProperties.evidenceBundle?.properties?.evidenceBundleHash?.pattern, "^[0-9a-f]{64}$");
+  assert.deepEqual(
+    res.json?.paths?.["/v1/disputes"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.disputeCase?.properties
+      ?.status?.enum,
+    ["opened", "triaged", "awaiting_evidence", "refunded", "denied", "resolved"]
+  );
+  const installRequestProperties =
+    res.json?.paths?.["/v1/integrations/install"]?.post?.requestBody?.content?.["application/json"]?.schema?.properties ?? {};
+  assert.ok(installRequestProperties.authModel, "missing trusted-host authModel request payload");
+  assert.equal(installRequestProperties.authModel?.properties?.clientSecret?.writeOnly, true);
+  assert.equal(installRequestProperties.authModel?.properties?.rotate?.type, "boolean");
+  const installResponseProperties =
+    res.json?.paths?.["/v1/integrations/install"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {};
+  assert.deepEqual(installResponseProperties.trustedHost?.properties?.runtime?.enum, ["claude-desktop", "openclaw"]);
+  assert.deepEqual(installResponseProperties.trustedHost?.properties?.channel?.enum, ["Claude MCP", "OpenClaw"]);
+  assert.deepEqual(installResponseProperties.trustedHost?.properties?.status?.enum, ["active", "revoked"]);
+  assert.ok(installResponseProperties.trustedHost?.properties?.authModel?.properties?.clientSecretConfigured, "missing trustedHost auth model");
+  assert.equal(installResponseProperties.trustedHost?.properties?.authModel?.properties?.keyId?.type, "string");
+  assert.equal(installResponseProperties.trustedHost?.properties?.authModel?.properties?.lastIssuedAt?.format, "date-time");
+  assert.equal(installResponseProperties.hostCredential?.properties?.kind?.enum?.[0], "api_key");
+  assert.equal(installResponseProperties.hostCredential?.properties?.issuedAt?.format, "date-time");
+  const executionGrantRevokeResponse =
+    res.json?.paths?.["/v1/execution-grants/{executionGrantId}/revoke"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties ?? {};
+  assert.deepEqual(executionGrantRevokeResponse.approvalStatus?.enum, ["pending", "approved", "denied", "expired", "revoked"]);
+  assert.equal(
+    res.json?.paths?.["/approval-policies/{policyId}/revoke"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties
+      ?.approvalStandingPolicy?.properties?.status?.enum?.includes("disabled"),
+    true
+  );
+});

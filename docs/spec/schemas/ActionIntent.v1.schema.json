@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ActionIntent.v1.schema.json",
+  "title": "ActionIntent.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "actionIntentId",
+    "status",
+    "createdAt",
+    "purpose",
+    "principalRef",
+    "actor",
+    "authorityEnvelopeRef"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ActionIntent.v1" },
+    "actionIntentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "intentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "approval_required",
+        "approved",
+        "executing",
+        "evidence_submitted",
+        "verifying",
+        "completed",
+        "failed",
+        "disputed",
+        "refunded",
+        "cancelled"
+      ]
+    },
+    "createdAt": { "type": ["string", "null"], "format": "date-time" },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "principalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principalType", "principalId"],
+      "properties": {
+        "principalType": { "type": "string", "enum": ["human", "org", "service", "agent"] },
+        "principalId": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId"],
+      "properties": {
+        "agentId": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "capabilitiesRequested": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 256 }
+    },
+    "dataClassesRequested": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 120 }
+    },
+    "sideEffectsRequested": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 120 }
+    },
+    "spendEnvelope": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["currency", "maxPerCallCents", "maxTotalCents"],
+      "properties": {
+        "currency": { "type": "string", "minLength": 3, "maxLength": 12 },
+        "maxPerCallCents": { "type": "integer", "minimum": 0 },
+        "maxTotalCents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "reversibilityClass": {
+      "type": ["string", "null"],
+      "enum": ["reversible", "partially_reversible", "irreversible", null]
+    },
+    "riskClass": {
+      "type": ["string", "null"],
+      "enum": ["low", "medium", "high", null]
+    },
+    "evidenceRequirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "authorityEnvelopeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelopeId", "envelopeHash"],
+      "properties": {
+        "envelopeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "envelopeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "approvalRequestRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["requestId", "requestHash"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "requestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "approvalUrl": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
+    "host": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "channel": { "type": ["string", "null"], "maxLength": 120 },
+        "runtime": { "type": ["string", "null"], "maxLength": 120 },
+        "source": { "type": ["string", "null"], "maxLength": 400 }
+      }
+    }
+  }
+}

@@ -142,6 +142,24 @@ export function defaultTenantSettings() {
     buyerAuthEmailDomains: [],
     buyerUserRoles: null,
     buyerNotifications: { emails: [], deliveryMode: "smtp", webhookUrl: null, webhookSecret: null },
+    consumerInbox: { schemaVersion: "ConsumerInboxState.v1", seenAtByItemId: {}, updatedAt: null },
+    consumerDataSources: {
+      email: {
+        enabled: false,
+        provider: "manual",
+        address: null,
+        label: null,
+        connectedAt: null
+      },
+      calendar: {
+        enabled: false,
+        provider: "manual",
+        address: null,
+        timezone: null,
+        availabilityNotes: null,
+        connectedAt: null
+      }
+    },
     autoDecision: {
       enabled: false,
       approveOnGreen: false,
@@ -450,6 +468,177 @@ function normalizeBuyerNotifications(value, { current } = {}) {
   };
 }
 
+function normalizeConsumerInbox(value, { current, maxItems = 2000 } = {}) {
+  if (value === undefined) return { ok: true, consumerInbox: undefined };
+  if (value === null) return { ok: true, consumerInbox: { ...defaultTenantSettings().consumerInbox } };
+  if (!isPlainObject(value)) return { ok: false, error: "consumerInbox must be an object or null" };
+
+  const cur = isPlainObject(current) ? current : defaultTenantSettings().consumerInbox;
+  const seenAtByItemIdRaw = value.seenAtByItemId === undefined ? cur?.seenAtByItemId : value.seenAtByItemId;
+  if (seenAtByItemIdRaw !== null && !isPlainObject(seenAtByItemIdRaw)) {
+    return { ok: false, error: "consumerInbox.seenAtByItemId must be an object or null" };
+  }
+
+  const entries = [];
+  for (const [rawItemId, rawTimestamp] of Object.entries(seenAtByItemIdRaw ?? {})) {
+    const itemId = String(rawItemId ?? "").trim();
+    if (!itemId || itemId.length > 200 || !/^[A-Za-z0-9:_-]+$/.test(itemId)) {
+      return { ok: false, error: "consumerInbox item ids must match [A-Za-z0-9:_-]{1,200}", itemId: rawItemId };
+    }
+    const timestamp = String(rawTimestamp ?? "").trim();
+    const timestampMs = Date.parse(timestamp);
+    if (!timestamp || !Number.isFinite(timestampMs)) {
+      return { ok: false, error: "consumerInbox timestamps must be valid ISO strings", itemId };
+    }
+    entries.push([itemId, new Date(timestampMs).toISOString()]);
+  }
+  if (entries.length > maxItems) return { ok: false, error: `consumerInbox may track at most ${maxItems} items` };
+  entries.sort(([left], [right]) => left.localeCompare(right));
+
+  const updatedAtRaw = value.updatedAt === undefined ? cur?.updatedAt ?? null : value.updatedAt;
+  let updatedAt = null;
+  if (updatedAtRaw !== null && updatedAtRaw !== undefined && String(updatedAtRaw).trim() !== "") {
+    const updatedAtMs = Date.parse(String(updatedAtRaw).trim());
+    if (!Number.isFinite(updatedAtMs)) return { ok: false, error: "consumerInbox.updatedAt must be a valid ISO string or null" };
+    updatedAt = new Date(updatedAtMs).toISOString();
+  }
+
+  return {
+    ok: true,
+    consumerInbox: {
+      schemaVersion: "ConsumerInboxState.v1",
+      seenAtByItemId: Object.fromEntries(entries),
+      updatedAt
+    }
+  };
+}
+
+function normalizeIsoTimestampOrNull(rawValue, fieldName) {
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return { ok: true, value: null };
+  const timestampMs = Date.parse(String(rawValue).trim());
+  if (!Number.isFinite(timestampMs)) return { ok: false, error: `${fieldName} must be a valid ISO string or null` };
+  return { ok: true, value: new Date(timestampMs).toISOString() };
+}
+
+function normalizeTenantDataSourceLabel(rawValue, fieldName) {
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return { ok: true, value: null };
+  const value = String(rawValue).trim();
+  if (value.length > 120) return { ok: false, error: `${fieldName} must be <= 120 chars` };
+  return { ok: true, value };
+}
+
+function normalizeTenantTimeZone(rawValue, fieldName) {
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return { ok: true, value: null };
+  const value = String(rawValue).trim();
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date("2026-03-01T00:00:00.000Z"));
+  } catch {
+    return { ok: false, error: `${fieldName} must be a valid IANA timezone` };
+  }
+  return { ok: true, value };
+}
+
+function normalizeConsumerDataSourceEmail(value, { current } = {}) {
+  const cur = isPlainObject(current) ? current : defaultTenantSettings().consumerDataSources.email;
+  if (value === undefined) return { ok: true, email: undefined };
+  if (value === null) return { ok: true, email: { ...defaultTenantSettings().consumerDataSources.email } };
+  if (!isPlainObject(value)) return { ok: false, error: "consumerDataSources.email must be an object or null" };
+
+  const enabled = Boolean(value.enabled === undefined ? cur?.enabled : value.enabled);
+  const provider = String(value.provider === undefined ? cur?.provider ?? "manual" : value.provider ?? "")
+    .trim()
+    .toLowerCase();
+  if (!["manual", "gmail", "outlook", "imap"].includes(provider)) {
+    return { ok: false, error: "consumerDataSources.email.provider must be manual|gmail|outlook|imap" };
+  }
+  const address = normalizeEmailLower(value.address === undefined ? cur?.address : value.address);
+  if (enabled && !address) return { ok: false, error: "consumerDataSources.email.address is required when enabled" };
+
+  const label = normalizeTenantDataSourceLabel(value.label === undefined ? cur?.label : value.label, "consumerDataSources.email.label");
+  if (!label.ok) return label;
+
+  const connectedAt = normalizeIsoTimestampOrNull(
+    value.connectedAt === undefined ? cur?.connectedAt : value.connectedAt,
+    "consumerDataSources.email.connectedAt"
+  );
+  if (!connectedAt.ok) return connectedAt;
+
+  return {
+    ok: true,
+    email: {
+      enabled,
+      provider,
+      address: address ?? null,
+      label: label.value,
+      connectedAt: connectedAt.value
+    }
+  };
+}
+
+function normalizeConsumerDataSourceCalendar(value, { current } = {}) {
+  const cur = isPlainObject(current) ? current : defaultTenantSettings().consumerDataSources.calendar;
+  if (value === undefined) return { ok: true, calendar: undefined };
+  if (value === null) return { ok: true, calendar: { ...defaultTenantSettings().consumerDataSources.calendar } };
+  if (!isPlainObject(value)) return { ok: false, error: "consumerDataSources.calendar must be an object or null" };
+
+  const enabled = Boolean(value.enabled === undefined ? cur?.enabled : value.enabled);
+  const provider = String(value.provider === undefined ? cur?.provider ?? "manual" : value.provider ?? "")
+    .trim()
+    .toLowerCase();
+  if (!["manual", "google_calendar", "outlook_calendar", "ical"].includes(provider)) {
+    return { ok: false, error: "consumerDataSources.calendar.provider must be manual|google_calendar|outlook_calendar|ical" };
+  }
+  const address = normalizeEmailLower(value.address === undefined ? cur?.address : value.address);
+  const timezone = normalizeTenantTimeZone(value.timezone === undefined ? cur?.timezone : value.timezone, "consumerDataSources.calendar.timezone");
+  if (!timezone.ok) return timezone;
+
+  let availabilityNotes = value.availabilityNotes === undefined ? cur?.availabilityNotes : value.availabilityNotes;
+  if (availabilityNotes === null || availabilityNotes === undefined || String(availabilityNotes).trim() === "") availabilityNotes = null;
+  else {
+    availabilityNotes = String(availabilityNotes).trim();
+    if (availabilityNotes.length > 2000) return { ok: false, error: "consumerDataSources.calendar.availabilityNotes must be <= 2000 chars" };
+  }
+
+  const connectedAt = normalizeIsoTimestampOrNull(
+    value.connectedAt === undefined ? cur?.connectedAt : value.connectedAt,
+    "consumerDataSources.calendar.connectedAt"
+  );
+  if (!connectedAt.ok) return connectedAt;
+  if (enabled && !timezone.value) return { ok: false, error: "consumerDataSources.calendar.timezone is required when enabled" };
+
+  return {
+    ok: true,
+    calendar: {
+      enabled,
+      provider,
+      address: address ?? null,
+      timezone: timezone.value,
+      availabilityNotes,
+      connectedAt: connectedAt.value
+    }
+  };
+}
+
+function normalizeConsumerDataSources(value, { current } = {}) {
+  if (value === undefined) return { ok: true, consumerDataSources: undefined };
+  if (value === null) return { ok: true, consumerDataSources: { ...defaultTenantSettings().consumerDataSources } };
+  if (!isPlainObject(value)) return { ok: false, error: "consumerDataSources must be an object or null" };
+
+  const cur = isPlainObject(current) ? current : defaultTenantSettings().consumerDataSources;
+  const email = normalizeConsumerDataSourceEmail(value.email, { current: cur?.email ?? null });
+  if (!email.ok) return email;
+  const calendar = normalizeConsumerDataSourceCalendar(value.calendar, { current: cur?.calendar ?? null });
+  if (!calendar.ok) return calendar;
+
+  return {
+    ok: true,
+    consumerDataSources: {
+      email: email.email ?? { ...defaultTenantSettings().consumerDataSources.email, ...(isPlainObject(cur?.email) ? cur.email : {}) },
+      calendar: calendar.calendar ?? { ...defaultTenantSettings().consumerDataSources.calendar, ...(isPlainObject(cur?.calendar) ? cur.calendar : {}) }
+    }
+  };
+}
+
 function normalizeAutoDecision(value, { current } = {}) {
   if (value === undefined) return { ok: true, autoDecision: undefined };
   if (value === null) return { ok: true, autoDecision: { ...defaultTenantSettings().autoDecision } };
@@ -713,6 +902,14 @@ function normalizeSettingsPatch(patch, { currentSettings }) {
   if (!buyerNotifications.ok) return buyerNotifications;
   if (buyerNotifications.buyerNotifications !== undefined) out.buyerNotifications = buyerNotifications.buyerNotifications;
 
+  const consumerInbox = normalizeConsumerInbox(patch.consumerInbox, { current: currentSettings?.consumerInbox ?? null });
+  if (!consumerInbox.ok) return consumerInbox;
+  if (consumerInbox.consumerInbox !== undefined) out.consumerInbox = consumerInbox.consumerInbox;
+
+  const consumerDataSources = normalizeConsumerDataSources(patch.consumerDataSources, { current: currentSettings?.consumerDataSources ?? null });
+  if (!consumerDataSources.ok) return consumerDataSources;
+  if (consumerDataSources.consumerDataSources !== undefined) out.consumerDataSources = consumerDataSources.consumerDataSources;
+
   const autoDecision = normalizeAutoDecision(patch.autoDecision, { current: currentSettings?.autoDecision ?? null });
   if (!autoDecision.ok) return autoDecision;
   if (autoDecision.autoDecision !== undefined) out.autoDecision = autoDecision.autoDecision;
@@ -924,6 +1121,12 @@ export function sanitizeTenantSettingsForApi(settings) {
       webhookSecret: null
     }
     : { ...defaultTenantSettings().buyerNotifications, webhookSecret: null };
+  out.consumerInbox = normalizeConsumerInbox(out.consumerInbox, {
+    current: defaultTenantSettings().consumerInbox
+  }).consumerInbox ?? { ...defaultTenantSettings().consumerInbox };
+  out.consumerDataSources = normalizeConsumerDataSources(out.consumerDataSources, {
+    current: defaultTenantSettings().consumerDataSources
+  }).consumerDataSources ?? { ...defaultTenantSettings().consumerDataSources };
   out.autoDecision = isPlainObject(out.autoDecision)
     ? {
       enabled: Boolean(out.autoDecision.enabled),
@@ -1028,6 +1231,21 @@ export async function saveTenantSettings({ dataDir, tenantId, settings, settings
     s.buyerNotifications = next;
   }
 
+  {
+    const normalizedConsumerInbox = normalizeConsumerInbox(s.consumerInbox, { current: defaultTenantSettings().consumerInbox });
+    s.consumerInbox = normalizedConsumerInbox.ok
+      ? normalizedConsumerInbox.consumerInbox
+      : { ...defaultTenantSettings().consumerInbox };
+  }
+  {
+    const normalizedConsumerDataSources = normalizeConsumerDataSources(s.consumerDataSources, {
+      current: defaultTenantSettings().consumerDataSources
+    });
+    s.consumerDataSources = normalizedConsumerDataSources.ok
+      ? normalizedConsumerDataSources.consumerDataSources
+      : { ...defaultTenantSettings().consumerDataSources };
+  }
+
   if (isPlainObject(s.paymentTriggers)) {
     const next = { ...defaultTenantSettings().paymentTriggers, ...s.paymentTriggers };
     const v = next.webhookSecret;
@@ -1096,6 +1314,20 @@ export function applyTenantSettingsPatch({ currentSettings, patch, settingsKey }
     else if (v.startsWith("enc:v1:")) row.webhookSecret = v;
     else if (settingsKey) row.webhookSecret = encryptStringAes256Gcm({ key: settingsKey, plaintext: v });
     next.buyerNotifications = row;
+  }
+  {
+    const normalizedConsumerInbox = normalizeConsumerInbox(next.consumerInbox, { current: defaultTenantSettings().consumerInbox });
+    next.consumerInbox = normalizedConsumerInbox.ok
+      ? normalizedConsumerInbox.consumerInbox
+      : { ...defaultTenantSettings().consumerInbox };
+  }
+  {
+    const normalizedConsumerDataSources = normalizeConsumerDataSources(next.consumerDataSources, {
+      current: defaultTenantSettings().consumerDataSources
+    });
+    next.consumerDataSources = normalizedConsumerDataSources.ok
+      ? normalizedConsumerDataSources.consumerDataSources
+      : { ...defaultTenantSettings().consumerDataSources };
   }
   if (isPlainObject(next.paymentTriggers)) {
     const row = { ...defaultTenantSettings().paymentTriggers, ...next.paymentTriggers };

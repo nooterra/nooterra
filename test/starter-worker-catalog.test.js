@@ -35,15 +35,18 @@ test("starter worker catalog: deriveStarterWorkerDraft is deterministic for a te
   });
 
   assert.deepEqual(draftA, draftB);
-  assert.equal(draftA.agentId, "agt_tenant_alpha_code_worker");
-  assert.equal(draftA.ownerId, "svc_tenant_alpha_code_worker");
-  assert.equal(draftA.endpoint, "https://workers.example.test/public/agt_tenant_alpha_code_worker");
+  assert.equal(draftA.agentId, "agt_tenant_alpha_comparison_concierge");
+  assert.equal(draftA.ownerId, "svc_tenant_alpha_comparison_concierge");
+  assert.equal(draftA.endpoint, "https://workers.example.test/public/agt_tenant_alpha_comparison_concierge");
   assert.deepEqual(draftA.capabilities, profile.capabilities);
   assert.deepEqual(draftA.tags, profile.tags);
+  assert.equal(draftA.metadata?.phase1ManagedNetwork?.profileId, profile.id);
+  assert.ok(Array.isArray(draftA.metadata?.phase1ManagedNetwork?.families));
+  assert.ok(draftA.metadata.phase1ManagedNetwork.families.length > 0);
 });
 
 test("starter worker catalog: format helpers expose profile text for studio forms", () => {
   const profile = starterWorkerProfiles[1];
-  assert.equal(formatStarterWorkerCapabilities(profile), "capability://code.test.run\ncapability://quality.review");
-  assert.equal(formatStarterWorkerTags(profile), "software, qa");
+  assert.equal(formatStarterWorkerCapabilities(profile), "capability://consumer.purchase.execute");
+  assert.equal(formatStarterWorkerTags(profile), "phase1, purchase, consumer");
 });

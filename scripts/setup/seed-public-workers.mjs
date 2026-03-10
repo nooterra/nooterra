@@ -5,6 +5,12 @@ import {
   starterWorkerProfiles,
   starterWorkerSetPresets
 } from "../../src/product/starter-worker-catalog.js";
+import {
+  buildStarterProviderManifest,
+  deriveStarterProviderDraft,
+  mintStarterProviderPublishProof,
+  resolvePublishProofKeyMaterial
+} from "../../src/product/starter-provider-catalog.js";
 
 function readArg(name) {
   const argv = process.argv.slice(2);
@@ -76,6 +82,18 @@ async function requestJson(baseUrl, pathname, { method = "GET", headers, body = 
   return parsed;
 }
 
+function readAbsoluteUrl(value, name) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  let parsed = null;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  return parsed.toString().replace(/\/+$/, "");
+}
+
 function generatePublicKeyPem() {
   const { publicKey } = generateKeyPairSync("ed25519");
   return publicKey.export({ type: "spki", format: "pem" }).toString();
@@ -104,18 +122,56 @@ async function main() {
   const apiKey = requireEnv("NOOTERRA_API_KEY");
   const tenantId = requireEnv("NOOTERRA_TENANT_ID");
   const endpointBaseUrl = String(process.env.NOOTERRA_STARTER_ENDPOINT_BASE_URL ?? readArg("--endpoint-base") ?? "").trim();
+  const includeProviders = process.argv.includes("--include-providers") || String(process.env.NOOTERRA_INCLUDE_STARTER_PROVIDERS ?? "").trim() === "1";
+  const providerBaseUrl = readAbsoluteUrl(
+    process.env.NOOTERRA_STARTER_PROVIDER_BASE_URL ?? readArg("--provider-base") ?? endpointBaseUrl,
+    "provider base URL"
+  );
+  const publishProofJwksUrl = readAbsoluteUrl(
+    process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_JWKS_URL ?? readArg("--publish-proof-jwks-url") ?? "",
+    "publish proof JWKS URL"
+  );
+  const providerContactUrl = readAbsoluteUrl(process.env.NOOTERRA_STARTER_PROVIDER_CONTACT_URL ?? readArg("--contact-url") ?? "", "contact URL");
+  const providerTermsUrl = readAbsoluteUrl(process.env.NOOTERRA_STARTER_PROVIDER_TERMS_URL ?? readArg("--terms-url") ?? "", "terms URL");
+  const publishProofKeyMaterial = includeProviders
+    ? resolvePublishProofKeyMaterial({
+        privateKeyPem: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_KEY_PEM ?? readArg("--publish-proof-key-pem") ?? null,
+        privateKeyFile: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_KEY_FILE ?? readArg("--publish-proof-key-file") ?? null
+      })
+    : null;
   const dryRun = process.argv.includes("--dry-run");
   const profiles = resolveProfiles();
 
   if (dryRun) {
     const plannedResults = profiles.map((profile) => {
       const draft = deriveStarterWorkerDraft(profile, { tenantId, endpointBaseUrl });
+      const providerDraft = includeProviders ? deriveStarterProviderDraft(profile, { tenantId, baseUrl: providerBaseUrl }) : null;
+      const providerManifest =
+        includeProviders && providerDraft && publishProofJwksUrl
+          ? buildStarterProviderManifest({
+              profile,
+              providerDraft,
+              publishProofJwksUrl,
+              contactUrl: providerContactUrl || null,
+              termsUrl: providerTermsUrl || null
+            })
+          : null;
       return {
         profileId: profile.id,
         agentId: draft.agentId,
         endpoint: draft.endpoint || null,
         capabilities: draft.capabilities,
-        tags: draft.tags
+        tags: draft.tags,
+        metadata: draft.metadata ?? null,
+        provider: providerDraft
+          ? {
+              providerId: providerDraft.providerId,
+              baseUrl: providerDraft.baseUrl || null,
+              toolId: providerDraft.toolId,
+              executionAdapterSummary: providerDraft.executionAdapterSummary || null,
+              manifest: providerManifest
+            }
+          : null
       };
     });
     process.stdout.write(
@@ -188,10 +244,59 @@ async function main() {
           currency: draft.priceCurrency,
           unit: draft.priceUnit
         },
-        tags: draft.tags
+        tags: draft.tags,
+        metadata: draft.metadata
       }
     });
     result.publishStatus = "published";
+    result.metadata = draft.metadata ?? null;
+
+    if (includeProviders) {
+      if (!providerBaseUrl) throw new Error("provider base URL is required when --include-providers is used");
+      if (!publishProofJwksUrl) throw new Error("publish proof JWKS URL is required when --include-providers is used");
+      if (!publishProofKeyMaterial) throw new Error("publish proof key material is required when --include-providers is used");
+      const providerDraft = deriveStarterProviderDraft(profile, { tenantId, baseUrl: providerBaseUrl });
+      const manifest = buildStarterProviderManifest({
+        profile,
+        providerDraft,
+        publishProofJwksUrl,
+        contactUrl: providerContactUrl || null,
+        termsUrl: providerTermsUrl || null
+      });
+      const publishProof = mintStarterProviderPublishProof({
+        manifest,
+        providerId: providerDraft.providerId,
+        privateKeyPem: publishProofKeyMaterial.privateKeyPem,
+        publicKeyPem: publishProofKeyMaterial.publicKeyPem,
+        keyId: publishProofKeyMaterial.keyId
+      }).token;
+      const publication = await requestJson(baseUrl, "/marketplace/providers/publish", {
+        method: "POST",
+        headers: buildHeaders({ tenantId, apiKey, idempotencyKey: `starter_provider_${providerDraft.providerId}` }),
+        body: {
+          providerId: providerDraft.providerId,
+          baseUrl: providerDraft.baseUrl,
+          manifest,
+          publishProof,
+          publishProofJwksUrl,
+          description: providerDraft.description,
+          tags: String(providerDraft.tags ?? "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          contactUrl: providerContactUrl || null,
+          termsUrl: providerTermsUrl || null
+        }
+      });
+      result.provider = {
+        providerId: providerDraft.providerId,
+        toolId: providerDraft.toolId,
+        status: publication?.publication?.status ?? null,
+        certified: publication?.publication?.certified === true,
+        providerRef: publication?.publication?.providerRef ?? null,
+        manifestHash: publication?.publication?.manifestHash ?? null
+      };
+    }
     results.push(result);
   }
 

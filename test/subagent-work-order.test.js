@@ -15,6 +15,11 @@ import {
   validateSubAgentCompletionReceiptV1,
   validateSubAgentWorkOrderV1
 } from "../src/core/subagent-work-order.js";
+import {
+  buildApprovalDecisionV1,
+  buildApprovalRequestV1,
+  buildAuthorityEnvelopeV1
+} from "../src/core/authority-envelope.js";
 
 test("sub-agent work order: deterministic completion receipt hash", () => {
   const workOrder = buildSubAgentWorkOrderV1({
@@ -158,6 +163,78 @@ test("sub-agent work order: fail-closed on invalid transitions", () => {
       at: "2026-02-23T00:01:00.000Z"
     })
   );
+});
+
+test("sub-agent work order: approval-managed fields are hash-bound and validated fail-closed", () => {
+  const authorityEnvelope = buildAuthorityEnvelopeV1({
+    envelopeId: "aenv_workord_1",
+    actor: { agentId: "agt_worker_approval_1" },
+    principalRef: { principalType: "agent", principalId: "agt_principal_approval_1" },
+    purpose: "Execute code review",
+    capabilitiesRequested: ["capability://code.review"],
+    dataClassesRequested: ["source_code"],
+    sideEffectsRequested: ["funds_commitment"],
+    spendEnvelope: { currency: "USD", maxPerCallCents: 500, maxTotalCents: 500 },
+    delegationRights: { mayDelegate: false, maxDepth: 0, allowedDelegateeAgentIds: [] },
+    downstreamRecipients: ["agt_worker_approval_1"],
+    reversibilityClass: "partially_reversible",
+    riskClass: "medium",
+    evidenceRequirements: ["approval_log", "receipt"],
+    createdAt: "2026-03-06T00:00:00.000Z"
+  });
+
+  const approvalRequest = buildApprovalRequestV1({
+    authorityEnvelope,
+    requestedBy: "agt_principal_approval_1",
+    requestedAt: "2026-03-06T00:00:10.000Z",
+    actionId: "act_workord_approval_1"
+  });
+
+  const approvalDecision = buildApprovalDecisionV1({
+    decisionId: "adec_workord_1",
+    requestId: approvalRequest.requestId,
+    envelopeHash: authorityEnvelope.envelopeHash,
+    actionId: approvalRequest.actionRef.actionId,
+    actionSha256: approvalRequest.actionRef.sha256,
+    decidedBy: "human.ops",
+    decidedAt: "2026-03-06T00:00:20.000Z",
+    approved: true,
+    evidenceRefs: ["ticket:NOO-209"]
+  });
+
+  const workOrder = buildSubAgentWorkOrderV1({
+    workOrderId: "workord_approval_fields_1",
+    tenantId: "tenant_default",
+    principalAgentId: "agt_principal_approval_1",
+    subAgentId: "agt_worker_approval_1",
+    requiredCapability: "capability://code.review",
+    specification: { prompt: "check approval fields" },
+    pricing: { model: "fixed", amountCents: 500, currency: "USD" },
+    authorityEnvelope,
+    approvalRequest,
+    approvalDecision,
+    createdAt: "2026-03-06T00:00:00.000Z"
+  });
+
+  assert.equal(workOrder.authorityEnvelope?.envelopeHash, authorityEnvelope.envelopeHash);
+  assert.equal(workOrder.approvalRequest?.requestId, approvalRequest.requestId);
+  assert.equal(validateSubAgentWorkOrderV1(workOrder), true);
+
+  const tampered = {
+    ...workOrder,
+    approvalDecision: buildApprovalDecisionV1({
+      decisionId: workOrder.approvalDecision.decisionId,
+      requestId: "apr_wrong",
+      envelopeHash: authorityEnvelope.envelopeHash,
+      actionId: approvalRequest.actionRef.actionId,
+      actionSha256: approvalRequest.actionRef.sha256,
+      decidedBy: workOrder.approvalDecision.decidedBy,
+      decidedAt: workOrder.approvalDecision.decidedAt,
+      approved: workOrder.approvalDecision.approved,
+      evidenceRefs: workOrder.approvalDecision.evidenceRefs
+    })
+  };
+  assert.throws(() => validateSubAgentWorkOrderV1(tampered), /approvalDecision\.requestId must match workOrder\.approvalRequest\.requestId/i);
 });
 
 test("sub-agent work order: fail-closed when settlement exceeds constraints.maxCostCents", () => {

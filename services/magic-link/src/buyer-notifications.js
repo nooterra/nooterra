@@ -162,6 +162,99 @@ function buildEmailText({ recipient, summary }) {
   return lines.join("\n");
 }
 
+function buildInboxTestText({ recipient, summary }) {
+  const lines = [];
+  lines.push("Nooterra inbox delivery test");
+  lines.push("");
+  lines.push(`Tenant: ${summary.tenantId}`);
+  lines.push(`Token: ${summary.token}`);
+  lines.push(`Recipient: ${recipient}`);
+  lines.push(`Status: ${summary.statusLabel}`);
+  if (summary.magicLinkUrl) lines.push(`Open inbox: ${summary.magicLinkUrl}`);
+  lines.push("");
+  lines.push("This is a delivery test generated from the buyer notification settings page.");
+  return lines.join("\n");
+}
+
+const PRODUCT_NOTIFICATION_EVENT_LABELS = {
+  "approval.required": "Approval required",
+  "information.required": "Information required",
+  "receipt.ready": "Receipt ready",
+  "run.update": "Run update",
+  "dispute.update": "Dispute update"
+};
+
+function normalizeBuyerProductDeepLinkPath(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw.length > 2000 || !raw.startsWith("/")) return null;
+  if (/^\/approvals(?:[/?#]|$)/.test(raw)) return raw;
+  if (/^\/receipts(?:[/?#]|$)/.test(raw)) return raw;
+  if (/^\/runs\/[a-zA-Z0-9_-]+(?:[/?#]|$)/.test(raw)) return raw;
+  if (/^\/disputes(?:[/?#]|$)/.test(raw)) return raw;
+  return null;
+}
+
+function normalizeBuyerProductNotificationPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, error: "payload must be an object" };
+  }
+  const eventTypeRaw = String(payload.eventType ?? "").trim().toLowerCase().replaceAll("_", ".");
+  if (!PRODUCT_NOTIFICATION_EVENT_LABELS[eventTypeRaw]) {
+    return { ok: false, error: "eventType must be approval.required, information.required, receipt.ready, run.update, or dispute.update" };
+  }
+  const title = String(payload.title ?? "").trim();
+  if (!title || title.length > 160) return { ok: false, error: "title must be 1-160 chars" };
+  const detail = String(payload.detail ?? "").trim();
+  if (!detail || detail.length > 1000) return { ok: false, error: "detail must be 1-1000 chars" };
+  const deepLinkPath = normalizeBuyerProductDeepLinkPath(payload.deepLinkPath);
+  if (!deepLinkPath) return { ok: false, error: "deepLinkPath must be a supported internal route" };
+  const itemRef = payload.itemRef && typeof payload.itemRef === "object" && !Array.isArray(payload.itemRef) ? payload.itemRef : {};
+  const requestId = typeof itemRef.requestId === "string" ? itemRef.requestId.trim() : "";
+  const receiptId = typeof itemRef.receiptId === "string" ? itemRef.receiptId.trim() : "";
+  const runId = typeof itemRef.runId === "string" ? itemRef.runId.trim() : "";
+  const disputeId = typeof itemRef.disputeId === "string" ? itemRef.disputeId.trim() : "";
+  const caseId = typeof itemRef.caseId === "string" ? itemRef.caseId.trim() : "";
+  if (eventTypeRaw === "approval.required" && !requestId) return { ok: false, error: "approval.required requires itemRef.requestId" };
+  if (eventTypeRaw === "information.required" && !runId) return { ok: false, error: "information.required requires itemRef.runId" };
+  if (eventTypeRaw === "receipt.ready" && !receiptId) return { ok: false, error: "receipt.ready requires itemRef.receiptId" };
+  if (eventTypeRaw === "run.update" && !runId) return { ok: false, error: "run.update requires itemRef.runId" };
+  if (eventTypeRaw === "dispute.update" && !disputeId) return { ok: false, error: "dispute.update requires itemRef.disputeId" };
+  return {
+    ok: true,
+    payload: {
+      eventType: eventTypeRaw,
+      title,
+      detail,
+      deepLinkPath,
+      itemRef: {
+        ...(requestId ? { requestId } : {}),
+        ...(receiptId ? { receiptId } : {}),
+        ...(runId ? { runId } : {}),
+        ...(disputeId ? { disputeId } : {}),
+        ...(caseId ? { caseId } : {})
+      }
+    }
+  };
+}
+
+function buildBuyerProductNotificationText({ recipient, message }) {
+  const lines = [];
+  lines.push(`Nooterra ${PRODUCT_NOTIFICATION_EVENT_LABELS[message.payload.eventType]}`);
+  lines.push("");
+  lines.push(`Title: ${message.payload.title}`);
+  lines.push(`Summary: ${message.payload.detail}`);
+  if (message.payload.itemRef.requestId) lines.push(`Approval request: ${message.payload.itemRef.requestId}`);
+  if (message.payload.itemRef.receiptId) lines.push(`Receipt: ${message.payload.itemRef.receiptId}`);
+  if (message.payload.itemRef.runId) lines.push(`Run: ${message.payload.itemRef.runId}`);
+  if (message.payload.itemRef.disputeId) lines.push(`Dispute: ${message.payload.itemRef.disputeId}`);
+  if (message.payload.itemRef.caseId) lines.push(`Case: ${message.payload.itemRef.caseId}`);
+  lines.push(`Open: ${message.summary.magicLinkUrl}`);
+  lines.push(`Recipient: ${recipient}`);
+  lines.push("");
+  lines.push("This notification was generated from a live Nooterra product event.");
+  return lines.join("\n");
+}
+
 function createNotificationSummary({ tenantId, token, runId, publicSummary, cliOut, magicLinkUrl }) {
   const status = statusFromCliOut(cliOut);
   const vendorName =
@@ -200,21 +293,126 @@ function notificationRecipients(tenantSettings) {
   return [...new Set(out)].sort();
 }
 
-export async function sendBuyerVerificationNotifications({
+function normalizeDeliveryMode(tenantSettings) {
+  const modeRaw = tenantSettings?.buyerNotifications?.deliveryMode;
+  return String(modeRaw ?? "smtp").trim().toLowerCase();
+}
+
+function createBuyerInboxTestMessage({ tenantId, publicBaseUrl, token = null } = {}) {
+  const normalizedTenantId = String(tenantId ?? "").trim() || "tenant_default";
+  const normalizedToken =
+    typeof token === "string" && token.trim()
+      ? token.trim()
+      : `notif_test_${sha256Hex(`${normalizedTenantId}\n${nowIso()}`).slice(0, 24)}`;
+  const base = String(publicBaseUrl ?? "").trim().replace(/\/+$/, "");
+  const magicLinkUrl = base ? `${base}/inbox?notification=test` : "/inbox?notification=test";
+  const summary = {
+    tenantId: normalizedTenantId,
+    token: normalizedToken,
+    runId: null,
+    status: "green",
+    statusLabel: "Inbox Test Ready",
+    vendorName: "Nooterra Inbox",
+    invoiceId: null,
+    evidenceCount: 1,
+    netPayable: null,
+    magicLinkUrl
+  };
+  return {
+    token: normalizedToken,
+    subject: "Nooterra inbox delivery test",
+    summary,
+    renderText(recipient) {
+      return buildInboxTestText({ recipient, summary });
+    }
+  };
+}
+
+function createBuyerProductNotificationMessage({ tenantId, publicBaseUrl, payload, token = null } = {}) {
+  const normalized = normalizeBuyerProductNotificationPayload(payload);
+  if (!normalized.ok) return normalized;
+  const normalizedTenantId = String(tenantId ?? "").trim() || "tenant_default";
+  const issuedAt = nowIso();
+  const eventRef =
+    normalized.payload.itemRef.requestId ??
+    normalized.payload.itemRef.receiptId ??
+    normalized.payload.itemRef.runId ??
+    normalized.payload.itemRef.disputeId ??
+    normalized.payload.itemRef.caseId ??
+    normalized.payload.title;
+  const normalizedToken =
+    typeof token === "string" && token.trim()
+      ? token.trim()
+      : `notif_product_${sha256Hex(`${normalizedTenantId}\n${normalized.payload.eventType}\n${eventRef}\n${issuedAt}`).slice(0, 24)}`;
+  const base = String(publicBaseUrl ?? "").trim().replace(/\/+$/, "");
+  const magicLinkUrl = base ? `${base}${normalized.payload.deepLinkPath}` : normalized.payload.deepLinkPath;
+  const summary = {
+    tenantId: normalizedTenantId,
+    token: normalizedToken,
+    runId: normalized.payload.itemRef.runId || null,
+    status: "green",
+    statusLabel: PRODUCT_NOTIFICATION_EVENT_LABELS[normalized.payload.eventType],
+    vendorName: "Nooterra",
+    invoiceId: null,
+    evidenceCount: null,
+    netPayable: null,
+    magicLinkUrl
+  };
+  return {
+    ok: true,
+    token: normalizedToken,
+    payload: normalized.payload,
+    subject: `Nooterra ${PRODUCT_NOTIFICATION_EVENT_LABELS[normalized.payload.eventType]}: ${normalized.payload.title}`,
+    summary,
+    renderText(recipient) {
+      return buildBuyerProductNotificationText({ recipient, message: { payload: normalized.payload, summary } });
+    }
+  };
+}
+
+export function buildBuyerNotificationPreview({
+  tenantSettings,
+  subject,
+  summary,
+  renderText,
+  deliveryEvent = "verification.email"
+} = {}) {
+  const recipients = notificationRecipients(tenantSettings);
+  const deliveryMode = normalizeDeliveryMode(tenantSettings);
+  const webhookUrl = typeof tenantSettings?.buyerNotifications?.webhookUrl === "string" ? tenantSettings.buyerNotifications.webhookUrl.trim() : "";
+  const webhookSecretPresent = Boolean(tenantSettings?.buyerNotifications?.webhookSecret);
+  const sampleRecipient = recipients[0] ?? "buyer@example.com";
+  const text = typeof renderText === "function" ? renderText(sampleRecipient) : "";
+  return {
+    schemaVersion: "MagicLinkBuyerNotificationPreview.v1",
+    deliveryEvent,
+    deliveryMode,
+    recipients,
+    subject: String(subject ?? "").trim(),
+    sampleRecipient,
+    summary,
+    text,
+    webhookUrl: webhookUrl || null,
+    webhookSecretConfigured: webhookSecretPresent
+  };
+}
+
+async function deliverBuyerNotification({
   dataDir,
   tenantId,
   token,
   runId = null,
   tenantSettings,
-  publicSummary,
-  cliOut,
-  magicLinkUrl,
+  subject,
+  summary,
+  deliveryEvent = "verification.email",
+  renderText,
   smtpConfig,
   settingsKey,
   timeoutMs = 5_000
 } = {}) {
   const recipients = notificationRecipients(tenantSettings);
-  if (!recipients.length) return { ok: true, skipped: true, reason: "NO_RECIPIENTS", recipients: [] };
+  if (!recipients.length) return { ok: false, skipped: true, reason: "NO_RECIPIENTS", recipients: [] };
 
   const runIdNorm = normalizeRunId(runId);
 
@@ -238,29 +436,28 @@ export async function sendBuyerVerificationNotifications({
     }
   }
 
-  const modeRaw = tenantSettings?.buyerNotifications?.deliveryMode;
-  const deliveryMode = String(modeRaw ?? "smtp").trim().toLowerCase();
+  const deliveryMode = normalizeDeliveryMode(tenantSettings);
   if (deliveryMode !== "smtp" && deliveryMode !== "webhook" && deliveryMode !== "record") {
     return { ok: false, skipped: true, reason: "INVALID_DELIVERY_MODE", deliveryMode };
   }
 
-  const summary = createNotificationSummary({ tenantId, token, runId: runIdNorm, publicSummary, cliOut, magicLinkUrl });
-  const subject = `Nooterra verification ready: ${summary.statusLabel}`;
   const webhookUrl = typeof tenantSettings?.buyerNotifications?.webhookUrl === "string" ? tenantSettings.buyerNotifications.webhookUrl.trim() : "";
   const webhookSecret = decryptStoredSecret({ settingsKey, storedSecret: tenantSettings?.buyerNotifications?.webhookSecret });
   const results = [];
 
   for (const recipient of recipients) {
+    const text = typeof renderText === "function" ? renderText(recipient) : "";
     if (deliveryMode === "record") {
       const out = {
         schemaVersion: "MagicLinkBuyerNotificationOutbox.v1",
+        eventType: deliveryEvent,
         createdAt: nowIso(),
         tenantId,
         token,
         recipient,
         subject,
         summary,
-        text: buildEmailText({ recipient, summary })
+        text
       };
       const fp = outboxPath({ dataDir, tenantId, token, recipient });
       await fs.mkdir(path.dirname(fp), { recursive: true });
@@ -282,7 +479,7 @@ export async function sendBuyerVerificationNotifications({
           from,
           to: recipient,
           subject,
-          text: buildEmailText({ recipient, summary }),
+          text,
           timeoutMs
         });
         results.push({ ok: true, recipient, mode: deliveryMode });
@@ -298,19 +495,20 @@ export async function sendBuyerVerificationNotifications({
     }
     const payload = {
       schemaVersion: "MagicLinkBuyerNotificationWebhook.v1",
+      eventType: deliveryEvent,
       sentAt: nowIso(),
       tenantId,
       token,
       recipient,
       subject,
       summary,
-      text: buildEmailText({ recipient, summary })
+      text
     };
     const body = JSON.stringify(payload);
     const headers = {
       "content-type": "application/json; charset=utf-8",
       "content-length": String(Buffer.byteLength(body, "utf8")),
-      "x-nooterra-notification-event": "verification.email"
+      "x-nooterra-notification-event": deliveryEvent
     };
     if (webhookSecret) {
       const ts = new Date().toISOString();
@@ -330,6 +528,7 @@ export async function sendBuyerVerificationNotifications({
 
   const state = {
     schemaVersion: "MagicLinkBuyerNotificationState.v1",
+    eventType: deliveryEvent,
     tenantId,
     token,
     runId: runIdNorm,
@@ -360,6 +559,132 @@ export async function sendBuyerVerificationNotifications({
     });
   }
   return state;
+}
+
+export async function sendBuyerVerificationNotifications({
+  dataDir,
+  tenantId,
+  token,
+  runId = null,
+  tenantSettings,
+  publicSummary,
+  cliOut,
+  magicLinkUrl,
+  smtpConfig,
+  settingsKey,
+  timeoutMs = 5_000
+} = {}) {
+  const runIdNorm = normalizeRunId(runId);
+  const summary = createNotificationSummary({ tenantId, token, runId: runIdNorm, publicSummary, cliOut, magicLinkUrl });
+  return await deliverBuyerNotification({
+    dataDir,
+    tenantId,
+    token,
+    runId: runIdNorm,
+    tenantSettings,
+    subject: `Nooterra verification ready: ${summary.statusLabel}`,
+    summary,
+    deliveryEvent: "verification.email",
+    renderText: (recipient) => buildEmailText({ recipient, summary }),
+    smtpConfig,
+    settingsKey,
+    timeoutMs
+  });
+}
+
+export function buildBuyerNotificationTestPreview({
+  tenantId,
+  tenantSettings,
+  publicBaseUrl
+} = {}) {
+  const message = createBuyerInboxTestMessage({ tenantId, publicBaseUrl, token: `notif_test_preview_${sha256Hex(String(tenantId ?? "")).slice(0, 12)}` });
+  return buildBuyerNotificationPreview({
+    tenantSettings,
+    subject: message.subject,
+    summary: message.summary,
+    deliveryEvent: "buyer.notification.test",
+    renderText: message.renderText
+  });
+}
+
+export function buildBuyerProductNotificationPreview({
+  tenantId,
+  tenantSettings,
+  publicBaseUrl,
+  payload
+} = {}) {
+  const message = createBuyerProductNotificationMessage({
+    tenantId,
+    publicBaseUrl,
+    payload,
+    token: `notif_product_preview_${sha256Hex(`${tenantId ?? "tenant_default"}\n${JSON.stringify(payload ?? {})}`).slice(0, 12)}`
+  });
+  if (!message.ok) return message;
+  return {
+    ok: true,
+    preview: buildBuyerNotificationPreview({
+      tenantSettings,
+      subject: message.subject,
+      summary: message.summary,
+      deliveryEvent: message.payload.eventType,
+      renderText: message.renderText
+    })
+  };
+}
+
+export async function sendBuyerNotificationTest({
+  dataDir,
+  tenantId,
+  tenantSettings,
+  publicBaseUrl,
+  smtpConfig,
+  settingsKey,
+  timeoutMs = 5_000
+} = {}) {
+  const message = createBuyerInboxTestMessage({ tenantId, publicBaseUrl });
+  return await deliverBuyerNotification({
+    dataDir,
+    tenantId,
+    token: message.token,
+    runId: null,
+    tenantSettings,
+    subject: message.subject,
+    summary: message.summary,
+    deliveryEvent: "buyer.notification.test",
+    renderText: message.renderText,
+    smtpConfig,
+    settingsKey,
+    timeoutMs
+  });
+}
+
+export async function sendBuyerProductNotification({
+  dataDir,
+  tenantId,
+  tenantSettings,
+  publicBaseUrl,
+  token = null,
+  payload,
+  smtpConfig,
+  settingsKey,
+  timeoutMs = 5_000
+} = {}) {
+  const message = createBuyerProductNotificationMessage({ tenantId, publicBaseUrl, payload, token });
+  if (!message.ok) return { ok: false, skipped: true, reason: "INVALID_PRODUCT_EVENT", error: message.error ?? "invalid payload" };
+  return await deliverBuyerNotification({
+    dataDir,
+    tenantId,
+    token: message.token,
+    runId: message.payload.itemRef.runId || null,
+    tenantSettings,
+    subject: message.subject,
+    summary: message.summary,
+    deliveryEvent: message.payload.eventType,
+    renderText: message.renderText,
+    smtpConfig,
+    settingsKey,
+    timeoutMs
+  });
 }
 
 export async function loadLatestBuyerNotificationStatusBestEffort({ dataDir, tenantId } = {}) {

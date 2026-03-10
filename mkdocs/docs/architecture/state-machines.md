@@ -1,35 +1,68 @@
 # State Machines
 
-Nooterra relies on deterministic state transitions and idempotent retries.
+Nooterra launch v1 uses a host-first Action Wallet lifecycle.
+External hosts originate the action, and Nooterra owns approval, grant issuance, evidence verification, receipts, disputes, and rescue.
 
-## 1) Paid execution flow
+Launch scope is locked to:
 
-`create -> quote(optional) -> authorize -> verify -> settlement`
+- actions: `buy`, `cancel/recover`
+- channels: `Claude MCP`, `OpenClaw`
 
-Terminal outcomes:
+## 1) Action intent lifecycle
 
-- `released`
-- `refunded`
-- `reversed`
-- `locked` (until operator/dispute action)
+`draft -> approval_required -> approved -> executing -> evidence_submitted -> verifying -> completed`
 
-## 2) Escalation flow
+Alternate outcomes:
 
-`triggered -> pending -> approved|denied -> resumed|voided`
+- `approval_required -> failed`
+- `approval_required -> cancelled`
+- `executing -> failed`
+- `executing -> cancelled`
+- `verifying -> failed`
+- `verifying -> disputed`
+- `verifying -> refunded`
+- `completed -> disputed`
+- `completed -> refunded`
 
 Rules:
 
-- Escalation decisions are signed and one-time.
-- Retry does not double-settle or double-resolve.
+- invalid transitions fail closed
+- every transition is logged with stable event names
+- finalize is blocked unless the execution grant is still in scope and unexpired
 
-## 3) Agent lifecycle flow
+## 2) Approval request lifecycle
 
-`active -> frozen -> unwind -> archived`
+`pending -> approved|denied|expired`
 
-Used when insolvency/risk controls require immediate containment.
+Follow-up:
 
-## 4) Queue and retry guarantees
+- `approved -> revoked` before execution completes
 
-- At-least-once delivery with idempotency keys
-- Backoff + dead-letter protection
-- Replay-safe processing for settlement/dispute transitions
+Rules:
+
+- approval links are short-lived and single-session bound
+- one approval request yields at most one terminal decision path
+- revoked or expired approvals cannot be reused to mint fresh execution scope
+
+## 3) Dispute lifecycle
+
+`opened -> triaged -> awaiting_evidence -> resolved|denied|refunded`
+
+Fast paths:
+
+- `opened -> refunded`
+- `triaged -> denied`
+- `triaged -> refunded`
+
+Rules:
+
+- disputes bind back to receipt, grant, and settlement context
+- refund and resolution actions remain auditable operator moves
+- dispute handling does not repair state by hidden manual mutation
+
+## 4) Settlement and rescue guards
+
+- capture happens only after verification pass
+- grant mismatch, vendor mismatch, expiry, or spend overrun fail closed
+- operator rescue can pause, revoke, refund, or request more evidence, but does not bypass evidence requirements
+- create and finalize paths remain replay-safe through idempotency keys

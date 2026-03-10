@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ActionReceipt.v1.schema.json",
+  "title": "ActionReceipt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "receiptId",
+    "workOrderId",
+    "status",
+    "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ActionReceipt.v1" },
+    "receiptId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "workOrderId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "status": { "type": "string", "enum": ["success", "failed"] },
+    "deliveredAt": { "type": ["string", "null"], "format": "date-time" },
+    "traceId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "originatingApproval": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["approvalRequestRef", "approvalDecisionRef"],
+      "properties": {
+        "approvalRequestRef": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["requestId", "requestHash"],
+          "properties": {
+            "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "requestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "approvalDecisionRef": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["decisionId", "decisionHash", "approved", "decidedAt"],
+          "properties": {
+            "decisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "decisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "approved": { "type": "boolean" },
+            "decidedAt": { "type": ["string", "null"], "format": "date-time" }
+          }
+        }
+      }
+    },
+    "executionGrantRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["executionGrantId", "status", "grantNonce", "workOrderId"],
+      "properties": {
+        "executionGrantId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "grantHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "status": { "type": "string", "enum": ["pending", "approval_requested", "approved", "denied", "materialized"] },
+        "grantNonce": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "workOrderId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "evidenceBundle": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["evidenceRefs", "evidenceCount", "executionAttestationRef"],
+      "properties": {
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "evidenceCount": { "type": "integer", "minimum": 0 },
+        "evidenceBundleHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "executionAttestationRef": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["attestationId", "attestationHash"],
+          "properties": {
+            "attestationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "attestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "executionAttestation": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "receiptHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "settlementState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["status", "providerStatus", "runId", "settlementId", "receiptId", "settledAt"],
+      "properties": {
+        "status": { "type": ["string", "null"], "enum": ["locked", "released", "refunded", null] },
+        "providerStatus": { "type": ["string", "null"], "minLength": 1, "maxLength": 64 },
+        "runId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "settlementId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "receiptId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "settledAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "verifierVerdict": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["status", "verificationStatus", "verifierRef", "reasonCodes"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pass", "attention_required"] },
+        "verificationStatus": { "type": ["string", "null"], "enum": ["green", "amber", "red", null] },
+        "verifierRef": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["verifierId", "verifierVersion", "verifierHash", "modality"],
+          "properties": {
+            "verifierId": { "type": ["string", "null"], "maxLength": 200 },
+            "verifierVersion": { "type": ["string", "null"], "maxLength": 100 },
+            "verifierHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "modality": { "type": ["string", "null"], "enum": ["deterministic", "attested", "discretionary", null] }
+          }
+        },
+        "reasonCodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "disputeState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["status", "disputeId", "caseId", "openedAt", "closedAt"],
+      "properties": {
+        "status": { "type": "string", "enum": ["none", "open", "closed"] },
+        "disputeId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "caseId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "openedAt": { "type": ["string", "null"], "format": "date-time" },
+        "closedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "settlement": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "integrityStatus": { "type": ["string", "null"], "enum": ["verified", "attention_required", null] },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "message": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "severity": { "type": ["string", "null"], "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

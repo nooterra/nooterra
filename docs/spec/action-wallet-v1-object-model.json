@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "ActionWalletObjectModel.v1",
+  "freezeRef": {
+    "schemaVersion": "ActionWalletV1Freeze.v1",
+    "path": "docs/spec/action-wallet-v1-freeze.json"
+  },
+  "objects": [
+    {
+      "name": "Action Intent",
+      "schemaVersion": "ActionIntent.v1",
+      "schemaDoc": "docs/spec/ActionIntent.v1.md",
+      "schemaJson": "docs/spec/schemas/ActionIntent.v1.schema.json",
+      "canonicalSubstrates": ["AuthorityEnvelope.v1"],
+      "runtimeBindings": [
+        "src/api/app.js#buildActionIntentAliasV1",
+        "src/core/authority-envelope.js#buildAuthorityEnvelopeV1"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["authorityEnvelopes"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "authority_envelope", "accessors": ["getAuthorityEnvelope", "listAuthorityEnvelopes"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/action-intents", "GET /v1/action-intents/{actionIntentId}"],
+      "openQuestions": []
+    },
+    {
+      "name": "Approval Request",
+      "schemaVersion": "ApprovalRequest.v1",
+      "schemaDoc": "docs/spec/ApprovalRequest.v1.md",
+      "schemaJson": "docs/spec/schemas/ApprovalRequest.v1.schema.json",
+      "canonicalSubstrates": ["ApprovalRequest.v1"],
+      "runtimeBindings": [
+        "src/core/authority-envelope.js#buildApprovalRequestV1",
+        "src/api/app.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": false,
+        "inMemoryMaps": ["approvalRequests"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "approval_request", "accessors": ["getApprovalRequest", "listApprovalRequests"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/action-intents/{actionIntentId}/approval-requests", "GET /v1/approval-requests/{requestId}"],
+      "openQuestions": []
+    },
+    {
+      "name": "Approval Decision",
+      "schemaVersion": "ApprovalDecision.v1",
+      "schemaDoc": "docs/spec/ApprovalDecision.v1.md",
+      "schemaJson": "docs/spec/schemas/ApprovalDecision.v1.schema.json",
+      "canonicalSubstrates": ["ApprovalDecision.v1"],
+      "runtimeBindings": [
+        "src/core/authority-envelope.js#buildApprovalDecisionV1",
+        "src/api/app.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": false,
+        "inMemoryMaps": ["approvalDecisions"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "approval_decision", "accessors": ["getApprovalDecision", "listApprovalDecisions"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/approval-requests/{requestId}/decisions"],
+      "openQuestions": []
+    },
+    {
+      "name": "Execution Grant",
+      "schemaVersion": "ExecutionGrant.v1",
+      "schemaDoc": "docs/spec/ExecutionGrant.v1.md",
+      "schemaJson": "docs/spec/schemas/ExecutionGrant.v1.schema.json",
+      "canonicalSubstrates": ["ApprovalContinuation.v1", "SubAgentWorkOrder.v1"],
+      "runtimeBindings": [
+        "src/api/app.js#buildExecutionGrantAliasV1",
+        "src/api/app.js#resolveExecutionGrantAliasContext"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["approvalRequests", "approvalDecisions", "approvalContinuations", "subAgentWorkOrders", "authorityEnvelopes"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "approval_request", "accessors": ["getApprovalRequest", "listApprovalRequests"] },
+          { "kind": "snapshots", "aggregateType": "approval_decision", "accessors": ["getApprovalDecision", "listApprovalDecisions"] },
+          { "kind": "snapshots", "aggregateType": "approval_continuation", "accessors": ["getApprovalContinuation"] },
+          { "kind": "snapshots", "aggregateType": "sub_agent_work_order", "accessors": ["getSubAgentWorkOrder", "listSubAgentWorkOrders"] },
+          { "kind": "snapshots", "aggregateType": "authority_envelope", "accessors": ["getAuthorityEnvelope", "listAuthorityEnvelopes"] }
+        ]
+      },
+      "routeSurface": ["GET /v1/execution-grants/{executionGrantId}"],
+      "openQuestions": []
+    },
+    {
+      "name": "Evidence Bundle",
+      "schemaVersion": "EvidenceBundle.v1",
+      "schemaDoc": "docs/spec/EvidenceBundle.v1.md",
+      "schemaJson": "docs/spec/schemas/EvidenceBundle.v1.schema.json",
+      "canonicalSubstrates": ["SubAgentWorkOrder.v1", "SubAgentCompletionReceipt.v1"],
+      "runtimeBindings": [
+        "src/api/app.js",
+        "test/api-e2e-action-wallet-v1.test.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["subAgentWorkOrders", "subAgentCompletionReceipts"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "sub_agent_work_order", "accessors": ["getSubAgentWorkOrder", "listSubAgentWorkOrders"] },
+          { "kind": "snapshots", "aggregateType": "sub_agent_completion_receipt", "accessors": ["getSubAgentCompletionReceipt", "listSubAgentCompletionReceipts"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/execution-grants/{executionGrantId}/evidence", "POST /v1/execution-grants/{executionGrantId}/finalize"],
+      "openQuestions": []
+    },
+    {
+      "name": "Receipt",
+      "schemaVersion": "ActionReceipt.v1",
+      "schemaDoc": "docs/spec/ActionReceipt.v1.md",
+      "schemaJson": "docs/spec/schemas/ActionReceipt.v1.schema.json",
+      "canonicalSubstrates": ["SubAgentCompletionReceipt.v1", "SettlementReceipt.v1"],
+      "runtimeBindings": [
+        "src/api/app.js#buildActionReceiptAliasV1",
+        "src/api/app.js#buildSubAgentCompletionReceiptDetailRecord"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["subAgentCompletionReceipts", "agentRunSettlements"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "sub_agent_completion_receipt", "accessors": ["getSubAgentCompletionReceipt", "listSubAgentCompletionReceipts"] },
+          { "kind": "table", "table": "agent_run_settlements", "accessors": ["getAgentRunSettlement", "listAgentRunSettlements"] }
+        ]
+      },
+      "routeSurface": ["GET /v1/receipts/{receiptId}"],
+      "openQuestions": []
+    },
+    {
+      "name": "Dispute Case",
+      "schemaVersion": "DisputeCase.v1",
+      "schemaDoc": "docs/spec/DisputeCase.v1.md",
+      "schemaJson": "docs/spec/schemas/DisputeCase.v1.schema.json",
+      "canonicalSubstrates": ["ArbitrationCase.v1", "AgentRunSettlement.v1"],
+      "runtimeBindings": [
+        "src/api/app.js#buildDisputeCaseAliasV1",
+        "src/core/dispute-open-envelope.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["arbitrationCases", "agentRunSettlements"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "arbitration_case", "accessors": ["getArbitrationCase", "listArbitrationCases"] },
+          { "kind": "table", "table": "agent_run_settlements", "accessors": ["getAgentRunSettlement", "listAgentRunSettlements"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/disputes", "GET /v1/disputes/{id}"],
+      "openQuestions": []
+    },
+    {
+      "name": "Standing Rule",
+      "schemaVersion": "ApprovalStandingPolicy.v1",
+      "schemaDoc": "docs/spec/ApprovalStandingPolicy.v1.md",
+      "schemaJson": "docs/spec/schemas/ApprovalStandingPolicy.v1.schema.json",
+      "canonicalSubstrates": ["ApprovalStandingPolicy.v1"],
+      "runtimeBindings": [
+        "src/core/approval-standing-policy.js",
+        "src/api/app.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": false,
+        "inMemoryMaps": ["approvalStandingPolicies"],
+        "pgSources": [
+          { "kind": "snapshots", "aggregateType": "approval_standing_policy", "accessors": ["getApprovalStandingPolicy", "listApprovalStandingPolicies"] }
+        ]
+      },
+      "routeSurface": ["/wallet", "/approvals", "/integrations"],
+      "openQuestions": []
+    },
+    {
+      "name": "Settlement Event",
+      "schemaVersion": "SettlementEvent.v1",
+      "schemaDoc": "docs/spec/SettlementEvent.v1.md",
+      "schemaJson": "docs/spec/schemas/SettlementEvent.v1.schema.json",
+      "canonicalSubstrates": ["AgentRunSettlement.v1", "SettlementReceipt.v1"],
+      "runtimeBindings": [
+        "src/core/agent-wallets.js",
+        "src/api/app.js"
+      ],
+      "persistenceBinding": {
+        "derivedAtReadTime": true,
+        "inMemoryMaps": ["agentRunSettlements"],
+        "pgSources": [
+          { "kind": "table", "table": "agent_run_settlements", "accessors": ["getAgentRunSettlement", "listAgentRunSettlements"] }
+        ]
+      },
+      "routeSurface": ["POST /v1/execution-grants/{executionGrantId}/finalize", "GET /v1/receipts/{receiptId}"],
+      "openQuestions": []
+    }
+  ]
+}

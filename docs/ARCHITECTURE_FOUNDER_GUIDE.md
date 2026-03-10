@@ -7,6 +7,13 @@ Status date: February 12, 2026
 This is the founder-level map of what Nooterra is actually building, what is already true in code, and what is still planned.  
 It is intentionally opinionated: if a claim is not enforced by code/tests/conformance, it is not treated as shipped truth.
 
+## March 9 scope correction
+
+Launch v1 is the host-first Action Wallet control plane.
+External hosts execute.
+Nooterra owns hosted approval, scoped grants, evidence, receipts, disputes, and operator recovery.
+Nooterra-owned last-mile execution, certified execution adapters, and browser fallback are `Phase 1.5+`.
+
 ---
 
 ## 1) What Nooterra is
@@ -176,16 +183,16 @@ Evidence anchor:
 - `scripts/ci/cli-pack-smoke.mjs`
 - `.github/workflows/release.yml`
 
-## 4.4 Dashboard remains primarily fixture-driven
+## 4.4 Dashboard has moved to the product shell, with operator tooling still specialized
 
 Gap theme:
 
-- The dashboard experience is still largely driven by demo fixtures and static exports; live API streaming console remains roadmap work
+- The primary dashboard now runs through the product shell, but the operator surface is still a separate specialized console rather than a unified end-user and ops shell
 
 Evidence anchor:
 
-- `dashboard/src/hooks/useDemoData.js`
-- `dashboard/src/DemoApp.jsx`
+- `dashboard/src/product/ProductShell.jsx`
+- `dashboard/src/operator/OperatorDashboard.jsx`
 
 ---
 
@@ -281,4 +288,3 @@ Reference:
   - real-money rail deployment
 - Product messaging and UX should keep emphasizing one non-negotiable differentiator:
   - “You can verify settlement outcomes without trusting our hosted app.”
-

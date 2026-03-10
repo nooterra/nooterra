@@ -70,6 +70,48 @@ const oauthMockServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && req.url === "/google/token") {
+      const code = String(params.get("code") ?? "").trim();
+      if (!code) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "code_missing" }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          access_token: "google-mock-token",
+          email: "founder@gmail.example",
+          name: "Founder Gmail",
+          timezone: "America/Los_Angeles"
+        })
+      );
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/microsoft/token") {
+      const code = String(params.get("code") ?? "").trim();
+      if (!code) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "code_missing" }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          access_token: "microsoft-mock-token",
+          userPrincipalName: "founder@outlook.example",
+          name: "Founder Outlook",
+          timezone: "America/New_York"
+        })
+      );
+      return;
+    }
+
     res.statusCode = 404;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ ok: false, error: "not_found" }));
@@ -645,6 +687,32 @@ async function runReq({ method, url, headers, bodyChunks }) {
   return res;
 }
 
+function cookieHeaderFromResponse(res) {
+  const raw = String(res.getHeader("set-cookie") ?? "");
+  if (!raw) return "";
+  return raw.split(";")[0];
+}
+
+async function performBuyerStepUpOtp({ tenantId, email, cookieHeader }) {
+  const req = await runReq({
+    method: "POST",
+    url: "/v1/buyer/step-up/otp/request",
+    headers: { cookie: cookieHeader, "content-type": "application/json", "content-length": "2" },
+    bodyChunks: [Buffer.from("{}", "utf8")]
+  });
+  assert.equal(req.statusCode, 200, req._body().toString("utf8"));
+  const code = await readBuyerOtpOutboxCode({ tenantId, email });
+  const verifyBuf = Buffer.from(JSON.stringify({ code }), "utf8");
+  const verify = await runReq({
+    method: "POST",
+    url: "/v1/buyer/step-up/otp/verify",
+    headers: { cookie: cookieHeader, "content-type": "application/json", "content-length": String(verifyBuf.length) },
+    bodyChunks: [verifyBuf]
+  });
+  assert.equal(verify.statusCode, 200, verify._body().toString("utf8"));
+  return JSON.parse(verify._body().toString("utf8"));
+}
+
 async function uploadZip({ zipBuf, mode, tenantId, runId = null }) {
   const u = new URL("/v1/upload", "http://localhost");
   if (mode) u.searchParams.set("mode", mode);
@@ -1018,6 +1086,10 @@ async function readBuyerOtpOutboxCode({ tenantId, email }) {
   return null;
 }
 
+function signPasskeyChallenge(privateKeyPem, challenge) {
+  return crypto.sign(null, Buffer.from(String(challenge), "utf8"), privateKeyPem).toString("base64url");
+}
+
 async function uploadZipRaw({ zipBuf, mode, tenantId, runId = null }) {
   const u = new URL("/v1/upload", "http://localhost");
   if (mode) u.searchParams.set("mode", mode);
@@ -1293,6 +1365,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     MAGIC_LINK_ZAPIER_OAUTH_CLIENT_SECRET: "zapier_client_secret",
     MAGIC_LINK_ZAPIER_OAUTH_AUTHORIZE_URL: `http://127.0.0.1:${oauthPort}/zapier/authorize`,
     MAGIC_LINK_ZAPIER_OAUTH_TOKEN_URL: `http://127.0.0.1:${oauthPort}/zapier/token`,
+    MAGIC_LINK_GOOGLE_OAUTH_CLIENT_ID: "google_client_id",
+    MAGIC_LINK_GOOGLE_OAUTH_CLIENT_SECRET: "google_client_secret",
+    MAGIC_LINK_GOOGLE_OAUTH_AUTHORIZE_URL: `http://127.0.0.1:${oauthPort}/google/authorize`,
+    MAGIC_LINK_GOOGLE_OAUTH_TOKEN_URL: `http://127.0.0.1:${oauthPort}/google/token`,
+    MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_ID: "microsoft_client_id",
+    MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_SECRET: "microsoft_client_secret",
+    MAGIC_LINK_MICROSOFT_OAUTH_AUTHORIZE_URL: `http://127.0.0.1:${oauthPort}/microsoft/authorize`,
+    MAGIC_LINK_MICROSOFT_OAUTH_TOKEN_URL: `http://127.0.0.1:${oauthPort}/microsoft/token`,
 
     // Stripe billing mocks.
     MAGIC_LINK_BILLING_PROVIDER: "stripe",
@@ -2800,6 +2880,89 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(stateAfterZapier.oauth?.zapier?.enabled, true);
   });
 
+  await t.test("consumer connectors OAuth: click-connect Gmail and sync wallet source defaults", async () => {
+    const tenantId = "tenant_consumer_connector_oauth";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const cookieHeader = String(loginRes.getHeader("set-cookie")).split(";")[0];
+    const stepUp = await performBuyerStepUpOtp({ tenantId, email: "admin@buyer.example", cookieHeader });
+    assert.equal(stepUp.method, "email_otp");
+
+    const startRes = await runReq({
+      method: "GET",
+      url:
+        `/v1/tenants/${tenantId}/consumer-connectors/email/gmail/oauth/start?returnTo=${encodeURIComponent("http://app.localhost/wallet")}` +
+        `&accountLabelHint=${encodeURIComponent("Primary inbox")}`,
+      headers: { cookie: cookieHeader, host: "auth.localhost" },
+      bodyChunks: []
+    });
+    assert.equal(startRes.statusCode, 302, startRes._body().toString("utf8"));
+    const authUrl = new URL(String(startRes.getHeader("location") ?? ""));
+    assert.equal(authUrl.origin, oauthMockBaseUrl);
+    assert.equal(authUrl.pathname, "/google/authorize");
+    const state = String(authUrl.searchParams.get("state") ?? "");
+    assert.ok(state.length >= 16);
+    assert.equal(authUrl.searchParams.get("client_id"), "google_client_id");
+    assert.equal(authUrl.searchParams.get("redirect_uri"), "http://auth.localhost/v1/consumer-connectors/gmail/oauth/callback");
+    assert.match(String(authUrl.searchParams.get("scope") ?? ""), /gmail\.readonly/);
+
+    const callbackRes = await runReq({
+      method: "GET",
+      url: `/v1/consumer-connectors/gmail/oauth/callback?state=${encodeURIComponent(state)}&code=google_code_ok`,
+      headers: { host: "auth.localhost" },
+      bodyChunks: []
+    });
+    assert.equal(callbackRes.statusCode, 303, callbackRes._body().toString("utf8"));
+    const callbackLocation = String(callbackRes.getHeader("location") ?? "");
+    assert.match(callbackLocation, /^http:\/\/app\.localhost\/wallet\?/);
+    assert.match(callbackLocation, /oauth=success/);
+    assert.match(callbackLocation, /provider=gmail/);
+
+    const listRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(listRes.statusCode, 200, listRes._body().toString("utf8"));
+    const listJson = JSON.parse(listRes._body().toString("utf8"));
+    assert.equal(listJson.ok, true);
+    assert.equal(listJson.connectors.length, 1);
+    assert.equal(listJson.connectors[0].kind, "email");
+    assert.equal(listJson.connectors[0].provider, "gmail");
+    assert.equal(listJson.connectors[0].accountAddress, "founder@gmail.example");
+
+    const settings = await loadTenantSettings({ dataDir, tenantId });
+    assert.equal(settings.consumerDataSources?.email?.enabled, true);
+    assert.equal(settings.consumerDataSources?.email?.provider, "gmail");
+    assert.equal(settings.consumerDataSources?.email?.address, "founder@gmail.example");
+  });
+
   await t.test("onboarding: demo trust + sample upload", async () => {
     const page = await runReq({ method: "GET", url: "/v1/tenants/tenant_a/onboarding", headers: { "x-api-key": "test_key" }, bodyChunks: [] });
     assert.equal(page.statusCode, 200);
@@ -3773,6 +3936,379 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.ok(failSettingsJson.buyerNotifications.latest.failures.length >= 1);
   });
 
+  await t.test("buyer notification preview and test routes expose deep-linked sample delivery and fail closed without recipients", async () => {
+    const tenantId = "tenant_buyer_notify_preview";
+    await putTenantSettings({
+      tenantId,
+      patch: { buyerNotifications: { emails: ["buyer.notify@example.com"], deliveryMode: "record" } }
+    });
+
+    const previewRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/preview`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(previewRes.statusCode, 200, previewRes._body().toString("utf8"));
+    const previewJson = JSON.parse(previewRes._body().toString("utf8"));
+    assert.equal(previewJson.ok, true);
+    assert.equal(previewJson.preview?.schemaVersion, "MagicLinkBuyerNotificationPreview.v1");
+    assert.equal(previewJson.preview?.deliveryMode, "record");
+    assert.equal(previewJson.preview?.subject, "Nooterra inbox delivery test");
+    assert.ok(Array.isArray(previewJson.preview?.recipients));
+    assert.equal(previewJson.preview.recipients[0], "buyer.notify@example.com");
+    assert.match(String(previewJson.preview?.summary?.magicLinkUrl ?? ""), /\/inbox\?notification=test$/);
+
+    const before = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    const testRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/test`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(testRes.statusCode, 200, testRes._body().toString("utf8"));
+    const testJson = JSON.parse(testRes._body().toString("utf8"));
+    assert.equal(testJson.ok, true);
+    assert.equal(testJson.delivery?.ok, true);
+    assert.equal(testJson.delivery?.deliveryMode, "record");
+    const after = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    assert.equal(after.length, before.length + 1);
+    const newest = after.find((fp) => !before.includes(fp));
+    const outbox = JSON.parse(await fs.readFile(newest, "utf8"));
+    assert.equal(outbox.eventType, "buyer.notification.test");
+    assert.equal(outbox.subject, "Nooterra inbox delivery test");
+    assert.match(String(outbox.summary?.magicLinkUrl ?? ""), /\/inbox\?notification=test$/);
+
+    const tenantNoRecipients = "tenant_buyer_notify_preview_none";
+    await putTenantSettings({
+      tenantId: tenantNoRecipients,
+      patch: { buyerNotifications: { emails: [], deliveryMode: "record" } }
+    });
+    const failRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantNoRecipients)}/settings/buyer-notifications/test`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(failRes.statusCode, 409, failRes._body().toString("utf8"));
+    const failJson = JSON.parse(failRes._body().toString("utf8"));
+    assert.equal(failJson.ok, false);
+    assert.equal(failJson.code, "NO_RECIPIENTS_CONFIGURED");
+  });
+
+  await t.test("buyer product event preview/send routes deep-link approvals, receipts, and disputes and reject unsupported paths", async () => {
+    const tenantId = "tenant_buyer_product_events";
+    await putTenantSettings({
+      tenantId,
+      patch: { buyerNotifications: { emails: ["buyer.notify@example.com"], deliveryMode: "record" } }
+    });
+
+    const approvalPayload = {
+      eventType: "approval.required",
+      title: "Review vendor quote",
+      detail: "Approval is required before the managed network can book the service.",
+      deepLinkPath: "/approvals?requestId=apreq_demo_1",
+      itemRef: { requestId: "apreq_demo_1" }
+    };
+    const approvalPreviewBuf = Buffer.from(JSON.stringify(approvalPayload), "utf8");
+    const approvalPreviewRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/preview`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(approvalPreviewBuf.length) },
+      bodyChunks: [approvalPreviewBuf]
+    });
+    assert.equal(approvalPreviewRes.statusCode, 200, approvalPreviewRes._body().toString("utf8"));
+    const approvalPreviewJson = JSON.parse(approvalPreviewRes._body().toString("utf8"));
+    assert.equal(approvalPreviewJson.ok, true);
+    assert.equal(approvalPreviewJson.preview?.deliveryEvent, "approval.required");
+    assert.match(String(approvalPreviewJson.preview?.summary?.magicLinkUrl ?? ""), /\/approvals\?requestId=apreq_demo_1$/);
+
+    const disputePayload = {
+      eventType: "dispute.update",
+      title: "Dispute escalated",
+      detail: "The dispute moved into arbiter review.",
+      deepLinkPath: "/disputes?selectedDisputeId=dsp_demo_1&caseId=arb_case_demo_1",
+      itemRef: { disputeId: "dsp_demo_1", runId: "run_demo_1", caseId: "arb_case_demo_1" }
+    };
+    const disputePreviewBuf = Buffer.from(JSON.stringify(disputePayload), "utf8");
+    const disputePreviewRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/preview`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(disputePreviewBuf.length) },
+      bodyChunks: [disputePreviewBuf]
+    });
+    assert.equal(disputePreviewRes.statusCode, 200, disputePreviewRes._body().toString("utf8"));
+    const disputePreviewJson = JSON.parse(disputePreviewRes._body().toString("utf8"));
+    assert.equal(disputePreviewJson.ok, true);
+    assert.equal(disputePreviewJson.preview?.deliveryEvent, "dispute.update");
+    assert.match(
+      String(disputePreviewJson.preview?.summary?.magicLinkUrl ?? ""),
+      /\/disputes\?selectedDisputeId=dsp_demo_1&caseId=arb_case_demo_1$/
+    );
+
+    const informationPayload = {
+      eventType: "information.required",
+      title: "Input required to continue this run",
+      detail: "Nooterra needs one more document from you before the network can continue.",
+      deepLinkPath: "/runs/run_demo_information_1",
+      itemRef: { runId: "run_demo_information_1" }
+    };
+    const informationPreviewBuf = Buffer.from(JSON.stringify(informationPayload), "utf8");
+    const informationPreviewRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/preview`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(informationPreviewBuf.length) },
+      bodyChunks: [informationPreviewBuf]
+    });
+    assert.equal(informationPreviewRes.statusCode, 200, informationPreviewRes._body().toString("utf8"));
+    const informationPreviewJson = JSON.parse(informationPreviewRes._body().toString("utf8"));
+    assert.equal(informationPreviewJson.ok, true);
+    assert.equal(informationPreviewJson.preview?.deliveryEvent, "information.required");
+    assert.match(String(informationPreviewJson.preview?.summary?.magicLinkUrl ?? ""), /\/runs\/run_demo_information_1$/);
+
+    const receiptPayload = {
+      eventType: "receipt.ready",
+      title: "Receipt ready for review",
+      detail: "The purchase completed and proof is ready.",
+      deepLinkPath: "/receipts?selectedReceiptId=rcpt_demo_1",
+      itemRef: { receiptId: "rcpt_demo_1" }
+    };
+    const before = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    const receiptSendBuf = Buffer.from(JSON.stringify(receiptPayload), "utf8");
+    const receiptSendRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/send`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(receiptSendBuf.length) },
+      bodyChunks: [receiptSendBuf]
+    });
+    assert.equal(receiptSendRes.statusCode, 200, receiptSendRes._body().toString("utf8"));
+    const receiptSendJson = JSON.parse(receiptSendRes._body().toString("utf8"));
+    assert.equal(receiptSendJson.ok, true);
+    assert.equal(receiptSendJson.delivery?.ok, true);
+    const after = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    assert.equal(after.length, before.length + 1);
+    const newest = after.find((fp) => !before.includes(fp));
+    const outbox = JSON.parse(await fs.readFile(newest, "utf8"));
+    assert.equal(outbox.eventType, "receipt.ready");
+    assert.match(String(outbox.summary?.magicLinkUrl ?? ""), /\/receipts\?selectedReceiptId=rcpt_demo_1$/);
+
+    const invalidPayload = {
+      eventType: "approval.required",
+      title: "Bad route",
+      detail: "This should fail closed.",
+      deepLinkPath: "/network",
+      itemRef: { requestId: "apreq_demo_bad" }
+    };
+    const invalidBuf = Buffer.from(JSON.stringify(invalidPayload), "utf8");
+    const invalidRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/preview`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(invalidBuf.length) },
+      bodyChunks: [invalidBuf]
+    });
+    assert.equal(invalidRes.statusCode, 400, invalidRes._body().toString("utf8"));
+    const invalidJson = JSON.parse(invalidRes._body().toString("utf8"));
+    assert.equal(invalidJson.ok, false);
+    assert.equal(invalidJson.code, "INVALID_PRODUCT_EVENT");
+  });
+
+  await t.test("buyer product event send route accepts internal ops auth and deterministic tokens", async () => {
+    const tenantId = "tenant_buyer_product_events_system";
+    await putTenantSettings({
+      tenantId,
+      patch: { buyerNotifications: { emails: ["buyer.notify@example.com"], deliveryMode: "record" } }
+    });
+
+    const body = {
+      token: "notif_receipt_deadbeefdeadbeef",
+      payload: {
+        eventType: "receipt.ready",
+        title: "Receipt ready for review",
+        detail: "The managed network completed this purchase.",
+        deepLinkPath: "/receipts?selectedReceiptId=rcpt_system_1",
+        itemRef: { receiptId: "rcpt_system_1" }
+      }
+    };
+    const raw = Buffer.from(JSON.stringify(body), "utf8");
+    const before = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    const firstRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/send`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "ops_token_magic_link",
+        "content-type": "application/json",
+        "content-length": String(raw.length)
+      },
+      bodyChunks: [raw]
+    });
+    assert.equal(firstRes.statusCode, 200, firstRes._body().toString("utf8"));
+    const firstJson = JSON.parse(firstRes._body().toString("utf8"));
+    assert.equal(firstJson.ok, true);
+    const afterFirst = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    assert.equal(afterFirst.length, before.length + 1);
+    const newest = afterFirst.find((fp) => !before.includes(fp));
+    const outbox = JSON.parse(await fs.readFile(newest, "utf8"));
+    assert.equal(outbox.token, "notif_receipt_deadbeefdeadbeef");
+    assert.equal(outbox.eventType, "receipt.ready");
+
+    const secondRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/buyer-notifications/product-event/send`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "ops_token_magic_link",
+        "content-type": "application/json",
+        "content-length": String(raw.length)
+      },
+      bodyChunks: [raw]
+    });
+    assert.equal(secondRes.statusCode, 200, secondRes._body().toString("utf8"));
+    const secondJson = JSON.parse(secondRes._body().toString("utf8"));
+    assert.equal(secondJson.ok, true);
+    assert.equal(secondJson.delivery?.skipped, true);
+    assert.equal(secondJson.delivery?.reason, "ALREADY_SENT");
+    const afterSecond = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
+    assert.equal(afterSecond.length, afterFirst.length);
+  });
+
+  await t.test("tenant consumer inbox routes round-trip normalized read state and fail closed on invalid payloads", async () => {
+    const tenantId = "tenant_consumer_inbox_state";
+
+    const initialRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/consumer-inbox`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(initialRes.statusCode, 200, initialRes._body().toString("utf8"));
+    const initialJson = JSON.parse(initialRes._body().toString("utf8"));
+    assert.equal(initialJson.ok, true);
+    assert.deepEqual(initialJson.state?.seenAtByItemId, {});
+
+    const body = {
+      seenAtByItemId: {
+        "approval:apreq_demo_1": "2026-03-07T08:00:00.000Z",
+        "receipt:rcpt_demo_1": "2026-03-07T09:15:00-08:00"
+      }
+    };
+    const raw = Buffer.from(JSON.stringify(body), "utf8");
+    const putRes = await runReq({
+      method: "PUT",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/consumer-inbox`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(raw.length) },
+      bodyChunks: [raw]
+    });
+    assert.equal(putRes.statusCode, 200, putRes._body().toString("utf8"));
+    const putJson = JSON.parse(putRes._body().toString("utf8"));
+    assert.equal(putJson.ok, true);
+    assert.equal(putJson.state?.schemaVersion, "ConsumerInboxState.v1");
+    assert.deepEqual(putJson.state?.seenAtByItemId, {
+      "approval:apreq_demo_1": "2026-03-07T08:00:00.000Z",
+      "receipt:rcpt_demo_1": "2026-03-07T17:15:00.000Z"
+    });
+    assert.match(String(putJson.state?.updatedAt ?? ""), /^2026-|^[0-9]{4}-[0-9]{2}-[0-9]{2}T/);
+
+    const getRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/consumer-inbox`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(getRes.statusCode, 200, getRes._body().toString("utf8"));
+    const getJson = JSON.parse(getRes._body().toString("utf8"));
+    assert.equal(getJson.ok, true);
+    assert.deepEqual(getJson.state?.seenAtByItemId, putJson.state?.seenAtByItemId);
+    assert.equal(getJson.state?.updatedAt, putJson.state?.updatedAt);
+
+    const invalidRaw = Buffer.from(JSON.stringify({
+      seenAtByItemId: {
+        "approval:bad id": "2026-03-07T08:00:00.000Z"
+      }
+    }), "utf8");
+    const invalidRes = await runReq({
+      method: "PUT",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings/consumer-inbox`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(invalidRaw.length) },
+      bodyChunks: [invalidRaw]
+    });
+    assert.equal(invalidRes.statusCode, 400, invalidRes._body().toString("utf8"));
+    const invalidJson = JSON.parse(invalidRes._body().toString("utf8"));
+    assert.equal(invalidJson.ok, false);
+    assert.equal(invalidJson.code, "INVALID_CONSUMER_INBOX");
+  });
+
+  await t.test("tenant settings: consumer data sources round-trip normalized wallet sources and fail closed on invalid providers", async () => {
+    const tenantId = "tenant_consumer_data_sources";
+
+    const putJson = await putTenantSettings({
+      tenantId,
+      patch: {
+        consumerDataSources: {
+          email: {
+            enabled: true,
+            provider: "gmail",
+            address: "Ops@Example.com",
+            label: "Primary inbox",
+            connectedAt: "2026-03-07T09:00:00-08:00"
+          },
+          calendar: {
+            enabled: true,
+            provider: "google_calendar",
+            address: "Calendar@Example.com",
+            timezone: "America/Los_Angeles",
+            availabilityNotes: "Weekdays after 2pm.",
+            connectedAt: "2026-03-07T09:05:00-08:00"
+          }
+        }
+      }
+    });
+    assert.equal(putJson.settings?.schemaVersion, "TenantSettings.v2");
+    assert.equal(putJson.settings?.consumerDataSources?.email?.enabled, true);
+    assert.equal(putJson.settings?.consumerDataSources?.email?.provider, "gmail");
+    assert.equal(putJson.settings?.consumerDataSources?.email?.address, "ops@example.com");
+    assert.equal(putJson.settings?.consumerDataSources?.email?.label, "Primary inbox");
+    assert.equal(putJson.settings?.consumerDataSources?.email?.connectedAt, "2026-03-07T17:00:00.000Z");
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.enabled, true);
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.provider, "google_calendar");
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.address, "calendar@example.com");
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.timezone, "America/Los_Angeles");
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.availabilityNotes, "Weekdays after 2pm.");
+    assert.equal(putJson.settings?.consumerDataSources?.calendar?.connectedAt, "2026-03-07T17:05:00.000Z");
+
+    const getRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(getRes.statusCode, 200, getRes._body().toString("utf8"));
+    const getJson = JSON.parse(getRes._body().toString("utf8"));
+    assert.equal(getJson.ok, true);
+    assert.equal(getJson.settings?.consumerDataSources?.email?.address, "ops@example.com");
+    assert.equal(getJson.settings?.consumerDataSources?.calendar?.timezone, "America/Los_Angeles");
+
+    const invalidRaw = Buffer.from(JSON.stringify({
+      consumerDataSources: {
+        calendar: {
+          enabled: true,
+          provider: "bad_provider",
+          timezone: "America/Los_Angeles"
+        }
+      }
+    }), "utf8");
+    const invalidRes = await runReq({
+      method: "PUT",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings`,
+      headers: { "x-api-key": "test_key", "content-type": "application/json", "content-length": String(invalidRaw.length) },
+      bodyChunks: [invalidRaw]
+    });
+    assert.equal(invalidRes.statusCode, 400, invalidRes._body().toString("utf8"));
+    const invalidJson = JSON.parse(invalidRes._body().toString("utf8"));
+    assert.equal(invalidJson.ok, false);
+    assert.equal(invalidJson.code, "INVALID_SETTINGS");
+  });
+
   await t.test("tenant settings: autoDecision/paymentTriggers normalize + webhook secret redaction", async () => {
     const tenantId = "tenant_auto_settings";
     await putTenantSettings({
@@ -3942,6 +4478,65 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(payload.event, "decision.approved");
     assert.equal(payload.decision?.decision, "approve");
     assert.equal(payload.artifacts?.closePackZipUrl, `/r/${up.token}/closepack.zip`);
+  });
+
+  await t.test("approval links: first browser session binds the link and expiry makes the page read-only", async () => {
+    const tenantId = "tenant_approval_link_binding";
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+    await putTenantSettings({
+      tenantId,
+      patch: { settlementDecisionSigner: { signerKeyId: buyerDecisionKeyId, privateKeyPem: buyerSigner.privateKeyPem } }
+    });
+
+    const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
+
+    const firstView = await runReq({ method: "GET", url: `/r/${up.token}`, headers: {}, bodyChunks: [] });
+    assert.equal(firstView.statusCode, 200, firstView._body().toString("utf8"));
+    const approvalCookie = cookieHeaderFromResponse(firstView);
+    assert.match(approvalCookie, new RegExp(`^ml_approval_${up.token}=`));
+
+    const secondView = await runReq({ method: "GET", url: `/r/${up.token}`, headers: {}, bodyChunks: [] });
+    assert.equal(secondView.statusCode, 409, secondView._body().toString("utf8"));
+    assert.match(secondView._body().toString("utf8"), /different browser session/i);
+
+    const sameSessionView = await runReq({ method: "GET", url: `/r/${up.token}`, headers: { cookie: approvalCookie }, bodyChunks: [] });
+    assert.equal(sameSessionView.statusCode, 200, sameSessionView._body().toString("utf8"));
+
+    const mismatchDecisionBuf = Buffer.from(JSON.stringify({ decision: "hold", email: "buyer@example.com", note: "retry" }), "utf8");
+    const mismatchDecision = await runReq({
+      method: "POST",
+      url: `/r/${up.token}/decision`,
+      headers: { "content-type": "application/json", "content-length": String(mismatchDecisionBuf.length) },
+      bodyChunks: [mismatchDecisionBuf]
+    });
+    assert.equal(mismatchDecision.statusCode, 409, mismatchDecision._body().toString("utf8"));
+    const mismatchDecisionJson = JSON.parse(mismatchDecision._body().toString("utf8"));
+    assert.equal(mismatchDecisionJson.code, "APPROVAL_LINK_SESSION_MISMATCH");
+
+    const metaFp = path.join(dataDir, "meta", `${up.token}.json`);
+    const meta = JSON.parse(await fs.readFile(metaFp, "utf8"));
+    meta.approvalLink.expiresAt = new Date(Date.now() - 1_000).toISOString();
+    await fs.writeFile(metaFp, JSON.stringify(meta, null, 2) + "\n", "utf8");
+
+    const expiredView = await runReq({ method: "GET", url: `/r/${up.token}`, headers: {}, bodyChunks: [] });
+    assert.equal(expiredView.statusCode, 200, expiredView._body().toString("utf8"));
+    assert.match(expiredView._body().toString("utf8"), /Approval link expired/i);
+
+    const expiredDecisionBuf = Buffer.from(JSON.stringify({ decision: "hold", email: "buyer@example.com", note: "late" }), "utf8");
+    const expiredDecision = await runReq({
+      method: "POST",
+      url: `/r/${up.token}/decision`,
+      headers: {
+        cookie: approvalCookie,
+        "content-type": "application/json",
+        "content-length": String(expiredDecisionBuf.length)
+      },
+      bodyChunks: [expiredDecisionBuf]
+    });
+    assert.equal(expiredDecision.statusCode, 410, expiredDecision._body().toString("utf8"));
+    const expiredDecisionJson = JSON.parse(expiredDecision._body().toString("utf8"));
+    assert.equal(expiredDecisionJson.code, "APPROVAL_LINK_EXPIRED");
   });
 
   await t.test("auto decision: green approve with system actor + payment trigger outbox", async () => {
@@ -4427,11 +5022,16 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
 
     const up = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
 
+    const firstView = await runReq({ method: "GET", url: `/r/${up.token}`, headers: {}, bodyChunks: [] });
+    assert.equal(firstView.statusCode, 200, firstView._body().toString("utf8"));
+    const approvalCookie = cookieHeaderFromResponse(firstView);
+    assert.match(approvalCookie, new RegExp(`^ml_approval_${up.token}=`));
+
     const missingOtpBuf = Buffer.from(JSON.stringify({ decision: "approve", email: "alice@example.com", note: "ok" }), "utf8");
     const missingOtp = await runReq({
       method: "POST",
       url: `/r/${up.token}/decision`,
-      headers: { "content-type": "application/json", "content-length": String(missingOtpBuf.length) },
+      headers: { cookie: approvalCookie, "content-type": "application/json", "content-length": String(missingOtpBuf.length) },
       bodyChunks: [missingOtpBuf]
     });
     assert.equal(missingOtp.statusCode, 400);
@@ -4443,7 +5043,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const otpReq = await runReq({
       method: "POST",
       url: `/r/${up.token}/otp/request`,
-      headers: { "content-type": "application/json", "content-length": String(reqBuf.length) },
+      headers: { cookie: approvalCookie, "content-type": "application/json", "content-length": String(reqBuf.length) },
       bodyChunks: [reqBuf]
     });
     assert.equal(otpReq.statusCode, 200, otpReq._body().toString("utf8"));
@@ -4455,7 +5055,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const ok = await runReq({
       method: "POST",
       url: `/r/${up.token}/decision`,
-      headers: { "content-type": "application/json", "content-length": String(okBuf.length) },
+      headers: { cookie: approvalCookie, "content-type": "application/json", "content-length": String(okBuf.length) },
       bodyChunks: [okBuf]
     });
     assert.equal(ok.statusCode, 200, ok._body().toString("utf8"));
@@ -4471,6 +5071,16 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(repJson.schemaVersion, "SettlementDecisionReport.v1");
     assert.equal(repJson.actor?.auth?.method, "email_otp");
     assert.equal(repJson.actor?.email, "alice@example.com");
+
+    const otpReqAfterDecision = await runReq({
+      method: "POST",
+      url: `/r/${up.token}/otp/request`,
+      headers: { cookie: approvalCookie, "content-type": "application/json", "content-length": String(reqBuf.length) },
+      bodyChunks: [reqBuf]
+    });
+    assert.equal(otpReqAfterDecision.statusCode, 409, otpReqAfterDecision._body().toString("utf8"));
+    const otpReqAfterDecisionJson = JSON.parse(otpReqAfterDecision._body().toString("utf8"));
+    assert.equal(otpReqAfterDecisionJson.code, "DECISION_ALREADY_RECORDED");
   });
 
   await t.test("buyer pack: ingest keys → inbox → exports", async () => {
@@ -4990,6 +5600,13 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     });
     assert.equal(viewerUsersRes.statusCode, 403);
 
+    const adminStepUp = await performBuyerStepUpOtp({
+      tenantId,
+      email: "admin@buyer.example",
+      cookieHeader: admin.cookieHeader
+    });
+    assert.equal(adminStepUp.method, "email_otp");
+
     const upsertUserBody = Buffer.from(
       JSON.stringify({
         email: "ops@buyer.example",
@@ -5033,6 +5650,844 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.ok(String(logoutRes.getHeader("set-cookie")).includes("Max-Age=0"));
     const meAfterLogout = await runReq({ method: "GET", url: "/v1/buyer/me", headers: {}, bodyChunks: [] });
     assert.equal(meAfterLogout.statusCode, 401);
+  });
+
+  await t.test("buyer auth: passkey signup and login reuse buyer session cookie, with OTP retained for recovery", async () => {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+    const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+    const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+
+    const signupOptionsBody = Buffer.from(
+      JSON.stringify({
+        company: "Passkey Labs",
+        fullName: "Founder",
+        email: "founder@passkey.example"
+      }),
+      "utf8"
+    );
+    const signupOptionsRes = await runReq({
+      method: "POST",
+      url: "/v1/public/signup/passkey/options",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(signupOptionsBody.length)
+      },
+      bodyChunks: [signupOptionsBody]
+    });
+    assert.equal(signupOptionsRes.statusCode, 200, signupOptionsRes._body().toString("utf8"));
+    const signupOptionsJson = JSON.parse(signupOptionsRes._body().toString("utf8"));
+    assert.equal(signupOptionsJson.ok, true);
+    assert.equal(signupOptionsJson.schemaVersion, "BuyerPasskeyChallenge.v1");
+    assert.equal(signupOptionsJson.purpose, "signup");
+    const tenantId = String(signupOptionsJson.tenantId ?? "");
+    assert.ok(tenantId.length > 0);
+
+    const signupPasskeyBody = Buffer.from(
+      JSON.stringify({
+        tenantId,
+        challengeId: signupOptionsJson.challengeId,
+        challenge: signupOptionsJson.challenge,
+        credentialId: "cred_founder_main",
+        publicKeyPem,
+        signature: signPasskeyChallenge(privateKeyPem, signupOptionsJson.challenge),
+        label: "Founder laptop"
+      }),
+      "utf8"
+    );
+    const signupPasskeyRes = await runReq({
+      method: "POST",
+      url: "/v1/public/signup/passkey",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(signupPasskeyBody.length)
+      },
+      bodyChunks: [signupPasskeyBody]
+    });
+    assert.equal(signupPasskeyRes.statusCode, 201, signupPasskeyRes._body().toString("utf8"));
+    const signupPasskeyJson = JSON.parse(signupPasskeyRes._body().toString("utf8"));
+    assert.equal(signupPasskeyJson.ok, true);
+    assert.equal(signupPasskeyJson.role, "admin");
+    assert.equal(signupPasskeyJson.passkeyCreated, true);
+    const signupCookie = String(signupPasskeyRes.getHeader("set-cookie")).split(";")[0];
+    assert.ok(signupCookie.startsWith("ml_buyer_session="));
+
+    const meAfterSignup = await runReq({
+      method: "GET",
+      url: "/v1/buyer/me",
+      headers: { cookie: signupCookie },
+      bodyChunks: []
+    });
+    assert.equal(meAfterSignup.statusCode, 200, meAfterSignup._body().toString("utf8"));
+    const meAfterSignupJson = JSON.parse(meAfterSignup._body().toString("utf8"));
+    assert.equal(meAfterSignupJson.principal?.email, "founder@passkey.example");
+    assert.equal(meAfterSignupJson.principal?.role, "admin");
+
+    const settings = await loadTenantSettings({ dataDir, tenantId });
+    assert.ok(Array.isArray(settings.buyerAuthEmailDomains));
+    assert.ok(settings.buyerAuthEmailDomains.includes("passkey.example"));
+    assert.equal(settings.buyerUserRoles?.["founder@passkey.example"], "admin");
+
+    const logoutRes = await runReq({ method: "POST", url: "/v1/buyer/logout", headers: { cookie: signupCookie }, bodyChunks: [] });
+    assert.equal(logoutRes.statusCode, 200, logoutRes._body().toString("utf8"));
+
+    const loginOptionsBody = Buffer.from(JSON.stringify({ email: "founder@passkey.example" }), "utf8");
+    const loginOptionsRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(loginOptionsBody.length)
+      },
+      bodyChunks: [loginOptionsBody]
+    });
+    assert.equal(loginOptionsRes.statusCode, 200, loginOptionsRes._body().toString("utf8"));
+    const loginOptionsJson = JSON.parse(loginOptionsRes._body().toString("utf8"));
+    assert.equal(loginOptionsJson.ok, true);
+    assert.deepEqual(loginOptionsJson.allowedCredentialIds, ["cred_founder_main"]);
+
+    const loginPasskeyBody = Buffer.from(
+      JSON.stringify({
+        challengeId: loginOptionsJson.challengeId,
+        challenge: loginOptionsJson.challenge,
+        credentialId: "cred_founder_main",
+        signature: signPasskeyChallenge(privateKeyPem, loginOptionsJson.challenge)
+      }),
+      "utf8"
+    );
+    const loginPasskeyRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(loginPasskeyBody.length)
+      },
+      bodyChunks: [loginPasskeyBody]
+    });
+    assert.equal(loginPasskeyRes.statusCode, 200, loginPasskeyRes._body().toString("utf8"));
+    const loginPasskeyJson = JSON.parse(loginPasskeyRes._body().toString("utf8"));
+    assert.equal(loginPasskeyJson.ok, true);
+    assert.equal(loginPasskeyJson.role, "admin");
+    const loginCookie = String(loginPasskeyRes.getHeader("set-cookie")).split(";")[0];
+    assert.ok(loginCookie.startsWith("ml_buyer_session="));
+
+    const meAfterPasskeyLogin = await runReq({
+      method: "GET",
+      url: "/v1/buyer/me",
+      headers: { cookie: loginCookie },
+      bodyChunks: []
+    });
+    assert.equal(meAfterPasskeyLogin.statusCode, 200, meAfterPasskeyLogin._body().toString("utf8"));
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "founder@passkey.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "founder@passkey.example" });
+    assert.match(String(code), /^[0-9]{6}$/);
+
+    const recoveryLoginBody = Buffer.from(JSON.stringify({ email: "founder@passkey.example", code }), "utf8");
+    const recoveryLoginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(recoveryLoginBody.length) },
+      bodyChunks: [recoveryLoginBody]
+    });
+    assert.equal(recoveryLoginRes.statusCode, 200, recoveryLoginRes._body().toString("utf8"));
+    const recoveryLoginJson = JSON.parse(recoveryLoginRes._body().toString("utf8"));
+    assert.equal(recoveryLoginJson.ok, true);
+    assert.equal(recoveryLoginJson.role, "admin");
+  });
+
+  await t.test("buyer sessions: list and revoke sessions while preserving secure cookie defaults", async () => {
+    const tenantId = "tenant_buyer_sessions";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    async function loginFromDevice(userAgent) {
+      const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+      const otpRes = await runReq({
+        method: "POST",
+        url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(otpReqBuf.length),
+          "user-agent": userAgent
+        },
+        bodyChunks: [otpReqBuf]
+      });
+      assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+      const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+      const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+      const loginRes = await runReq({
+        method: "POST",
+        url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(loginBuf.length),
+          "user-agent": userAgent
+        },
+        bodyChunks: [loginBuf]
+      });
+      assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+      const json = JSON.parse(loginRes._body().toString("utf8"));
+      const setCookie = String(loginRes.getHeader("set-cookie"));
+      assert.ok(setCookie.includes("HttpOnly"));
+      assert.ok(setCookie.includes("SameSite=Strict"));
+      return { json, cookieHeader: setCookie.split(";")[0], setCookie };
+    }
+
+    const deviceOne = await loginFromDevice("NooterraTest/DeviceOne");
+    const deviceTwo = await loginFromDevice("NooterraTest/DeviceTwo");
+    assert.ok(typeof deviceOne.json.sessionId === "string" && deviceOne.json.sessionId.length > 0);
+    assert.ok(typeof deviceTwo.json.sessionId === "string" && deviceTwo.json.sessionId.length > 0);
+    assert.notEqual(deviceOne.json.sessionId, deviceTwo.json.sessionId);
+
+    const sessionsRes = await runReq({
+      method: "GET",
+      url: "/v1/buyer/sessions",
+      headers: { cookie: deviceTwo.cookieHeader, "user-agent": "NooterraTest/DeviceTwo" },
+      bodyChunks: []
+    });
+    assert.equal(sessionsRes.statusCode, 200, sessionsRes._body().toString("utf8"));
+    const sessionsJson = JSON.parse(sessionsRes._body().toString("utf8"));
+    assert.equal(sessionsJson.currentSessionId, deviceTwo.json.sessionId);
+    assert.equal(Array.isArray(sessionsJson.sessions), true);
+    assert.equal(sessionsJson.sessions.length, 2);
+    assert.ok(sessionsJson.sessions.some((row) => row.sessionId === deviceOne.json.sessionId && row.userAgent === "NooterraTest/DeviceOne"));
+    assert.ok(sessionsJson.sessions.some((row) => row.sessionId === deviceTwo.json.sessionId && row.current === true));
+
+    const revokeFirstRes = await runReq({
+      method: "POST",
+      url: `/v1/buyer/sessions/${encodeURIComponent(deviceOne.json.sessionId)}/revoke`,
+      headers: { cookie: deviceTwo.cookieHeader, "user-agent": "NooterraTest/DeviceTwo" },
+      bodyChunks: []
+    });
+    assert.equal(revokeFirstRes.statusCode, 200, revokeFirstRes._body().toString("utf8"));
+
+    const meAfterRevokeFirst = await runReq({
+      method: "GET",
+      url: "/v1/buyer/me",
+      headers: { cookie: deviceOne.cookieHeader, "user-agent": "NooterraTest/DeviceOne" },
+      bodyChunks: []
+    });
+    assert.equal(meAfterRevokeFirst.statusCode, 401, meAfterRevokeFirst._body().toString("utf8"));
+
+    const selfRevokeRes = await runReq({
+      method: "POST",
+      url: `/v1/buyer/sessions/${encodeURIComponent(deviceTwo.json.sessionId)}/revoke`,
+      headers: { cookie: deviceTwo.cookieHeader, "user-agent": "NooterraTest/DeviceTwo" },
+      bodyChunks: []
+    });
+    assert.equal(selfRevokeRes.statusCode, 200, selfRevokeRes._body().toString("utf8"));
+    assert.ok(String(selfRevokeRes.getHeader("set-cookie")).includes("Max-Age=0"));
+
+    const meAfterSelfRevoke = await runReq({
+      method: "GET",
+      url: "/v1/buyer/me",
+      headers: { cookie: deviceTwo.cookieHeader, "user-agent": "NooterraTest/DeviceTwo" },
+      bodyChunks: []
+    });
+    assert.equal(meAfterSelfRevoke.statusCode, 401, meAfterSelfRevoke._body().toString("utf8"));
+  });
+
+  await t.test("buyer step-up auth: sensitive wallet and settings mutations fail closed until extra auth is recorded", async () => {
+    const tenantId = "tenant_buyer_step_up";
+    await createTenant({
+      tenantId,
+      name: "Buyer Step Up Tenant",
+      contactEmail: "ops+buyer-step-up@example.com",
+      billingEmail: "billing+buyer-step-up@example.com"
+    });
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const loginCode = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code: loginCode }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const buyerCookie = cookieHeaderFromResponse(loginRes);
+    assert.ok(buyerCookie.startsWith("ml_buyer_session="));
+
+    const settingsBuf = Buffer.from(JSON.stringify({ buyerNotifications: { deliveryMode: "record" } }), "utf8");
+    const settingsBlocked = await runReq({
+      method: "PUT",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings`,
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": String(settingsBuf.length) },
+      bodyChunks: [settingsBuf]
+    });
+    assert.equal(settingsBlocked.statusCode, 403, settingsBlocked._body().toString("utf8"));
+    const settingsBlockedJson = JSON.parse(settingsBlocked._body().toString("utf8"));
+    assert.equal(settingsBlockedJson.code, "STEP_UP_REQUIRED");
+
+    const fundingBuf = Buffer.from(JSON.stringify({ provider: "circle", circle: { mode: "sandbox" } }), "utf8");
+    const fundingBlocked = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/wallet-funding`,
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": String(fundingBuf.length) },
+      bodyChunks: [fundingBuf]
+    });
+    assert.equal(fundingBlocked.statusCode, 403, fundingBlocked._body().toString("utf8"));
+    const fundingBlockedJson = JSON.parse(fundingBlocked._body().toString("utf8"));
+    assert.equal(fundingBlockedJson.code, "STEP_UP_REQUIRED");
+
+    const stepUpReq = await runReq({
+      method: "POST",
+      url: "/v1/buyer/step-up/otp/request",
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": "2" },
+      bodyChunks: [Buffer.from("{}", "utf8")]
+    });
+    assert.equal(stepUpReq.statusCode, 200, stepUpReq._body().toString("utf8"));
+    const stepUpCode = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+
+    const stepUpVerifyBuf = Buffer.from(JSON.stringify({ code: stepUpCode }), "utf8");
+    const stepUpVerify = await runReq({
+      method: "POST",
+      url: "/v1/buyer/step-up/otp/verify",
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": String(stepUpVerifyBuf.length) },
+      bodyChunks: [stepUpVerifyBuf]
+    });
+    assert.equal(stepUpVerify.statusCode, 200, stepUpVerify._body().toString("utf8"));
+    const stepUpVerifyJson = JSON.parse(stepUpVerify._body().toString("utf8"));
+    assert.equal(stepUpVerifyJson.method, "email_otp");
+
+    const sessionsRes = await runReq({
+      method: "GET",
+      url: "/v1/buyer/sessions",
+      headers: { cookie: buyerCookie },
+      bodyChunks: []
+    });
+    assert.equal(sessionsRes.statusCode, 200, sessionsRes._body().toString("utf8"));
+    const sessionsJson = JSON.parse(sessionsRes._body().toString("utf8"));
+    assert.equal(sessionsJson.sessions?.[0]?.stepUpMethod, "email_otp");
+    assert.ok(typeof sessionsJson.sessions?.[0]?.stepUpAt === "string" && sessionsJson.sessions[0].stepUpAt.length > 0);
+
+    const settingsAllowed = await runReq({
+      method: "PUT",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/settings`,
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": String(settingsBuf.length) },
+      bodyChunks: [settingsBuf]
+    });
+    assert.equal(settingsAllowed.statusCode, 200, settingsAllowed._body().toString("utf8"));
+    const settingsAllowedJson = JSON.parse(settingsAllowed._body().toString("utf8"));
+    assert.equal(settingsAllowedJson.settings?.buyerNotifications?.deliveryMode, "record");
+
+    const fundingAllowed = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/wallet-funding`,
+      headers: { cookie: buyerCookie, "content-type": "application/json", "content-length": String(fundingBuf.length) },
+      bodyChunks: [fundingBuf]
+    });
+    assert.equal(fundingAllowed.statusCode, 200, fundingAllowed._body().toString("utf8"));
+    const fundingAllowedJson = JSON.parse(fundingAllowed._body().toString("utf8"));
+    assert.equal(fundingAllowedJson.ok, true);
+    assert.equal(fundingAllowedJson.schemaVersion, "MagicLinkWalletFunding.v1");
+  });
+
+  await t.test("tenant documents: admin can upload, list, and revoke buyer documents", async () => {
+    const tenantId = "tenant_documents_wallet";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const cookieHeader = String(loginRes.getHeader("set-cookie")).split(";")[0];
+    const stepUp = await performBuyerStepUpOtp({ tenantId, email: "admin@buyer.example", cookieHeader });
+    assert.equal(stepUp.method, "email_otp");
+
+    const uploadBody = Buffer.from("%PDF-1.4\nmock invoice\n", "utf8");
+    const uploadRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/documents?purpose=${encodeURIComponent("needs_user_document")}&label=${encodeURIComponent("Upload a bill copy")}`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/pdf",
+        "content-length": String(uploadBody.length),
+        "x-upload-filename": "invoice.pdf"
+      },
+      bodyChunks: [uploadBody]
+    });
+    assert.equal(uploadRes.statusCode, 201, uploadRes._body().toString("utf8"));
+    const uploadJson = JSON.parse(uploadRes._body().toString("utf8"));
+    assert.equal(uploadJson.ok, true);
+    assert.equal(uploadJson.document?.filename, "invoice.pdf");
+    assert.equal(uploadJson.document?.purpose, "needs_user_document");
+    assert.match(String(uploadJson.document?.documentRef ?? ""), new RegExp(`^upload://documents/${tenantId}/doc_`));
+
+    const listRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/documents`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(listRes.statusCode, 200, listRes._body().toString("utf8"));
+    const listJson = JSON.parse(listRes._body().toString("utf8"));
+    assert.equal(listJson.ok, true);
+    assert.ok(Array.isArray(listJson.documents));
+    assert.ok(listJson.documents.some((row) => row.documentId === uploadJson.document.documentId));
+
+    const revokeBody = Buffer.from(JSON.stringify({ reason: "USER_WALLET_REVOKE" }), "utf8");
+    const revokeRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(uploadJson.document.documentId)}/revoke`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(revokeBody.length)
+      },
+      bodyChunks: [revokeBody]
+    });
+    assert.equal(revokeRes.statusCode, 200, revokeRes._body().toString("utf8"));
+    const revokeJson = JSON.parse(revokeRes._body().toString("utf8"));
+    assert.equal(revokeJson.ok, true);
+    assert.ok(typeof revokeJson.document?.revokedAt === "string" && revokeJson.document.revokedAt.length > 0);
+
+    const listAfterRevokeRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/documents`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    const listAfterRevokeJson = JSON.parse(listAfterRevokeRes._body().toString("utf8"));
+    assert.equal(listAfterRevokeRes.statusCode, 200, listAfterRevokeRes._body().toString("utf8"));
+    assert.ok(Array.isArray(listAfterRevokeJson.documents));
+    assert.ok(!listAfterRevokeJson.documents.some((row) => row.documentId === uploadJson.document.documentId));
+
+    const listRevokedRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/documents?includeRevoked=true`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    const listRevokedJson = JSON.parse(listRevokedRes._body().toString("utf8"));
+    assert.equal(listRevokedRes.statusCode, 200, listRevokedRes._body().toString("utf8"));
+    assert.ok(listRevokedJson.documents.some((row) => row.documentId === uploadJson.document.documentId && row.revokedAt));
+  });
+
+  await t.test("tenant account sessions: admin can create, list, and revoke delegated consumer sessions", async () => {
+    const tenantId = "tenant_account_sessions_wallet";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const cookieHeader = String(loginRes.getHeader("set-cookie")).split(";")[0];
+    const stepUp = await performBuyerStepUpOtp({ tenantId, email: "admin@buyer.example", cookieHeader });
+    assert.equal(stepUp.method, "email_otp");
+
+    const createBody = Buffer.from(JSON.stringify({
+      providerKey: "amazon",
+      providerLabel: "Amazon",
+      siteKey: "amazon",
+      siteLabel: "Amazon",
+      mode: "approval_at_boundary",
+      accountHandleMasked: "a***n@example.com",
+      fundingSourceLabel: "Amazon Visa ending in 1001",
+      maxSpendCents: 15000,
+      currency: "USD",
+      permissions: {
+        canPurchase: true,
+        canUseSavedPaymentMethods: false,
+        requiresFinalReview: true
+      },
+      browserProfile: {
+        storageStateRef: "state://wallet/tenant_account_sessions_wallet/cas_amazon",
+        loginOrigin: "https://www.amazon.com/",
+        startUrl: "https://www.amazon.com/gp/cart/view.html",
+        allowedDomains: ["amazon.com", "www.amazon.com"],
+        reviewMode: "approval_at_boundary"
+      }
+    }), "utf8");
+    const createRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(createBody.length)
+      },
+      bodyChunks: [createBody]
+    });
+    assert.equal(createRes.statusCode, 201, createRes._body().toString("utf8"));
+    const createJson = JSON.parse(createRes._body().toString("utf8"));
+    assert.equal(createJson.ok, true);
+    assert.equal(createJson.session?.providerKey, "amazon");
+    assert.equal(createJson.session?.mode, "approval_at_boundary");
+    assert.equal(createJson.session?.maxSpendCents, 15000);
+    assert.equal(createJson.session?.permissions?.canPurchase, true);
+    assert.equal(createJson.session?.browserProfile?.storageStateRef, "state://wallet/tenant_account_sessions_wallet/cas_amazon");
+    assert.deepEqual(createJson.session?.browserProfile?.allowedDomains, ["amazon.com", "www.amazon.com"]);
+
+    const getRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions/${encodeURIComponent(createJson.session.sessionId)}`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(getRes.statusCode, 200, getRes._body().toString("utf8"));
+    const getJson = JSON.parse(getRes._body().toString("utf8"));
+    assert.equal(getJson.ok, true);
+    assert.equal(getJson.session?.sessionId, createJson.session.sessionId);
+    assert.equal(getJson.session?.browserProfile?.loginOrigin, "https://www.amazon.com/");
+
+    const getByOpsProxyRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions/${encodeURIComponent(createJson.session.sessionId)}`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "ops_token_magic_link"
+      },
+      bodyChunks: []
+    });
+    assert.equal(getByOpsProxyRes.statusCode, 200, getByOpsProxyRes._body().toString("utf8"));
+    const getByOpsProxyJson = JSON.parse(getByOpsProxyRes._body().toString("utf8"));
+    assert.equal(getByOpsProxyJson.ok, true);
+    assert.equal(getByOpsProxyJson.session?.sessionRef, createJson.session.sessionRef);
+
+    const listRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(listRes.statusCode, 200, listRes._body().toString("utf8"));
+    const listJson = JSON.parse(listRes._body().toString("utf8"));
+    assert.equal(listJson.ok, true);
+    assert.equal(Array.isArray(listJson.sessions), true);
+    assert.equal(listJson.sessions.length, 1);
+    assert.equal(listJson.sessions[0].sessionId, createJson.session.sessionId);
+
+    const revokeBody = Buffer.from(JSON.stringify({ reason: "USER_WALLET_REVOKE" }), "utf8");
+    const revokeRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions/${encodeURIComponent(createJson.session.sessionId)}/revoke`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(revokeBody.length)
+      },
+      bodyChunks: [revokeBody]
+    });
+    assert.equal(revokeRes.statusCode, 200, revokeRes._body().toString("utf8"));
+    const revokeJson = JSON.parse(revokeRes._body().toString("utf8"));
+    assert.equal(revokeJson.ok, true);
+    assert.ok(typeof revokeJson.session?.revokedAt === "string" && revokeJson.session.revokedAt.length > 0);
+    assert.equal(revokeJson.session?.revokedReason, "USER_WALLET_REVOKE");
+
+    const listAfterRevokeRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/account-sessions`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    const listAfterRevokeJson = JSON.parse(listAfterRevokeRes._body().toString("utf8"));
+    assert.equal(listAfterRevokeRes.statusCode, 200, listAfterRevokeRes._body().toString("utf8"));
+    assert.equal(Array.isArray(listAfterRevokeJson.sessions), true);
+    assert.equal(listAfterRevokeJson.sessions.length, 0);
+  });
+
+  await t.test("tenant browser states: admin can create, resolve, list, and revoke stored browser state", async () => {
+    const tenantId = "tenant_browser_states_wallet";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const cookieHeader = String(loginRes.getHeader("set-cookie")).split(";")[0];
+    const stepUp = await performBuyerStepUpOtp({ tenantId, email: "admin@buyer.example", cookieHeader });
+    assert.equal(stepUp.method, "email_otp");
+
+    const createBody = Buffer.from(JSON.stringify({
+      label: "Amazon browser state",
+      purpose: "purchase_runner",
+      storageState: {
+        cookies: [{ name: "session-id", value: "demo", domain: ".amazon.com", path: "/" }],
+        origins: []
+      }
+    }), "utf8");
+    const createRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/browser-states`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(createBody.length)
+      },
+      bodyChunks: [createBody]
+    });
+    assert.equal(createRes.statusCode, 201, createRes._body().toString("utf8"));
+    const createJson = JSON.parse(createRes._body().toString("utf8"));
+    assert.equal(createJson.ok, true);
+    assert.match(String(createJson.browserState?.stateRef ?? ""), new RegExp(`^state://wallet/${tenantId}/bs_`));
+    assert.equal(createJson.browserState?.label, "Amazon browser state");
+    assert.equal(createJson.browserState?.purpose, "purchase_runner");
+    assert.equal(Array.isArray(createJson.browserState?.storageState?.cookies), true);
+
+    const resolveRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/browser-states/resolve?ref=${encodeURIComponent(createJson.browserState.stateRef)}`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "ops_token_magic_link"
+      },
+      bodyChunks: []
+    });
+    assert.equal(resolveRes.statusCode, 200, resolveRes._body().toString("utf8"));
+    const resolveJson = JSON.parse(resolveRes._body().toString("utf8"));
+    assert.equal(resolveJson.ok, true);
+    assert.equal(resolveJson.browserState?.stateRef, createJson.browserState.stateRef);
+    assert.equal(resolveJson.browserState?.storageState?.cookies?.[0]?.domain, ".amazon.com");
+
+    const listRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/browser-states`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(listRes.statusCode, 200, listRes._body().toString("utf8"));
+    const listJson = JSON.parse(listRes._body().toString("utf8"));
+    assert.equal(listJson.ok, true);
+    assert.equal(Array.isArray(listJson.browserStates), true);
+    assert.equal(listJson.browserStates.length, 1);
+    assert.equal(listJson.browserStates[0].stateId, createJson.browserState.stateId);
+
+    const revokeBody = Buffer.from(JSON.stringify({ reason: "USER_WALLET_REVOKE_BROWSER_STATE" }), "utf8");
+    const revokeRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/browser-states/${encodeURIComponent(createJson.browserState.stateId)}/revoke`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(revokeBody.length)
+      },
+      bodyChunks: [revokeBody]
+    });
+    assert.equal(revokeRes.statusCode, 200, revokeRes._body().toString("utf8"));
+    const revokeJson = JSON.parse(revokeRes._body().toString("utf8"));
+    assert.equal(revokeJson.ok, true);
+    assert.ok(typeof revokeJson.browserState?.revokedAt === "string" && revokeJson.browserState.revokedAt.length > 0);
+
+    const resolveAfterRevokeRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/browser-states/resolve?ref=${encodeURIComponent(createJson.browserState.stateRef)}`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-proxy-ops-token": "ops_token_magic_link"
+      },
+      bodyChunks: []
+    });
+    assert.equal(resolveAfterRevokeRes.statusCode, 409, resolveAfterRevokeRes._body().toString("utf8"));
+    const resolveAfterRevokeJson = JSON.parse(resolveAfterRevokeRes._body().toString("utf8"));
+    assert.equal(resolveAfterRevokeJson.code, "BROWSER_STATE_REVOKED");
+  });
+
+  await t.test("tenant consumer connectors: admin can create, list, and revoke linked email/calendar accounts", async () => {
+    const tenantId = "tenant_consumer_connectors_wallet";
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const cookieHeader = String(loginRes.getHeader("set-cookie")).split(";")[0];
+    const stepUp = await performBuyerStepUpOtp({ tenantId, email: "admin@buyer.example", cookieHeader });
+    assert.equal(stepUp.method, "email_otp");
+
+    const createBody = Buffer.from(JSON.stringify({
+      kind: "email",
+      provider: "gmail",
+      mode: "oauth",
+      accountAddress: "admin@buyer.example",
+      accountLabel: "Primary support inbox",
+      scopes: ["mail.readonly", "mail.send"]
+    }), "utf8");
+    const createRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(createBody.length)
+      },
+      bodyChunks: [createBody]
+    });
+    assert.equal(createRes.statusCode, 201, createRes._body().toString("utf8"));
+    const createJson = JSON.parse(createRes._body().toString("utf8"));
+    assert.equal(createJson.ok, true);
+    assert.equal(createJson.connector?.kind, "email");
+    assert.equal(createJson.connector?.provider, "gmail");
+    assert.equal(createJson.connector?.mode, "oauth");
+    assert.equal(createJson.connector?.accountAddress, "admin@buyer.example");
+    assert.deepEqual(createJson.connector?.scopes, ["mail.readonly", "mail.send"]);
+
+    const getRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors/${encodeURIComponent(createJson.connector.connectorId)}`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(getRes.statusCode, 200, getRes._body().toString("utf8"));
+    const getJson = JSON.parse(getRes._body().toString("utf8"));
+    assert.equal(getJson.ok, true);
+    assert.equal(getJson.connector?.connectorRef, createJson.connector.connectorRef);
+
+    const listRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(listRes.statusCode, 200, listRes._body().toString("utf8"));
+    const listJson = JSON.parse(listRes._body().toString("utf8"));
+    assert.equal(listJson.ok, true);
+    assert.equal(Array.isArray(listJson.connectors), true);
+    assert.equal(listJson.connectors.length, 1);
+    assert.equal(listJson.connectors[0].connectorId, createJson.connector.connectorId);
+
+    const revokeBody = Buffer.from(JSON.stringify({ reason: "USER_WALLET_REVOKE_CONNECTOR" }), "utf8");
+    const revokeRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors/${encodeURIComponent(createJson.connector.connectorId)}/revoke`,
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(revokeBody.length)
+      },
+      bodyChunks: [revokeBody]
+    });
+    assert.equal(revokeRes.statusCode, 200, revokeRes._body().toString("utf8"));
+    const revokeJson = JSON.parse(revokeRes._body().toString("utf8"));
+    assert.equal(revokeJson.ok, true);
+    assert.ok(typeof revokeJson.connector?.revokedAt === "string" && revokeJson.connector.revokedAt.length > 0);
+    assert.equal(revokeJson.connector?.revokedReason, "USER_WALLET_REVOKE_CONNECTOR");
+
+    const listAfterRevokeRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors`,
+      headers: { cookie: cookieHeader },
+      bodyChunks: []
+    });
+    const listAfterRevokeJson = JSON.parse(listAfterRevokeRes._body().toString("utf8"));
+    assert.equal(listAfterRevokeRes.statusCode, 200, listAfterRevokeRes._body().toString("utf8"));
+    assert.equal(Array.isArray(listAfterRevokeJson.connectors), true);
+    assert.equal(listAfterRevokeJson.connectors.length, 0);
   });
 
   await t.test("public signup: creates tenant, admin role, and OTP", async () => {

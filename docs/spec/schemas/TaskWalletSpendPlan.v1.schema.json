@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/TaskWalletSpendPlan.v1.schema.json",
+  "title": "TaskWalletSpendPlan.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "walletId",
+    "tenantId",
+    "categoryId",
+    "consumerSpendRail",
+    "platformSettlementRail",
+    "machineSpendRail",
+    "authorizationPattern",
+    "finalizationRule",
+    "refundMode",
+    "merchantScopeCount",
+    "specialistScopeCount",
+    "providerScopeCount",
+    "maxSpendCents",
+    "currency",
+    "reviewMode",
+    "settlementModel"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "TaskWalletSpendPlan.v1" },
+    "walletId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "categoryId": { "type": ["string", "null"], "maxLength": 120 },
+    "consumerSpendRail": { "type": "string", "enum": ["stripe_issuing_task_wallet", "no_direct_consumer_spend"] },
+    "platformSettlementRail": { "type": "string", "enum": ["stripe_connect_marketplace_split"] },
+    "machineSpendRail": { "type": "string", "enum": ["x402_optional_later"] },
+    "authorizationPattern": {
+      "type": "string",
+      "enum": ["task_scoped_virtual_card", "approval_at_boundary", "operator_supervised_checkout", "no_direct_consumer_spend"]
+    },
+    "finalizationRule": { "type": "string", "enum": ["evidence_required_before_finalize", "platform_finalize_without_evidence"] },
+    "refundMode": { "type": "string", "enum": ["platform_refund_and_dispute", "no_refunds"] },
+    "merchantScopeCount": { "type": "integer", "minimum": 0 },
+    "specialistScopeCount": { "type": "integer", "minimum": 0 },
+    "providerScopeCount": { "type": "integer", "minimum": 0 },
+    "maxSpendCents": { "type": ["integer", "null"], "minimum": 1 },
+    "currency": { "type": ["string", "null"], "maxLength": 12 },
+    "reviewMode": { "type": ["string", "null"], "maxLength": 64 },
+    "settlementModel": { "type": ["string", "null"], "maxLength": 64 }
+  }
+}

@@ -10,6 +10,7 @@ It is a backwards-compatible evolution of `TenantSettings.v1` that adds:
 - automatic settlement decision policy controls (`autoDecision`)
 - payment trigger delivery controls (`paymentTriggers`)
 - tenant-scoped request rate limits (`rateLimits`)
+- consumer data wallet source records (`consumerDataSources`)
 
 ## Schema
 
@@ -58,6 +59,17 @@ Fields:
 - `webhookSecret`: optional HMAC secret for webhook delivery (encrypted at rest when settings key is configured).
 
 Notification delivery is idempotent per run token.
+
+## Consumer data wallet sources (service-level)
+
+`consumerDataSources` stores lightweight, revocable consumer-side source records that the product can reuse during managed delegation flows.
+
+Fields:
+
+- `email`: whether a source is enabled, which provider family it belongs to (`manual|gmail|outlook|imap`), the address, an optional user-facing label, and the last explicit link timestamp.
+- `calendar`: whether a source is enabled, which provider family it belongs to (`manual|google_calendar|outlook_calendar|ical`), an optional address, the user timezone, optional availability notes, and the last explicit link timestamp.
+
+These are wallet-owned source declarations, not proof that the platform already holds unrestricted OAuth access. They exist so the consumer shell can surface and reuse bounded email/calendar context without inventing agent-specific approval flows.
 
 ## Auto-decision policy (service-level)
 

@@ -13,6 +13,14 @@ These specs are written so an independent implementer can build a verifier witho
 
 ## Documents
 
+- `ACTION_WALLET_V1_FREEZE.md` — launch-scope object, state, and trust freeze for the host-first Action Wallet v1.
+- `action-wallet-v1-freeze.json` — machine-readable Sprint 0 freeze artifact for scope, object bindings, states, hashes, events, and published alias APIs.
+- `ActionWalletEventTaxonomy.v1.md` — closed-set Action Wallet launch event names, emit points, payload keys, and launch-metric bindings.
+- `ActionWalletSemanticHashes.v1.md` — deterministic semantic-hash contract for Action Wallet intent, grant, evidence bundle, and receipt subjects.
+- `ActionIntentLifecycle.v1.md` — fail-closed Action Wallet intent state machine, allowed transitions, and lifecycle diagram.
+- `ApprovalRequestLifecycle.v1.md` — fail-closed Action Wallet approval state machine, allowed transitions, timeout expiry, and revocation projection rules.
+- `ACTION_WALLET_OBJECT_MODEL.md` — human-readable map from the nine launch objects to runtime aliases, substrates, and persistence bindings.
+- `action-wallet-v1-object-model.json` — machine-readable object-model manifest for schema docs, JSON schemas, runtime bindings, and persistence bindings.
 - `public/` — public-facing collaboration substrate docs for integrators (`AgentCard.v1`, `AuthorityGrant.v1`, `DelegationGrant.v1`, `TaskQuote.v1`, `TaskOffer.v1`, `TaskAcceptance.v1`, `SubAgentWorkOrder.v1`, `SubAgentCompletionReceipt.v1`, `ExecutionAttestation.v1`, `Meter.v1`, `ArtifactRef.v1`, `StateCheckpoint.v1`, `CapabilityAttestation.v1`, `ReputationEvent.v1`, `RelationshipEdge.v1`, `PublicAgentReputationSummary.v1`).
 - `CANONICAL_JSON.md` — canonical JSON rules used before hashing/signing.
 - `VERSIONING.md` — tool vs protocol versioning policy (SemVer + protocol object evolution).

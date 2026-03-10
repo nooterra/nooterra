@@ -1,0 +1,544 @@
+{
+  "projectCreatedAt": "2026-03-09T04:12:46.531Z",
+  "owner": "aidenlippert",
+  "project": {
+    "number": 2,
+    "id": "PVT_kwHOAS-rXs4BRLOm",
+    "title": "Launch 1 - Action Wallet",
+    "url": "https://github.com/users/aidenlippert/projects/2"
+  },
+  "created": false,
+  "repoLinked": false,
+  "repoLinkError": "Command failed: gh project link 2 --owner aidenlippert --repo nooterra/nooterra\n'nooterra/nooterra' has different owner from 'aidenlippert'\n",
+  "counts": {
+    "issuesRequested": 131,
+    "itemsCreated": 17,
+    "itemsExisting": 114
+  },
+  "items": [
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/210",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/211",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/212",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/213",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/214",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/215",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/216",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/217",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/218",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/219",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/220",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/221",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/222",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/223",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/224",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/225",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/226",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/227",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/228",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/229",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/230",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/231",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/232",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/233",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/234",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/235",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/236",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/237",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/238",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/239",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/240",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/241",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/242",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/243",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/244",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/245",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/246",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/247",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/248",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/249",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/250",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/251",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/252",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/253",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/254",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/255",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/256",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/257",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/258",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/259",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/260",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/261",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/262",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/263",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/264",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/265",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/266",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/267",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/268",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/269",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/270",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/271",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/272",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/273",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/274",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/275",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/276",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/277",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/278",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/279",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/280",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/281",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/282",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/283",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/284",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/285",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/286",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/287",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/288",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/289",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/290",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/291",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/292",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/293",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/294",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/295",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/296",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/297",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/298",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/299",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/300",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/301",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/302",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/303",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/304",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/305",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/306",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/307",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/308",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/309",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/310",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/311",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/312",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/313",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/314",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/315",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/316",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/317",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/318",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/319",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/320",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/321",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/322",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/323",
+      "source": "existing"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/324",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/325",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/326",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/327",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/328",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/329",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/330",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/331",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/332",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/333",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/334",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/335",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/336",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/337",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/338",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/339",
+      "source": "created"
+    },
+    {
+      "url": "https://github.com/nooterra/nooterra/issues/340",
+      "source": "created"
+    }
+  ]
+}

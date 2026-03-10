@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SettlementEvent.v1.schema.json",
+  "title": "SettlementEvent.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "settlementEventId",
+    "eventType",
+    "runId",
+    "settlementId",
+    "status",
+    "recordedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SettlementEvent.v1" },
+    "settlementEventId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "eventType": { "type": "string", "enum": ["authorization", "capture", "refund", "failure", "dispute_hold"] },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "settlementId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "status": { "type": "string", "enum": ["locked", "released", "refunded"] },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "disputeId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "amountCents": { "type": ["integer", "null"], "minimum": 0 },
+    "currency": { "type": ["string", "null"], "minLength": 3, "maxLength": 12 },
+    "resolutionEventId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "traceId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "source": { "type": ["string", "null"], "enum": ["verification", "operator", "provider_reconciliation", null] },
+    "receiptRef": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["receiptId", "receiptHash"],
+      "properties": {
+        "receiptId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "receiptHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
