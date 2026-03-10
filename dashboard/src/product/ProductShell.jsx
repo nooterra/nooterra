@@ -3388,7 +3388,7 @@ function NetworkPage({ runtime, onboardingState, lastAgentId, launchId, onLaunch
             </a>
           ) : null}
           <a className="product-button product-button-ghost" href="/onboarding">Finish setup</a>
-          <a className="product-button product-button-solid" href="/developers">Open host setup</a>
+          <a className="product-button product-button-solid" href={docsLinks.hostQuickstart}>Open host setup</a>
         </div>
       </section>
 
@@ -4715,6 +4715,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     buyer_link_shared: "Share the hosted approval path or receipt link with a real counterpart.",
     referral_signup: "Drive one external signup or second workspace activation from the same flow."
   };
+  const defaultOnboardingStageCount = Object.keys(onboardingStageLabels).length;
   const reachedStages = Number.isFinite(Number(onboardingFunnel?.reachedStages)) ? Number(onboardingFunnel.reachedStages) : onboardingStages.filter((stage) => stage?.reached).length;
   const totalStages = Number.isFinite(Number(onboardingFunnel?.totalStages)) ? Number(onboardingFunnel.totalStages) : onboardingStages.length;
   const completionPct = Number.isFinite(Number(onboardingFunnel?.completionPct)) ? Math.max(0, Math.min(100, Number(onboardingFunnel.completionPct))) : 0;
@@ -4728,6 +4729,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         : onboardingMetrics
           ? "warn"
           : "neutral";
+  const activationStatusLabel = onboardingMetrics
+    ? humanizeLabel(onboardingMetrics?.status, "pending")
+    : buyer?.tenantId
+      ? "Pending"
+      : "Awaiting workspace";
   const timeToFirstVerifiedLabel = (() => {
     const value = Number(onboardingMetrics?.timeToFirstVerifiedMs);
     if (!Number.isFinite(value) || value < 0) return "Pending";
@@ -4763,7 +4769,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const hostedApprovalReady = Boolean(firstApprovalSharedAt);
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
-  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : "/developers";
+  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart;
   const receiptSurfaceHref = latestFirstPaidReceiptId
     ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
     : "/receipts";
@@ -4794,7 +4800,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Next exact move: install Claude MCP or OpenClaw and trigger one yellow-state action so /approvals receives a live request.`
           : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
-      href: hostedApprovalReady ? "/approvals" : "/developers",
+      href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
       cta: hostedApprovalReady ? "Open approvals" : "Open install path"
     },
     {
@@ -4833,17 +4839,17 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     {
       label: "Claude MCP",
       body: "Primary launch host. Paste the generated MCP config, request one governed action, and verify the approval deep link resolves in the hosted surface.",
-      href: "/developers"
+      href: docsLinks.claudeDesktopQuickstart
     },
     {
       label: "OpenClaw",
       body: "Package OpenClaw with the same runtime bundle. The approval, receipt, and dispute surfaces should stay identical to the Claude path.",
-      href: "/integrations"
+      href: docsLinks.openClawQuickstart
     },
     {
       label: "Codex / API / CLI",
       body: "Engineering shells should call the same Action Wallet contract and hand users into hosted approval, receipt, and dispute pages instead of inventing new UI.",
-      href: "/developers"
+      href: docsLinks.codexEngineeringQuickstart
     }
   ];
 
@@ -4859,7 +4865,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </div>
         <div className="product-page-top-actions">
           {!buyer ? (
-            <a className="product-button product-button-ghost" href="/developers">
+            <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>
               Open install path
             </a>
           ) : null}
@@ -4917,11 +4923,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <div className="product-detail-meta">
             <div>
               <strong>Activation</strong>
-              <span>{humanizeLabel(onboardingMetrics?.status, onboardingMetrics ? "pending" : "unknown")}</span>
+              <span>{activationStatusLabel}</span>
             </div>
             <div>
               <strong>Funnel</strong>
-              <span>{reachedStages} / {totalStages || onboardingStageLabels.length}</span>
+              <span>{reachedStages} / {totalStages || defaultOnboardingStageCount}</span>
             </div>
             <div>
               <strong>First verified</strong>
@@ -5432,7 +5438,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             <p>Primary launch host. Use the generated MCP config and aim for first hosted approval fast.</p>
             <div className="product-actions">
               <a className="product-button product-button-ghost" href={docsLinks.claudeDesktopQuickstart}>Claude guide</a>
-              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
             </div>
           </div>
           <div className="product-access-card">
@@ -5443,7 +5449,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             <p>Second launch host. Reuse the same runtime bundle and approval contract without forking the flow.</p>
             <div className="product-actions">
               <a className="product-button product-button-ghost" href={docsLinks.openClawQuickstart}>OpenClaw guide</a>
-              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
             </div>
           </div>
           <div className="product-access-card">
@@ -9548,7 +9554,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
             <div className="product-actions">
               <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
               <a className="product-button product-button-ghost" href="/receipts">Open receipts</a>
-              <a className="product-button product-button-solid" href="/developers">Open developer quickstart</a>
+              <a className="product-button product-button-solid" href={docsLinks.hostQuickstart}>Open host quickstart</a>
             </div>
           </section>
 

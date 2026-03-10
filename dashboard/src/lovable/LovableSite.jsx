@@ -531,27 +531,37 @@ function IntegrationsPage() {
     {
       name: "Claude MCP",
       desc: "Native Model Context Protocol integration. Claude gains governed authority to take real-world actions through Nooterra.",
-      status: "Available"
+      status: "Available",
+      href: docsLinks.claudeDesktopQuickstart,
+      ctaLabel: "Claude quickstart"
     },
     {
       name: "OpenClaw",
       desc: "Drop-in provider for the OpenClaw agent framework. Approval, receipts, and recourse without changing execution logic.",
-      status: "Available"
+      status: "Available",
+      href: docsLinks.openClawQuickstart,
+      ctaLabel: "OpenClaw guide"
     },
     {
       name: "REST API",
       desc: "Direct HTTP integration for any language or framework. Full control over approval flows, receipts, and dispute resolution.",
-      status: "Available"
+      status: "Available",
+      href: docsLinks.api,
+      ctaLabel: "API reference"
     },
     {
       name: "CLI",
       desc: "Manage policies, inspect receipts, and configure wallets from your terminal. Scriptable and CI/CD friendly.",
-      status: "Available"
+      status: "Available",
+      href: docsLinks.codexEngineeringQuickstart,
+      ctaLabel: "CLI guide"
     },
     {
       name: "Codex",
       desc: "Use the same Action Wallet runtime contract inside Codex and other engineering shells without rebuilding approvals or receipts.",
-      status: "Available"
+      status: "Available",
+      href: docsLinks.codexEngineeringQuickstart,
+      ctaLabel: "Codex guide"
     },
     {
       name: "Webhooks",
@@ -592,8 +602,8 @@ function IntegrationsPage() {
                   </div>
                   <p className="flex-1 text-sm leading-relaxed text-stone-400">{item.desc}</p>
                   {item.status === "Available" ? (
-                    <a href="/developers" className="mt-6 inline-flex items-center gap-1 text-sm text-[#d2b06f] transition-colors hover:text-[#e2c994]">
-                      View docs <ArrowRight size={13} />
+                    <a href={item.href} className="mt-6 inline-flex items-center gap-1 text-sm text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                      {item.ctaLabel} <ArrowRight size={13} />
                     </a>
                   ) : null}
                 </div>
@@ -616,9 +626,14 @@ function IntegrationsPage() {
                   Claude, OpenClaw, Codex, CLI, or direct API. The integration surface changes. The trust contract does not.
                 </p>
               </div>
-              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                Set up runtime <ArrowRight size={16} />
-              </a>
+              <div className="flex flex-wrap gap-4">
+                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Set up runtime <ArrowRight size={16} />
+                </a>
+                <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Launch host guide <ArrowUpRight size={15} />
+                </a>
+              </div>
             </div>
           </FadeIn>
         </div>
@@ -639,8 +654,8 @@ function TrustEntryPage({
   artifactBody,
   artifactStats,
   ctaLabel = "Open onboarding",
-  supportHref = "/developers",
-  supportLabel = "Read integration docs"
+  supportHref = docsLinks.hostQuickstart,
+  supportLabel = "Launch host guide"
 }) {
   return (
     <SiteLayout>
