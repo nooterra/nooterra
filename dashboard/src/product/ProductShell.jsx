@@ -27,6 +27,7 @@ import {
   buildTenantConsumerConnectorOauthStartUrl,
   canonicalJsonStringify,
   createClientId,
+  DEFAULT_AUTH_BASE_URL,
   decideApprovalInboxItem,
   buildEd25519JwksFromPublicKeyPem,
   fetchApprovalInbox,
@@ -3811,13 +3812,45 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const resolvedWorkspaceTenantId = runtimeBootstrapTenantId || buyerTenantId;
   const workspaceTenantLabel = resolvedWorkspaceTenantId || "Issue workspace first";
 
+  async function requestAuthJson(request) {
+    const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
+    const baseUrlCandidates = [configuredBaseUrl];
+    if (DEFAULT_AUTH_BASE_URL && DEFAULT_AUTH_BASE_URL !== configuredBaseUrl) {
+      baseUrlCandidates.push(DEFAULT_AUTH_BASE_URL);
+    }
+    let lastError = null;
+    for (const baseUrl of baseUrlCandidates) {
+      try {
+        const out = await requestJson({
+          ...request,
+          baseUrl
+        });
+        if (baseUrl !== configuredBaseUrl) {
+          setRuntime((previous) => (
+            previous.authBaseUrl === baseUrl
+              ? previous
+              : { ...previous, authBaseUrl: baseUrl }
+          ));
+        }
+        return out;
+      } catch (error) {
+        lastError = error;
+        const message = String(error?.message ?? "");
+        const shouldFallback =
+          (!Number.isInteger(error?.status) || error.status >= 500) &&
+          /failed to fetch|networkerror|load failed|fetch/i.test(message);
+        if (!shouldFallback || baseUrl === DEFAULT_AUTH_BASE_URL) break;
+      }
+    }
+    throw lastError;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     async function hydrate() {
       try {
-        const authOut = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const authOut = await requestAuthJson({
           pathname: "/v1/public/auth-mode",
           method: "GET",
           credentials: "include"
@@ -3846,8 +3879,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       }
 
       try {
-        const meOut = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const meOut = await requestAuthJson({
           pathname: "/v1/buyer/me",
           method: "GET",
           credentials: "include"
@@ -3941,8 +3973,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
     async function loadOnboardingMetrics() {
       try {
-        const out = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const out = await requestAuthJson({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
           method: "GET",
           credentials: "include"
@@ -3965,8 +3996,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
     async function loadFirstPaidHistory() {
       try {
-        const out = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const out = await requestAuthJson({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
           method: "GET",
           credentials: "include"
@@ -4021,8 +4051,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       error: ""
     }));
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
         method: "GET",
         credentials: "include"
@@ -4044,8 +4073,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function loadBuyerSession() {
-    const meOut = await requestJson({
-      baseUrl: runtime.authBaseUrl,
+    const meOut = await requestAuthJson({
       pathname: "/v1/buyer/me",
       method: "GET",
       credentials: "include"
@@ -4087,8 +4115,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const tenantId = activeBootstrap?.tenantId ?? buyer?.tenantId;
     const env = activeBootstrap?.mcp?.env ?? null;
     if (!tenantId || !env) throw new Error("runtime bootstrap must exist before smoke test");
-    const out = await requestJson({
-      baseUrl: runtime.authBaseUrl,
+    const out = await requestAuthJson({
       pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap/smoke-test`,
       method: "POST",
       headers: {
@@ -4110,8 +4137,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("signup");
     setStatusMessage("Creating the workspace and issuing the first recovery code...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: "/v1/public/signup",
         method: "POST",
         headers: {
@@ -4169,8 +4195,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setStatusMessage("Generating a device passkey, creating the workspace, and opening the first buyer session...");
     try {
       const keypair = await generateBrowserEd25519KeypairPem();
-      const options = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const options = await requestAuthJson({
         pathname: "/v1/public/signup/passkey/options",
         method: "POST",
         headers: {
@@ -4190,8 +4215,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         privateKeyPem: keypair.privateKeyPem,
         challenge: options?.challenge
       });
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: "/v1/public/signup/passkey",
         method: "POST",
         headers: {
@@ -4265,8 +4289,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       if (!bundle) {
         throw new Error("No saved device passkey was found for this tenant/email. Use the recovery code or create the workspace on this browser first.");
       }
-      const options = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const options = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
         method: "POST",
         headers: {
@@ -4284,8 +4307,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         privateKeyPem: bundle.privateKeyPem,
         challenge: options?.challenge
       });
-      await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`,
         method: "POST",
         headers: {
@@ -4320,8 +4342,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("otp");
     setStatusMessage("Requesting a recovery code...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(loginForm.tenantId)}/buyer/login/otp`,
         method: "POST",
         headers: {
@@ -4344,8 +4365,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("verify");
     setStatusMessage("Verifying the recovery code and creating the buyer session...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(loginForm.tenantId)}/buyer/login`,
         method: "POST",
         headers: {
@@ -4390,8 +4410,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         },
         ...(runtimeForm.paidToolsBaseUrl ? { paidToolsBaseUrl: runtimeForm.paidToolsBaseUrl.trim() } : {})
       };
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(buyer.tenantId)}/onboarding/runtime-bootstrap`,
         method: "POST",
         headers: {
@@ -4460,8 +4479,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       error: ""
     }));
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
         method: "GET",
         credentials: "include"
@@ -4502,16 +4520,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }));
     setStatusMessage(replayAttemptId ? "Replaying stored first paid call attempt..." : "Running first paid call...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`,
         method: "POST",
         headers: { "content-type": "application/json" },
         body: replayAttemptId ? { replayAttemptId } : {},
         credentials: "include"
       });
-      const historyOut = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const historyOut = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
         method: "GET",
         credentials: "include"
@@ -4557,8 +4573,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }));
     setStatusMessage("Running runtime conformance matrix...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4593,8 +4608,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("logout");
     setStatusMessage("Signing out of the buyer session...");
     try {
-      await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      await requestAuthJson({
         pathname: "/v1/buyer/logout",
         method: "POST",
         headers: {
@@ -4835,7 +4849,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   return (
     <div className="product-page">
-      <section className="product-page-top">
+      <section className="product-page-top product-onboarding-top">
         <div>
           <p className="product-kicker">Workspace Onboarding</p>
           <h1>Turn a new account into a live Action Wallet workspace.</h1>
@@ -4844,18 +4858,23 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           </p>
         </div>
         <div className="product-page-top-actions">
+          {!buyer ? (
+            <a className="product-button product-button-ghost" href="/developers">
+              Open install path
+            </a>
+          ) : null}
           {buyer ? (
             <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
               {busyState === "logout" ? "Signing out..." : "Sign Out"}
             </button>
           ) : null}
-          <a className="product-button product-button-solid" href={buyer ? "/wallet" : "/developers"}>
-            {buyer ? "Continue To Wallet" : "Open Developer Toolkit"}
+          <a className="product-button product-button-solid" href={buyer ? "/wallet" : "#identity-access"}>
+            {buyer ? "Continue To Wallet" : "Create workspace"}
           </a>
         </div>
       </section>
 
-      <section className="product-metric-grid">
+      <section className="product-metric-grid product-onboarding-metric-grid">
         <article className="product-metric-card">
           <span>Readiness</span>
           <strong>{onboardingReadyCount} / {onboardingChecks.length}</strong>
@@ -4878,8 +4897,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
+      <section className="product-grid-two product-onboarding-activation-grid">
+        <article className="product-card product-card-emphasis">
           <div className="product-section-head compact">
             <p>Launch readiness</p>
             <h2>See whether this workspace is actually ready for first approval, first receipt, and first dispute.</h2>
@@ -4945,7 +4964,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ) : null}
         </article>
 
-        <article className="product-card" id="first-governed-action">
+        <article className="product-card product-card-spotlight" id="first-governed-action">
           <div className="product-section-head compact">
             <p>First governed action</p>
             <h2>Walk one run all the way from runtime bootstrap to approval, receipt, and dispute.</h2>
@@ -5016,8 +5035,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card" id="first-live-paid-call">
+      <section className="product-grid-two product-onboarding-proof-grid">
+        <article className="product-card product-card-emphasis" id="first-live-paid-call">
           <div className="product-section-head compact">
             <p>First live paid call</p>
             <h2>Run the first end-to-end proof from this workspace and keep the attempt history visible.</h2>
@@ -5157,8 +5176,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-grid-two">
-        <article className="product-card">
+      <section className="product-grid-two product-onboarding-setup-grid">
+        <article className="product-card product-card-emphasis" id="identity-access">
           <div className="product-section-head compact">
             <p>Identity + Access</p>
             <h2>Create or recover a workspace.</h2>
@@ -5298,7 +5317,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <div className="product-inline-note">{statusMessage}</div>
         </article>
 
-        <article className="product-card">
+        <article className="product-card product-card-emphasis" id="runtime-bootstrap">
           <div className="product-section-head compact">
             <p>Runtime Bootstrap</p>
             <h2>Issue the API key + MCP bundle the product actually needs.</h2>
@@ -5399,7 +5418,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-card" id="host-shortcuts">
+      <section className="product-card product-onboarding-host-shortcuts" id="host-shortcuts">
         <div className="product-section-head compact">
           <p>Host shortcuts</p>
           <h2>After bootstrap, move directly into the install path that matches your shell.</h2>
