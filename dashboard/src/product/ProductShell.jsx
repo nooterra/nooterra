@@ -13,6 +13,7 @@ import {
   GitBranchPlus,
   Network,
   PlugZap,
+  Shield,
   ShieldCheck,
   SquareTerminal,
   Workflow
@@ -2338,7 +2339,7 @@ function LaunchScopePage({ requestedPath, onboardingState }) {
       </div>
 
       <section className="product-grid-two">
-        <article className="product-card">
+        <article className="product-card" id="runtime-bootstrap">
           <div className="product-section-head compact">
             <p>Supported surfaces</p>
             <h2>Use the launch-safe pages that are part of the v1 contract.</h2>
@@ -4731,50 +4732,89 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     latestFirstPaidAttempt?.settlementReceipt?.receiptId ??
     ""
   ).trim();
+  const latestFirstPaidDisputeId = String(
+    latestFirstPaidAttempt?.ids?.disputeId ??
+    latestFirstPaidAttempt?.disputeId ??
+    latestFirstPaidAttempt?.settlement?.disputeId ??
+    latestFirstPaidAttempt?.settlementReceipt?.disputeId ??
+    ""
+  ).trim();
   const firstPaidTone =
     latestFirstPaidAttempt?.verificationStatus === "green" && latestFirstPaidAttempt?.settlementStatus === "released"
       ? "good"
       : latestFirstPaidAttempt
         ? "warn"
         : "neutral";
-  const hostedApprovalReady = Boolean(smokeBundle?.smoke?.initialized || onboardingMetrics?.firstBuyerLinkSharedAt);
-  const proofAndRecourseReady = Boolean(
-    onboardingMetrics?.firstVerifiedAt ||
-    latestFirstPaidReceiptId ||
-    (latestFirstPaidAttempt?.verificationStatus === "green" && latestFirstPaidAttempt?.settlementStatus === "released")
-  );
+  const firstApprovalSharedAt = String(onboardingMetrics?.firstBuyerLinkSharedAt ?? "").trim();
+  const hostedApprovalReady = Boolean(firstApprovalSharedAt);
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
-  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : "/onboarding";
+  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : "/developers";
   const receiptSurfaceHref = latestFirstPaidReceiptId
     ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
     : "/receipts";
-  const disputeSurfaceHref = latestFirstPaidRunId
-    ? `/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`
-    : "/disputes";
+  const disputeSurfaceHref = latestFirstPaidDisputeId
+    ? `/disputes?selectedDisputeId=${encodeURIComponent(latestFirstPaidDisputeId)}`
+    : latestFirstPaidReceiptId
+      ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
+      : latestFirstPaidRunId
+        ? `/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`
+        : "/disputes";
   const firstGovernedActionSteps = [
     {
-      title: "Install against one runtime",
+      title: "Issue runtime bootstrap",
       detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
-        ? `Bootstrap ${bootstrapBundle.bootstrap.apiKey.keyId} is ready for Claude MCP, OpenClaw, Codex, CLI, and API.`
-        : "Issue runtime bootstrap once, then reuse the same base URL, API key, and approval surfaces everywhere.",
-      ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId)
+        ? `Bootstrap ${bootstrapBundle.bootstrap.apiKey.keyId} is live for ${workspaceTenantLabel}. Reuse this exact runtime bundle for the first host install.`
+        : buyer
+          ? "Issue Runtime Bootstrap below. This mints the tenant-scoped API key and MCP env the first host will use."
+          : "Create or recover the workspace first, then issue Runtime Bootstrap from this page.",
+      ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId),
+      href: bootstrapBundle?.bootstrap?.apiKey?.keyId ? "#host-shortcuts" : "#runtime-bootstrap",
+      cta: bootstrapBundle?.bootstrap?.apiKey?.keyId ? "Open host shortcuts" : "Issue bootstrap"
     },
     {
-      title: "Reach a hosted approval URL",
+      title: "Reach the first hosted approval",
       detail: hostedApprovalReady
-        ? "A hosted approval path has already been exercised from this workspace."
-        : "Create one governed action and verify the host hands back a durable approval URL instead of trying to inline approval logic.",
-      ready: hostedApprovalReady
+        ? `A hosted approval link was already shared at ${formatDateTime(firstApprovalSharedAt)}. Keep the next live decision in the same approvals surface.`
+        : smokeBundle?.smoke?.initialized
+          ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Next exact move: install Claude MCP or OpenClaw and trigger one yellow-state action so /approvals receives a live request.`
+          : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
+      ready: hostedApprovalReady,
+      href: hostedApprovalReady ? "/approvals" : "/developers",
+      cta: hostedApprovalReady ? "Open approvals" : "Open install path"
     },
     {
-      title: "Close the proof loop",
-      detail: proofAndRecourseReady
-        ? "This workspace already has a receipt or verified outcome linked to recourse."
-        : "Fetch the grant, finalize with evidence, then confirm the receipt and dispute links resolve against the same run.",
-      ready: proofAndRecourseReady
+      title: "Produce the first receipt",
+      detail: latestFirstPaidReceiptId
+        ? `Receipt ${latestFirstPaidReceiptId}${latestFirstPaidRunId ? ` is attached to run ${latestFirstPaidRunId}` : ""}. Use it as the canonical proof record for the first governed action.`
+        : latestFirstPaidAttempt
+          ? `Latest first paid call ${latestFirstPaidAttempt.attemptId ?? "attempt"} ended with verification ${humanizeLabel(latestFirstPaidAttempt.verificationStatus, "unknown")} and settlement ${humanizeLabel(latestFirstPaidAttempt.settlementStatus, "unknown")}, but no receipt is linked yet. Replay or rerun it until one receipt is issued.`
+          : "Run the first paid call below to push one governed action from approval through verified receipt.",
+      ready: Boolean(latestFirstPaidReceiptId),
+      href: latestFirstPaidReceiptId ? receiptSurfaceHref : "#first-live-paid-call",
+      cta: latestFirstPaidReceiptId ? "Open receipt" : "Run first paid call"
+    },
+    {
+      title: "Verify dispute and recourse",
+      detail: latestFirstPaidDisputeId
+        ? `Dispute ${latestFirstPaidDisputeId} is already linked to the first governed action. Keep receipt and recourse on the same run before partner handoff.`
+        : latestFirstPaidReceiptId
+          ? `Receipt ${latestFirstPaidReceiptId} is live. Next exact move: open that receipt and confirm the dispute / recourse link resolves for the same run before launch.`
+          : "Dispute validation starts from a real receipt. Reach the first receipt first, then confirm recourse from that record.",
+      ready: Boolean(latestFirstPaidDisputeId),
+      href: disputeSurfaceHref,
+      cta: latestFirstPaidDisputeId
+        ? "Open dispute"
+        : latestFirstPaidReceiptId
+          ? "Verify recourse from receipt"
+          : "Open dispute center"
     }
   ];
+  const nextGovernedActionStep = firstGovernedActionSteps.find((step) => !step.ready) ?? null;
+  const nextGovernedActionLabel = nextGovernedActionStep ? nextGovernedActionStep.title : "Ready for design-partner burn-in";
+  const nextGovernedActionInstruction = nextGovernedActionStep
+    ? nextGovernedActionStep.detail
+    : "Bootstrap, hosted approval, receipt, and dispute are all linked in this workspace. Keep the same runtime and host contract during burn-in.";
   const activationChannels = [
     {
       label: "Claude MCP",
@@ -4823,8 +4863,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
         <article className="product-metric-card">
           <span>Next action</span>
-          <strong>{onboardingNextAction}</strong>
-          <small>The first missing step that still blocks launch-host setup.</small>
+          <strong>{nextGovernedActionLabel}</strong>
+          <small>{nextGovernedActionStep ? "The next exact move from bootstrap to first live receipt." : "The first governed action path is fully linked in this workspace."}</small>
         </article>
         <article className="product-metric-card">
           <span>Certified hosts</span>
@@ -4905,10 +4945,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ) : null}
         </article>
 
-        <article className="product-card">
+        <article className="product-card" id="first-governed-action">
           <div className="product-section-head compact">
             <p>First governed action</p>
-            <h2>Once onboarding is green, the next steps should be boring.</h2>
+            <h2>Walk one run all the way from runtime bootstrap to approval, receipt, and dispute.</h2>
+          </div>
+          <div className={`product-inline-note ${nextGovernedActionStep ? "accent" : "good"}`}>
+            {nextGovernedActionStep ? `Next exact step: ${nextGovernedActionInstruction}` : nextGovernedActionInstruction}
           </div>
           <div className="product-detail-meta">
             <div>
@@ -4917,15 +4960,15 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <div>
               <strong>Approval route</strong>
-              <span>{hostedApprovalReady ? "Reachable" : "Not proven yet"}</span>
+              <span>{hostedApprovalReady ? formatDateTime(firstApprovalSharedAt) : smokeBundle?.smoke?.initialized ? "Smoke green · waiting on live approval" : "Not proven yet"}</span>
             </div>
             <div>
               <strong>Receipt route</strong>
-              <span>{latestFirstPaidReceiptId ? "Bound to run" : "Pending"}</span>
+              <span>{latestFirstPaidReceiptId || "Not issued yet"}</span>
             </div>
             <div>
               <strong>Dispute route</strong>
-              <span>{latestFirstPaidRunId ? "Linked to run" : "Pending"}</span>
+              <span>{latestFirstPaidDisputeId || (latestFirstPaidReceiptId ? "Validate from receipt" : "Pending")}</span>
             </div>
           </div>
           <div className="product-step-list">
@@ -4940,10 +4983,16 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             ))}
           </div>
           <div className="product-actions">
-            <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+            <a className="product-button product-button-solid" href={nextGovernedActionStep?.href ?? "/wallet"}>
+              {nextGovernedActionStep?.cta ?? "Open wallet"}
+            </a>
             <a className="product-button product-button-ghost" href={approvalSurfaceHref}>Open approvals</a>
-            <a className="product-button product-button-solid" href={receiptSurfaceHref}>Open receipts</a>
-            <a className="product-button product-button-ghost" href={disputeSurfaceHref}>Open disputes</a>
+            <a className="product-button product-button-ghost" href={receiptSurfaceHref}>
+              {latestFirstPaidReceiptId ? "Open first receipt" : "Open receipts"}
+            </a>
+            <a className="product-button product-button-ghost" href={disputeSurfaceHref}>
+              {latestFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
+            </a>
           </div>
           <CodeBlock
             title="Shared runtime contract"
@@ -4954,7 +5003,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             {activationChannels.map((channel) => (
               <div key={`activation_channel:${channel.label}`} className="product-access-card">
                 <div className="product-mini-card-head">
-                  <Shield size={18} />
+                  <ShieldCheck size={18} />
                   <span>{channel.label}</span>
                 </div>
                 <p>{channel.body}</p>
@@ -4968,7 +5017,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       </section>
 
       <section className="product-grid-two">
-        <article className="product-card">
+        <article className="product-card" id="first-live-paid-call">
           <div className="product-section-head compact">
             <p>First live paid call</p>
             <h2>Run the first end-to-end proof from this workspace and keep the attempt history visible.</h2>
@@ -5350,7 +5399,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         </article>
       </section>
 
-      <section className="product-card">
+      <section className="product-card" id="host-shortcuts">
         <div className="product-section-head compact">
           <p>Host shortcuts</p>
           <h2>After bootstrap, move directly into the install path that matches your shell.</h2>
