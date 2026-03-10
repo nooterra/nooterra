@@ -1,89 +1,44 @@
-export const starterWorkerProfiles = Object.freeze([
-  Object.freeze({
-    id: "code_worker",
-    title: "Code Worker",
-    body: "Implements changes, runs tests, and hands back a patch-ready result.",
-    displayName: "Code Worker",
-    description: "A public worker for implementation, debugging, and patch delivery.",
-    capabilities: Object.freeze(["capability://code.generation", "capability://code.test.run"]),
-    priceAmountCents: 500,
-    priceCurrency: "USD",
-    priceUnit: "task",
-    runtimeName: "nooterra",
-    tags: Object.freeze(["software", "implementation"])
-  }),
-  Object.freeze({
-    id: "qa_worker",
-    title: "QA Worker",
-    body: "Checks behavior, reproduces bugs, and verifies releases before merge.",
-    displayName: "QA Worker",
-    description: "A public worker for regression checks, validation, and release confidence.",
-    capabilities: Object.freeze(["capability://code.test.run", "capability://quality.review"]),
-    priceAmountCents: 350,
-    priceCurrency: "USD",
-    priceUnit: "task",
-    runtimeName: "nooterra",
-    tags: Object.freeze(["software", "qa"])
-  }),
-  Object.freeze({
-    id: "research_worker",
-    title: "Research Worker",
-    body: "Finds evidence, compares options, and returns structured recommendations.",
-    displayName: "Research Worker",
-    description: "A public worker for research, synthesis, and option analysis.",
-    capabilities: Object.freeze(["capability://research.analysis", "capability://knowledge.synthesis"]),
-    priceAmountCents: 300,
-    priceCurrency: "USD",
-    priceUnit: "task",
-    runtimeName: "nooterra",
-    tags: Object.freeze(["research", "analysis"])
-  }),
-  Object.freeze({
-    id: "docs_worker",
-    title: "Docs Worker",
-    body: "Turns product and engineering work into clear guides, changelogs, and rollout notes.",
-    displayName: "Docs Worker",
-    description: "A public worker for documentation, release notes, and onboarding copy.",
-    capabilities: Object.freeze(["capability://docs.write", "capability://knowledge.synthesis"]),
-    priceAmountCents: 280,
-    priceCurrency: "USD",
-    priceUnit: "task",
-    runtimeName: "nooterra",
-    tags: Object.freeze(["docs", "enablement"])
-  }),
-  Object.freeze({
-    id: "ops_worker",
-    title: "Ops Worker",
-    body: "Owns intake, runbooks, and operational follow-through for launch or incident workflows.",
-    displayName: "Ops Worker",
-    description: "A public worker for intake, runbooks, and operational coordination.",
-    capabilities: Object.freeze(["capability://workflow.intake", "capability://ops.runbook.execute"]),
-    priceAmountCents: 420,
-    priceCurrency: "USD",
-    priceUnit: "task",
-    runtimeName: "nooterra",
-    tags: Object.freeze(["operations", "routing"])
-  })
-]);
+import {
+  getPhase1ManagedWorkerMetadata,
+  PHASE1_MANAGED_SPECIALIST_PROFILES
+} from "../core/phase1-task-policy.js";
+
+export const starterWorkerProfiles = Object.freeze(
+  PHASE1_MANAGED_SPECIALIST_PROFILES.map((profile) =>
+    Object.freeze({
+      ...profile,
+      metadata: Object.freeze({
+        phase1ManagedNetwork: getPhase1ManagedWorkerMetadata(profile)
+      })
+    })
+  )
+);
 
 export const starterWorkerSetPresets = Object.freeze([
   Object.freeze({
     id: "launch_supply",
-    title: "Launch Supply",
-    body: "Seed the first three public workers most teams need: implementation, QA, and research.",
-    profileIds: Object.freeze(["code_worker", "qa_worker", "research_worker"])
+    title: "Phase 1 Launch Supply",
+    body: "Seed the managed consumer delegation roster for comparison, booking, subscriptions, support, purchases, and documents.",
+    profileIds: Object.freeze([
+      "comparison_concierge",
+      "purchase_runner",
+      "booking_concierge",
+      "account_admin",
+      "support_followup",
+      "document_packager"
+    ])
   }),
   Object.freeze({
-    id: "shipping_lane",
-    title: "Shipping Lane",
-    body: "Cover release execution with code, QA, and docs workers that can ship together.",
-    profileIds: Object.freeze(["code_worker", "qa_worker", "docs_worker"])
+    id: "household_admin",
+    title: "Household Admin",
+    body: "Stand up the booking, account, support, and document specialists most household workflows need.",
+    profileIds: Object.freeze(["booking_concierge", "account_admin", "support_followup", "document_packager"])
   }),
   Object.freeze({
-    id: "ops_front_door",
-    title: "Ops Front Door",
-    body: "Stand up intake, research, and documentation workers for operational workflows.",
-    profileIds: Object.freeze(["ops_worker", "research_worker", "docs_worker"])
+    id: "shopping_lane",
+    title: "Shopping Lane",
+    body: "Cover research, bounded purchasing, and post-purchase support follow-up.",
+    profileIds: Object.freeze(["comparison_concierge", "purchase_runner", "support_followup"])
   })
 ]);
 
@@ -128,6 +83,7 @@ export function deriveStarterWorkerDraft(profile, { tenantId, endpointBaseUrl = 
     priceAmountCents: String(profile.priceAmountCents ?? 0),
     priceCurrency: String(profile.priceCurrency ?? "USD"),
     priceUnit: String(profile.priceUnit ?? "task"),
-    tags: Array.isArray(profile.tags) ? [...profile.tags] : []
+    tags: Array.isArray(profile.tags) ? [...profile.tags] : [],
+    metadata: profile?.metadata ? structuredClone(profile.metadata) : null
   };
 }

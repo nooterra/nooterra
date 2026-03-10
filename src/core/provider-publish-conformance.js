@@ -1,10 +1,12 @@
 import { canonicalJsonStringify } from "./canonical-json.js";
 import { keyIdFromPublicKeyPem, sha256Hex } from "./crypto.js";
+import { normalizePhase1ExecutionAdapter } from "./phase1-task-policy.js";
 import { normalizePaidToolManifestV1, validatePaidToolManifestV1 } from "./paid-tool-manifest.js";
 import { buildNooterraPayPayloadV1, computeNooterraPayRequestBindingSha256V1, mintNooterraPayTokenV1 } from "./nooterra-pay-token.js";
 import { parseX402PaymentRequired } from "./x402-gate.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "./tool-provider-signature.js";
 import { checkUrlSafety } from "./url-safety.js";
+import { buildDelegatedAccountSessionBindingHeaderValue } from "../../packages/provider-kit/src/index.js";
 
 export const PROVIDER_CONFORMANCE_REPORT_SCHEMA_VERSION = "ProviderConformanceReport.v1";
 
@@ -19,10 +21,16 @@ function normalizeNonEmptyPem(value) {
   return value.trim() === "" ? null : value;
 }
 
-function requestInitForMethod(method, token = null) {
+function requestInitForMethod(method, token = null, extraHeaders = null) {
   const m = String(method ?? "GET").toUpperCase();
   const headers = { accept: "application/json" };
   if (token) headers.authorization = `NooterraPay ${token}`;
+  if (extraHeaders && typeof extraHeaders === "object" && !Array.isArray(extraHeaders)) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      if (value === undefined || value === null || String(value).trim() === "") continue;
+      headers[key] = String(value);
+    }
+  }
   const hasBody = m !== "GET" && m !== "HEAD";
   if (!hasBody) return { method: m, headers };
   headers["content-type"] = "application/json";
@@ -152,6 +160,21 @@ function computeConformanceRequestBindingSha256({ method, requestUrl, requestBod
   });
 }
 
+function normalizePhase1ManagedProviderMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const phase1ManagedNetwork =
+    value?.phase1ManagedNetwork && typeof value.phase1ManagedNetwork === "object" && !Array.isArray(value.phase1ManagedNetwork)
+      ? value.phase1ManagedNetwork
+      : null;
+  if (!phase1ManagedNetwork) return null;
+  const profileId = normalizeOptionalString(phase1ManagedNetwork.profileId);
+  if (!profileId) return null;
+  return {
+    profileId,
+    executionAdapter: normalizePhase1ExecutionAdapter(phase1ManagedNetwork.executionAdapter)
+  };
+}
+
 export async function runProviderConformanceV1({
   providerBaseUrl,
   manifest: manifestInput,
@@ -273,11 +296,52 @@ export async function runProviderConformanceV1({
   const toolIdempotency = typeof tool?.idempotency === "string" ? tool.idempotency.trim().toLowerCase() : "";
   const toolClass = typeof tool?.toolClass === "string" ? tool.toolClass.trim().toLowerCase() : "";
   const toolRiskLevel = typeof tool?.riskLevel === "string" ? tool.riskLevel.trim().toLowerCase() : "";
+  const phase1ManagedProvider = normalizePhase1ManagedProviderMetadata(tool?.metadata);
   const strictRequestBindingRequired =
     toolIdempotency === "non_idempotent" ||
     toolIdempotency === "side_effecting" ||
     toolClass === "action" ||
     toolRiskLevel === "high";
+  const expectedAmount = Number(tool?.pricing?.amountCents ?? manifest?.defaults?.amountCents);
+  const expectedCurrency = String(tool?.pricing?.currency ?? manifest?.defaults?.currency ?? "USD").toUpperCase();
+  const delegatedAccountSessionContractRequired =
+    phase1ManagedProvider?.executionAdapter?.requiresDelegatedAccountSession === true ||
+    (Boolean(phase1ManagedProvider?.profileId) && ["purchase_runner", "booking_concierge", "account_admin"].includes(phase1ManagedProvider.profileId));
+  const delegatedAccountSessionHeaderValue = delegatedAccountSessionContractRequired
+    ? buildDelegatedAccountSessionBindingHeaderValue({
+        sessionId: `cas_conformance_${sha256Hex(`${effectiveProviderId}:${tool.toolId}`).slice(0, 12)}`,
+        sessionRef: `accountsession://tenants/conformance/${`cas_conformance_${sha256Hex(`${effectiveProviderId}:${tool.toolId}`).slice(0, 12)}`}`,
+        providerKey: phase1ManagedProvider?.executionAdapter?.merchantScope ?? "managed_provider",
+        siteKey: tool.toolId,
+        mode:
+          Array.isArray(phase1ManagedProvider?.executionAdapter?.supportedSessionModes) &&
+          phase1ManagedProvider.executionAdapter.supportedSessionModes.length > 0
+            ? String(phase1ManagedProvider.executionAdapter.supportedSessionModes[0])
+            : "browser_delegated",
+        accountHandleMasked: "demo-account",
+        maxSpendCents: expectedAmount,
+        currency: expectedCurrency
+      })
+    : null;
+  checks.push(
+    buildCheck(
+      "phase1_execution_adapter_declared",
+      delegatedAccountSessionContractRequired ? Boolean(phase1ManagedProvider?.executionAdapter) : true,
+      {
+        required: delegatedAccountSessionContractRequired,
+        profileId: phase1ManagedProvider?.profileId ?? null,
+        adapterId: phase1ManagedProvider?.executionAdapter?.adapterId ?? null,
+        adapterMode: phase1ManagedProvider?.executionAdapter?.mode ?? null,
+        requiresDelegatedAccountSession: phase1ManagedProvider?.executionAdapter?.requiresDelegatedAccountSession === true,
+        supportedSessionModes: Array.isArray(phase1ManagedProvider?.executionAdapter?.supportedSessionModes)
+          ? [...phase1ManagedProvider.executionAdapter.supportedSessionModes]
+          : [],
+        requiredRunFields: Array.isArray(phase1ManagedProvider?.executionAdapter?.requiredRunFields)
+          ? [...phase1ManagedProvider.executionAdapter.requiredRunFields]
+          : []
+      }
+    )
+  );
   const unpaidReqInit = requestInitForMethod(tool.method);
   const unpaidSignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
   const unpaidResponse = await fetchConformanceUrl({
@@ -306,8 +370,6 @@ export async function runProviderConformanceV1({
     buildCheck("challenge_header_parseable", parsedChallenge.ok === true, parsedChallenge.ok ? null : { message: parsedChallenge.message, code: parsedChallenge.code })
   );
 
-  const expectedAmount = Number(tool?.pricing?.amountCents ?? manifest?.defaults?.amountCents);
-  const expectedCurrency = String(tool?.pricing?.currency ?? manifest?.defaults?.currency ?? "USD").toUpperCase();
   if (parsedChallenge.ok) {
     const parsedProviderId = normalizeOptionalString(parsedChallenge.fields?.providerId);
     const parsedToolId = normalizeOptionalString(parsedChallenge.fields?.toolId);
@@ -372,7 +434,15 @@ export async function runProviderConformanceV1({
     fetchFn: fetchImpl,
     url: requestUrl,
     init: {
-      ...requestInitForMethod(tool.method, token),
+      ...requestInitForMethod(
+        tool.method,
+        token,
+        delegatedAccountSessionHeaderValue
+          ? {
+              "x-nooterra-account-session-binding": delegatedAccountSessionHeaderValue
+            }
+          : null
+      ),
       signal: paidSignal
     },
     safetyOptions: urlSafetyOptions
@@ -401,6 +471,21 @@ export async function runProviderConformanceV1({
         observedSha256Present: Boolean(requestBindingSha256Header),
         observedSha256: requestBindingSha256Header,
         expectedSha256: conformanceRequestBindingSha256
+      }
+    )
+  );
+  const accountSessionModeHeader = headerValue(paidResponse.headers, "x-nooterra-account-session-mode");
+  const accountSessionProviderHeader = headerValue(paidResponse.headers, "x-nooterra-account-session-provider");
+  checks.push(
+    buildCheck(
+      "delegated_account_session_enforced",
+      delegatedAccountSessionContractRequired
+        ? Boolean(accountSessionModeHeader) && Boolean(accountSessionProviderHeader)
+        : true,
+      {
+        required: delegatedAccountSessionContractRequired,
+        observedMode: accountSessionModeHeader,
+        observedProvider: accountSessionProviderHeader
       }
     )
   );
@@ -489,7 +574,15 @@ export async function runProviderConformanceV1({
     fetchFn: fetchImpl,
     url: requestUrl,
     init: {
-      ...requestInitForMethod(tool.method, token),
+      ...requestInitForMethod(
+        tool.method,
+        token,
+        delegatedAccountSessionHeaderValue
+          ? {
+              "x-nooterra-account-session-binding": delegatedAccountSessionHeaderValue
+            }
+          : null
+      ),
       signal: replaySignal
     },
     safetyOptions: urlSafetyOptions

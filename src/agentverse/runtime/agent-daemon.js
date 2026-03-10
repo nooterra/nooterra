@@ -276,7 +276,14 @@ export class AgentDaemon {
       requiredCapability: workOrder?.requiredCapability,
       amountUsdCents: Number(workOrder?.pricing?.amountCents ?? 0),
       principalAgentId: workOrder?.principalAgentId,
-      subAgentId: workOrder?.subAgentId
+      subAgentId: workOrder?.subAgentId,
+      approvalManaged: Boolean(workOrder?.authorityEnvelope || workOrder?.approvalRequest || workOrder?.approvalDecision),
+      approvalRequired: Boolean(workOrder?.approvalRequest),
+      approvalGranted: workOrder?.approvalDecision?.approved === true,
+      authorityRiskClass:
+        typeof workOrder?.authorityEnvelope?.riskClass === 'string' && workOrder.authorityEnvelope.riskClass.trim()
+          ? workOrder.authorityEnvelope.riskClass.trim()
+          : null
     });
     return decision;
   }

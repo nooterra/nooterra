@@ -419,7 +419,7 @@ function makeNooterraClient({ baseUrl, tenantId, apiKey, protocol }) {
     return cachedProtocol;
   }
 
-  async function requestJson(path, { method = "GET", body = null, write = false, headers = {}, idem = null } = {}) {
+  async function requestJson(path, { method = "GET", body = null, write = false, headers = {}, idem = null, signal = undefined } = {}) {
     const url = new URL(path, baseUrl);
     const protocolHeader = write ? await discoverProtocol() : null;
     const h = {
@@ -433,7 +433,8 @@ function makeNooterraClient({ baseUrl, tenantId, apiKey, protocol }) {
     const res = await fetch(url, {
       method,
       headers: h,
-      body: body === null ? undefined : JSON.stringify(body)
+      body: body === null ? undefined : JSON.stringify(body),
+      signal
     });
     const text = await res.text();
     let json = null;
@@ -781,6 +782,96 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
   return { exaSearch, weatherCurrent, llmCompletion };
 }
 
+const MCP_SERVER_INFO = Object.freeze({
+  name: "nooterra-mcp-spike",
+  title: "Nooterra Action Wallet MCP",
+  version: "s24",
+  description: "Host-first Action Wallet MCP server for approval, grants, evidence, receipts, and disputes.",
+  websiteUrl: "https://nooterra.com"
+});
+
+const ACTION_WALLET_LAUNCH_SCOPE =
+  "Launch v1 wallet-only Action Wallet for buy and cancel/recover on Claude MCP and OpenClaw.";
+const ACTION_WALLET_FIRST_APPROVAL_PATH =
+  "Shortest proof path: create intent, request hosted approval, poll the decision, then fetch the scoped execution grant.";
+const ACTION_WALLET_HOST_EXECUTION_NOTE =
+  "The host executes the external action; Nooterra only handles approval, scoped grants, evidence submission, receipts, and disputes.";
+const ACTION_WALLET_MCP_INSTRUCTIONS =
+  "Prefer Action Wallet resources for context, use task-augmented tools/call for approval or verification flows that may outlive one model turn, and keep execution host-side.";
+const ACTION_WALLET_TASK_TOOL_NAMES = new Set([
+  "nooterra.create_action_intent",
+  "nooterra.request_approval",
+  "nooterra.get_approval_status",
+  "nooterra.get_execution_grant",
+  "nooterra.submit_evidence",
+  "nooterra.finalize_action",
+  "nooterra.get_receipt",
+  "nooterra.open_dispute"
+]);
+const ACTION_WALLET_STATIC_RESOURCES = Object.freeze([
+  {
+    uri: "nooterra://action-wallet/launch-scope",
+    name: "Action Wallet launch scope",
+    title: "Action Wallet launch scope",
+    description: "Locked v1 scope, channels, and execution model.",
+    mimeType: "text/markdown"
+  },
+  {
+    uri: "nooterra://action-wallet/host-flow",
+    name: "Action Wallet host flow",
+    title: "Action Wallet host flow",
+    description: "End-to-end approval, grant, evidence, receipt, and dispute loop.",
+    mimeType: "text/markdown"
+  },
+  {
+    uri: "nooterra://action-wallet/tooling",
+    name: "Action Wallet MCP tooling",
+    title: "Action Wallet MCP tooling",
+    description: "Launch tools, async task support, and dynamic resource entrypoints.",
+    mimeType: "text/markdown"
+  }
+]);
+const ACTION_WALLET_RESOURCE_TEMPLATES = Object.freeze([
+  {
+    uriTemplate: "nooterra://action-wallet/action-intents/{actionIntentId}",
+    name: "Action Intent",
+    title: "ActionIntent.v1 resource",
+    description: "Read a public ActionIntent.v1 alias by id.",
+    mimeType: "application/json"
+  },
+  {
+    uriTemplate: "nooterra://action-wallet/approval-requests/{requestId}",
+    name: "Approval Request",
+    title: "ApprovalRequest.v1 resource",
+    description: "Read a hosted approval request alias by id.",
+    mimeType: "application/json"
+  },
+  {
+    uriTemplate: "nooterra://action-wallet/execution-grants/{executionGrantId}",
+    name: "Execution Grant",
+    title: "ExecutionGrant.v1 resource",
+    description: "Read a scoped execution grant alias by id.",
+    mimeType: "application/json"
+  },
+  {
+    uriTemplate: "nooterra://action-wallet/receipts/{receiptId}",
+    name: "Action Receipt",
+    title: "ActionReceipt.v1 resource",
+    description: "Read a receipt alias by id.",
+    mimeType: "application/json"
+  },
+  {
+    uriTemplate: "nooterra://action-wallet/disputes/{disputeId}",
+    name: "Dispute Case",
+    title: "DisputeCase.v1 resource",
+    description: "Read a dispute alias by id.",
+    mimeType: "application/json"
+  }
+]);
+const TASK_STATUS_TERMINAL = new Set(["completed", "failed", "cancelled"]);
+const DEFAULT_TASK_TTL_MS = 60_000;
+const DEFAULT_TASK_POLL_INTERVAL_MS = 1_000;
+
 function buildTools() {
   return [
     {
@@ -804,12 +895,25 @@ function buildTools() {
     },
     {
       name: "nooterra.submit_evidence",
-      description: "Append an EVIDENCE_ADDED event to an agent run (handles expected prevChainHash precondition).",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Submit host-captured evidence against an execution grant before finalization. ` +
+        "Prefer executionGrantId/evidenceRefs for launch hosts; agentId/runId remains legacy compatibility.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
-        required: ["agentId", "runId", "evidenceRef"],
+        anyOf: [
+          { required: ["executionGrantId"] },
+          { required: ["agentId", "runId", "evidenceRef"] }
+        ],
         properties: {
+          executionGrantId: { type: ["string", "null"], default: null },
+          workOrderId: { type: ["string", "null"], default: null },
+          progressId: { type: ["string", "null"], default: null },
+          eventType: { type: ["string", "null"], default: null },
+          message: { type: ["string", "null"], default: null },
+          percentComplete: { type: ["integer", "null"], minimum: 0, maximum: 100, default: null },
+          evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
+          at: { type: ["string", "null"], default: null },
           agentId: { type: "string" },
           runId: { type: "string" },
           evidenceRef: { type: "string" }
@@ -894,13 +998,20 @@ function buildTools() {
     },
     {
       name: "nooterra.open_dispute",
-      description: "Open a dispute on a resolved run settlement (requires dispute window still open).",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Open or look up the public dispute case alias for a host-completed run when disputeId is known. ` +
+        "runId-only opening remains a legacy compatibility path and is not part of the first approval proof.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
-        required: ["runId"],
+        anyOf: [
+          { required: ["disputeId"] },
+          { required: ["runId"] }
+        ],
         properties: {
-          runId: { type: "string" },
+          disputeId: { type: ["string", "null"], default: null },
+          caseId: { type: ["string", "null"], default: null },
+          runId: { type: ["string", "null"], default: null },
           reason: { type: ["string", "null"], default: null },
           evidenceRefs: { type: "array", items: { type: "string" }, default: [] },
           waitMs: {
@@ -1652,6 +1763,87 @@ function buildTools() {
       }
     },
     {
+      name: "nooterra.create_action_intent",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Create an ActionIntent.v1 alias for a host-executed action. ` +
+        `${ACTION_WALLET_FIRST_APPROVAL_PATH} ${ACTION_WALLET_HOST_EXECUTION_NOTE}`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["actorAgentId", "principalId", "purpose"],
+        properties: {
+          actionIntentId: { type: ["string", "null"], default: null },
+          actorAgentId: { type: "string" },
+          principalType: { type: ["string", "null"], enum: ["human", "org", "service", "agent", null], default: "human" },
+          principalId: { type: "string" },
+          purpose: { type: "string" },
+          title: { type: ["string", "null"], default: null },
+          requiredCapability: { type: ["string", "null"], default: null },
+          capabilitiesRequested: { type: "array", items: { type: "string" }, default: [] },
+          dataClassesRequested: { type: "array", items: { type: "string" }, default: [] },
+          sideEffectsRequested: { type: "array", items: { type: "string" }, default: [] },
+          amountCents: { type: ["integer", "null"], minimum: 0, default: null },
+          maxPerCallCents: { type: ["integer", "null"], minimum: 0, default: null },
+          maxTotalCents: { type: ["integer", "null"], minimum: 0, default: null },
+          currency: { type: ["string", "null"], default: "USD" },
+          reversibilityClass: { type: ["string", "null"], enum: ["reversible", "partially_reversible", "irreversible", null], default: null },
+          riskClass: { type: ["string", "null"], enum: ["low", "medium", "high", null], default: null },
+          evidenceRequirements: { type: "array", items: { type: "string" }, default: [] },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          host: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "nooterra.request_approval",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Request a Nooterra-hosted approval page for an existing host-executed action intent.`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["actionIntentId", "requestedBy"],
+        properties: {
+          actionIntentId: { type: "string" },
+          requestedBy: { type: "string" },
+          requestId: { type: ["string", "null"], default: null },
+          requestedAt: { type: ["string", "null"], default: null },
+          actionId: { type: ["string", "null"], default: null },
+          actionSha256: { type: ["string", "null"], default: null },
+          approvalPolicy: { type: ["object", "null"], additionalProperties: true, default: null },
+          host: { type: ["object", "null"], additionalProperties: true, default: null },
+          execution: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "nooterra.get_approval_status",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Fetch the approval request status packet for the hosted approval flow.`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["requestId"],
+        properties: {
+          requestId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "nooterra.get_execution_grant",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Fetch the scoped execution-grant alias the host uses to execute the external action after approval.`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["executionGrantId"],
+        properties: {
+          executionGrantId: { type: "string" }
+        }
+      }
+    },
+    {
       name: "nooterra.work_order_create",
       description: "Create a SubAgentWorkOrder.v1 for delegated paid execution.",
       inputSchema: {
@@ -1773,6 +1965,36 @@ function buildTools() {
           acceptedByAgentId: { type: ["string", "null"], default: null },
           acceptedAt: { type: ["string", "null"], default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "nooterra.finalize_action",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Record host-completed execution against a materialized grant after evidence submission and return receipt-ready state.`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["executionGrantId"],
+        properties: {
+          executionGrantId: { type: "string" },
+          workOrderId: { type: ["string", "null"], default: null },
+          completion: { type: ["object", "null"], additionalProperties: true, default: null },
+          settlement: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "nooterra.get_receipt",
+      description:
+        `${ACTION_WALLET_LAUNCH_SCOPE} Fetch the public ActionReceipt.v1 alias for a host-completed run.`,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["receiptId"],
+        properties: {
+          receiptId: { type: "string" }
         }
       }
     },
@@ -2311,6 +2533,470 @@ function buildTools() {
   ];
 }
 
+function augmentMcpToolDefinition(tool) {
+  if (!ACTION_WALLET_TASK_TOOL_NAMES.has(tool?.name)) return tool;
+  return {
+    ...tool,
+    annotations: {
+      ...(tool?.annotations && typeof tool.annotations === "object" && !Array.isArray(tool.annotations) ? tool.annotations : {}),
+      title: tool?.name?.replace("nooterra.", "") ?? null,
+      openWorldHint: false,
+      destructiveHint: ["nooterra.create_action_intent", "nooterra.request_approval", "nooterra.submit_evidence", "nooterra.finalize_action", "nooterra.open_dispute"].includes(tool?.name)
+    },
+    _meta: {
+      ...(tool?._meta && typeof tool._meta === "object" && !Array.isArray(tool._meta) ? tool._meta : {}),
+      "nooterra/taskSupport": "optional"
+    }
+  };
+}
+
+function buildActionWalletLaunchScopeMarkdown() {
+  return [
+    "# Nooterra Action Wallet",
+    "",
+    ACTION_WALLET_LAUNCH_SCOPE,
+    "",
+    "Locked launch promise:",
+    "",
+    "- API for hosts and builders",
+    "- Hosted approvals, receipts, disputes, and wallet surfaces for end users",
+    "- Two actions only: buy and cancel/recover",
+    "- Two channels only: Claude MCP and OpenClaw",
+    "",
+    "Execution model:",
+    "",
+    `- ${ACTION_WALLET_HOST_EXECUTION_NOTE}`,
+    "- Nooterra verifies scope, evidence completeness, and receipt binding.",
+    "",
+    "Why this matters:",
+    "",
+    "- approvals are explicit",
+    "- grants are scoped",
+    "- evidence is required",
+    "- receipts are verifiable",
+    "- disputes remain possible"
+  ].join("\n");
+}
+
+function buildActionWalletHostFlowMarkdown() {
+  return [
+    "# Action Wallet Host Flow",
+    "",
+    ACTION_WALLET_FIRST_APPROVAL_PATH,
+    "",
+    "1. Host calls `nooterra.create_action_intent`.",
+    "2. Host calls `nooterra.request_approval` and gets a hosted approval URL.",
+    "3. User decides on a Nooterra page.",
+    "4. Host polls `nooterra.get_approval_status` or uses task mode to wait across turns.",
+    "5. If approved, host fetches `nooterra.get_execution_grant`.",
+    "6. Host performs the external action and captures evidence.",
+    "7. Host calls `nooterra.submit_evidence` and `nooterra.finalize_action`.",
+    "8. Host fetches `nooterra.get_receipt`.",
+    "9. If something is wrong, host or user opens `nooterra.open_dispute`."
+  ].join("\n");
+}
+
+function buildActionWalletToolingMarkdown() {
+  return [
+    "# Action Wallet MCP Tooling",
+    "",
+    "Modern host ergonomics in this server:",
+    "",
+    "- Static Action Wallet resources for launch scope and flow context",
+    "- Dynamic Action Wallet resource templates for intents, approvals, grants, receipts, and disputes",
+    "- Task-augmented `tools/call` support for Action Wallet tools that can outlive one model turn",
+    "",
+    "Task-ready Action Wallet tools:",
+    "",
+    ...Array.from(ACTION_WALLET_TASK_TOOL_NAMES, (name) => `- \`${name}\``),
+    "",
+    "Task methods:",
+    "",
+    "- `tasks/get`",
+    "- `tasks/list`",
+    "- `tasks/result`",
+    "- `tasks/cancel`"
+  ].join("\n");
+}
+
+function buildStaticActionWalletResourceMap() {
+  return new Map([
+    ["nooterra://action-wallet/launch-scope", buildActionWalletLaunchScopeMarkdown()],
+    ["nooterra://action-wallet/host-flow", buildActionWalletHostFlowMarkdown()],
+    ["nooterra://action-wallet/tooling", buildActionWalletToolingMarkdown()]
+  ]);
+}
+
+function normalizeTaskTtlMs(task) {
+  if (task === null || task === undefined) return DEFAULT_TASK_TTL_MS;
+  if (task === true) return DEFAULT_TASK_TTL_MS;
+  if (!task || typeof task !== "object" || Array.isArray(task)) {
+    throw new TypeError("task must be true or an object");
+  }
+  const raw = task.ttlMs ?? task.ttl ?? DEFAULT_TASK_TTL_MS;
+  const ttlMs = Number(raw);
+  if (!Number.isSafeInteger(ttlMs) || ttlMs < 5_000 || ttlMs > 3_600_000) {
+    throw new TypeError("task ttl must be an integer between 5000 and 3600000 milliseconds");
+  }
+  return ttlMs;
+}
+
+function buildTaskMeta(task) {
+  return {
+    "protocolExtensions.tasks/relatedTask": {
+      taskId: task.taskId,
+      status: task.status
+    }
+  };
+}
+
+function buildTaskSnapshot(task) {
+  return {
+    taskId: task.taskId,
+    status: task.status,
+    kind: "request",
+    requestMethod: task.requestMethod,
+    pollIntervalMs: task.pollIntervalMs,
+    createdAt: task.createdAt,
+    lastUpdatedAt: task.lastUpdatedAt,
+    expiresAt: task.expiresAt,
+    metadata: {
+      requestName: task.requestName,
+      statusMessage: task.statusMessage ?? null
+    }
+  };
+}
+
+function createTaskRecord({ requestMethod, requestName, ttlMs }) {
+  const now = new Date().toISOString();
+  return {
+    taskId: `task_${crypto.randomUUID()}`,
+    requestMethod,
+    requestName,
+    status: "submitted",
+    statusMessage: "queued",
+    pollIntervalMs: DEFAULT_TASK_POLL_INTERVAL_MS,
+    createdAt: now,
+    lastUpdatedAt: now,
+    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+    ttlMs,
+    result: null,
+    controller: new AbortController(),
+    completionPromise: null,
+    completionResolve: null
+  };
+}
+
+function updateTaskRecord(task, patch = {}) {
+  if (!task || typeof task !== "object") return task;
+  Object.assign(task, patch, { lastUpdatedAt: new Date().toISOString() });
+  return task;
+}
+
+function isTaskTerminal(task) {
+  return Boolean(task && TASK_STATUS_TERMINAL.has(task.status));
+}
+
+function resolveTaskCompletion(task, payload) {
+  if (!task || typeof task.completionResolve !== "function") return;
+  const resolve = task.completionResolve;
+  task.completionResolve = null;
+  resolve(payload);
+}
+
+function sendTaskStatusNotification(stream, task) {
+  stream.send({
+    jsonrpc: "2.0",
+    method: "notifications/tasks/status",
+    params: buildTaskSnapshot(task)
+  });
+}
+
+function parseActionWalletResourceUri(uri) {
+  const normalized = String(uri ?? "").trim();
+  assertNonEmptyString(normalized, "uri");
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new TypeError("uri must be a valid nooterra:// resource URI");
+  }
+  if (parsed.protocol !== "nooterra:" || parsed.hostname !== "action-wallet") {
+    throw new TypeError("uri must use the nooterra://action-wallet/... scheme");
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  return { uri: normalized, segments };
+}
+
+function buildJsonResourceContent({ uri, value }) {
+  return {
+    uri,
+    mimeType: "application/json",
+    text: JSON.stringify(redactSecrets(value), null, 2)
+  };
+}
+
+async function readActionWalletResource({ uri, client, staticResourceMap }) {
+  const staticText = staticResourceMap.get(uri);
+  if (typeof staticText === "string") {
+    const descriptor = ACTION_WALLET_STATIC_RESOURCES.find((resource) => resource.uri === uri);
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: descriptor?.mimeType ?? "text/markdown",
+          text: staticText
+        }
+      ]
+    };
+  }
+
+  const { segments } = parseActionWalletResourceUri(uri);
+  if (segments.length !== 2) throw new TypeError("resource uri must include a supported Action Wallet object id");
+  const [kind, id] = segments;
+  assertNonEmptyString(id, `${kind} id`);
+
+  if (kind === "action-intents") {
+    const out = await client.requestJson(`/v1/action-intents/${encodeURIComponent(id)}`, { method: "GET" });
+    return { contents: [buildJsonResourceContent({ uri, value: out })] };
+  }
+  if (kind === "approval-requests") {
+    const out = await client.requestJson(`/v1/approval-requests/${encodeURIComponent(id)}`, { method: "GET" });
+    return { contents: [buildJsonResourceContent({ uri, value: out })] };
+  }
+  if (kind === "execution-grants") {
+    const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(id)}`, { method: "GET" });
+    return { contents: [buildJsonResourceContent({ uri, value: out })] };
+  }
+  if (kind === "receipts") {
+    const out = await client.requestJson(`/v1/receipts/${encodeURIComponent(id)}`, { method: "GET" });
+    return { contents: [buildJsonResourceContent({ uri, value: out })] };
+  }
+  if (kind === "disputes") {
+    const out = await client.requestJson(`/v1/disputes/${encodeURIComponent(id)}`, { method: "GET" });
+    return { contents: [buildJsonResourceContent({ uri, value: out })] };
+  }
+
+  throw new TypeError(`unsupported Action Wallet resource kind: ${kind}`);
+}
+
+async function executeActionWalletTool({ name, args, client, signal = undefined }) {
+  if (name === "nooterra.create_action_intent") {
+    const actorAgentId = String(args?.actorAgentId ?? "").trim();
+    const principalId = String(args?.principalId ?? "").trim();
+    const purpose = String(args?.purpose ?? args?.title ?? "").trim();
+    assertNonEmptyString(actorAgentId, "actorAgentId");
+    assertNonEmptyString(principalId, "principalId");
+    assertNonEmptyString(purpose, "purpose");
+    const idempotencyKey =
+      typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+        ? args.idempotencyKey.trim()
+        : makeIdempotencyKey("mcp_action_intent_create");
+    const requestedCapabilities = Array.isArray(args?.capabilitiesRequested)
+      ? args.capabilitiesRequested.map((entry) => String(entry ?? "").trim()).filter(Boolean)
+      : [];
+    const body = {
+      actorAgentId,
+      principalId,
+      purpose
+    };
+    if (typeof args?.actionIntentId === "string" && args.actionIntentId.trim() !== "") body.actionIntentId = args.actionIntentId.trim();
+    if (typeof args?.principalType === "string" && args.principalType.trim() !== "") body.principalType = args.principalType.trim().toLowerCase();
+    if (typeof args?.title === "string" && args.title.trim() !== "") body.title = args.title.trim();
+    if (typeof args?.requiredCapability === "string" && args.requiredCapability.trim() !== "") body.requiredCapability = args.requiredCapability.trim();
+    if (requestedCapabilities.length > 0) body.capabilitiesRequested = requestedCapabilities;
+    if (Array.isArray(args?.dataClassesRequested)) body.dataClassesRequested = args.dataClassesRequested;
+    if (Array.isArray(args?.sideEffectsRequested)) body.sideEffectsRequested = args.sideEffectsRequested;
+    if (Number.isSafeInteger(Number(args?.amountCents)) && Number(args.amountCents) >= 0) body.amountCents = Number(args.amountCents);
+    if (Number.isSafeInteger(Number(args?.maxPerCallCents)) && Number(args.maxPerCallCents) >= 0) body.maxPerCallCents = Number(args.maxPerCallCents);
+    if (Number.isSafeInteger(Number(args?.maxTotalCents)) && Number(args.maxTotalCents) >= 0) body.maxTotalCents = Number(args.maxTotalCents);
+    if (typeof args?.currency === "string" && args.currency.trim() !== "") body.currency = args.currency.trim().toUpperCase();
+    if (typeof args?.reversibilityClass === "string" && args.reversibilityClass.trim() !== "") body.reversibilityClass = args.reversibilityClass.trim().toLowerCase();
+    if (typeof args?.riskClass === "string" && args.riskClass.trim() !== "") body.riskClass = args.riskClass.trim().toLowerCase();
+    if (Array.isArray(args?.evidenceRequirements)) body.evidenceRequirements = args.evidenceRequirements;
+    if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+    if (args?.host && typeof args.host === "object" && !Array.isArray(args.host)) body.host = args.host;
+    const out = await client.requestJson("/v1/action-intents", {
+      method: "POST",
+      write: true,
+      body,
+      idem: idempotencyKey,
+      signal
+    });
+    return { ok: true, idempotencyKey, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.request_approval") {
+    const actionIntentId = String(args?.actionIntentId ?? "").trim();
+    const requestedBy = String(args?.requestedBy ?? "").trim();
+    assertNonEmptyString(actionIntentId, "actionIntentId");
+    assertNonEmptyString(requestedBy, "requestedBy");
+    const idempotencyKey =
+      typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+        ? args.idempotencyKey.trim()
+        : makeIdempotencyKey("mcp_request_approval");
+    const body = { requestedBy };
+    if (typeof args?.requestId === "string" && args.requestId.trim() !== "") body.requestId = args.requestId.trim();
+    if (typeof args?.requestedAt === "string" && args.requestedAt.trim() !== "") body.requestedAt = args.requestedAt.trim();
+    if (typeof args?.actionId === "string" && args.actionId.trim() !== "") body.actionId = args.actionId.trim();
+    if (typeof args?.actionSha256 === "string" && args.actionSha256.trim() !== "") body.actionSha256 = args.actionSha256.trim().toLowerCase();
+    if (args?.approvalPolicy && typeof args.approvalPolicy === "object" && !Array.isArray(args.approvalPolicy)) body.approvalPolicy = args.approvalPolicy;
+    if (args?.host && typeof args.host === "object" && !Array.isArray(args.host)) body.host = args.host;
+    if (args?.execution && typeof args.execution === "object" && !Array.isArray(args.execution)) body.execution = args.execution;
+    const out = await client.requestJson(`/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`, {
+      method: "POST",
+      write: true,
+      body,
+      idem: idempotencyKey,
+      signal
+    });
+    return { ok: true, actionIntentId, idempotencyKey, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.get_approval_status") {
+    const requestId = String(args?.requestId ?? "").trim();
+    assertNonEmptyString(requestId, "requestId");
+    const out = await client.requestJson(`/v1/approval-requests/${encodeURIComponent(requestId)}`, { method: "GET", signal });
+    return { ok: true, requestId, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.get_execution_grant") {
+    const executionGrantId = String(args?.executionGrantId ?? "").trim();
+    assertNonEmptyString(executionGrantId, "executionGrantId");
+    const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}`, { method: "GET", signal });
+    return { ok: true, executionGrantId, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.submit_evidence") {
+    const executionGrantId = String(args?.executionGrantId ?? "").trim();
+    assertNonEmptyString(executionGrantId, "executionGrantId");
+    const idempotencyKey =
+      typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+        ? args.idempotencyKey.trim()
+        : makeIdempotencyKey("mcp_submit_evidence");
+    const body = {};
+    if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+    if (typeof args?.progressId === "string" && args.progressId.trim() !== "") body.progressId = args.progressId.trim();
+    if (typeof args?.eventType === "string" && args.eventType.trim() !== "") body.eventType = args.eventType.trim();
+    if (typeof args?.message === "string" && args.message.trim() !== "") body.message = args.message.trim();
+    if (args?.percentComplete !== null && args?.percentComplete !== undefined && args.percentComplete !== "") {
+      const percentComplete = Number(args.percentComplete);
+      if (!Number.isSafeInteger(percentComplete) || percentComplete < 0 || percentComplete > 100) {
+        throw new TypeError("percentComplete must be an integer within 0..100");
+      }
+      body.percentComplete = percentComplete;
+    }
+    if (Array.isArray(args?.evidenceRefs)) body.evidenceRefs = args.evidenceRefs.map((value) => String(value ?? "").trim()).filter(Boolean);
+    if (typeof args?.at === "string" && args.at.trim() !== "") body.at = args.at.trim();
+    const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}/evidence`, {
+      method: "POST",
+      write: true,
+      body,
+      idem: idempotencyKey,
+      signal
+    });
+    return { ok: true, executionGrantId, idempotencyKey, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.finalize_action") {
+    const executionGrantId = String(args?.executionGrantId ?? "").trim();
+    assertNonEmptyString(executionGrantId, "executionGrantId");
+    const idempotencyKey =
+      typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+        ? args.idempotencyKey.trim()
+        : makeIdempotencyKey("mcp_finalize_action");
+    const body = {};
+    if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+    if (args?.completion && typeof args.completion === "object" && !Array.isArray(args.completion)) body.completion = args.completion;
+    if (args?.settlement && typeof args.settlement === "object" && !Array.isArray(args.settlement)) body.settlement = args.settlement;
+    const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}/finalize`, {
+      method: "POST",
+      write: true,
+      body,
+      idem: idempotencyKey,
+      signal
+    });
+    return { ok: true, executionGrantId, idempotencyKey, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.get_receipt") {
+    const receiptId = String(args?.receiptId ?? "").trim();
+    assertNonEmptyString(receiptId, "receiptId");
+    const out = await client.requestJson(`/v1/receipts/${encodeURIComponent(receiptId)}`, { method: "GET", signal });
+    return { ok: true, receiptId, ...redactSecrets(out) };
+  }
+
+  if (name === "nooterra.open_dispute") {
+    const disputeId = String(args?.disputeId ?? "").trim();
+    if (disputeId) {
+      const body = { disputeId };
+      const idempotencyKey =
+        typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+          ? args.idempotencyKey.trim()
+          : makeIdempotencyKey("mcp_v1_dispute_lookup");
+      const out = await client.requestJson("/v1/disputes", {
+        method: "POST",
+        write: true,
+        body,
+        idem: idempotencyKey,
+        signal
+      });
+      return { ok: true, disputeId, idempotencyKey, ...redactSecrets(out) };
+    }
+
+    throw new TypeError("task mode requires disputeId for nooterra.open_dispute");
+  }
+
+  return null;
+}
+
+async function runActionWalletToolCall({ name, args, client, signal = undefined }) {
+  const started = nowMs();
+  try {
+    const result = await executeActionWalletTool({ name, args, client, signal });
+    if (result === null) {
+      throw new Error(`tool not implemented for Action Wallet async mode: ${name}`);
+    }
+    const durationMs = nowMs() - started;
+    const detectedFailure = detectToolResultFailure(result);
+    if (detectedFailure) {
+      const err = new Error(detectedFailure.message);
+      if (detectedFailure.code) err.code = detectedFailure.code;
+      if (Number.isInteger(detectedFailure.statusCode)) err.statusCode = detectedFailure.statusCode;
+      err.details = detectedFailure.details ?? null;
+      throw err;
+    }
+    return { ...asTextResult({ tool: name, durationMs, result }), isError: false };
+  } catch (err) {
+    const durationMs = nowMs() - started;
+    const details = err?.details && typeof err.details === "object" ? err.details : null;
+    return {
+      ...asErrorResult(err),
+      content: [
+        contentText(
+          JSON.stringify(
+            {
+              tool: name,
+              durationMs,
+              error: err?.message ?? String(err),
+              code:
+                (details && typeof details.code === "string" && details.code.trim() !== ""
+                  ? details.code.trim()
+                  : typeof err?.code === "string" && err.code.trim() !== ""
+                    ? err.code.trim()
+                    : null),
+              statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
+              details
+            },
+            null,
+            2
+          )
+        )
+      ]
+    };
+  }
+}
+
 async function main() {
   const baseUrl = process.env.NOOTERRA_BASE_URL || "http://127.0.0.1:3000";
   const tenantId = process.env.NOOTERRA_TENANT_ID || "tenant_default";
@@ -2332,8 +3018,10 @@ async function main() {
 
   const client = makeNooterraClient({ baseUrl, tenantId, apiKey, protocol });
   const paidToolsClient = makePaidToolsClient({ baseUrl: paidToolsBaseUrl, tenantId, agentPassport: paidToolsAgentPassport });
-  const tools = buildTools();
+  const tools = buildTools().map(augmentMcpToolDefinition);
   const toolByName = new Map(tools.map((t) => [t.name, t]));
+  const staticResourceMap = buildStaticActionWalletResourceMap();
+  const taskStore = new Map();
 
   const stream = new StdioJsonRpcStream({ input: process.stdin, output: process.stdout });
   stream.onError((err) => {
@@ -2372,8 +3060,24 @@ async function main() {
             id,
             result: {
               protocolVersion: negotiatedProtocolVersion,
-              serverInfo: { name: "nooterra-mcp-spike", version: "s23" },
-              capabilities: { tools: {} }
+              serverInfo: {
+                ...MCP_SERVER_INFO,
+                instructions: ACTION_WALLET_MCP_INSTRUCTIONS
+              },
+              capabilities: {
+                tools: {},
+                resources: {},
+                tasks: {
+                  list: {},
+                  cancel: {},
+                  requests: {
+                    tools: {
+                      call: {}
+                    }
+                  }
+                }
+              },
+              instructions: ACTION_WALLET_MCP_INSTRUCTIONS
             }
           });
         }
@@ -2394,11 +3098,144 @@ async function main() {
         return;
       }
 
+      if (method === "resources/list") {
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: { resources: ACTION_WALLET_STATIC_RESOURCES } });
+        return;
+      }
+
+      if (method === "resources/templates/list") {
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: { resourceTemplates: ACTION_WALLET_RESOURCE_TEMPLATES } });
+        return;
+      }
+
+      if (method === "resources/read") {
+        const uri = msg?.params?.uri ? String(msg.params.uri) : "";
+        const result = await readActionWalletResource({ uri, client, staticResourceMap });
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result });
+        return;
+      }
+
+      if (method === "tasks/list") {
+        const tasks = Array.from(taskStore.values())
+          .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+          .map((task) => buildTaskSnapshot(task));
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: { tasks } });
+        return;
+      }
+
+      if (method === "tasks/get") {
+        const taskId = String(msg?.params?.taskId ?? "").trim();
+        assertNonEmptyString(taskId, "taskId");
+        const task = taskStore.get(taskId);
+        if (!task) {
+          if (!isNotification) stream.send({ jsonrpc: "2.0", id, error: jsonRpcError(-32602, `Unknown task: ${taskId}`) });
+          return;
+        }
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: buildTaskSnapshot(task) });
+        return;
+      }
+
+      if (method === "tasks/cancel") {
+        const taskId = String(msg?.params?.taskId ?? "").trim();
+        assertNonEmptyString(taskId, "taskId");
+        const task = taskStore.get(taskId);
+        if (!task) {
+          if (!isNotification) stream.send({ jsonrpc: "2.0", id, error: jsonRpcError(-32602, `Unknown task: ${taskId}`) });
+          return;
+        }
+        if (!isTaskTerminal(task)) {
+          updateTaskRecord(task, { status: "cancelled", statusMessage: "cancel requested" });
+          try {
+            task.controller.abort();
+          } catch {}
+          task.result = {
+            ...asErrorResult(new Error("task cancelled before completion")),
+            _meta: buildTaskMeta(task)
+          };
+          resolveTaskCompletion(task, task.result);
+          sendTaskStatusNotification(stream, task);
+        }
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: buildTaskSnapshot(task) });
+        return;
+      }
+
+      if (method === "tasks/result") {
+        const taskId = String(msg?.params?.taskId ?? "").trim();
+        assertNonEmptyString(taskId, "taskId");
+        const task = taskStore.get(taskId);
+        if (!task) {
+          if (!isNotification) stream.send({ jsonrpc: "2.0", id, error: jsonRpcError(-32602, `Unknown task: ${taskId}`) });
+          return;
+        }
+        const result = isTaskTerminal(task) ? task.result : await task.completionPromise;
+        if (!isNotification) stream.send({ jsonrpc: "2.0", id, result });
+        return;
+      }
+
       if (method === "tools/call") {
         const name = msg?.params?.name ? String(msg.params.name) : "";
         const args = msg?.params?.arguments && typeof msg.params.arguments === "object" ? msg.params.arguments : {};
         if (!toolByName.has(name)) {
           if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: { content: [contentText(`unknown tool: ${name}`)], isError: true } });
+          return;
+        }
+        const requestedTask = msg?.params?.task ?? null;
+        if (requestedTask !== null && requestedTask !== undefined) {
+          if (!ACTION_WALLET_TASK_TOOL_NAMES.has(name)) {
+            if (!isNotification) {
+              stream.send({
+                jsonrpc: "2.0",
+                id,
+                error: jsonRpcError(-32602, `Task mode is only supported for Action Wallet host tools: ${name}`)
+              });
+            }
+            return;
+          }
+          const ttlMs = normalizeTaskTtlMs(requestedTask);
+          const task = createTaskRecord({ requestMethod: "tools/call", requestName: name, ttlMs });
+          task.completionPromise = new Promise((resolve) => {
+            task.completionResolve = resolve;
+          });
+          taskStore.set(task.taskId, task);
+          updateTaskRecord(task, { status: "working", statusMessage: "running" });
+          sendTaskStatusNotification(stream, task);
+          void (async () => {
+            const taskResult = await runActionWalletToolCall({ name, args, client, signal: task.controller.signal });
+            if (task.status === "cancelled") return;
+            updateTaskRecord(task, {
+              status: taskResult.isError ? "failed" : "completed",
+              statusMessage: taskResult.isError ? "failed" : "completed"
+            });
+            task.result = {
+              ...taskResult,
+              _meta: buildTaskMeta(task)
+            };
+            resolveTaskCompletion(task, task.result);
+            sendTaskStatusNotification(stream, task);
+          })().catch((err) => {
+            if (task.status === "cancelled") return;
+            updateTaskRecord(task, { status: "failed", statusMessage: err?.message ?? "failed" });
+            const result = {
+              ...asErrorResult(err),
+              _meta: buildTaskMeta(task)
+            };
+            task.result = result;
+            resolveTaskCompletion(task, result);
+            sendTaskStatusNotification(stream, task);
+          });
+          if (!isNotification) {
+            stream.send({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                task: buildTaskSnapshot(task),
+                _meta: {
+                  "io.modelcontextprotocol/model-immediate-response": `${name} is running asynchronously; poll tasks/get or wait on tasks/result.`,
+                  ...buildTaskMeta(task)
+                }
+              }
+            });
+          }
           return;
         }
         const started = nowMs();
@@ -2408,7 +3245,7 @@ async function main() {
             const discovered = await client.discoverProtocol();
             result = {
               ok: true,
-              server: { name: "nooterra-mcp-spike", version: "s23" },
+              server: { name: MCP_SERVER_INFO.name, version: MCP_SERVER_INFO.version, title: MCP_SERVER_INFO.title },
               config: redactSecrets({ baseUrl, tenantId, protocol: discovered, paidToolsBaseUrl })
             };
           } else if (name === "nooterra.exa_search_paid") {
@@ -3667,6 +4504,92 @@ async function main() {
               idem: idempotencyKey
             });
             result = { ok: true, intentId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "nooterra.create_action_intent") {
+            const actorAgentId = String(args?.actorAgentId ?? "").trim();
+            const principalId = String(args?.principalId ?? "").trim();
+            const purpose = String(args?.purpose ?? args?.title ?? "").trim();
+            assertNonEmptyString(actorAgentId, "actorAgentId");
+            assertNonEmptyString(principalId, "principalId");
+            assertNonEmptyString(purpose, "purpose");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_action_intent_create");
+            const requestedCapabilities = Array.isArray(args?.capabilitiesRequested)
+              ? args.capabilitiesRequested.map((entry) => String(entry ?? "").trim()).filter(Boolean)
+              : [];
+            const body = {
+              actorAgentId,
+              principalId,
+              purpose
+            };
+            if (typeof args?.actionIntentId === "string" && args.actionIntentId.trim() !== "") body.actionIntentId = args.actionIntentId.trim();
+            if (typeof args?.principalType === "string" && args.principalType.trim() !== "") body.principalType = args.principalType.trim().toLowerCase();
+            if (typeof args?.title === "string" && args.title.trim() !== "") body.title = args.title.trim();
+            if (typeof args?.requiredCapability === "string" && args.requiredCapability.trim() !== "") {
+              body.requiredCapability = args.requiredCapability.trim();
+            }
+            if (requestedCapabilities.length > 0) body.capabilitiesRequested = requestedCapabilities;
+            if (Array.isArray(args?.dataClassesRequested)) body.dataClassesRequested = args.dataClassesRequested;
+            if (Array.isArray(args?.sideEffectsRequested)) body.sideEffectsRequested = args.sideEffectsRequested;
+            if (Number.isSafeInteger(Number(args?.amountCents)) && Number(args.amountCents) >= 0) body.amountCents = Number(args.amountCents);
+            if (Number.isSafeInteger(Number(args?.maxPerCallCents)) && Number(args.maxPerCallCents) >= 0) {
+              body.maxPerCallCents = Number(args.maxPerCallCents);
+            }
+            if (Number.isSafeInteger(Number(args?.maxTotalCents)) && Number(args.maxTotalCents) >= 0) {
+              body.maxTotalCents = Number(args.maxTotalCents);
+            }
+            if (typeof args?.currency === "string" && args.currency.trim() !== "") body.currency = args.currency.trim().toUpperCase();
+            if (typeof args?.reversibilityClass === "string" && args.reversibilityClass.trim() !== "") {
+              body.reversibilityClass = args.reversibilityClass.trim().toLowerCase();
+            }
+            if (typeof args?.riskClass === "string" && args.riskClass.trim() !== "") body.riskClass = args.riskClass.trim().toLowerCase();
+            if (Array.isArray(args?.evidenceRequirements)) body.evidenceRequirements = args.evidenceRequirements;
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            if (args?.host && typeof args.host === "object" && !Array.isArray(args.host)) body.host = args.host;
+            const out = await client.requestJson("/v1/action-intents", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "nooterra.request_approval") {
+            const actionIntentId = String(args?.actionIntentId ?? "").trim();
+            const requestedBy = String(args?.requestedBy ?? "").trim();
+            assertNonEmptyString(actionIntentId, "actionIntentId");
+            assertNonEmptyString(requestedBy, "requestedBy");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_request_approval");
+            const body = { requestedBy };
+            if (typeof args?.requestId === "string" && args.requestId.trim() !== "") body.requestId = args.requestId.trim();
+            if (typeof args?.requestedAt === "string" && args.requestedAt.trim() !== "") body.requestedAt = args.requestedAt.trim();
+            if (typeof args?.actionId === "string" && args.actionId.trim() !== "") body.actionId = args.actionId.trim();
+            if (typeof args?.actionSha256 === "string" && args.actionSha256.trim() !== "") body.actionSha256 = args.actionSha256.trim().toLowerCase();
+            if (args?.approvalPolicy && typeof args.approvalPolicy === "object" && !Array.isArray(args.approvalPolicy)) {
+              body.approvalPolicy = args.approvalPolicy;
+            }
+            if (args?.host && typeof args.host === "object" && !Array.isArray(args.host)) body.host = args.host;
+            if (args?.execution && typeof args.execution === "object" && !Array.isArray(args.execution)) body.execution = args.execution;
+            const out = await client.requestJson(`/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, actionIntentId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "nooterra.get_approval_status") {
+            const requestId = String(args?.requestId ?? "").trim();
+            assertNonEmptyString(requestId, "requestId");
+            const out = await client.requestJson(`/v1/approval-requests/${encodeURIComponent(requestId)}`, { method: "GET" });
+            result = { ok: true, requestId, ...redactSecrets(out) };
+          } else if (name === "nooterra.get_execution_grant") {
+            const executionGrantId = String(args?.executionGrantId ?? "").trim();
+            assertNonEmptyString(executionGrantId, "executionGrantId");
+            const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}`, { method: "GET" });
+            result = { ok: true, executionGrantId, ...redactSecrets(out) };
           } else if (name === "nooterra.work_order_create") {
             const principalAgentId = String(args?.principalAgentId ?? "").trim();
             const subAgentId = String(args?.subAgentId ?? "").trim();
@@ -3939,6 +4862,29 @@ async function main() {
               idem: idempotencyKey
             });
             result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "nooterra.finalize_action") {
+            const executionGrantId = String(args?.executionGrantId ?? "").trim();
+            assertNonEmptyString(executionGrantId, "executionGrantId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_finalize_action");
+            const body = {};
+            if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+            if (args?.completion && typeof args.completion === "object" && !Array.isArray(args.completion)) body.completion = args.completion;
+            if (args?.settlement && typeof args.settlement === "object" && !Array.isArray(args.settlement)) body.settlement = args.settlement;
+            const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}/finalize`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, executionGrantId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "nooterra.get_receipt") {
+            const receiptId = String(args?.receiptId ?? "").trim();
+            assertNonEmptyString(receiptId, "receiptId");
+            const out = await client.requestJson(`/v1/receipts/${encodeURIComponent(receiptId)}`, { method: "GET" });
+            result = { ok: true, receiptId, ...redactSecrets(out) };
           } else if (name === "nooterra.session_create") {
             const sessionId = String(args?.sessionId ?? "").trim();
             assertNonEmptyString(sessionId, "sessionId");
@@ -4385,23 +5331,53 @@ async function main() {
             });
             result = { ok: true, agentId, status, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "nooterra.submit_evidence") {
-            const agentId = String(args?.agentId ?? "").trim();
-            const runId = String(args?.runId ?? "").trim();
-            const evidenceRef = String(args?.evidenceRef ?? "").trim();
-            assertNonEmptyString(agentId, "agentId");
-            assertNonEmptyString(runId, "runId");
-            assertNonEmptyString(evidenceRef, "evidenceRef");
+            const executionGrantId = String(args?.executionGrantId ?? "").trim();
+            if (executionGrantId) {
+              const evidenceRefs = Array.isArray(args?.evidenceRefs)
+                ? args.evidenceRefs.map((entry) => String(entry ?? "").trim()).filter(Boolean)
+                : typeof args?.evidenceRef === "string" && args.evidenceRef.trim() !== ""
+                  ? [args.evidenceRef.trim()]
+                  : [];
+              if (evidenceRefs.length === 0) throw new TypeError("evidenceRefs or evidenceRef is required");
+              const body = { evidenceRefs };
+              if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+              if (typeof args?.progressId === "string" && args.progressId.trim() !== "") body.progressId = args.progressId.trim();
+              if (typeof args?.eventType === "string" && args.eventType.trim() !== "") body.eventType = args.eventType.trim();
+              if (typeof args?.message === "string" && args.message.trim() !== "") body.message = args.message.trim();
+              if (Number.isSafeInteger(Number(args?.percentComplete)) && Number(args.percentComplete) >= 0 && Number(args.percentComplete) <= 100) {
+                body.percentComplete = Number(args.percentComplete);
+              }
+              if (typeof args?.at === "string" && args.at.trim() !== "") body.at = args.at.trim();
+              const idempotencyKey =
+                typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                  ? args.idempotencyKey.trim()
+                  : makeIdempotencyKey("mcp_execution_grant_evidence");
+              const out = await client.requestJson(`/v1/execution-grants/${encodeURIComponent(executionGrantId)}/evidence`, {
+                method: "POST",
+                write: true,
+                body,
+                idem: idempotencyKey
+              });
+              result = { ok: true, executionGrantId, idempotencyKey, ...redactSecrets(out) };
+            } else {
+              const agentId = String(args?.agentId ?? "").trim();
+              const runId = String(args?.runId ?? "").trim();
+              const evidenceRef = String(args?.evidenceRef ?? "").trim();
+              assertNonEmptyString(agentId, "agentId");
+              assertNonEmptyString(runId, "runId");
+              assertNonEmptyString(evidenceRef, "evidenceRef");
 
-            const head = await client.getRunPrevChainHash({ agentId, runId });
-            const out = await client.requestJson(`/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/events`, {
-              method: "POST",
-              write: true,
-              headers: { "x-proxy-expected-prev-chain-hash": head.prevChainHash === null ? "null" : String(head.prevChainHash) },
-              // Note: event schemaVersion is an integer (default=1). Omit to use the default.
-              body: { type: "EVIDENCE_ADDED", payload: { evidenceRef } },
-              idem: makeIdempotencyKey("mcp_run_event_evidence")
-            });
-            result = { ok: true, ...redactSecrets(out) };
+              const head = await client.getRunPrevChainHash({ agentId, runId });
+              const out = await client.requestJson(`/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/events`, {
+                method: "POST",
+                write: true,
+                headers: { "x-proxy-expected-prev-chain-hash": head.prevChainHash === null ? "null" : String(head.prevChainHash) },
+                // Note: event schemaVersion is an integer (default=1). Omit to use the default.
+                body: { type: "EVIDENCE_ADDED", payload: { evidenceRef } },
+                idem: makeIdempotencyKey("mcp_run_event_evidence")
+              });
+              result = { ok: true, ...redactSecrets(out) };
+            }
           } else if (name === "nooterra.settle_run") {
             const agentId = String(args?.agentId ?? "").trim();
             const runId = String(args?.runId ?? "").trim();
@@ -4432,45 +5408,63 @@ async function main() {
             }
             result = { ok: true, ...redactSecrets(out), settlement };
           } else if (name === "nooterra.open_dispute") {
-            const runId = String(args?.runId ?? "").trim();
-            assertNonEmptyString(runId, "runId");
-            const evidenceRefs = Array.isArray(args?.evidenceRefs) ? args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
+            const disputeId = String(args?.disputeId ?? "").trim();
+            if (disputeId) {
+              const body = { disputeId };
+              if (typeof args?.caseId === "string" && args.caseId.trim() !== "") body.caseId = args.caseId.trim();
+              if (typeof args?.runId === "string" && args.runId.trim() !== "") body.runId = args.runId.trim();
+              const idempotencyKey =
+                typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                  ? args.idempotencyKey.trim()
+                  : makeIdempotencyKey("mcp_v1_dispute_lookup");
+              const out = await client.requestJson("/v1/disputes", {
+                method: "POST",
+                write: true,
+                body,
+                idem: idempotencyKey
+              });
+              result = { ok: true, disputeId, idempotencyKey, ...redactSecrets(out) };
+            } else {
+              const runId = String(args?.runId ?? "").trim();
+              assertNonEmptyString(runId, "runId");
+              const evidenceRefs = Array.isArray(args?.evidenceRefs) ? args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
 
-            const waitMsRaw = args?.waitMs ?? 0;
-            const waitMs = Number(waitMsRaw);
-            if (!Number.isSafeInteger(waitMs) || waitMs < 0) throw new TypeError("waitMs must be a non-negative safe integer");
-            const deadline = nowMs() + Math.min(waitMs, 60_000);
+              const waitMsRaw = args?.waitMs ?? 0;
+              const waitMs = Number(waitMsRaw);
+              if (!Number.isSafeInteger(waitMs) || waitMs < 0) throw new TypeError("waitMs must be a non-negative safe integer");
+              const deadline = nowMs() + Math.min(waitMs, 60_000);
 
-            if (waitMs > 0) {
-              // Wait for settlement resolution so `open` doesn't immediately 409 on interactive demos.
-              // (The API requires settlement.status != locked to open a dispute.)
-              // eslint-disable-next-line no-constant-condition
-              while (true) {
-                let settlement = null;
-                try {
-                  settlement = await client.requestJson(`/runs/${encodeURIComponent(runId)}/settlement`, { method: "GET" });
-                } catch {
-                  settlement = null;
+              if (waitMs > 0) {
+                // Wait for settlement resolution so `open` doesn't immediately 409 on interactive demos.
+                // (The API requires settlement.status != locked to open a dispute.)
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                  let settlement = null;
+                  try {
+                    settlement = await client.requestJson(`/runs/${encodeURIComponent(runId)}/settlement`, { method: "GET" });
+                  } catch {
+                    settlement = null;
+                  }
+                  const status = String(settlement?.status ?? "").toLowerCase();
+                  if (status && status !== "locked") break;
+                  if (nowMs() >= deadline) break;
+                  await sleep(500);
                 }
-                const status = String(settlement?.status ?? "").toLowerCase();
-                if (status && status !== "locked") break;
-                if (nowMs() >= deadline) break;
-                await sleep(500);
               }
+              const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/dispute/open`, {
+                method: "POST",
+                write: true,
+                body: {
+                  reason: args?.reason ?? null,
+                  evidenceRefs,
+                  disputeType: args?.disputeType ?? null,
+                  disputePriority: args?.priority ?? null,
+                  disputeChannel: args?.channel ?? null
+                },
+                idem: makeIdempotencyKey("mcp_dispute_open")
+              });
+              result = { ok: true, ...redactSecrets(out) };
             }
-            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/dispute/open`, {
-              method: "POST",
-              write: true,
-              body: {
-                reason: args?.reason ?? null,
-                evidenceRefs,
-                disputeType: args?.disputeType ?? null,
-                disputePriority: args?.priority ?? null,
-                disputeChannel: args?.channel ?? null
-              },
-              idem: makeIdempotencyKey("mcp_dispute_open")
-            });
-            result = { ok: true, ...redactSecrets(out) };
           } else if (name === "nooterra.dispute_add_evidence") {
             const runId = String(args?.runId ?? "").trim();
             const evidenceRef = String(args?.evidenceRef ?? "").trim();

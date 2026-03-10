@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ApprovalRequest.v1.schema.json",
+  "title": "ApprovalRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "envelopeRef",
+    "requestedBy",
+    "requestedAt",
+    "actionRef",
+    "requestHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ApprovalRequest.v1" },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "envelopeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelopeId", "envelopeHash"],
+      "properties": {
+        "envelopeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "envelopeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "requestedBy": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "actionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "sha256"],
+      "properties": {
+        "actionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "approvalPolicy": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "requireApprovalAboveCents": { "type": "integer", "minimum": 0 },
+        "strictEvidenceRefs": { "type": "boolean" },
+        "requireContextBinding": { "type": "boolean" },
+        "decisionTimeoutAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "requestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

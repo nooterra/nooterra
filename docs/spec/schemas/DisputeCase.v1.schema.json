@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/DisputeCase.v1.schema.json",
+  "title": "DisputeCase.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "DisputeCase.v1" },
+    "disputeId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "caseId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "status": {
+      "type": ["string", "null"],
+      "enum": ["opened", "triaged", "awaiting_evidence", "refunded", "denied", "resolved", null]
+    },
+    "openedAt": { "type": ["string", "null"], "format": "date-time" },
+    "settlementStatus": { "type": ["string", "null"], "minLength": 1, "maxLength": 120 },
+    "detail": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    }
+  }
+}

@@ -309,3 +309,276 @@ test("provider conformance: v2 action tool class enforces strict request binding
   assert.equal(strictCheck?.details?.toolClass, "action");
   assert.equal(strictCheck?.details?.toolRiskLevel, "high");
 });
+
+test("provider conformance: phase1 managed purchase provider fails closed without execution adapter", async (t) => {
+  const nooterraSigner = createEd25519Keypair();
+  const nooterraKeyId = keyIdFromPublicKeyPem(nooterraSigner.publicKeyPem);
+  const providerSigner = createEd25519Keypair();
+  const providerId = "prov_phase1_purchase_missing_adapter";
+
+  const keysetServer = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
+      const keyset = buildNooterraPayKeysetV1({
+        activeKey: {
+          keyId: nooterraKeyId,
+          publicKeyPem: nooterraSigner.publicKeyPem
+        }
+      });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "public, max-age=60"
+      });
+      res.end(JSON.stringify(keyset));
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "not_found" }));
+  });
+  const keysetAddr = await listenServer(keysetServer);
+  t.after(async () => {
+    await closeServer(keysetServer);
+  });
+
+  const paidHandler = createNooterraPaidNodeHttpHandler({
+    providerId,
+    providerPublicKeyPem: providerSigner.publicKeyPem,
+    providerPrivateKeyPem: providerSigner.privateKeyPem,
+    priceFor: () => ({
+      providerId,
+      toolId: "actions.purchase",
+      amountCents: 1250,
+      currency: "USD",
+      requestBindingMode: "strict",
+      idempotency: "side_effecting"
+    }),
+    nooterraPay: {
+      keysetUrl: `${keysetAddr.url}/.well-known/nooterra-keys.json`
+    },
+    execute: async () => ({
+      statusCode: 200,
+      body: { ok: true }
+    })
+  });
+
+  const providerServer = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ publicKeyPem: providerSigner.publicKeyPem }));
+      return;
+    }
+    if (url.pathname === "/tool/purchase") {
+      paidHandler(req, res).catch((err) => {
+        res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "provider_error", message: err?.message ?? String(err ?? "") }));
+      });
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: false, error: "not_found" }));
+  });
+  const providerAddr = await listenServer(providerServer);
+  t.after(async () => {
+    await closeServer(providerServer);
+  });
+
+  const manifest = {
+    schemaVersion: "PaidToolManifest.v2",
+    providerId,
+    publishProofJwksUrl: "https://provider.example/.well-known/provider-publish-jwks.json",
+    defaults: {
+      amountCents: 1250,
+      currency: "USD",
+      idempotency: "side_effecting",
+      signatureMode: "required",
+      toolClass: "action",
+      riskLevel: "high",
+      requiredSignatures: ["output"],
+      requestBinding: "strict"
+    },
+    tools: [
+      {
+        toolId: "actions.purchase",
+        mcpToolName: "actions.purchase",
+        description: "execute bounded purchase",
+        method: "POST",
+        paidPath: "/tool/purchase",
+        pricing: { amountCents: 1250, currency: "USD" },
+        auth: { mode: "none" },
+        toolClass: "action",
+        riskLevel: "high",
+        metadata: {
+          phase1ManagedNetwork: {
+            schemaVersion: "Phase1ManagedWorkerMetadata.v1",
+            profileId: "purchase_runner"
+          }
+        },
+        security: {
+          requiredSignatures: ["output"],
+          requestBinding: "strict"
+        }
+      }
+    ]
+  };
+
+  const report = await runProviderConformanceV1({
+    providerBaseUrl: providerAddr.url,
+    manifest,
+    providerId,
+    providerSigningPublicKeyPem: providerSigner.publicKeyPem,
+    nooterraSigner: {
+      keyId: nooterraKeyId,
+      publicKeyPem: nooterraSigner.publicKeyPem,
+      privateKeyPem: nooterraSigner.privateKeyPem
+    }
+  });
+  assert.equal(report?.verdict?.ok, false);
+  const adapterCheck = (report?.checks ?? []).find((row) => row?.id === "phase1_execution_adapter_declared");
+  assert.ok(adapterCheck);
+  assert.equal(adapterCheck?.ok, false);
+  assert.equal(adapterCheck?.details?.required, true);
+  assert.equal(adapterCheck?.details?.profileId, "purchase_runner");
+});
+
+test("provider conformance: phase1 managed purchase provider enforces delegated account session context", async (t) => {
+  const nooterraSigner = createEd25519Keypair();
+  const nooterraKeyId = keyIdFromPublicKeyPem(nooterraSigner.publicKeyPem);
+  const providerSigner = createEd25519Keypair();
+  const providerId = "prov_phase1_purchase_with_session";
+
+  const keysetServer = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
+      const keyset = buildNooterraPayKeysetV1({
+        activeKey: {
+          keyId: nooterraKeyId,
+          publicKeyPem: nooterraSigner.publicKeyPem
+        }
+      });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "public, max-age=60"
+      });
+      res.end(JSON.stringify(keyset));
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "not_found" }));
+  });
+  const keysetAddr = await listenServer(keysetServer);
+  t.after(async () => {
+    await closeServer(keysetServer);
+  });
+
+  const paidHandler = createNooterraPaidNodeHttpHandler({
+    providerId,
+    providerPublicKeyPem: providerSigner.publicKeyPem,
+    providerPrivateKeyPem: providerSigner.privateKeyPem,
+    priceFor: () => ({
+      providerId,
+      toolId: "actions.purchase",
+      amountCents: 1250,
+      currency: "USD",
+      requestBindingMode: "strict",
+      idempotency: "side_effecting"
+    }),
+    nooterraPay: {
+      keysetUrl: `${keysetAddr.url}/.well-known/nooterra-keys.json`,
+      requireDelegatedAccountSession: true
+    },
+    execute: async ({ delegatedAccountSession }) => ({
+      statusCode: 200,
+      body: { ok: true, delegatedAccountSession }
+    })
+  });
+
+  const providerServer = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ publicKeyPem: providerSigner.publicKeyPem }));
+      return;
+    }
+    if (url.pathname === "/tool/purchase") {
+      paidHandler(req, res).catch((err) => {
+        res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "provider_error", message: err?.message ?? String(err ?? "") }));
+      });
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: false, error: "not_found" }));
+  });
+  const providerAddr = await listenServer(providerServer);
+  t.after(async () => {
+    await closeServer(providerServer);
+  });
+
+  const manifest = {
+    schemaVersion: "PaidToolManifest.v2",
+    providerId,
+    publishProofJwksUrl: "https://provider.example/.well-known/provider-publish-jwks.json",
+    defaults: {
+      amountCents: 1250,
+      currency: "USD",
+      idempotency: "side_effecting",
+      signatureMode: "required",
+      toolClass: "action",
+      riskLevel: "high",
+      requiredSignatures: ["output"],
+      requestBinding: "strict"
+    },
+    tools: [
+      {
+        toolId: "actions.purchase",
+        mcpToolName: "actions.purchase",
+        description: "execute bounded purchase",
+        method: "POST",
+        paidPath: "/tool/purchase",
+        pricing: { amountCents: 1250, currency: "USD" },
+        auth: { mode: "none" },
+        toolClass: "action",
+        riskLevel: "high",
+        metadata: {
+          phase1ManagedNetwork: {
+            schemaVersion: "Phase1ManagedWorkerMetadata.v1",
+            profileId: "purchase_runner",
+            executionAdapter: {
+              schemaVersion: "Phase1ExecutionAdapter.v1",
+              adapterId: "delegated_account_session_checkout",
+              mode: "delegated_account_session",
+              requiresDelegatedAccountSession: true,
+              supportedSessionModes: ["browser_delegated", "approval_at_boundary", "operator_supervised"],
+              requiredRunFields: ["account_session_ref", "provider_key", "site_key", "execution_mode"],
+              merchantScope: "consumer_commerce",
+              reviewPolicy: "require user-approved spend envelope or boundary confirmation before final checkout"
+            }
+          }
+        },
+        security: {
+          requiredSignatures: ["output"],
+          requestBinding: "strict"
+        }
+      }
+    ]
+  };
+
+  const report = await runProviderConformanceV1({
+    providerBaseUrl: providerAddr.url,
+    manifest,
+    providerId,
+    providerSigningPublicKeyPem: providerSigner.publicKeyPem,
+    nooterraSigner: {
+      keyId: nooterraKeyId,
+      publicKeyPem: nooterraSigner.publicKeyPem,
+      privateKeyPem: nooterraSigner.privateKeyPem
+    }
+  });
+  assert.equal(report?.verdict?.ok, true, JSON.stringify(report, null, 2));
+  const adapterCheck = (report?.checks ?? []).find((row) => row?.id === "phase1_execution_adapter_declared");
+  assert.ok(adapterCheck);
+  assert.equal(adapterCheck?.ok, true);
+  const delegatedCheck = (report?.checks ?? []).find((row) => row?.id === "delegated_account_session_enforced");
+  assert.ok(delegatedCheck);
+  assert.equal(delegatedCheck?.ok, true);
+  assert.equal(delegatedCheck?.details?.required, true);
+});

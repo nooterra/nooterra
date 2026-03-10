@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/TaskWallet.v1.schema.json",
+  "title": "TaskWallet.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "walletId",
+    "tenantId",
+    "launchId",
+    "taskId",
+    "rfqId",
+    "ownerAgentId",
+    "categoryId",
+    "currency",
+    "maxSpendCents",
+    "allowedMerchantScopes",
+    "allowedSpecialistProfileIds",
+    "allowedProviderIds",
+    "reviewMode",
+    "evidenceRequirements",
+    "delegationPolicy",
+    "settlementPolicy",
+    "fundingSourceLabel",
+    "expiresAt",
+    "createdAt",
+    "walletHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "TaskWallet.v1" },
+    "walletId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "launchId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "rfqId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "ownerAgentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "categoryId": { "type": ["string", "null"], "maxLength": 120 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 12 },
+    "maxSpendCents": { "type": ["integer", "null"], "minimum": 1 },
+    "allowedMerchantScopes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "allowedSpecialistProfileIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "allowedProviderIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "reviewMode": {
+      "type": "string",
+      "enum": [
+        "autonomous_within_envelope",
+        "approval_at_boundary",
+        "human_required",
+        "operator_supervised"
+      ]
+    },
+    "evidenceRequirements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "delegationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowManagedSpecialists", "allowOpenMarketplace", "maxDepth"],
+      "properties": {
+        "allowManagedSpecialists": { "type": "boolean" },
+        "allowOpenMarketplace": { "type": "boolean" },
+        "maxDepth": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "settlementPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["settlementModel", "requireEvidenceBeforeFinalize", "allowRefunds"],
+      "properties": {
+        "settlementModel": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "requireEvidenceBeforeFinalize": { "type": "boolean" },
+        "allowRefunds": { "type": "boolean" }
+      }
+    },
+    "fundingSourceLabel": { "type": ["string", "null"], "maxLength": 200 },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "walletHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

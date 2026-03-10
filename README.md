@@ -1,4 +1,4 @@
-# Nooterra — Trust Kernel for the Agent Network
+# Nooterra — Neutral Action Layer for Consequential AI
 
 [![CI](https://github.com/nooterra/nooterra/actions/workflows/tests.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/tests.yml)
 [![Nooterra Verified Collaboration](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-collaboration.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/nooterra-verified-collaboration.yml)
@@ -7,43 +7,42 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Node 22 LTS / 20 supported](https://img.shields.io/badge/node-22%20LTS%20%7C%2020%20supported-brightgreen)](./.nvmrc)
 
-Nooterra builds a trust kernel that binds **policy + evidence + settlement**, then exposes open schemas and APIs so any agent runtime can discover, delegate, and settle work with replayable, verifiable receipts.
+Nooterra is the **Action Wallet** and run-contract layer for consequential AI actions.
+External agent hosts can plan anywhere, but hosted approvals, scoped execution grants, receipts, settlement, and recourse flow through Nooterra before real-world side effects happen.
+The first release is one API for hosts plus one hosted approval and receipt app for users.
 
-Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
-
-Network layer term: **Nooterra Agent Network**.
+Launch v1 is locked to `buy` and `cancel/recover` through `Claude MCP` and `OpenClaw`, backed by deterministic envelopes, approval records, and fail-closed execution.
+Hosts remain the executors in v1; Nooterra does not own last-mile execution at launch.
+Out of scope for launch: booking/rebooking, Nooterra-owned last-mile execution, certified execution adapters and browser fallback, a first-party assistant shell, ChatGPT app packaging, enterprise connectors, and an open marketplace.
 
 Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Naming](./docs/NAMING.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
 
 ## Highlights
 
-- Policy decisioning that fails closed by default (deny/challenge/escalate) for paid/high-risk actions
-- x402 verify-before-release: `402 -> hold -> verify -> release/refund`
-- Inter-agent collaboration primitives: `AgentCard` + `DelegationGrant` + `SubAgentWorkOrder` + `SubAgentCompletionReceipt`
-- MCP tool surface + OpenClaw ClawHub distribution
+- Neutral approval wallet for consequential AI actions
+- Hosted approvals, scoped grants, receipts, disputes, and operator rescue for host-run actions
+- API for builders plus approval and receipt UI for users
+- No Nooterra-owned last-mile execution path in v1
+- Fail-closed authority, evidence, settlement, and dispute substrate
+- Public action-intent and execution-grant aliases over deterministic kernel objects
+- MCP tool surface + hosted approval links + OpenClaw packaging
 - “Nooterra Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
 
-## Get Started (Local x402 Demo)
+## Get Started (Launch Channels)
 
 Prereqs: Node.js 22 LTS recommended (`20.x` is supported).
 
 ```sh
 nvm use
 npm ci
-npm run quickstart:x402
+npx -y nooterra setup
 ```
 
-CI-friendly one-shot run:
-
-```sh
-NOOTERRA_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
-```
-
-Success: prints `OK`, a `gateId=...`, and a `gateStateUrl=...`.
+This installs the host-first Action Wallet flow for supported launch channels and sets up the hosted approval surface.
 
 ## Preferred Setup (Agent Hosts)
 
-Onboard an agent host (OpenClaw / Claude / Cursor / Nooterra), with guided wallet + policy setup:
+Onboard an agent host (OpenClaw / Claude / Cursor / local MCP runtime) with guided wallet + policy setup:
 
 ```sh
 npx -y nooterra setup
@@ -61,14 +60,14 @@ npx -y clawhub@latest install nooterra-mcp-payments
 
 Quick prompts:
 
-- “Use Nooterra to run a paid tool call and show me the receipt.”
-- “Use Nooterra to discover agents with capability X and create a work order under $Y.”
+- “Use Nooterra to create an action intent and request approval.”
+- “Use Nooterra to finalize the action and show me the receipt.”
 
 More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
 
 ## Repository Layout
 
-- Nooterra API + control plane: `./src/api/`
+- Nooterra API + Action Wallet control plane: `./src/api/`
 - x402 gateway proxy: `./services/x402-gateway/`
 - MCP stdio server (tool surface): `./scripts/mcp/nooterra-mcp-server.mjs`
 - CLI: `./bin/nooterra.js`

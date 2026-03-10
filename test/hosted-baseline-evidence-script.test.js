@@ -7,7 +7,10 @@ import {
   buildHostedBaselineEvidenceOutput,
   computeHostedBaselineArtifactHash,
   createHostedBaselineReportCore,
-  parseArgs
+  evaluateBackupRestoreEvidencePayload,
+  evaluateRateLimitProbe,
+  parseArgs,
+  validateBillingCatalog
 } from "../scripts/ops/hosted-baseline-evidence.mjs";
 
 function makeBaseArgs(extra = []) {
@@ -189,5 +192,64 @@ test("hosted baseline output: reserved field rejection and deterministic unsigne
         }
       }),
     /reportCore must not include artifactHash or signature/
+  );
+});
+
+test("hosted baseline billing catalog validation: fails closed on weak catalog shape", () => {
+  const invalid = validateBillingCatalog({
+    schemaVersion: "BillingPlanCatalog.v0",
+    plans: {
+      free: {
+        planId: "wrong",
+        displayName: "",
+        subscriptionCents: 0,
+        includedVerifiedRunsPerMonth: 1000,
+        verifiedRunOverageMilliCents: 0,
+        settledVolumeFeeBps: 0,
+        arbitrationCaseFeeCents: 0,
+        hardLimitVerifiedRunsPerMonth: 1000
+      }
+    }
+  });
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.failures.join(" "), /schemaVersion/);
+  assert.match(invalid.failures.join(" "), /missing matching planId/);
+  assert.match(invalid.failures.join(" "), /missing displayName/);
+});
+
+test("hosted baseline rate-limit probe: fails closed on unhealthy probe results", () => {
+  const saw503 = evaluateRateLimitProbe({
+    mode: "optional",
+    requests: 4,
+    statusCodeCounts: { "200": 3, "503": 1 }
+  });
+  assert.equal(saw503.ok, false);
+  assert.equal(saw503.failureCode, "rate_limit_probe_saw_5xx");
+
+  const missing429 = evaluateRateLimitProbe({
+    mode: "required",
+    requests: 4,
+    statusCodeCounts: { "200": 4 }
+  });
+  assert.equal(missing429.ok, false);
+  assert.equal(missing429.failureCode, "rate_limit_probe_expected_429_missing");
+});
+
+test("hosted baseline backup/restore evidence: requires affirmative pass signal", () => {
+  assert.deepEqual(
+    evaluateBackupRestoreEvidencePayload({ ok: true, artifactHash: "abc" }),
+    { ok: true, format: "json", failureCode: null }
+  );
+  assert.deepEqual(
+    evaluateBackupRestoreEvidencePayload({ raw: "=== Backup/Restore Verification PASSED ===" }),
+    { ok: true, format: "json", failureCode: null }
+  );
+  assert.deepEqual(
+    evaluateBackupRestoreEvidencePayload({ status: "failed" }),
+    { ok: false, format: "json", failureCode: "backup_restore_json_not_pass" }
+  );
+  assert.deepEqual(
+    evaluateBackupRestoreEvidencePayload("backup drill output without pass marker"),
+    { ok: false, format: "text", failureCode: "backup_restore_text_not_pass" }
   );
 });

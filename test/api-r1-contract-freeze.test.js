@@ -40,6 +40,11 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/authority-grants/{grantId}", "get");
   assertOperation(spec, "/authority-grants/{grantId}/revoke", "post");
 
+  assertOperation(spec, "/disputes", "get");
+  assertOperation(spec, "/disputes/{disputeId}", "get");
+  assertOperation(spec, "/runs/{runId}", "get");
+  assertOperation(spec, "/runs/{runId}/action-required/respond", "post");
+  assertOperation(spec, "/runs/{runId}/managed-execution/handoff", "post", { scopes: ["ops_write"] });
   assertOperation(spec, "/runs/{runId}/settlement", "get");
   assertOperation(spec, "/runs/{runId}/settlement/policy-replay", "get");
   assertOperation(spec, "/runs/{runId}/settlement/explainability", "get");
@@ -49,6 +54,11 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/runs/{runId}/dispute/evidence", "post");
   assertOperation(spec, "/runs/{runId}/dispute/escalate", "post");
   assertOperation(spec, "/ops/tool-calls/replay-evaluate", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/ops/network/rescue-queue", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/ops/network/phase1-metrics", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/ops/network/managed-specialists", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/ops/network/rescue-queue/{rescueId}/triage", "post", { scopes: ["ops_write"] });
+  assertOperation(spec, "/ops/network/rescue-queue/{rescueId}/actions", "post", { scopes: ["ops_write"] });
   assertOperation(spec, "/ops/routines", "get", { scopes: ["ops_read", "ops_write"] });
   assertOperation(spec, "/ops/routines", "post", { scopes: ["ops_write"] });
   assertOperation(spec, "/ops/routines/{routineId}", "get", { scopes: ["ops_read", "ops_write"] });

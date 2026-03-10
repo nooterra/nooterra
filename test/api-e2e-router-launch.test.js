@@ -116,6 +116,8 @@ test("API e2e: /router/launch creates marketplace RFQs from routed tasks", async
   assert.equal(testRfq.metadata?.routerLaunch?.launchId, launched.json?.launch?.launchId);
   assert.equal(testRfq.metadata?.routerLaunch?.taskId, "t_test");
   assert.deepEqual(testRfq.metadata?.routerLaunch?.candidateAgentIds, ["agt_router_launch_worker_1"]);
+  assert.equal(launched.json?.launch?.tasks?.[0]?.taskWallet, null);
+  assert.equal(testRfq.metadata?.routerLaunch?.taskWallet, null);
 
   const listed = await request(api, {
     method: "GET",
@@ -157,6 +159,39 @@ test("API e2e: /router/launch fails closed when no tasks can be derived", async 
   const listed = await request(api, {
     method: "GET",
     path: "/marketplace/rfqs?posterAgentId=agt_router_launch_poster_fail&limit=10&offset=0"
+  });
+  assert.equal(listed.statusCode, 200, listed.body);
+  assert.equal(listed.json?.total, 0);
+});
+
+test("API e2e: /router/launch blocks unsupported Phase 1 consumer requests before emitting RFQs", async () => {
+  const api = createApi({ store: createStore() });
+
+  await registerAgent(api, {
+    agentId: "agt_router_launch_consumer_poster",
+    capabilities: ["capability://workflow.orchestrator"]
+  });
+
+  const launched = await request(api, {
+    method: "POST",
+    path: "/router/launch",
+    body: {
+      text: "Diagnose my symptoms and prescribe the right medication.",
+      posterAgentId: "agt_router_launch_consumer_poster",
+      metadata: {
+        source: "dashboard.network",
+        productSurface: "consumer_shell"
+      }
+    }
+  });
+
+  assert.equal(launched.statusCode, 409, launched.body);
+  assert.equal(launched.json?.code, "ROUTER_PHASE1_TASK_UNSUPPORTED");
+  assert.equal(launched.json?.details?.taskPolicy?.categoryId, "medical_decision");
+
+  const listed = await request(api, {
+    method: "GET",
+    path: "/marketplace/rfqs?posterAgentId=agt_router_launch_consumer_poster&limit=10&offset=0"
   });
   assert.equal(listed.statusCode, 200, listed.body);
   assert.equal(listed.json?.total, 0);

@@ -1,305 +1,139 @@
-# Quickstart: MCP Host Integrations (Nooterra, Claude, Cursor, OpenClaw)
+# Quickstart: Launch Host Channels (Claude Desktop, OpenClaw)
 
-This guide is the fastest path to wire Nooterra into an agent host and confirm a first verified paid action.
+This guide is the fastest install-to-first-approval path for the locked Action Wallet v1 launch.
 
-Target outcome:
+Locked v1 scope:
 
-1. Host can call `nooterra.*` MCP tools.
-2. Wallet mode is configured (`managed`, `byo`, or `none`).
-3. Policy profile is applied.
-4. Smoke call and first paid receipt are green.
+V1 lets external agent hosts create action intents for buy and cancel/recover flows, send users to Nooterra-hosted approval pages, receive scoped execution grants, submit evidence, finalize runs, issue receipts, and open disputes.
 
-For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
+Execution model:
 
-## 1) Before you run `nooterra setup`
+The host executes the external buy or cancel/recover flow. Nooterra does not perform the action. Nooterra only handles approval, scoped grants, evidence submission, receipts, and disputes.
 
-Public default path (recommended):
+Supported channels only:
 
-- Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
-- no API keys required up front
-- run `nooterra setup`, choose `quick`, then login with OTP
-- setup creates tenant (if needed), mints runtime key, and wires MCP
+- `Claude MCP`
+- `OpenClaw`
 
-Admin/operator path (advanced):
+Engineering shell note:
 
-- explicit `NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`
-- one of:
-  - `NOOTERRA_API_KEY` (`keyId.secret`), or
-  - `NOOTERRA_BOOTSTRAP_API_KEY` (bootstrap key that mints runtime key)
+- `Codex` can use the same Action Wallet runtime through the API or CLI path, but it is not treated as a separate certified launch host in v1.
 
-Recommended interactive pattern:
+Explicitly out of scope for launch:
 
-```bash
-nooterra setup
-```
+- booking or rebooking
+- ChatGPT app
+- enterprise connectors
+- BYO payment rails
+- open marketplace publishing
 
-Recommended non-interactive pattern (automation/support):
+For deeper channel-specific steps, see:
 
-```bash
-nooterra setup --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --nooterra-api-key 'sk_live_xxx.yyy' \
-  --wallet-mode managed \
-  --wallet-bootstrap remote \
-  --profile-id engineering-spend \
-  --smoke \
-  --out-env ./.tmp/nooterra-openclaw.env
-```
+- `docs/integrations/claude-desktop/PUBLIC_QUICKSTART.md`
+- `docs/integrations/openclaw/PUBLIC_QUICKSTART.md`
 
-If you want non-interactive setup to generate the tenant API key:
+## 1) Run setup
 
-```bash
-nooterra setup --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --bootstrap-api-key 'ml_admin_xxx' \
-  --wallet-mode managed \
-  --wallet-bootstrap remote \
-  --profile-id engineering-spend \
-  --smoke
-```
-
-If you want validation only (no config writes):
-
-```bash
-nooterra setup --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --nooterra-api-key 'sk_live_xxx.yyy' \
-  --wallet-mode none \
-  --preflight-only \
-  --report-path ./.tmp/setup-preflight.json \
-  --format json
-```
-
-## 2) Host setup flows
-
-Unified setup command:
+Recommended interactive path:
 
 ```bash
 nooterra setup
 ```
 
-`quick` mode (default) handles:
+Choose:
 
-- host selection (`nooterra|claude|cursor|openclaw`)
-- wallet mode selection (`managed|byo|none`)
-- login/signup + OTP session flow (no manual key paste)
-- preflight checks (API health, tenant auth, profile baseline, host config path)
-- policy apply + optional smoke
-- guided wallet funding and first paid MCP check
-- interactive menus with arrow keys (Up/Down + Enter) for choice steps
+1. setup mode: `quick`
+2. host: `claude` or `openclaw`
+3. sign in or create account
+4. let setup write the host MCP configuration
 
-`advanced` mode exposes explicit key/bootstrap/base-url prompts and fine-grained setup toggles.
+Launch v1 assumes hosted approvals and host-executed actions under a Nooterra-issued scoped grant.
+Do not use unsupported hosts or BYO payment-rail setup for the launch train.
 
-Host-specific non-interactive examples:
+If you are validating from Codex, keep the same runtime values and follow the API or CLI install path instead of trying to register Codex as a separate MCP host.
 
-```bash
-# Nooterra
-nooterra setup --non-interactive --host nooterra --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+## 2) Activate the host
 
-# Claude
-nooterra setup --non-interactive --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+- `claude`: restart Claude Desktop after setup writes the MCP config.
+- `openclaw`: run `openclaw doctor`, then open `openclaw tui --session main` if you want an interactive session.
 
-# Cursor
-nooterra setup --non-interactive --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+## 3) First Action Wallet flow
 
-# OpenClaw
-nooterra setup --non-interactive --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --nooterra-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
-```
+First-approval path tools:
 
-## 3) Wallet modes: managed vs BYO
+- `nooterra.create_action_intent`
+- `nooterra.request_approval`
+- `nooterra.get_approval_status`
+- `nooterra.get_execution_grant`
 
-### Managed (`--wallet-mode managed`)
+Full v1 loop tools:
 
-Managed is the default and recommended first path.
+- `nooterra.submit_evidence`
+- `nooterra.finalize_action`
+- `nooterra.get_receipt`
+- `nooterra.open_dispute`
 
-`--wallet-bootstrap auto` behavior:
+Modern MCP host ergonomics:
 
-- If `--circle-api-key` (or `CIRCLE_API_KEY`) is present: local Circle bootstrap.
-- If not present: remote onboarding bootstrap (`/v1/tenants/{tenantId}/onboarding/wallet-bootstrap`).
+- `resources/list` exposes locked Action Wallet launch context
+- `resources/templates/list` exposes dynamic Action Wallet resource entrypoints
+- `resources/read` can hydrate `nooterra://action-wallet/...` objects directly into the host context window
+- task-augmented `tools/call` is available for the Action Wallet host tools, with `tasks/get`, `tasks/list`, `tasks/result`, and `tasks/cancel`
 
-Force the path explicitly when needed:
+Suggested first prompt inside the host:
 
-```bash
-# force remote wallet creation
-nooterra setup --non-interactive --host openclaw --base-url https://api.nooterra.work --tenant-id tenant_default --nooterra-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
+- `Use Nooterra to create a buy action intent for a small demo purchase, request approval, and return only JSON with approvalUrl, actionIntentId, and requestId.`
 
-# force local wallet creation with Circle credentials
-nooterra setup --non-interactive --host openclaw --base-url https://api.nooterra.work --tenant-id tenant_default --nooterra-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap local --circle-api-key 'TEST_API_KEY:...' --profile-id engineering-spend --smoke
-```
+Stop here first. The launch proof is successful once the host returns a Nooterra-hosted approval URL and stable ids.
 
-### BYO (`--wallet-mode byo`)
+## 4) After the user decides
 
-Provide your own existing wallet values. Required keys:
+After opening the approval URL and making a decision, continue with:
 
-- `CIRCLE_BASE_URL`
-- `CIRCLE_BLOCKCHAIN`
-- `CIRCLE_WALLET_ID_SPEND`
-- `CIRCLE_WALLET_ID_ESCROW`
-- `CIRCLE_TOKEN_ID_USDC`
-- `CIRCLE_ENTITY_SECRET_HEX`
+- `Use Nooterra to check the approval status for requestId <requestId>. If approved, fetch the execution grant and return only JSON. The host will execute the external action after that.`
 
-Pass as env or repeated `--wallet-env KEY=VALUE` flags:
+Expected result:
 
-```bash
-nooterra setup --non-interactive \
-  --host openclaw \
-  --base-url https://api.nooterra.work \
-  --tenant-id tenant_default \
-  --nooterra-api-key 'sk_live_xxx.yyy' \
-  --wallet-mode byo \
-  --wallet-env CIRCLE_BASE_URL=https://api-sandbox.circle.com \
-  --wallet-env CIRCLE_BLOCKCHAIN=BASE-SEPOLIA \
-  --wallet-env CIRCLE_WALLET_ID_SPEND=wid_spend \
-  --wallet-env CIRCLE_WALLET_ID_ESCROW=wid_escrow \
-  --wallet-env CIRCLE_TOKEN_ID_USDC=token_usdc \
-  --wallet-env CIRCLE_ENTITY_SECRET_HEX=$(openssl rand -hex 32) \
-  --profile-id engineering-spend \
-  --smoke
-```
+- approval status moves from `pending` to `approved`, `denied`, `expired`, or `revoked`
+- approved requests return a scoped execution grant the host can use to execute the external action
+- hosts that need to span model turns can start the same flow in task mode and later resolve it with `tasks/result`
 
-### None (`--wallet-mode none`)
+## 5) Complete the loop
 
-Use this for policy/tooling setup without payment rails yet.
+Only after the host has executed the external action and has evidence:
 
-## 4) Activation after setup
+- `Use Nooterra to submit host-captured evidence if needed, finalize the host-completed run, and fetch the receipt. Return only JSON with receiptId, settlement status, and dispute state.`
+- `If the receipt needs follow-up, use Nooterra to open or look up the dispute case and return only JSON.`
 
-`nooterra setup` writes host MCP config and prints `Combined exports`.
+## 6) Expected success signals
 
-If you used `--out-env`, source it before running tools:
+- host can call the `nooterra.*` tools without manual key edits
+- approval link opens a Nooterra-hosted page
+- approval status changes from `pending` to a terminal decision
+- approved runs return an execution grant that stays in scope for host-side execution
+- finalization returns a receipt id and the receipt page can be opened
+
+## 7) Local smoke from the repo workspace
+
+If you are developing inside the repo, this checks tool wiring:
 
 ```bash
-source ./.tmp/nooterra-openclaw.env
+npm run mcp:probe
 ```
 
-Then activate host-side:
+If your MCP client supports resources and task-augmented requests, also use:
 
-- `nooterra`: restart Nooterra.
-- `claude`: restart Claude Desktop.
-- `cursor`: restart Cursor.
-- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), install plugin (`openclaw plugins install nooterra@latest`), run local verification (`openclaw agent --local --agent main --session-id nooterra-smoke --message "Use the tool named nooterra_about with empty arguments. Return only JSON." --json`), then run `openclaw tui --session main`.
-
-## 5) Fund and verify wallet state
-
-Check wallet assignment after setup:
-
-```bash
-nooterra wallet status
-```
-
-If wallet commands return auth errors, run:
-
-```bash
-nooterra login
-```
-
-Funding paths:
-
-```bash
-# Guided selector (recommended)
-nooterra wallet fund --open
-
-# Hosted flow (card/bank) - provider-hosted URL, add --open to launch browser
-nooterra wallet fund --method card --open
-nooterra wallet fund --method bank --open
-
-# Direct transfer path (prints chain + destination address)
-nooterra wallet fund --method transfer
-
-# Sandbox only: request faucet top-up
-nooterra wallet fund --method faucet
-```
-
-Provider-hosted card/bank links are configured on the control-plane backend.
-
-Option A (recommended): Coinbase Hosted Onramp:
-
-```bash
-export MAGIC_LINK_WALLET_FUND_PROVIDER='coinbase'
-export MAGIC_LINK_COINBASE_API_KEY_VALUE='organizations/<org_id>/apiKeys/<key_id>'
-export MAGIC_LINK_COINBASE_API_SECRET_KEY='-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----'
-export MAGIC_LINK_COINBASE_PROJECT_ID='<project_id>'
-export MAGIC_LINK_COINBASE_DESTINATION_NETWORK='base'
-export MAGIC_LINK_COINBASE_ASSET='USDC'
-export MAGIC_LINK_COINBASE_FIAT_CURRENCY='USD'
-```
-
-Option B: explicit card/bank URLs:
-
-```bash
-# backend env (magic-link service)
-export MAGIC_LINK_WALLET_FUND_CARD_URL='https://pay.example.com/topup?tenant={tenantId}&method=card&address={walletAddress}'
-export MAGIC_LINK_WALLET_FUND_BANK_URL='https://pay.example.com/topup?tenant={tenantId}&method=bank&address={walletAddress}'
-```
-
-After funding, wait until spend wallet has balance:
-
-```bash
-nooterra wallet balance --watch --min-usdc 1
-```
-
-## 6) How the agent uses Nooterra after activation
-
-After host activation, the agent interacts with Nooterra through MCP `nooterra.*` tools.
-
-Typical flow:
-
-1. Connectivity check: `nooterra.about`
-2. Paid action: `nooterra.exa_search_paid` or `nooterra.weather_current_paid`
-3. Policy gate + authorization happen server-side in Nooterra.
-4. Nooterra records evidence/decision/receipt artifacts.
-5. You can verify receipts offline (`nooterra x402 receipt verify`).
-
-Quick local smoke:
-
-```bash
-npm run mcp:probe -- --call nooterra.about '{}'
-```
-
-First paid run + artifacts:
-
-```bash
-npm run demo:mcp-paid-exa
-```
-
-Verify first receipt from artifacts:
-
-```bash
-# replace <artifactDir> with the printed directory from demo output
-nooterra x402 receipt verify <artifactDir>/x402-receipt.json --json-out /tmp/nooterra-first-receipt.json
-```
-
-## 7) Host config helper customization
-
-Default host configuration logic is in:
-
-- `scripts/setup/host-config.mjs`
-
-If you need a custom resolver/writer, pass:
-
-```bash
-nooterra setup --host-config ./path/to/custom-host-config.mjs
-```
-
-Your helper should provide resolver/setup exports compatible with `scripts/setup/wizard.mjs`.
+- `resources/read` on `nooterra://action-wallet/launch-scope`
+- `resources/read` on `nooterra://action-wallet/receipts/<receiptId>`
+- `tools/call` with `task: { "ttl": 60000 }` for `nooterra.finalize_action`, then `tasks/result`
 
 ## 8) Troubleshooting
 
-- `BYO wallet mode missing required env keys`
-  - Provide all required Circle keys in section 3.
-- `auth required: pass --cookie/--magic-link-api-key or run nooterra login first`
-  - Run `nooterra login`, then retry `nooterra wallet status` / `nooterra wallet fund`.
-- `no hosted funding URL configured for card/bank`
-  - set backend Coinbase env (`MAGIC_LINK_WALLET_FUND_PROVIDER=coinbase`, `MAGIC_LINK_COINBASE_API_KEY_VALUE`, `MAGIC_LINK_COINBASE_API_SECRET_KEY`) or set explicit `MAGIC_LINK_WALLET_FUND_CARD_URL` / `MAGIC_LINK_WALLET_FUND_BANK_URL`.
-  - pass `--hosted-url` for an ad-hoc override.
-- `host config helper missing`
-  - Add `scripts/setup/host-config.mjs` or pass `--host-config`.
-- `NOOTERRA_API_KEY must be a non-empty string`
-  - Ensure key is present in shell or setup flags.
-- Host cannot run `npx`
-  - Install Node.js 20.x and ensure `npx` is in `PATH`.
+- `approval link expired`
+  - create a fresh approval request from the host and retry
+- `unsupported host`
+  - use `claude` or `openclaw` only for launch v1
+- `nooterra setup` did not write host config
+  - rerun `nooterra setup` in `quick` mode and confirm the selected host
+- host cannot run `npx`
+  - install Node.js 20.x and ensure `npx` is in `PATH`

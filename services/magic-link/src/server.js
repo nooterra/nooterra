@@ -48,7 +48,25 @@ import { appendAuditRecord } from "./audit-log.js";
 import { authenticateIngestKey, createIngestKey, revokeIngestKey } from "./ingest-keys.js";
 import { issueDecisionOtp, verifyAndConsumeDecisionOtp } from "./decision-otp.js";
 import { createBuyerSessionToken, issueBuyerOtp, verifyAndConsumeBuyerOtp, verifyBuyerSessionToken } from "./buyer-auth.js";
+import { issueBuyerPasskeyChallenge, listBuyerPasskeys, registerBuyerPasskey, touchBuyerPasskey, verifyAndConsumeBuyerPasskeyChallenge } from "./buyer-passkeys.js";
+import {
+  createBuyerSessionRecord,
+  getBuyerSessionRecord,
+  listBuyerSessionRecords,
+  markBuyerSessionStepUp,
+  revokeBuyerSessionRecord,
+  touchBuyerSessionRecord
+} from "./buyer-session-records.js";
 import { listBuyerUsers, upsertBuyerUser } from "./buyer-users.js";
+import { createTenantBrowserState, getTenantBrowserState, getTenantBrowserStateByRef, listTenantBrowserStates, revokeTenantBrowserState } from "./tenant-browser-states.js";
+import {
+  createTenantConsumerConnector,
+  getTenantConsumerConnector,
+  listTenantConsumerConnectors,
+  revokeTenantConsumerConnector
+} from "./tenant-consumer-connectors.js";
+import { createTenantDocument, listTenantDocuments, revokeTenantDocument } from "./tenant-documents.js";
+import { createTenantAccountSession, getTenantAccountSession, listTenantAccountSessions, revokeTenantAccountSession } from "./tenant-account-sessions.js";
 import { checkAndMigrateDataDir, MAGIC_LINK_DATA_FORMAT_VERSION_CURRENT } from "./storage-format.js";
 import { effectiveRetentionDaysForRun, normalizePolicyProfileForEnforcement, policyHashHex, resolvePolicyForRun } from "./policy.js";
 import { garbageCollectTenantByRetention } from "./retention-gc.js";
@@ -56,7 +74,14 @@ import { safeTruncate } from "./redaction.js";
 import { MAGIC_LINK_RENDER_MODEL_ALLOWLIST_V1, buildPublicInvoiceClaimFromClaimJson, sampleRenderModelInvoiceClaimV1 } from "./render-model.js";
 import { listTenantRunRecordRowsBestEffort, readRunRecordBestEffort, runStoreModeInfo, updateRunRecordDecisionBestEffort, writeRunRecordV1 } from "./run-records.js";
 import { buildS3ObjectUrl, s3PutObject } from "./s3.js";
-import { loadLatestBuyerNotificationStatusBestEffort, sendBuyerVerificationNotifications } from "./buyer-notifications.js";
+import {
+  buildBuyerProductNotificationPreview,
+  buildBuyerNotificationTestPreview,
+  loadLatestBuyerNotificationStatusBestEffort,
+  sendBuyerProductNotification,
+  sendBuyerNotificationTest,
+  sendBuyerVerificationNotifications
+} from "./buyer-notifications.js";
 import {
   createTenantProfile,
   generateTenantIdFromName,
@@ -733,6 +758,7 @@ const dataDirLikelyEphemeral = isLikelyEphemeralDataDir(dataDir);
 const requireDurableDataDir = String(process.env.MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR ?? "0").trim() === "1";
 const maxUploadBytes = Number(process.env.MAGIC_LINK_MAX_UPLOAD_BYTES ?? String(50 * 1024 * 1024));
 const tokenTtlSeconds = Number(process.env.MAGIC_LINK_TOKEN_TTL_SECONDS ?? String(7 * 24 * 3600));
+const approvalLinkTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_APPROVAL_LINK_TTL_SECONDS ?? "600"), 10);
 const verifyTimeoutMs = Number(process.env.MAGIC_LINK_VERIFY_TIMEOUT_MS ?? String(60_000));
 const uploadsPerMinuteLegacyRaw = process.env.MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_MINUTE;
 const uploadsPerMinuteLegacy = uploadsPerMinuteLegacyRaw === undefined ? null : Number(uploadsPerMinuteLegacyRaw);
@@ -740,6 +766,7 @@ const uploadsPerHourDefault = Number(
   process.env.MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_HOUR ??
     (uploadsPerMinuteLegacy !== null && Number.isFinite(uploadsPerMinuteLegacy) ? String(Math.max(0, Math.trunc(uploadsPerMinuteLegacy * 60))) : "100")
 );
+const tenantDocumentUploadMaxBytes = Number(process.env.MAGIC_LINK_TENANT_DOCUMENT_UPLOAD_MAX_BYTES ?? "10485760");
 const maxConcurrentJobs = Number(process.env.MAGIC_LINK_MAX_CONCURRENT_JOBS ?? String(8));
 const maxConcurrentJobsPerTenant = Number(process.env.MAGIC_LINK_MAX_CONCURRENT_JOBS_PER_TENANT ?? String(2));
 const verifyQueueWorkers = Number.parseInt(String(process.env.MAGIC_LINK_VERIFY_QUEUE_WORKERS ?? String(Math.max(1, maxConcurrentJobsPerTenant || 1))), 10);
@@ -780,6 +807,26 @@ const zapierOauthTokenUrl = normalizeHttpUrl(process.env.MAGIC_LINK_ZAPIER_OAUTH
 const zapierOauthScopes = parseCsvList(process.env.MAGIC_LINK_ZAPIER_OAUTH_SCOPES ?? "");
 const zapierOauthWebhookField = String(process.env.MAGIC_LINK_ZAPIER_OAUTH_WEBHOOK_FIELD ?? "webhookUrl").trim() || "webhookUrl";
 const zapierOauthClientAuth = String(process.env.MAGIC_LINK_ZAPIER_OAUTH_CLIENT_AUTH ?? "body").trim().toLowerCase();
+const googleOauthClientId = process.env.MAGIC_LINK_GOOGLE_OAUTH_CLIENT_ID ? String(process.env.MAGIC_LINK_GOOGLE_OAUTH_CLIENT_ID).trim() : "";
+const googleOauthClientSecret = process.env.MAGIC_LINK_GOOGLE_OAUTH_CLIENT_SECRET ? String(process.env.MAGIC_LINK_GOOGLE_OAUTH_CLIENT_SECRET).trim() : "";
+const googleOauthAuthorizeUrl = normalizeHttpUrl(process.env.MAGIC_LINK_GOOGLE_OAUTH_AUTHORIZE_URL ?? "https://accounts.google.com/o/oauth2/v2/auth");
+const googleOauthTokenUrl = normalizeHttpUrl(process.env.MAGIC_LINK_GOOGLE_OAUTH_TOKEN_URL ?? "https://oauth2.googleapis.com/token");
+const googleOauthEmailScopes = parseCsvList(process.env.MAGIC_LINK_GOOGLE_OAUTH_EMAIL_SCOPES ?? "openid,email,https://www.googleapis.com/auth/gmail.readonly");
+const googleOauthCalendarScopes = parseCsvList(
+  process.env.MAGIC_LINK_GOOGLE_OAUTH_CALENDAR_SCOPES ?? "openid,email,https://www.googleapis.com/auth/calendar.readonly"
+);
+const microsoftOauthClientId = process.env.MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_ID ? String(process.env.MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_ID).trim() : "";
+const microsoftOauthClientSecret = process.env.MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_SECRET ? String(process.env.MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_SECRET).trim() : "";
+const microsoftOauthAuthorizeUrl = normalizeHttpUrl(
+  process.env.MAGIC_LINK_MICROSOFT_OAUTH_AUTHORIZE_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+);
+const microsoftOauthTokenUrl = normalizeHttpUrl(
+  process.env.MAGIC_LINK_MICROSOFT_OAUTH_TOKEN_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+);
+const microsoftOauthEmailScopes = parseCsvList(process.env.MAGIC_LINK_MICROSOFT_OAUTH_EMAIL_SCOPES ?? "openid,email,offline_access,Mail.Read");
+const microsoftOauthCalendarScopes = parseCsvList(
+  process.env.MAGIC_LINK_MICROSOFT_OAUTH_CALENDAR_SCOPES ?? "openid,email,offline_access,Calendars.Read"
+);
 const billingCurrency = process.env.MAGIC_LINK_BILLING_CURRENCY ? String(process.env.MAGIC_LINK_BILLING_CURRENCY).trim() : "USD";
 const billingSubscriptionCents = Number.parseInt(String(process.env.MAGIC_LINK_BILLING_SUBSCRIPTION_CENTS ?? "0"), 10);
 const billingPricePerVerificationCents = Number.parseInt(String(process.env.MAGIC_LINK_BILLING_PRICE_PER_VERIFICATION_CENTS ?? "0"), 10);
@@ -885,7 +932,9 @@ const decisionOtpDeliveryMode = String(process.env.MAGIC_LINK_DECISION_OTP_DELIV
 const buyerOtpTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_OTP_TTL_SECONDS ?? "900"), 10);
 const buyerOtpMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_OTP_MAX_ATTEMPTS ?? "10"), 10);
 const buyerOtpDeliveryMode = String(process.env.MAGIC_LINK_BUYER_OTP_DELIVERY_MODE ?? "record").trim().toLowerCase();
+const buyerPasskeyChallengeTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_PASSKEY_CHALLENGE_TTL_SECONDS ?? "300"), 10);
 const buyerSessionTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_SESSION_TTL_SECONDS ?? String(24 * 3600)), 10);
+const buyerStepUpTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_STEP_UP_TTL_SECONDS ?? "900"), 10);
 const publicSignupEnabled = String(process.env.MAGIC_LINK_PUBLIC_SIGNUP_ENABLED ?? "0").trim() === "1";
 const AUTH_MODE_PUBLIC_SIGNUP = "public_signup";
 const AUTH_MODE_ENTERPRISE_PREPROVISIONED = "enterprise_preprovisioned";
@@ -923,11 +972,13 @@ if (socketPath !== null) assertNonEmptyString(socketPath, "MAGIC_LINK_SOCKET_PAT
 if (apiKey !== null) assertNonEmptyString(apiKey, "MAGIC_LINK_API_KEY");
 if (!Number.isFinite(maxUploadBytes) || maxUploadBytes <= 0) throw new Error("MAGIC_LINK_MAX_UPLOAD_BYTES must be positive");
 if (!Number.isFinite(tokenTtlSeconds) || tokenTtlSeconds <= 0) throw new Error("MAGIC_LINK_TOKEN_TTL_SECONDS must be positive");
+if (!Number.isInteger(approvalLinkTtlSeconds) || approvalLinkTtlSeconds <= 0) throw new Error("MAGIC_LINK_APPROVAL_LINK_TTL_SECONDS must be a positive integer");
 if (!Number.isFinite(verifyTimeoutMs) || verifyTimeoutMs <= 0) throw new Error("MAGIC_LINK_VERIFY_TIMEOUT_MS must be positive");
 if (uploadsPerMinuteLegacy !== null && (!Number.isFinite(uploadsPerMinuteLegacy) || uploadsPerMinuteLegacy < 0)) {
   throw new Error("MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_MINUTE must be a number >= 0");
 }
 if (!Number.isFinite(uploadsPerHourDefault) || uploadsPerHourDefault < 0) throw new Error("MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_HOUR must be a number >= 0");
+if (!Number.isFinite(tenantDocumentUploadMaxBytes) || tenantDocumentUploadMaxBytes < 1) throw new Error("MAGIC_LINK_TENANT_DOCUMENT_UPLOAD_MAX_BYTES must be a positive number");
 if (!Number.isFinite(maxConcurrentJobs) || maxConcurrentJobs < 0) throw new Error("MAGIC_LINK_MAX_CONCURRENT_JOBS must be a number >= 0");
 if (!Number.isFinite(maxConcurrentJobsPerTenant) || maxConcurrentJobsPerTenant < 0) throw new Error("MAGIC_LINK_MAX_CONCURRENT_JOBS_PER_TENANT must be a number >= 0");
 if (!Number.isInteger(verifyQueueWorkers) || verifyQueueWorkers < 1) throw new Error("MAGIC_LINK_VERIFY_QUEUE_WORKERS must be an integer >= 1");
@@ -988,6 +1039,18 @@ if (hasAnyZapierOauthSetting) {
     );
   }
 }
+if ((googleOauthClientId && !googleOauthClientSecret) || (!googleOauthClientId && googleOauthClientSecret)) {
+  throw new Error("MAGIC_LINK_GOOGLE_OAUTH_CLIENT_ID and MAGIC_LINK_GOOGLE_OAUTH_CLIENT_SECRET must be set together");
+}
+if ((googleOauthClientId || googleOauthClientSecret) && (!googleOauthAuthorizeUrl || !googleOauthTokenUrl)) {
+  throw new Error("MAGIC_LINK_GOOGLE_OAUTH_AUTHORIZE_URL and MAGIC_LINK_GOOGLE_OAUTH_TOKEN_URL must be valid http(s) URLs");
+}
+if ((microsoftOauthClientId && !microsoftOauthClientSecret) || (!microsoftOauthClientId && microsoftOauthClientSecret)) {
+  throw new Error("MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_ID and MAGIC_LINK_MICROSOFT_OAUTH_CLIENT_SECRET must be set together");
+}
+if ((microsoftOauthClientId || microsoftOauthClientSecret) && (!microsoftOauthAuthorizeUrl || !microsoftOauthTokenUrl)) {
+  throw new Error("MAGIC_LINK_MICROSOFT_OAUTH_AUTHORIZE_URL and MAGIC_LINK_MICROSOFT_OAUTH_TOKEN_URL must be valid http(s) URLs");
+}
 if (!billingCurrency || typeof billingCurrency !== "string") throw new Error("MAGIC_LINK_BILLING_CURRENCY must be a string");
 if (!Number.isInteger(billingSubscriptionCents) || billingSubscriptionCents < 0) throw new Error("MAGIC_LINK_BILLING_SUBSCRIPTION_CENTS must be an integer >= 0");
 if (!Number.isInteger(billingPricePerVerificationCents) || billingPricePerVerificationCents < 0) throw new Error("MAGIC_LINK_BILLING_PRICE_PER_VERIFICATION_CENTS must be an integer >= 0");
@@ -1010,7 +1073,11 @@ if (!Number.isInteger(buyerOtpMaxAttempts) || buyerOtpMaxAttempts < 1) throw new
 if (buyerOtpDeliveryMode !== "record" && buyerOtpDeliveryMode !== "log" && buyerOtpDeliveryMode !== "smtp" && buyerOtpDeliveryMode !== "resend") {
   throw new Error("MAGIC_LINK_BUYER_OTP_DELIVERY_MODE must be record|log|smtp|resend");
 }
+if (!Number.isInteger(buyerPasskeyChallengeTtlSeconds) || buyerPasskeyChallengeTtlSeconds <= 0) {
+  throw new Error("MAGIC_LINK_BUYER_PASSKEY_CHALLENGE_TTL_SECONDS must be a positive integer");
+}
 if (!Number.isInteger(buyerSessionTtlSeconds) || buyerSessionTtlSeconds <= 0) throw new Error("MAGIC_LINK_BUYER_SESSION_TTL_SECONDS must be a positive integer");
+if (!Number.isInteger(buyerStepUpTtlSeconds) || buyerStepUpTtlSeconds <= 0) throw new Error("MAGIC_LINK_BUYER_STEP_UP_TTL_SECONDS must be a positive integer");
 if (
   onboardingEmailSequenceDeliveryMode !== "record" &&
   onboardingEmailSequenceDeliveryMode !== "log" &&
@@ -1853,6 +1920,12 @@ function isExpired(createdAtIso) {
   return Date.now() > createdMs + tokenTtlSeconds * 1000;
 }
 
+function approvalLinkExpiresAtFromCreatedAt(createdAtIso) {
+  const createdMs = Date.parse(String(createdAtIso ?? ""));
+  if (!Number.isFinite(createdMs)) return null;
+  return new Date(createdMs + approvalLinkTtlSeconds * 1000).toISOString();
+}
+
 function isPastRetention(createdAtIso, retentionDays) {
   const createdMs = Date.parse(String(createdAtIso ?? ""));
   if (!Number.isFinite(createdMs)) return true;
@@ -1864,6 +1937,11 @@ async function loadMeta(token) {
   const fp = path.join(dataDir, "meta", `${token}.json`);
   const raw = await fs.readFile(fp, "utf8");
   return JSON.parse(raw);
+}
+
+async function writeMeta(token, meta) {
+  const fp = path.join(dataDir, "meta", `${token}.json`);
+  await fs.writeFile(fp, JSON.stringify(meta, null, 2) + "\n", "utf8");
 }
 
 async function runVerifyWorker({ dir, strict, hashConcurrency, timeoutMs, env }) {
@@ -2191,6 +2269,14 @@ function integrationOauthStatePath(stateId) {
   return path.join(dataDir, "oauth", "states", `${stateId}.json`);
 }
 
+function consumerConnectorOauthCallbackPath(provider) {
+  return `/v1/consumer-connectors/${provider}/oauth/callback`;
+}
+
+function consumerConnectorOauthStartPath({ tenantId, kind, provider }) {
+  return `/v1/tenants/${encodeURIComponent(tenantId)}/consumer-connectors/${kind}/${provider}/oauth/start`;
+}
+
 function parseOauthStateId(raw) {
   const s = String(raw ?? "").trim();
   if (!s) return null;
@@ -2234,6 +2320,57 @@ async function consumeIntegrationOauthState({ provider, stateId }) {
   }
   if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, error: "OAUTH_STATE_INVALID" };
   if (String(row.schemaVersion ?? "") !== "MagicLinkIntegrationOauthState.v1") return { ok: false, error: "OAUTH_STATE_INVALID" };
+  if (String(row.provider ?? "") !== provider) return { ok: false, error: "OAUTH_STATE_PROVIDER_MISMATCH" };
+  const expiresAtMs = Date.parse(String(row.expiresAt ?? ""));
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return { ok: false, error: "OAUTH_STATE_EXPIRED" };
+  return { ok: true, state: row };
+}
+
+function consumerConnectorOauthStatePath(stateId) {
+  return path.join(dataDir, "oauth", "consumer-connector-states", `${stateId}.json`);
+}
+
+async function createConsumerConnectorOauthState({ tenantId, kind, provider, redirectUri, returnTo = null, accountAddressHint = null, accountLabelHint = null, timezone = null }) {
+  const stateId = integrationOauthStateId();
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + integrationOauthStateTtlSeconds * 1000).toISOString();
+  const fp = consumerConnectorOauthStatePath(stateId);
+  const row = {
+    schemaVersion: "MagicLinkConsumerConnectorOauthState.v1",
+    stateId,
+    tenantId,
+    kind,
+    provider,
+    redirectUri,
+    returnTo: typeof returnTo === "string" && returnTo.trim() ? returnTo.trim() : null,
+    accountAddressHint: typeof accountAddressHint === "string" && accountAddressHint.trim() ? accountAddressHint.trim() : null,
+    accountLabelHint: typeof accountLabelHint === "string" && accountLabelHint.trim() ? accountLabelHint.trim() : null,
+    timezone: typeof timezone === "string" && timezone.trim() ? timezone.trim() : null,
+    createdAt,
+    expiresAt
+  };
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  await fs.writeFile(fp, JSON.stringify(row, null, 2) + "\n", "utf8");
+  return { stateId, state: row };
+}
+
+async function consumeConsumerConnectorOauthState({ provider, stateId }) {
+  const id = parseOauthStateId(stateId);
+  if (!id) return { ok: false, error: "OAUTH_STATE_INVALID" };
+  const fp = consumerConnectorOauthStatePath(id);
+  let row;
+  try {
+    row = JSON.parse(await fs.readFile(fp, "utf8"));
+  } catch {
+    return { ok: false, error: "OAUTH_STATE_NOT_FOUND" };
+  }
+  try {
+    await fs.rm(fp, { force: true });
+  } catch {
+    // ignore
+  }
+  if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, error: "OAUTH_STATE_INVALID" };
+  if (String(row.schemaVersion ?? "") !== "MagicLinkConsumerConnectorOauthState.v1") return { ok: false, error: "OAUTH_STATE_INVALID" };
   if (String(row.provider ?? "") !== provider) return { ok: false, error: "OAUTH_STATE_PROVIDER_MISMATCH" };
   const expiresAtMs = Date.parse(String(row.expiresAt ?? ""));
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return { ok: false, error: "OAUTH_STATE_EXPIRED" };
@@ -2326,6 +2463,94 @@ function integrationOauthCapability({ provider, tenantId }) {
     enabled: Boolean(cfg.enabled),
     startPath: cfg.enabled ? integrationOauthStartPath({ tenantId, provider }) : null
   };
+}
+
+function consumerConnectorOauthProviderConfig(kind, provider) {
+  const normalizedKind = String(kind ?? "").trim().toLowerCase();
+  const normalizedProvider = String(provider ?? "").trim().toLowerCase();
+  if ((normalizedProvider === "gmail" || normalizedProvider === "google_calendar") && (normalizedKind === "email" || normalizedKind === "calendar")) {
+    const enabled = Boolean(googleOauthClientId && googleOauthClientSecret && googleOauthAuthorizeUrl && googleOauthTokenUrl);
+    return {
+      provider: normalizedProvider,
+      kind: normalizedKind,
+      enabled,
+      clientId: googleOauthClientId,
+      clientSecret: googleOauthClientSecret,
+      authorizeUrl: googleOauthAuthorizeUrl,
+      tokenUrl: googleOauthTokenUrl,
+      scopes: normalizedKind === "calendar" ? [...googleOauthCalendarScopes] : [...googleOauthEmailScopes],
+      userScopes: [],
+      clientAuth: "body",
+      identityFieldPaths: ["email", "emailAddress", "profile.email", "user.email"]
+    };
+  }
+  if ((normalizedProvider === "outlook" || normalizedProvider === "outlook_calendar") && (normalizedKind === "email" || normalizedKind === "calendar")) {
+    const enabled = Boolean(microsoftOauthClientId && microsoftOauthClientSecret && microsoftOauthAuthorizeUrl && microsoftOauthTokenUrl);
+    return {
+      provider: normalizedProvider,
+      kind: normalizedKind,
+      enabled,
+      clientId: microsoftOauthClientId,
+      clientSecret: microsoftOauthClientSecret,
+      authorizeUrl: microsoftOauthAuthorizeUrl,
+      tokenUrl: microsoftOauthTokenUrl,
+      scopes: normalizedKind === "calendar" ? [...microsoftOauthCalendarScopes] : [...microsoftOauthEmailScopes],
+      userScopes: [],
+      clientAuth: "body",
+      identityFieldPaths: ["email", "userPrincipalName", "mail", "profile.email", "profile.userPrincipalName"]
+    };
+  }
+  return { provider: normalizedProvider, kind: normalizedKind, enabled: false };
+}
+
+function extractConsumerConnectorIdentityFromOauthToken({ tokenResponse, providerConfig, kind, hints = {} }) {
+  const paths = Array.isArray(providerConfig?.identityFieldPaths) ? providerConfig.identityFieldPaths : [];
+  let accountAddress = null;
+  for (const rawPath of paths) {
+    const candidate = readPathValue(tokenResponse, rawPath);
+    if (typeof candidate === "string" && candidate.trim()) {
+      accountAddress = candidate.trim();
+      break;
+    }
+  }
+  if (!accountAddress && typeof hints?.accountAddressHint === "string" && hints.accountAddressHint.trim()) {
+    accountAddress = hints.accountAddressHint.trim();
+  }
+  const accountLabel =
+    (typeof tokenResponse?.name === "string" && tokenResponse.name.trim()) ||
+    (typeof tokenResponse?.profile?.name === "string" && tokenResponse.profile.name.trim()) ||
+    (typeof hints?.accountLabelHint === "string" && hints.accountLabelHint.trim()) ||
+    null;
+  const timezone =
+    String(kind ?? "").trim().toLowerCase() === "calendar"
+      ? (typeof tokenResponse?.timezone === "string" && tokenResponse.timezone.trim()) ||
+        (typeof tokenResponse?.profile?.timezone === "string" && tokenResponse.profile.timezone.trim()) ||
+        (typeof hints?.timezone === "string" && hints.timezone.trim()) ||
+        null
+      : null;
+  if (!accountAddress && !accountLabel) {
+    return { ok: false, error: "OAUTH_ACCOUNT_IDENTITY_MISSING" };
+  }
+  return {
+    ok: true,
+    accountAddress: accountAddress || null,
+    accountLabel: accountLabel || null,
+    timezone: timezone || null
+  };
+}
+
+function buildRedirectWithParams(baseUrl, params) {
+  let target = null;
+  try {
+    target = new URL(String(baseUrl ?? ""));
+  } catch {
+    return null;
+  }
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === null || value === undefined || String(value).trim() === "") continue;
+    target.searchParams.set(key, String(value));
+  }
+  return target.toString();
 }
 
 function oauthResultRedirectPath({ tenantId, provider, status, message = null }) {
@@ -2733,6 +2958,168 @@ function clearBuyerSessionCookie(res) {
   res.setHeader("set-cookie", cookie);
 }
 
+function approvalLinkCookieName(token) {
+  return `ml_approval_${String(token ?? "").trim()}`;
+}
+
+function setApprovalLinkSessionCookie(res, token, sessionId, expiresAt) {
+  const expiresMs = Date.parse(String(expiresAt ?? ""));
+  const maxAgeSeconds = Number.isFinite(expiresMs) ? Math.max(0, Math.ceil((expiresMs - Date.now()) / 1000)) : approvalLinkTtlSeconds;
+  const cookie = buildCookie({
+    name: approvalLinkCookieName(token),
+    value: sessionId,
+    maxAgeSeconds,
+    secure: cookieSecure
+  });
+  res.setHeader("set-cookie", cookie);
+}
+
+function clearApprovalLinkSessionCookie(res, token) {
+  const cookie = buildCookie({ name: approvalLinkCookieName(token), value: "", maxAgeSeconds: 0, secure: cookieSecure });
+  res.setHeader("set-cookie", cookie);
+}
+
+function normalizeApprovalLinkState(meta) {
+  const raw = isPlainObject(meta?.approvalLink) ? meta.approvalLink : null;
+  const expiresAt =
+    typeof raw?.expiresAt === "string" && raw.expiresAt.trim()
+      ? raw.expiresAt.trim()
+      : approvalLinkExpiresAtFromCreatedAt(meta?.createdAt ?? null);
+  return {
+    schemaVersion: "MagicLinkApprovalLink.v1",
+    expiresAt,
+    sessionId: typeof raw?.sessionId === "string" && raw.sessionId.trim() ? raw.sessionId.trim() : null,
+    boundAt: typeof raw?.boundAt === "string" && raw.boundAt.trim() ? raw.boundAt.trim() : null,
+    finalizedAt: typeof raw?.finalizedAt === "string" && raw.finalizedAt.trim() ? raw.finalizedAt.trim() : null,
+    finalDecision: typeof raw?.finalDecision === "string" && raw.finalDecision.trim() ? raw.finalDecision.trim() : null
+  };
+}
+
+function buildInitialApprovalLinkState(createdAtIso) {
+  return {
+    schemaVersion: "MagicLinkApprovalLink.v1",
+    expiresAt: approvalLinkExpiresAtFromCreatedAt(createdAtIso),
+    sessionId: null,
+    boundAt: null,
+    finalizedAt: null,
+    finalDecision: null
+  };
+}
+
+function approvalLinkHasFinalDecision(approvalLink) {
+  return Boolean(approvalLink?.finalizedAt) || Boolean(approvalLink?.finalDecision);
+}
+
+function approvalLinkIsExpired(approvalLink) {
+  const expiresMs = Date.parse(String(approvalLink?.expiresAt ?? ""));
+  if (!Number.isFinite(expiresMs)) return true;
+  return Date.now() >= expiresMs;
+}
+
+async function persistApprovalLinkState({ token, meta, approvalLink } = {}) {
+  if (!token || !meta || !approvalLink) throw new TypeError("token, meta, and approvalLink are required");
+  meta.approvalLink = approvalLink;
+  await writeMeta(token, meta);
+  return approvalLink;
+}
+
+function sendApprovalLinkHtmlMessage(res, statusCode, title, message) {
+  const body = [
+    "<!doctype html>",
+    "<html><head><meta charset=\"utf-8\"/>",
+    `<title>${htmlEscape(title)}</title>`,
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+    "<style>",
+    "body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px;max-width:720px;line-height:1.4;background:#f8fafc;color:#111827}",
+    ".card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px 20px;box-shadow:0 1px 1px rgba(0,0,0,0.03)}",
+    ".muted{color:#6b7280}",
+    "code{background:#f4f4f5;padding:2px 6px;border-radius:6px}",
+    "</style>",
+    "</head><body>",
+    "<div class=\"card\">",
+    `<h1 style="margin:0 0 10px">${htmlEscape(title)}</h1>`,
+    `<p style="margin:0">${htmlEscape(message)}</p>`,
+    "</div>",
+    "</body></html>"
+  ].join("\n");
+  res.statusCode = statusCode;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.end(body);
+}
+
+async function requireApprovalLinkSession(req, res, token, meta) {
+  const approvalLink = normalizeApprovalLinkState(meta);
+  if (approvalLinkHasFinalDecision(approvalLink)) {
+    return { ok: false, status: 409, code: "DECISION_ALREADY_RECORDED", message: "decision already recorded", approvalLink };
+  }
+  if (approvalLinkIsExpired(approvalLink)) {
+    return { ok: false, status: 410, code: "APPROVAL_LINK_EXPIRED", message: "approval link expired", approvalLink };
+  }
+
+  const cookieSessionId = getCookie(req, approvalLinkCookieName(token));
+  if (approvalLink.sessionId) {
+    if (cookieSessionId && cookieSessionId === approvalLink.sessionId) return { ok: true, approvalLink, boundNow: false };
+    return {
+      ok: false,
+      status: 409,
+      code: "APPROVAL_LINK_SESSION_MISMATCH",
+      message: "approval link already bound to a different browser session",
+      approvalLink
+    };
+  }
+
+  const nextApprovalLink = {
+    ...approvalLink,
+    sessionId: crypto.randomBytes(32).toString("hex"),
+    boundAt: nowIso()
+  };
+  await persistApprovalLinkState({ token, meta, approvalLink: nextApprovalLink });
+  setApprovalLinkSessionCookie(res, token, nextApprovalLink.sessionId, nextApprovalLink.expiresAt);
+  return { ok: true, approvalLink: nextApprovalLink, boundNow: true };
+}
+
+function buyerSessionIdFromPayload(payload) {
+  if (typeof payload?.sessionId === "string" && payload.sessionId.trim()) return payload.sessionId.trim();
+  if (typeof payload?.nonce === "string" && payload.nonce.trim()) return payload.nonce.trim();
+  return "";
+}
+
+function buyerSessionContextFromRequest(req) {
+  return {
+    userAgent: typeof req?.headers?.["user-agent"] === "string" ? req.headers["user-agent"].trim() : ""
+  };
+}
+
+function buyerSessionHasFreshStepUp(sessionRecord) {
+  const stepUpAtMs = Date.parse(String(sessionRecord?.stepUpAt ?? ""));
+  if (!Number.isFinite(stepUpAtMs)) return false;
+  return Date.now() <= stepUpAtMs + buyerStepUpTtlSeconds * 1000;
+}
+
+async function issueBuyerSession(req, res, { tenantId, email } = {}) {
+  const session = createBuyerSessionToken({ sessionKey, tenantId, email, ttlSeconds: buyerSessionTtlSeconds });
+  if (!session.ok) return { ok: false, status: 500, code: session.error ?? "SESSION_FAILED", message: "failed to create buyer session" };
+  const sessionId = buyerSessionIdFromPayload(session.payload);
+  if (!sessionId) return { ok: false, status: 500, code: "SESSION_FAILED", message: "failed to create buyer session" };
+
+  const sessionRecord = await createBuyerSessionRecord({
+    dataDir,
+    tenantId,
+    email,
+    sessionId,
+    issuedAt: session.payload?.issuedAt ?? nowIso(),
+    expiresAt: session.payload?.expiresAt ?? nowIso(),
+    userAgent: buyerSessionContextFromRequest(req).userAgent
+  });
+  if (!sessionRecord.ok) {
+    return { ok: false, status: 500, code: sessionRecord.error ?? "SESSION_RECORD_FAILED", message: sessionRecord.message ?? "failed to record buyer session" };
+  }
+
+  setBuyerSessionCookie(res, session.token);
+  return { ok: true, session, sessionId, sessionRecord: sessionRecord.session };
+}
+
 function buyerRoleRank(role) {
   const r = String(role ?? "").trim().toLowerCase();
   if (r === "admin") return 3;
@@ -2764,6 +3151,7 @@ async function authenticateBuyerSession(req, { expectedTenantId = null } = {}) {
 
   const tenantId = typeof verified.payload?.tenantId === "string" ? verified.payload.tenantId : "";
   const email = typeof verified.payload?.email === "string" ? verified.payload.email : "";
+  const sessionId = buyerSessionIdFromPayload(verified.payload);
   if (expectedTenantId && tenantId !== expectedTenantId) return { ok: false, error: "SESSION_TENANT_MISMATCH" };
 
   const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
@@ -2771,11 +3159,31 @@ async function authenticateBuyerSession(req, { expectedTenantId = null } = {}) {
   if (!allowedDomains.length) return { ok: false, error: "BUYER_AUTH_DISABLED" };
   if (!isEmailAllowedByDomains({ email, allowedDomains })) return { ok: false, error: "BUYER_EMAIL_DOMAIN_FORBIDDEN" };
 
+  let sessionRecord = null;
+  if (sessionId) {
+    sessionRecord = await getBuyerSessionRecord({ dataDir, tenantId, email, sessionId });
+    if (sessionRecord?.revokedAt) return { ok: false, error: "SESSION_REVOKED" };
+    if (sessionRecord) {
+      try {
+        await touchBuyerSessionRecord({
+          dataDir,
+          tenantId,
+          email,
+          sessionId,
+          at: nowIso(),
+          userAgent: buyerSessionContextFromRequest(req).userAgent
+        });
+      } catch {
+        // best effort
+      }
+    }
+  }
+
   const role = resolveBuyerRole({ tenantSettings, email });
-  return { ok: true, principal: { method: "buyer_session", tenantId, email, role }, tenantSettings };
+  return { ok: true, principal: { method: "buyer_session", tenantId, email, role }, tenantSettings, sessionId, sessionRecord };
 }
 
-async function requireTenantPrincipal(req, res, { tenantId, minBuyerRole }) {
+async function requireTenantPrincipal(req, res, { tenantId, minBuyerRole, requireStepUp = false } = {}) {
   const api = checkAuth(req);
   if (api.ok) return { ok: true, principal: { method: api.method, tenantId, email: null, role: "admin" }, tenantSettings: null };
 
@@ -2788,7 +3196,39 @@ async function requireTenantPrincipal(req, res, { tenantId, minBuyerRole }) {
     sendJson(res, 403, { ok: false, code: "FORBIDDEN" });
     return { ok: false };
   }
+  if (requireStepUp && !buyerSessionHasFreshStepUp(buyer.sessionRecord)) {
+    sendJson(res, 403, {
+      ok: false,
+      code: "STEP_UP_REQUIRED",
+      message: "step-up auth is required for this action",
+      detail: {
+        expiresAfterSeconds: buyerStepUpTtlSeconds,
+        methods: ["passkey", "email_otp"]
+      }
+    });
+    return { ok: false };
+  }
   return buyer;
+}
+
+function checkNooterraOpsProxyAuth(req, { tenantId } = {}) {
+  if (!nooterraOpsToken) return { ok: false };
+  const providedToken = typeof req?.headers?.["x-proxy-ops-token"] === "string" ? req.headers["x-proxy-ops-token"].trim() : "";
+  if (!providedToken || providedToken !== nooterraOpsToken) return { ok: false };
+  const providedTenantId = typeof req?.headers?.["x-proxy-tenant-id"] === "string" ? req.headers["x-proxy-tenant-id"].trim() : "";
+  if (providedTenantId && String(tenantId ?? "").trim() !== providedTenantId) {
+    return { ok: false, error: "SYSTEM_TENANT_MISMATCH" };
+  }
+  return {
+    ok: true,
+    principal: {
+      method: "nooterra_ops_proxy",
+      tenantId: String(tenantId ?? "").trim() || null,
+      email: null,
+      role: "admin"
+    },
+    tenantSettings: null
+  };
 }
 
 function assertSafeId(raw, { name, maxLen = 64 } = {}) {
@@ -3437,10 +3877,11 @@ async function handleUploadToTenant(req, res, { url, tenantId, vendorMeta, authM
         publicJsonPath,
         receiptJsonPath: null,
         summaryPdfPath: null,
+        approvalLink: buildInitialApprovalLinkState(createdAt),
         revokedAt: null,
         revokedReason: null
       };
-      await fs.writeFile(metaPath, JSON.stringify(meta, null, 2) + "\n", "utf8");
+      await writeMeta(token, meta);
       await writeIndex({ tenantId, zipSha256, token });
       const retentionDaysEffective = effectiveRetentionDaysForRun({ tenantSettings, vendorId: vendorIdRequested, contractId: contractIdRequested });
       await writeRunRecordV1({ dataDir, tenantId, token, meta, publicSummary, cliOut: fail, retentionDaysEffective });
@@ -3753,10 +4194,11 @@ async function handleUploadToTenant(req, res, { url, tenantId, vendorMeta, authM
       summaryPdfPath: storePdf && publicSummary.invoiceClaim ? summaryPdfPath : null,
       closePackDir,
       closePackSummaryPath,
+      approvalLink: buildInitialApprovalLinkState(createdAt),
       revokedAt: null,
       revokedReason: null
     };
-    await fs.writeFile(metaPath, JSON.stringify(meta, null, 2) + "\n", "utf8");
+    await writeMeta(token, meta);
     await writeIndex({ tenantId, zipSha256, token });
     const retentionDaysEffective = effectiveRetentionDaysForRun({ tenantSettings, vendorId: vendorIdRequested, contractId: contractIdRequested });
     await writeRunRecordV1({ dataDir, tenantId, token, meta, publicSummary, cliOut, retentionDaysEffective });
@@ -3955,7 +4397,7 @@ async function handleTenantSettingsGet(req, res, tenantId) {
 }
 
 async function handleTenantSettingsPut(req, res, tenantId) {
-  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin", requireStepUp: true });
   if (!auth.ok) return;
 
   let json;
@@ -4011,6 +4453,1020 @@ async function handleTenantSettingsPut(req, res, tenantId) {
     // ignore
   }
   return await handleTenantSettingsGet(req, res, tenantId);
+}
+
+async function handleTenantConsumerInboxGet(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+  if (!auth.ok) return;
+
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const safe = sanitizeTenantSettingsForApi(settings);
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    state: safe.consumerInbox ?? { schemaVersion: "ConsumerInboxState.v1", seenAtByItemId: {}, updatedAt: null }
+  });
+}
+
+async function handleTenantConsumerInboxPut(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+  if (!auth.ok) return;
+
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 100_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const payload = json && typeof json === "object" && !Array.isArray(json) && json.state && typeof json.state === "object" && !Array.isArray(json.state)
+    ? json.state
+    : json;
+
+  const current = await loadTenantSettings({ dataDir, tenantId });
+  const patched = applyTenantSettingsPatch({
+    currentSettings: current,
+    patch: {
+      consumerInbox: {
+        ...(payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {}),
+        updatedAt: nowIso()
+      }
+    },
+    settingsKey
+  });
+  if (!patched.ok) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CONSUMER_INBOX", message: patched.error ?? "invalid consumer inbox state", detail: patched });
+  }
+
+  await saveTenantSettings({ dataDir, tenantId, settings: patched.settings, settingsKey });
+  try {
+    const seenCount = Object.keys(patched.settings?.consumerInbox?.seenAtByItemId ?? {}).length;
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_CONSUMER_INBOX_PUT",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_settings",
+        targetId: tenantId,
+        details: { seenCount }
+      }
+    });
+  } catch {
+    // ignore
+  }
+
+  const safe = sanitizeTenantSettingsForApi(patched.settings);
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    state: safe.consumerInbox ?? { schemaVersion: "ConsumerInboxState.v1", seenAtByItemId: {}, updatedAt: null }
+  });
+}
+
+async function handleTenantDocumentsList(req, res, tenantId, url) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+  if (!auth.ok) return;
+  const includeRevoked = String(url.searchParams.get("includeRevoked") ?? "").trim().toLowerCase() === "true";
+  const limitRaw = Number(url.searchParams.get("limit") ?? "50");
+  const limit = Number.isSafeInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+  const documents = await listTenantDocuments({ dataDir, tenantId, includeRevoked, limit });
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    documents
+  });
+}
+
+async function handleTenantDocumentsCreate(req, res, tenantId, url) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  const contentLength = req.headers["content-length"] === undefined ? null : Number(req.headers["content-length"]);
+  if (contentLength !== null && (!Number.isFinite(contentLength) || contentLength < 1)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CONTENT_LENGTH", message: "content-length must be a positive number" });
+  }
+  if (contentLength !== null && contentLength > tenantDocumentUploadMaxBytes) {
+    return sendJson(res, 413, { ok: false, code: "DOCUMENT_TOO_LARGE", message: `document exceeds ${tenantDocumentUploadMaxBytes} bytes` });
+  }
+  const filenameHeader = String(req.headers["x-upload-filename"] ?? req.headers["x-filename"] ?? "").trim();
+  const label = String(req.headers["x-upload-label"] ?? url.searchParams.get("label") ?? "").trim() || null;
+  const purpose = String(req.headers["x-upload-purpose"] ?? url.searchParams.get("purpose") ?? "").trim() || null;
+  const contentType = String(req.headers["content-type"] ?? "application/octet-stream").trim() || "application/octet-stream";
+  let body;
+  try {
+    body = await readBody(req, { maxBytes: tenantDocumentUploadMaxBytes });
+  } catch (err) {
+    if (err?.code === "BODY_TOO_LARGE") {
+      return sendJson(res, 413, { ok: false, code: "DOCUMENT_TOO_LARGE", message: `document exceeds ${tenantDocumentUploadMaxBytes} bytes` });
+    }
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_BODY", message: err?.message ?? "invalid upload body" });
+  }
+  if (!body?.length) {
+    return sendJson(res, 400, { ok: false, code: "DOCUMENT_BODY_REQUIRED", message: "document upload body is required" });
+  }
+  const created = await createTenantDocument({
+    dataDir,
+    tenantId,
+    filename: filenameHeader || "attachment.bin",
+    contentType,
+    byteLength: body.length,
+    body,
+    purpose,
+    label,
+    uploadedBy: auth.principal?.email ?? auth.principal?.tenantId ?? "buyer"
+  });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_DOCUMENT_UPLOAD",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_document",
+        targetId: created.document.documentId,
+        details: {
+          reused: Boolean(created.reused),
+          purpose,
+          label,
+          byteLength: created.document.byteLength,
+          contentType: created.document.contentType
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, created.reused ? 200 : 201, {
+    ok: true,
+    tenantId,
+    reused: Boolean(created.reused),
+    document: created.document
+  });
+}
+
+async function handleTenantDocumentRevoke(req, res, tenantId, documentId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const reason = typeof json?.reason === "string" && json.reason.trim() ? json.reason.trim() : "USER_REVOKED_DOCUMENT";
+  const revoked = await revokeTenantDocument({ dataDir, tenantId, documentId, reason });
+  if (!revoked) return sendJson(res, 404, { ok: false, code: "DOCUMENT_NOT_FOUND", message: "document not found" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_DOCUMENT_REVOKE",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_document",
+        targetId: revoked.documentId,
+        details: { reason }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    document: revoked
+  });
+}
+
+async function handleTenantAccountSessionsList(req, res, tenantId, url) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+  if (!auth.ok) return;
+  const includeRevoked = String(url.searchParams.get("includeRevoked") ?? "").trim().toLowerCase() === "true";
+  const limitRaw = Number(url.searchParams.get("limit") ?? "50");
+  const limit = Number.isSafeInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+  const sessions = await listTenantAccountSessions({ dataDir, tenantId, includeRevoked, limit });
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    sessions
+  });
+}
+
+async function handleTenantAccountSessionGet(req, res, tenantId, sessionId) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  let session = null;
+  try {
+    session = await getTenantAccountSession({ dataDir, tenantId, sessionId });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_ACCOUNT_SESSION", message: err?.message ?? "invalid account session" });
+  }
+  if (!session) {
+    return sendJson(res, 404, { ok: false, code: "ACCOUNT_SESSION_NOT_FOUND", message: "account session not found" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    session
+  });
+}
+
+async function handleTenantBrowserStatesList(req, res, tenantId, url) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  const includeRevokedRaw = String(url.searchParams.get("includeRevoked") ?? "").trim().toLowerCase();
+  const includeRevoked = includeRevokedRaw === "1" || includeRevokedRaw === "true" || includeRevokedRaw === "yes";
+  const rawLimit = Number.parseInt(String(url.searchParams.get("limit") ?? "50"), 10);
+  const limit = Number.isSafeInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 200 ? rawLimit : 50;
+  const browserStates = await listTenantBrowserStates({ dataDir, tenantId, includeRevoked, limit });
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    browserStates
+  });
+}
+
+async function handleTenantBrowserStatesCreate(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 1_500_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  try {
+    const created = await createTenantBrowserState({
+      dataDir,
+      tenantId,
+      storageState: json?.storageState,
+      label: json?.label,
+      purpose: json?.purpose,
+      uploadedBy: auth.principal?.email ?? auth.principal?.tenantId ?? "buyer"
+    });
+    try {
+      await appendAuditRecord({
+        dataDir,
+        tenantId,
+        record: {
+          at: nowIso(),
+          action: "TENANT_BROWSER_STATE_CREATE",
+          actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+          targetType: "tenant_browser_state",
+          targetId: created.browserState.stateId,
+          details: {
+            reused: Boolean(created.reused),
+            stateRef: created.browserState.stateRef,
+            label: created.browserState.label,
+            purpose: created.browserState.purpose,
+            sha256: created.browserState.sha256
+          }
+        }
+      });
+    } catch {
+      // ignore
+    }
+    return sendJson(res, created.reused ? 200 : 201, {
+      ok: true,
+      tenantId,
+      reused: Boolean(created.reused),
+      browserState: created.browserState
+    });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_BROWSER_STATE", message: err?.message ?? "invalid browser state" });
+  }
+}
+
+async function handleTenantBrowserStateGet(req, res, tenantId, stateId) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  let browserState = null;
+  try {
+    browserState = await getTenantBrowserState({ dataDir, tenantId, stateId });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_BROWSER_STATE", message: err?.message ?? "invalid browser state" });
+  }
+  if (!browserState) {
+    return sendJson(res, 404, { ok: false, code: "BROWSER_STATE_NOT_FOUND", message: "browser state not found" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    browserState
+  });
+}
+
+async function handleTenantBrowserStateResolve(req, res, tenantId, url) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  const ref = typeof url.searchParams.get("ref") === "string" ? url.searchParams.get("ref").trim() : "";
+  if (!ref) {
+    return sendJson(res, 400, { ok: false, code: "BROWSER_STATE_REF_REQUIRED", message: "ref is required" });
+  }
+  let browserState = null;
+  try {
+    browserState = await getTenantBrowserStateByRef({ dataDir, ref });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_BROWSER_STATE_REF", message: err?.message ?? "invalid browser state ref" });
+  }
+  if (!browserState || browserState.tenantId !== tenantId) {
+    return sendJson(res, 404, { ok: false, code: "BROWSER_STATE_NOT_FOUND", message: "browser state not found" });
+  }
+  if (browserState.revokedAt) {
+    return sendJson(res, 409, { ok: false, code: "BROWSER_STATE_REVOKED", message: "browser state is revoked" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    browserState
+  });
+}
+
+async function handleTenantBrowserStateRevoke(req, res, tenantId, stateId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const reason = typeof json?.reason === "string" && json.reason.trim() ? json.reason.trim() : "USER_WALLET_REVOKE_BROWSER_STATE";
+  const revoked = await revokeTenantBrowserState({ dataDir, tenantId, stateId, reason });
+  if (!revoked) return sendJson(res, 404, { ok: false, code: "BROWSER_STATE_NOT_FOUND", message: "browser state not found" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_BROWSER_STATE_REVOKE",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_browser_state",
+        targetId: revoked.stateId,
+        details: {
+          stateRef: revoked.stateRef,
+          revokedReason: revoked.revokedReason
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    browserState: revoked
+  });
+}
+
+async function handleTenantConsumerConnectorOauthStart(req, res, tenantId, kind, provider, url) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+  if (!auth.ok) return;
+  const providerConfig = consumerConnectorOauthProviderConfig(kind, provider);
+  if (!providerConfig.enabled) {
+    return sendJson(res, 400, { ok: false, code: "CONSUMER_CONNECTOR_OAUTH_NOT_CONFIGURED", message: `${provider} ${kind} OAuth is not configured` });
+  }
+  const base = requestBaseUrl(req);
+  if (!base) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "OAUTH_BASE_URL_MISSING",
+      message: "set MAGIC_LINK_PUBLIC_BASE_URL or send a Host header so OAuth redirect URI can be built"
+    });
+  }
+  const redirectUri = `${base}${consumerConnectorOauthCallbackPath(provider)}`;
+  const returnToRaw = typeof url.searchParams.get("returnTo") === "string" ? url.searchParams.get("returnTo").trim() : "";
+  const returnTo = returnToRaw ? normalizeHttpUrl(returnToRaw) : null;
+  if (returnToRaw && !returnTo) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_RETURN_TO", message: "returnTo must be a valid http(s) URL" });
+  }
+  const accountAddressHint = typeof url.searchParams.get("accountAddressHint") === "string" ? url.searchParams.get("accountAddressHint").trim() : "";
+  const accountLabelHint = typeof url.searchParams.get("accountLabelHint") === "string" ? url.searchParams.get("accountLabelHint").trim() : "";
+  const timezone = typeof url.searchParams.get("timezone") === "string" ? url.searchParams.get("timezone").trim() : "";
+  const created = await createConsumerConnectorOauthState({
+    tenantId,
+    kind,
+    provider,
+    redirectUri,
+    returnTo,
+    accountAddressHint,
+    accountLabelHint,
+    timezone
+  });
+
+  const authUrl = new URL(providerConfig.authorizeUrl);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", providerConfig.clientId);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("state", created.stateId);
+  if (providerConfig.scopes.length) authUrl.searchParams.set("scope", providerConfig.scopes.join(" "));
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_CONSUMER_CONNECTOR_OAUTH_STARTED",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_consumer_connector",
+        targetId: `${kind}:${provider}`,
+        details: {
+          kind,
+          provider,
+          redirectUri,
+          returnTo: returnTo || null
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+
+  res.statusCode = 302;
+  res.setHeader("location", authUrl.toString());
+  res.setHeader("cache-control", "no-store");
+  res.end("");
+}
+
+async function handleConsumerConnectorOauthCallback(req, res, provider, url) {
+  const providerNorm = String(provider ?? "").trim().toLowerCase();
+  const code = String(url.searchParams.get("code") ?? "").trim();
+  const stateParam = String(url.searchParams.get("state") ?? "").trim();
+  if (!code) return sendJson(res, 400, { ok: false, code: "OAUTH_CODE_MISSING", message: "OAuth code is required" });
+  if (!stateParam) return sendJson(res, 400, { ok: false, code: "OAUTH_STATE_MISSING", message: "OAuth state is required" });
+  const consumed = await consumeConsumerConnectorOauthState({ provider: providerNorm, stateId: stateParam });
+  if (!consumed.ok) return sendJson(res, 400, { ok: false, code: consumed.error ?? "OAUTH_STATE_INVALID" });
+  const tenantId = String(consumed.state.tenantId ?? "").trim();
+  const kind = String(consumed.state.kind ?? "").trim().toLowerCase();
+  const redirectUri = String(consumed.state.redirectUri ?? "").trim();
+  const returnTo = typeof consumed.state.returnTo === "string" ? consumed.state.returnTo.trim() : "";
+  const providerConfig = consumerConnectorOauthProviderConfig(kind, providerNorm);
+  if (!providerConfig.enabled) {
+    return sendJson(res, 400, { ok: false, code: "CONSUMER_CONNECTOR_OAUTH_NOT_CONFIGURED", message: `${providerNorm} ${kind} OAuth is not configured` });
+  }
+
+  const tokenExchange = await exchangeIntegrationOauthCode({ providerConfig, code, redirectUri });
+  if (!tokenExchange.ok) {
+    const location = buildRedirectWithParams(returnTo || requestBaseUrl(req) || "", {
+      oauth: "error",
+      kind,
+      provider: providerNorm,
+      message: tokenExchange.error ?? "OAuth token exchange failed"
+    });
+    if (location) {
+      res.statusCode = 303;
+      res.setHeader("location", location);
+      res.setHeader("cache-control", "no-store");
+      res.end("");
+      return;
+    }
+    return sendJson(res, 400, { ok: false, code: tokenExchange.error ?? "OAUTH_TOKEN_EXCHANGE_FAILED" });
+  }
+
+  const identity = extractConsumerConnectorIdentityFromOauthToken({
+    tokenResponse: tokenExchange.tokenResponse,
+    providerConfig,
+    kind,
+    hints: consumed.state
+  });
+  if (!identity.ok) {
+    const location = buildRedirectWithParams(returnTo || requestBaseUrl(req) || "", {
+      oauth: "error",
+      kind,
+      provider: providerNorm,
+      message: identity.error ?? "Could not determine connector identity"
+    });
+    if (location) {
+      res.statusCode = 303;
+      res.setHeader("location", location);
+      res.setHeader("cache-control", "no-store");
+      res.end("");
+      return;
+    }
+    return sendJson(res, 400, { ok: false, code: identity.error ?? "OAUTH_ACCOUNT_IDENTITY_MISSING" });
+  }
+
+  const created = await createTenantConsumerConnector({
+    dataDir,
+    tenantId,
+    kind,
+    provider: providerNorm,
+    mode: "oauth",
+    accountAddress: identity.accountAddress,
+    accountLabel: identity.accountLabel,
+    timezone: identity.timezone,
+    scopes: providerConfig.scopes,
+    createdBy: "oauth_callback"
+  });
+
+  const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
+  const sourcePatch =
+    kind === "email"
+      ? {
+          consumerDataSources: {
+            email: {
+              enabled: true,
+              provider: providerNorm,
+              address: identity.accountAddress,
+              label: identity.accountLabel,
+              connectedAt: nowIso()
+            }
+          }
+        }
+      : {
+          consumerDataSources: {
+            calendar: {
+              enabled: true,
+              provider: providerNorm,
+              address: identity.accountAddress,
+              timezone: identity.timezone,
+              connectedAt: nowIso()
+            }
+          }
+        };
+  const nextSettingsPatch = applyTenantSettingsPatch({ currentSettings: tenantSettings, patch: sourcePatch, settingsKey });
+  if (nextSettingsPatch.ok) {
+    await saveTenantSettings({ dataDir, tenantId, settings: nextSettingsPatch.settings, settingsKey });
+  }
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_CONSUMER_CONNECTOR_CONNECTED_OAUTH",
+        actor: { method: "consumer_connector_oauth", email: identity.accountAddress ?? null, role: "viewer" },
+        targetType: "tenant_consumer_connector",
+        targetId: created.connector.connectorId,
+        details: {
+          kind,
+          provider: providerNorm,
+          connectorRef: created.connector.connectorRef,
+          accountAddress: created.connector.accountAddress
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+
+  const location = buildRedirectWithParams(returnTo || requestBaseUrl(req) || "", {
+    oauth: "success",
+    kind,
+    provider: providerNorm,
+    connectorId: created.connector.connectorId
+  });
+  if (location) {
+    res.statusCode = 303;
+    res.setHeader("location", location);
+    res.setHeader("cache-control", "no-store");
+    res.end("");
+    return;
+  }
+  return sendJson(res, 200, { ok: true, tenantId, connector: created.connector });
+}
+
+async function handleTenantConsumerConnectorsList(req, res, tenantId, url) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  const includeRevokedRaw = String(url.searchParams.get("includeRevoked") ?? "").trim().toLowerCase();
+  const includeRevoked = includeRevokedRaw === "1" || includeRevokedRaw === "true" || includeRevokedRaw === "yes";
+  const kind = typeof url.searchParams.get("kind") === "string" && url.searchParams.get("kind").trim() ? url.searchParams.get("kind").trim() : null;
+  const rawLimit = Number.parseInt(String(url.searchParams.get("limit") ?? "50"), 10);
+  const limit = Number.isSafeInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 200 ? rawLimit : 50;
+  try {
+    const connectors = await listTenantConsumerConnectors({ dataDir, tenantId, kind, includeRevoked, limit });
+    return sendJson(res, 200, {
+      ok: true,
+      tenantId,
+      connectors
+    });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CONNECTOR_QUERY", message: err?.message ?? "invalid connector query" });
+  }
+}
+
+async function handleTenantConsumerConnectorsCreate(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 100_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  try {
+    const created = await createTenantConsumerConnector({
+      dataDir,
+      tenantId,
+      kind: json?.kind,
+      provider: json?.provider,
+      mode: json?.mode,
+      accountAddress: json?.accountAddress,
+      accountLabel: json?.accountLabel,
+      timezone: json?.timezone,
+      scopes: json?.scopes,
+      createdBy: auth.principal?.email ?? auth.principal?.tenantId ?? "buyer"
+    });
+    try {
+      await appendAuditRecord({
+        dataDir,
+        tenantId,
+        record: {
+          at: nowIso(),
+          action: "TENANT_CONSUMER_CONNECTOR_CREATE",
+          actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+          targetType: "tenant_consumer_connector",
+          targetId: created.connector.connectorId,
+          details: {
+            reused: Boolean(created.reused),
+            connectorRef: created.connector.connectorRef,
+            kind: created.connector.kind,
+            provider: created.connector.provider,
+            mode: created.connector.mode,
+            accountAddress: created.connector.accountAddress
+          }
+        }
+      });
+    } catch {
+      // ignore
+    }
+    return sendJson(res, created.reused ? 200 : 201, {
+      ok: true,
+      tenantId,
+      reused: Boolean(created.reused),
+      connector: created.connector
+    });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CONSUMER_CONNECTOR", message: err?.message ?? "invalid consumer connector" });
+  }
+}
+
+async function handleTenantConsumerConnectorGet(req, res, tenantId, connectorId) {
+  const opsProxy = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!opsProxy.ok) {
+    const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer" });
+    if (!auth.ok) return;
+  }
+  let connector = null;
+  try {
+    connector = await getTenantConsumerConnector({ dataDir, tenantId, connectorId });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CONSUMER_CONNECTOR", message: err?.message ?? "invalid consumer connector" });
+  }
+  if (!connector) {
+    return sendJson(res, 404, { ok: false, code: "CONSUMER_CONNECTOR_NOT_FOUND", message: "consumer connector not found" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    connector
+  });
+}
+
+async function handleTenantConsumerConnectorRevoke(req, res, tenantId, connectorId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const reason = typeof json?.reason === "string" && json.reason.trim() ? json.reason.trim() : "USER_WALLET_REVOKE_CONNECTOR";
+  const revoked = await revokeTenantConsumerConnector({ dataDir, tenantId, connectorId, reason });
+  if (!revoked) {
+    return sendJson(res, 404, { ok: false, code: "CONSUMER_CONNECTOR_NOT_FOUND", message: "consumer connector not found" });
+  }
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_CONSUMER_CONNECTOR_REVOKE",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_consumer_connector",
+        targetId: revoked.connectorId,
+        details: {
+          connectorRef: revoked.connectorRef,
+          revokedReason: revoked.revokedReason,
+          kind: revoked.kind
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    connector: revoked
+  });
+}
+
+async function handleTenantAccountSessionsCreate(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 50_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  try {
+    const created = await createTenantAccountSession({
+      dataDir,
+      tenantId,
+      providerKey: json?.providerKey,
+      providerLabel: json?.providerLabel,
+      siteKey: json?.siteKey,
+      siteLabel: json?.siteLabel,
+      mode: json?.mode,
+      accountHandleMasked: json?.accountHandleMasked,
+      fundingSourceLabel: json?.fundingSourceLabel,
+      maxSpendCents: json?.maxSpendCents,
+      currency: json?.currency,
+      permissions: json?.permissions,
+      browserProfile: json?.browserProfile,
+      createdBy: auth.principal?.email ?? auth.principal?.tenantId ?? "buyer"
+    });
+    try {
+      await appendAuditRecord({
+        dataDir,
+        tenantId,
+        record: {
+          at: nowIso(),
+          action: "TENANT_ACCOUNT_SESSION_CREATE",
+          actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+          targetType: "tenant_account_session",
+          targetId: created.session.sessionId,
+          details: {
+            providerKey: created.session.providerKey,
+            siteKey: created.session.siteKey,
+            mode: created.session.mode,
+            reused: Boolean(created.reused),
+            maxSpendCents: created.session.maxSpendCents,
+            currency: created.session.currency,
+            browserProfile: created.session.browserProfile
+          }
+        }
+      });
+    } catch {
+      // ignore
+    }
+    return sendJson(res, created.reused ? 200 : 201, {
+      ok: true,
+      tenantId,
+      reused: Boolean(created.reused),
+      session: created.session
+    });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_ACCOUNT_SESSION", message: err?.message ?? "invalid account session" });
+  }
+}
+
+async function handleTenantAccountSessionRevoke(req, res, tenantId, sessionId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "viewer", requireStepUp: true });
+  if (!auth.ok) return;
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const reason = typeof json?.reason === "string" && json.reason.trim() ? json.reason.trim() : "USER_REVOKED_ACCOUNT_SESSION";
+  const revoked = await revokeTenantAccountSession({ dataDir, tenantId, sessionId, reason });
+  if (!revoked) return sendJson(res, 404, { ok: false, code: "ACCOUNT_SESSION_NOT_FOUND", message: "account session not found" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_ACCOUNT_SESSION_REVOKE",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant_account_session",
+        targetId: revoked.sessionId,
+        details: { reason }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    session: revoked
+  });
+}
+
+async function handleTenantBuyerNotificationsPreview(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const preview = buildBuyerNotificationTestPreview({
+    tenantId,
+    tenantSettings: settings,
+    publicBaseUrl
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    preview
+  });
+}
+
+async function handleTenantBuyerNotificationsTest(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const delivery = await sendBuyerNotificationTest({
+    dataDir,
+    tenantId,
+    tenantSettings: settings,
+    publicBaseUrl,
+    smtpConfig,
+    settingsKey,
+    timeoutMs: webhookTimeoutMs
+  });
+  const latest = await loadLatestBuyerNotificationStatusBestEffort({ dataDir, tenantId });
+
+  if (delivery?.skipped && delivery?.reason === "NO_RECIPIENTS") {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "NO_RECIPIENTS_CONFIGURED",
+      message: "buyer notifications need at least one recipient before a test delivery can run",
+      delivery,
+      latest
+    });
+  }
+  if (delivery?.skipped && delivery?.reason === "INVALID_DELIVERY_MODE") {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "INVALID_DELIVERY_MODE",
+      message: "buyer notifications delivery mode must be smtp, webhook, or record",
+      delivery,
+      latest
+    });
+  }
+  if (!delivery?.ok) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "BUYER_NOTIFICATION_TEST_FAILED",
+      message: "buyer notification test delivery failed",
+      delivery,
+      latest
+    });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    delivery,
+    latest
+  });
+}
+
+async function handleTenantBuyerProductNotificationPreview(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const preview = buildBuyerProductNotificationPreview({
+    tenantId,
+    tenantSettings: settings,
+    publicBaseUrl,
+    payload: json
+  });
+  if (!preview.ok) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_PRODUCT_EVENT",
+      message: preview.error ?? "invalid product event payload"
+    });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    preview: preview.preview
+  });
+}
+
+async function handleTenantBuyerProductNotificationSend(req, res, tenantId) {
+  const systemAuth = checkNooterraOpsProxyAuth(req, { tenantId });
+  if (!systemAuth.ok && systemAuth.error === "SYSTEM_TENANT_MISMATCH") {
+    return sendJson(res, 403, { ok: false, code: "FORBIDDEN" });
+  }
+  const auth = systemAuth.ok ? systemAuth : await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const deliveryToken =
+    json && typeof json === "object" && !Array.isArray(json) && typeof json.token === "string" && json.token.trim() !== ""
+      ? json.token.trim()
+      : null;
+  if (deliveryToken && !/^[A-Za-z0-9_-]{1,200}$/.test(deliveryToken)) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_PRODUCT_EVENT",
+      message: "token must match [A-Za-z0-9_-]{1,200}"
+    });
+  }
+  const payload =
+    json && typeof json === "object" && !Array.isArray(json) && json.payload && typeof json.payload === "object" && !Array.isArray(json.payload)
+      ? json.payload
+      : json;
+  const delivery = await sendBuyerProductNotification({
+    dataDir,
+    tenantId,
+    tenantSettings: settings,
+    publicBaseUrl,
+    token: deliveryToken,
+    payload,
+    smtpConfig,
+    settingsKey,
+    timeoutMs: webhookTimeoutMs
+  });
+  const latest = await loadLatestBuyerNotificationStatusBestEffort({ dataDir, tenantId });
+  if (delivery?.reason === "INVALID_PRODUCT_EVENT") {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_PRODUCT_EVENT",
+      message: delivery.error ?? "invalid product event payload",
+      delivery,
+      latest
+    });
+  }
+  if (delivery?.skipped && delivery?.reason === "NO_RECIPIENTS") {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "NO_RECIPIENTS_CONFIGURED",
+      message: "buyer notifications need at least one recipient before a product event can be sent",
+      delivery,
+      latest
+    });
+  }
+  if (delivery?.skipped && delivery?.reason === "INVALID_DELIVERY_MODE") {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "INVALID_DELIVERY_MODE",
+      message: "buyer notifications delivery mode must be smtp, webhook, or record",
+      delivery,
+      latest
+    });
+  }
+  if (!delivery?.ok) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "BUYER_NOTIFICATION_EVENT_FAILED",
+      message: "buyer product event notification delivery failed",
+      delivery,
+      latest
+    });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    delivery,
+    latest
+  });
 }
 
 async function handleTenantEntitlementsGet(req, res, tenantId) {
@@ -4944,7 +6400,7 @@ function buildWalletFundingStatusReport({ requestedMethod = null, walletBootstra
 }
 
 async function handleTenantWalletBootstrap(req, res, tenantId) {
-  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin", requireStepUp: true });
   if (!auth.ok) return;
 
   let json = null;
@@ -5107,7 +6563,7 @@ async function handleTenantWalletBootstrap(req, res, tenantId) {
 }
 
 async function handleTenantWalletFunding(req, res, tenantId) {
-  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin", requireStepUp: true });
   if (!auth.ok) return;
 
   let json = null;
@@ -10421,9 +11877,8 @@ async function handleBuyerLogin(req, res, tenantId) {
   const verified = await verifyAndConsumeBuyerOtp({ dataDir, tenantId, email, code, maxAttempts: buyerOtpMaxAttempts });
   if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message || "otp failed" });
 
-  const session = createBuyerSessionToken({ sessionKey, tenantId, email, ttlSeconds: buyerSessionTtlSeconds });
-  if (!session.ok) return sendJson(res, 500, { ok: false, code: session.error ?? "SESSION_FAILED", message: "failed to create buyer session" });
-  setBuyerSessionCookie(res, session.token);
+  const issuedSession = await issueBuyerSession(req, res, { tenantId, email });
+  if (!issuedSession.ok) return sendJson(res, issuedSession.status, { ok: false, code: issuedSession.code, message: issuedSession.message });
 
   const role = resolveBuyerRole({ tenantSettings, email });
   try {
@@ -10442,35 +11897,401 @@ async function handleBuyerLogin(req, res, tenantId) {
     await appendAuditRecord({
       dataDir,
       tenantId,
-      record: { at: nowIso(), action: "BUYER_LOGIN", actor: { method: "buyer_session", email, role }, targetType: "buyer_session", targetId: email, details: { expiresAt: session.payload?.expiresAt ?? null } }
+      record: {
+        at: nowIso(),
+        action: "BUYER_LOGIN",
+        actor: { method: "buyer_session", email, role },
+        targetType: "buyer_session",
+        targetId: email,
+        details: { sessionId: issuedSession.sessionId, expiresAt: issuedSession.session.payload?.expiresAt ?? null }
+      }
     });
   } catch {
     // ignore
   }
-  return sendJson(res, 200, { ok: true, tenantId, email, role, expiresAt: session.payload?.expiresAt ?? null });
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    email,
+    role,
+    sessionId: issuedSession.sessionId,
+    expiresAt: issuedSession.session.payload?.expiresAt ?? null
+  });
+}
+
+async function handleBuyerLoginPasskeyOptions(req, res, tenantId) {
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json) json = {};
+  const email = normalizeEmailLower(json?.email ?? json?.actorEmail ?? null);
+  if (!email) return sendJson(res, 400, { ok: false, code: "INVALID_EMAIL", message: "email is required" });
+
+  const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
+  const allowedDomains = Array.isArray(tenantSettings?.buyerAuthEmailDomains) ? tenantSettings.buyerAuthEmailDomains : [];
+  if (!allowedDomains.length) return sendJson(res, 400, { ok: false, code: "BUYER_AUTH_DISABLED", message: "buyer passkey login is not enabled for this tenant" });
+  if (!isEmailAllowedByDomains({ email, allowedDomains })) return sendJson(res, 400, { ok: false, code: "BUYER_EMAIL_DOMAIN_FORBIDDEN", message: "email domain is not allowed" });
+
+  const passkeys = await listBuyerPasskeys({ dataDir, tenantId, email });
+  if (!passkeys.length) return sendJson(res, 400, { ok: false, code: "PASSKEY_NOT_REGISTERED", message: "no passkey is registered for this buyer" });
+
+  const issued = await issueBuyerPasskeyChallenge({
+    dataDir,
+    tenantId,
+    email,
+    purpose: "login",
+    ttlSeconds: buyerPasskeyChallengeTtlSeconds,
+    metadata: { allowedCredentialCount: passkeys.length }
+  });
+  if (!issued.ok) {
+    return sendJson(res, 400, { ok: false, code: issued.error ?? "PASSKEY_CHALLENGE_FAILED", message: issued.message ?? "failed to issue passkey challenge" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    schemaVersion: "BuyerPasskeyChallenge.v1",
+    purpose: "login",
+    tenantId,
+    email,
+    challengeId: issued.challengeId,
+    challenge: issued.challenge,
+    expiresAt: issued.expiresAt,
+    allowedCredentialIds: passkeys.map((row) => row.credentialId)
+  });
+}
+
+async function handleBuyerLoginPasskey(req, res, tenantId) {
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json) json = {};
+
+  const verified = await verifyAndConsumeBuyerPasskeyChallenge({
+    dataDir,
+    tenantId,
+    challengeId: json?.challengeId,
+    challenge: json?.challenge,
+    purpose: "login",
+    credentialId: json?.credentialId,
+    signature: json?.signature
+  });
+  if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "PASSKEY_VERIFY_FAILED", message: verified.message ?? "passkey verification failed" });
+
+  const email = verified.email;
+  const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
+  const allowedDomains = Array.isArray(tenantSettings?.buyerAuthEmailDomains) ? tenantSettings.buyerAuthEmailDomains : [];
+  if (!allowedDomains.length) return sendJson(res, 400, { ok: false, code: "BUYER_AUTH_DISABLED", message: "buyer passkey login is not enabled for this tenant" });
+  if (!isEmailAllowedByDomains({ email, allowedDomains })) return sendJson(res, 400, { ok: false, code: "BUYER_EMAIL_DOMAIN_FORBIDDEN", message: "email domain is not allowed" });
+
+  const issuedSession = await issueBuyerSession(req, res, { tenantId, email });
+  if (!issuedSession.ok) return sendJson(res, issuedSession.status, { ok: false, code: issuedSession.code, message: issuedSession.message });
+
+  const role = resolveBuyerRole({ tenantSettings, email });
+  try {
+    const nowAt = nowIso();
+    await upsertBuyerUser({
+      dataDir,
+      tenantId,
+      email,
+      role,
+      status: "active",
+      lastLoginAt: nowAt
+    });
+    await touchBuyerPasskey({
+      dataDir,
+      tenantId,
+      email,
+      credentialId: verified.credentialId,
+      at: nowAt
+    });
+  } catch {
+    // best effort
+  }
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_LOGIN_PASSKEY",
+        actor: { method: "passkey", email, role },
+        targetType: "buyer_session",
+        targetId: email,
+        details: {
+          credentialId: verified.credentialId,
+          sessionId: issuedSession.sessionId,
+          expiresAt: issuedSession.session.payload?.expiresAt ?? null
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    tenantId,
+    email,
+    role,
+    sessionId: issuedSession.sessionId,
+    expiresAt: issuedSession.session.payload?.expiresAt ?? null
+  });
 }
 
 async function handleBuyerMe(req, res) {
   const buyer = await authenticateBuyerSession(req);
   if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
-  return sendJson(res, 200, { ok: true, principal: buyer.principal });
+  return sendJson(res, 200, { ok: true, principal: buyer.principal, sessionId: buyer.sessionId || null });
 }
 
 async function handleBuyerLogout(req, res) {
   const buyer = await authenticateBuyerSession(req);
   clearBuyerSessionCookie(res);
   if (buyer.ok) {
+    if (buyer.sessionId) {
+      try {
+        await revokeBuyerSessionRecord({
+          dataDir,
+          tenantId: buyer.principal.tenantId,
+          email: buyer.principal.email,
+          sessionId: buyer.sessionId,
+          reason: "USER_LOGOUT"
+        });
+      } catch {
+        // ignore
+      }
+    }
     try {
       await appendAuditRecord({
         dataDir,
         tenantId: buyer.principal.tenantId,
-        record: { at: nowIso(), action: "BUYER_LOGOUT", actor: { method: "buyer_session", email: buyer.principal.email, role: buyer.principal.role }, targetType: "buyer_session", targetId: buyer.principal.email, details: null }
+        record: {
+          at: nowIso(),
+          action: "BUYER_LOGOUT",
+          actor: { method: "buyer_session", email: buyer.principal.email, role: buyer.principal.role },
+          targetType: "buyer_session",
+          targetId: buyer.principal.email,
+          details: { sessionId: buyer.sessionId || null }
+        }
       });
     } catch {
       // ignore
     }
   }
   return sendJson(res, 200, { ok: true });
+}
+
+async function handleBuyerSessionsList(req, res) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  const sessions = await listBuyerSessionRecords({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    currentSessionId: buyer.sessionId || null,
+    sessions: sessions.map((row) => ({
+      ...row,
+      current: row.sessionId === buyer.sessionId
+    }))
+  });
+}
+
+async function handleBuyerSessionRevoke(req, res, sessionId) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  const revoked = await revokeBuyerSessionRecord({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    sessionId,
+    reason: "USER_REVOKED_SESSION"
+  });
+  if (!revoked.ok) {
+    return sendJson(res, revoked.error === "SESSION_NOT_FOUND" ? 404 : 400, {
+      ok: false,
+      code: revoked.error ?? "SESSION_REVOKE_FAILED",
+      message: revoked.error === "SESSION_NOT_FOUND" ? "buyer session not found" : "failed to revoke buyer session"
+    });
+  }
+  if (buyer.sessionId && buyer.sessionId === sessionId) clearBuyerSessionCookie(res);
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId: buyer.principal.tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_SESSION_REVOKE",
+        actor: { method: "buyer_session", email: buyer.principal.email, role: buyer.principal.role },
+        targetType: "buyer_session",
+        targetId: sessionId,
+        details: { revokedSelf: buyer.sessionId === sessionId }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, { ok: true, session: revoked.session });
+}
+
+async function handleBuyerStepUpPasskeyOptions(req, res) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  const passkeys = await listBuyerPasskeys({ dataDir, tenantId: buyer.principal.tenantId, email: buyer.principal.email });
+  if (!passkeys.length) return sendJson(res, 400, { ok: false, code: "PASSKEY_NOT_REGISTERED", message: "no passkey is registered for this buyer" });
+  const issued = await issueBuyerPasskeyChallenge({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    purpose: "step_up",
+    ttlSeconds: buyerPasskeyChallengeTtlSeconds,
+    metadata: { sessionId: buyer.sessionId || null, purpose: "step_up", allowedCredentialCount: passkeys.length }
+  });
+  if (!issued.ok) {
+    return sendJson(res, 400, { ok: false, code: issued.error ?? "PASSKEY_CHALLENGE_FAILED", message: issued.message ?? "failed to issue passkey challenge" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    schemaVersion: "BuyerPasskeyChallenge.v1",
+    purpose: "step_up",
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    challengeId: issued.challengeId,
+    challenge: issued.challenge,
+    expiresAt: issued.expiresAt,
+    allowedCredentialIds: passkeys.map((row) => row.credentialId)
+  });
+}
+
+async function handleBuyerStepUpPasskey(req, res) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const verified = await verifyAndConsumeBuyerPasskeyChallenge({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    challengeId: json?.challengeId,
+    challenge: json?.challenge,
+    purpose: "step_up",
+    credentialId: json?.credentialId,
+    signature: json?.signature
+  });
+  if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "PASSKEY_VERIFY_FAILED", message: verified.message ?? "passkey verification failed" });
+  if (verified.email !== buyer.principal.email) return sendJson(res, 403, { ok: false, code: "STEP_UP_PRINCIPAL_MISMATCH", message: "step-up auth principal does not match the current session" });
+  const steppedUp = await markBuyerSessionStepUp({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    sessionId: buyer.sessionId,
+    at: nowIso(),
+    method: "passkey"
+  });
+  if (!steppedUp.ok) return sendJson(res, 400, { ok: false, code: steppedUp.error ?? "STEP_UP_FAILED", message: "failed to record step-up auth" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId: buyer.principal.tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_SESSION_STEP_UP",
+        actor: { method: "passkey", email: buyer.principal.email, role: buyer.principal.role },
+        targetType: "buyer_session",
+        targetId: buyer.sessionId || buyer.principal.email,
+        details: { method: "passkey", credentialId: verified.credentialId ?? null }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, { ok: true, method: "passkey", session: steppedUp.session });
+}
+
+async function handleBuyerStepUpOtpRequest(req, res) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  const issued = await issueBuyerOtp({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    ttlSeconds: buyerOtpTtlSeconds,
+    deliveryMode: buyerOtpDeliveryMode,
+    smtp: smtpConfig,
+    resend: resendConfig
+  });
+  if (!issued.ok) return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message ?? "otp failed" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId: buyer.principal.tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_STEP_UP_OTP_ISSUED",
+        actor: { method: "buyer_session", email: buyer.principal.email, role: buyer.principal.role },
+        targetType: "buyer_session",
+        targetId: buyer.sessionId || buyer.principal.email,
+        details: { expiresAt: issued.expiresAt }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, { ok: true, email: issued.email, expiresAt: issued.expiresAt });
+}
+
+async function handleBuyerStepUpOtpVerify(req, res) {
+  const buyer = await authenticateBuyerSession(req);
+  if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 10_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  const verified = await verifyAndConsumeBuyerOtp({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    code: json?.code,
+    maxAttempts: buyerOtpMaxAttempts
+  });
+  if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message ?? "otp failed" });
+  const steppedUp = await markBuyerSessionStepUp({
+    dataDir,
+    tenantId: buyer.principal.tenantId,
+    email: buyer.principal.email,
+    sessionId: buyer.sessionId,
+    at: nowIso(),
+    method: "email_otp"
+  });
+  if (!steppedUp.ok) return sendJson(res, 400, { ok: false, code: steppedUp.error ?? "STEP_UP_FAILED", message: "failed to record step-up auth" });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId: buyer.principal.tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_SESSION_STEP_UP",
+        actor: { method: "email_otp", email: buyer.principal.email, role: buyer.principal.role },
+        targetType: "buyer_session",
+        targetId: buyer.sessionId || buyer.principal.email,
+        details: { method: "email_otp" }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, { ok: true, method: "email_otp", session: steppedUp.session });
 }
 
 function deriveAuthMode() {
@@ -10485,24 +12306,78 @@ function buildAuthModePayload() {
     ok: true,
     schemaVersion: "MagicLinkAuthMode.v1",
     authMode,
+    primaryAuthMethod: "passkey",
+    recoveryAuthMethod: "email_otp",
     publicSignupEnabled: Boolean(publicSignupEnabled),
     enterpriseProvisionedTenantsOnly: authMode === AUTH_MODE_ENTERPRISE_PREPROVISIONED,
     guidance:
       authMode === AUTH_MODE_ENTERPRISE_PREPROVISIONED
-        ? "Public signup is disabled. Use an existing tenant ID with OTP login or bootstrap/manual API key flow."
+        ? "Public signup is disabled. Use an existing tenant ID with passkey login or bootstrap/manual API key flow. Email OTP remains the recovery path."
         : authMode === AUTH_MODE_HYBRID
-          ? "Public signup and enterprise pre-provisioned tenant workflows are both available."
-          : "Public signup is enabled. New tenants can onboard with OTP.",
+          ? "Public signup and enterprise pre-provisioned tenant workflows are both available. Passkeys are the primary buyer auth method; email OTP remains the recovery path."
+          : "Public signup is enabled. New tenants can onboard with passkeys; email OTP remains the recovery path.",
     endpoints: {
       publicSignup: "/v1/public/signup",
+      publicSignupPasskeyOptions: "/v1/public/signup/passkey/options",
+      publicSignupPasskey: "/v1/public/signup/passkey",
+      buyerLoginPasskeyOptionsTemplate: "/v1/tenants/{tenantId}/buyer/login/passkey/options",
+      buyerLoginPasskeyTemplate: "/v1/tenants/{tenantId}/buyer/login/passkey",
       buyerLoginOtpTemplate: "/v1/tenants/{tenantId}/buyer/login/otp",
-      buyerLoginTemplate: "/v1/tenants/{tenantId}/buyer/login"
+      buyerLoginTemplate: "/v1/tenants/{tenantId}/buyer/login",
+      buyerStepUpPasskeyOptions: "/v1/buyer/step-up/passkey/options",
+      buyerStepUpPasskey: "/v1/buyer/step-up/passkey",
+      buyerStepUpOtpRequest: "/v1/buyer/step-up/otp/request",
+      buyerStepUpOtpVerify: "/v1/buyer/step-up/otp/verify",
+      buyerSessions: "/v1/buyer/sessions",
+      buyerSessionRevokeTemplate: "/v1/buyer/sessions/{sessionId}/revoke"
     }
   };
 }
 
 async function handlePublicAuthMode(_req, res) {
   return sendJson(res, 200, buildAuthModePayload());
+}
+
+async function resolvePublicSignupInput(json) {
+  const email = normalizeEmailLower(json?.email ?? json?.contactEmail ?? null);
+  if (!email) return { ok: false, status: 400, code: "INVALID_EMAIL", message: "email is required" };
+  const companyName = typeof json?.company === "string" && json.company.trim()
+    ? json.company.trim()
+    : typeof json?.name === "string" && json.name.trim()
+      ? json.name.trim()
+      : null;
+  if (!companyName) {
+    return { ok: false, status: 400, code: "INVALID_COMPANY", message: "company (or name) is required" };
+  }
+
+  let tenantId = null;
+  if (json?.tenantId !== undefined && json?.tenantId !== null) {
+    const parsed = parseTenantIdParam(json.tenantId);
+    if (!parsed.ok) return { ok: false, status: 400, code: "INVALID_TENANT", message: parsed.error };
+    tenantId = parsed.tenantId;
+    const existing = await loadTenantProfileBestEffort({ dataDir, tenantId });
+    if (existing) return { ok: false, status: 409, code: "TENANT_EXISTS", message: "tenant already exists" };
+  } else {
+    let attempts = 0;
+    while (attempts < 10 && !tenantId) {
+      attempts += 1;
+      const candidate = generateTenantIdFromName(companyName);
+      // eslint-disable-next-line no-await-in-loop
+      const existing = await loadTenantProfileBestEffort({ dataDir, tenantId: candidate });
+      if (!existing) tenantId = candidate;
+    }
+    if (!tenantId) {
+      return { ok: false, status: 500, code: "TENANT_ID_GENERATION_FAILED", message: "failed to generate tenantId" };
+    }
+  }
+
+  return {
+    ok: true,
+    email,
+    companyName,
+    fullName: typeof json?.fullName === "string" ? json.fullName.trim() : "",
+    tenantId
+  };
 }
 
 function normalizeBuyerRoleForApi(value) {
@@ -10525,35 +12400,9 @@ async function handlePublicSignup(req, res) {
     return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
   }
 
-  const email = normalizeEmailLower(json?.email ?? json?.contactEmail ?? null);
-  if (!email) return sendJson(res, 400, { ok: false, code: "INVALID_EMAIL", message: "email is required" });
-  const companyName = typeof json?.company === "string" && json.company.trim()
-    ? json.company.trim()
-    : typeof json?.name === "string" && json.name.trim()
-      ? json.name.trim()
-      : null;
-  if (!companyName) {
-    return sendJson(res, 400, { ok: false, code: "INVALID_COMPANY", message: "company (or name) is required" });
-  }
-
-  let tenantId = null;
-  if (json.tenantId !== undefined && json.tenantId !== null) {
-    const parsed = parseTenantIdParam(json.tenantId);
-    if (!parsed.ok) return sendJson(res, 400, { ok: false, code: "INVALID_TENANT", message: parsed.error });
-    tenantId = parsed.tenantId;
-  } else {
-    let attempts = 0;
-    while (attempts < 10 && !tenantId) {
-      attempts += 1;
-      const candidate = generateTenantIdFromName(companyName);
-      // eslint-disable-next-line no-await-in-loop
-      const existing = await loadTenantProfileBestEffort({ dataDir, tenantId: candidate });
-      if (!existing) tenantId = candidate;
-    }
-    if (!tenantId) {
-      return sendJson(res, 500, { ok: false, code: "TENANT_ID_GENERATION_FAILED", message: "failed to generate tenantId" });
-    }
-  }
+  const signupInput = await resolvePublicSignupInput(json);
+  if (!signupInput.ok) return sendJson(res, signupInput.status, { ok: false, code: signupInput.code, message: signupInput.message });
+  const { email, companyName, fullName, tenantId } = signupInput;
 
   const created = await createTenantProfile({
     dataDir,
@@ -10590,7 +12439,7 @@ async function handlePublicSignup(req, res) {
     tenantId,
     email,
     role: "admin",
-    fullName: typeof json?.fullName === "string" ? json.fullName : "",
+    fullName,
     company: companyName,
     status: "active"
   });
@@ -10635,6 +12484,171 @@ async function handlePublicSignup(req, res) {
   return sendJson(res, 201, { ok: true, tenantId, email, otpIssued: true, expiresAt: issued.expiresAt });
 }
 
+async function handlePublicSignupPasskeyOptions(req, res) {
+  if (!publicSignupEnabled) {
+    return sendJson(res, 403, { ok: false, code: "SIGNUP_DISABLED", message: "public signup is disabled" });
+  }
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+  }
+
+  const signupInput = await resolvePublicSignupInput(json);
+  if (!signupInput.ok) return sendJson(res, signupInput.status, { ok: false, code: signupInput.code, message: signupInput.message });
+  const issued = await issueBuyerPasskeyChallenge({
+    dataDir,
+    tenantId: signupInput.tenantId,
+    email: signupInput.email,
+    purpose: "signup",
+    ttlSeconds: buyerPasskeyChallengeTtlSeconds,
+    metadata: {
+      companyName: signupInput.companyName,
+      fullName: signupInput.fullName
+    }
+  });
+  if (!issued.ok) {
+    return sendJson(res, 400, { ok: false, code: issued.error ?? "PASSKEY_CHALLENGE_FAILED", message: issued.message ?? "failed to issue passkey challenge" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    schemaVersion: "BuyerPasskeyChallenge.v1",
+    purpose: "signup",
+    tenantId: issued.tenantId,
+    email: issued.email,
+    challengeId: issued.challengeId,
+    challenge: issued.challenge,
+    expiresAt: issued.expiresAt
+  });
+}
+
+async function handlePublicSignupPasskey(req, res) {
+  if (!publicSignupEnabled) {
+    return sendJson(res, 403, { ok: false, code: "SIGNUP_DISABLED", message: "public signup is disabled" });
+  }
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+  }
+
+  const verified = await verifyAndConsumeBuyerPasskeyChallenge({
+    dataDir,
+    tenantId: json?.tenantId,
+    challengeId: json?.challengeId,
+    challenge: json?.challenge,
+    purpose: "signup",
+    credentialId: json?.credentialId,
+    signature: json?.signature,
+    publicKeyPem: json?.publicKeyPem
+  });
+  if (!verified.ok) {
+    return sendJson(res, 400, { ok: false, code: verified.error ?? "PASSKEY_VERIFY_FAILED", message: verified.message ?? "passkey verification failed" });
+  }
+
+  const tenantId = verified.tenantId;
+  const email = verified.email;
+  const companyName = typeof verified.metadata?.companyName === "string" && verified.metadata.companyName.trim() ? verified.metadata.companyName.trim() : null;
+  if (!companyName) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_COMPANY", message: "company (or name) is required" });
+  }
+
+  const created = await createTenantProfile({
+    dataDir,
+    tenantId,
+    name: companyName,
+    contactEmail: email,
+    billingEmail: email
+  });
+  if (!created.ok) {
+    const status = created.code === "TENANT_EXISTS" ? 409 : 400;
+    return sendJson(res, status, { ok: false, code: created.code ?? "SIGNUP_FAILED", message: created.error ?? "failed to create tenant" });
+  }
+
+  const domain = domainFromEmail(email);
+  const currentSettings = await loadTenantSettings({ dataDir, tenantId });
+  const currentDomains = Array.isArray(currentSettings?.buyerAuthEmailDomains)
+    ? currentSettings.buyerAuthEmailDomains.map((d) => String(d ?? "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const domains = domain && !currentDomains.includes(domain) ? [...currentDomains, domain] : currentDomains;
+  const currentRoles = isPlainObject(currentSettings?.buyerUserRoles) ? { ...currentSettings.buyerUserRoles } : {};
+  currentRoles[email] = "admin";
+  const patched = applyTenantSettingsPatch({
+    currentSettings,
+    patch: { buyerAuthEmailDomains: domains, buyerUserRoles: currentRoles },
+    settingsKey
+  });
+  if (!patched.ok) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SETTINGS", message: patched.error ?? "invalid settings" });
+  }
+  const relay = ensureDefaultEventRelayWebhook({ settings: patched.settings, tenantId });
+  await saveTenantSettings({ dataDir, tenantId, settings: relay.settings, settingsKey });
+  await upsertBuyerUser({
+    dataDir,
+    tenantId,
+    email,
+    role: "admin",
+    fullName: typeof verified.metadata?.fullName === "string" ? verified.metadata.fullName : "",
+    company: companyName,
+    status: "active",
+    lastLoginAt: nowIso()
+  });
+
+  const passkey = await registerBuyerPasskey({
+    dataDir,
+    tenantId,
+    email,
+    credentialId: json?.credentialId,
+    publicKeyPem: verified.publicKeyPem,
+    label: json?.label
+  });
+  if (!passkey.ok) {
+    return sendJson(res, 400, { ok: false, code: passkey.error ?? "PASSKEY_REGISTER_FAILED", message: passkey.message ?? "failed to register passkey" });
+  }
+
+  const issuedSession = await issueBuyerSession(req, res, { tenantId, email });
+  if (!issuedSession.ok) return sendJson(res, issuedSession.status, { ok: false, code: issuedSession.code, message: issuedSession.message });
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "PUBLIC_SIGNUP_PASSKEY",
+        actor: { method: "passkey", email, role: "admin" },
+        targetType: "tenant",
+        targetId: tenantId,
+        details: {
+          credentialId: passkey.passkey?.credentialId ?? null,
+          sessionId: issuedSession.sessionId,
+          expiresAt: issuedSession.session.payload?.expiresAt ?? null
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+
+  return sendJson(res, 201, {
+    ok: true,
+    tenantId,
+    email,
+    role: "admin",
+    passkeyCreated: true,
+    sessionId: issuedSession.sessionId,
+    expiresAt: issuedSession.session.payload?.expiresAt ?? null
+  });
+}
+
 async function handleBuyerUsersList(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
@@ -10667,7 +12681,7 @@ async function handleBuyerUsersList(req, res, tenantId) {
 }
 
 async function handleBuyerUsersUpsert(req, res, tenantId) {
-  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin", requireStepUp: true });
   if (!auth.ok) return;
   let json;
   try {
@@ -14477,6 +16491,16 @@ async function handleReport(req, res, token) {
 
   const decisionReport = await loadLatestSettlementDecisionReport({ dataDir, token });
   const decisionStatus = typeof decisionReport?.decision === "string" ? decisionReport.decision : null;
+  const approvalLink = normalizeApprovalLinkState(meta);
+  const approvalLinkExpired = !decisionStatus && approvalLinkIsExpired(approvalLink);
+  const approvalLinkPending = !decisionStatus && !approvalLinkExpired;
+
+  if (approvalLinkPending) {
+    const approvalSession = await requireApprovalLinkSession(req, res, token, meta);
+    if (!approvalSession.ok) {
+      return sendApprovalLinkHtmlMessage(res, approvalSession.status, "Approval Link Unavailable", approvalSession.message);
+    }
+  }
 
   async function fileExists(fp) {
     try {
@@ -14576,8 +16600,12 @@ async function handleReport(req, res, token) {
       ? `<div class="muted">Current: <code>${htmlEscape(statusLabel)}</code> at <code>${htmlEscape(decidedAt ?? "")}</code> by <code>${htmlEscape(actorName ?? "")}</code> (<code>${htmlEscape(actorEmail ?? "")}</code>)${signerKeyId ? ` - signed by <code>${htmlEscape(signerKeyId)}</code>` : ""}</div>`
       : `<div class="muted">Current: <code>None</code></div>`;
     const noteLine = note ? `<div class="muted" style="margin-top:6px">Note: ${htmlEscape(note)}</div>` : "";
-    const locked = Boolean(decisionStatus);
-    const lockedNote = locked ? "<div class=\"muted\" style=\"margin-top:8px\">Decision already recorded. This page is now read-only.</div>" : "";
+    const locked = Boolean(decisionStatus) || approvalLinkExpired;
+    const lockedNote = decisionStatus
+      ? "<div class=\"muted\" style=\"margin-top:8px\">Decision already recorded. This page is now read-only.</div>"
+      : approvalLinkExpired
+        ? "<div class=\"muted\" style=\"margin-top:8px\">Approval link expired. This page is now read-only.</div>"
+        : "";
     const approveDisabled = !approveAllowed || locked ? " disabled" : "";
     const holdDisabled = locked ? " disabled" : "";
     const approveHint = approveAllowed ? "" : "<div class=\"muted\" style=\"margin-top:8px\">Approve is disabled by policy for this verification status.</div>";
@@ -14750,6 +16778,27 @@ async function handleDecisionOtpRequest(req, res, token) {
     contractId: typeof meta.contractId === "string" ? meta.contractId : null
   });
   if (isPastRetention(meta.createdAt, retentionDays)) return sendText(res, 410, "retained\n");
+
+  const latestDecision = await loadLatestSettlementDecisionReport({ dataDir, token });
+  if (latestDecision && typeof latestDecision.decision === "string" && latestDecision.decision.trim()) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "DECISION_ALREADY_RECORDED",
+      message: "decision already recorded",
+      detail: {
+        decision: latestDecision.decision,
+        decidedAt: typeof latestDecision.decidedAt === "string" ? latestDecision.decidedAt : null
+      }
+    });
+  }
+  const approvalSession = await requireApprovalLinkSession(req, res, token, meta);
+  if (!approvalSession.ok) {
+    return sendJson(res, approvalSession.status, {
+      ok: false,
+      code: approvalSession.code,
+      message: approvalSession.message
+    });
+  }
 
   const allowedDomains = Array.isArray(ts?.decisionAuthEmailDomains) ? ts.decisionAuthEmailDomains : [];
   if (!allowedDomains.length) {
@@ -14962,6 +17011,14 @@ async function handleDecision(req, res, token, { internalAutoDecision = false } 
       }
     });
   }
+  const approvalSession = await requireApprovalLinkSession(req, res, token, meta);
+  if (!approvalSession.ok) {
+    return sendJson(res, approvalSession.status, {
+      ok: false,
+      code: approvalSession.code,
+      message: approvalSession.message
+    });
+  }
 
   const contentType = req.headers["content-type"] ? String(req.headers["content-type"]) : "";
   let body = null;
@@ -15142,6 +17199,17 @@ async function handleDecision(req, res, token, { internalAutoDecision = false } 
   try {
     const tenantIdForRecord = typeof meta.tenantId === "string" && meta.tenantId.trim() ? meta.tenantId.trim() : "default";
     await updateRunRecordDecisionBestEffort({ dataDir, tenantId: tenantIdForRecord, token, decisionReport: report });
+  } catch {
+    // ignore
+  }
+  try {
+    const nextApprovalLink = {
+      ...normalizeApprovalLinkState(meta),
+      finalizedAt: decidedAt,
+      finalDecision: decisionNormalized
+    };
+    await persistApprovalLinkState({ token, meta, approvalLink: nextApprovalLink });
+    clearApprovalLinkSessionCookie(res, token);
   } catch {
     // ignore
   }
@@ -15487,8 +17555,15 @@ export async function magicLinkHandler(req, res) {
     if (method === "POST" && pathname === "/v1/revoke") return await handleRevoke(req, res);
     if (method === "GET" && pathname === "/v1/inbox") return await handleInbox(req, res, url);
     if (method === "GET" && pathname === "/v1/buyer/me") return await handleBuyerMe(req, res);
+    if (method === "GET" && pathname === "/v1/buyer/sessions") return await handleBuyerSessionsList(req, res);
     if (method === "POST" && pathname === "/v1/buyer/logout") return await handleBuyerLogout(req, res);
+    if (method === "POST" && pathname === "/v1/buyer/step-up/passkey/options") return await handleBuyerStepUpPasskeyOptions(req, res);
+    if (method === "POST" && pathname === "/v1/buyer/step-up/passkey") return await handleBuyerStepUpPasskey(req, res);
+    if (method === "POST" && pathname === "/v1/buyer/step-up/otp/request") return await handleBuyerStepUpOtpRequest(req, res);
+    if (method === "POST" && pathname === "/v1/buyer/step-up/otp/verify") return await handleBuyerStepUpOtpVerify(req, res);
     if (method === "POST" && pathname === "/v1/public/signup") return await handlePublicSignup(req, res);
+    if (method === "POST" && pathname === "/v1/public/signup/passkey/options") return await handlePublicSignupPasskeyOptions(req, res);
+    if (method === "POST" && pathname === "/v1/public/signup/passkey") return await handlePublicSignupPasskey(req, res);
     if (method === "POST" && pathname === "/v1/tenants") return await handleTenantCreate(req, res);
     if (method === "POST" && pathname === "/v1/billing/stripe/webhook") return await handleStripeBillingWebhook(req, res);
 
@@ -15513,11 +17588,68 @@ export async function magicLinkHandler(req, res) {
       return sendText(res, 405, "method not allowed\n");
     }
 
+    const buyerLoginPasskeyOptionsMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/buyer\/login\/passkey\/options$/.exec(pathname);
+    if (buyerLoginPasskeyOptionsMatch) {
+      const tenantId = buyerLoginPasskeyOptionsMatch[1];
+      if (method === "POST") return await handleBuyerLoginPasskeyOptions(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const buyerLoginPasskeyMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/buyer\/login\/passkey$/.exec(pathname);
+    if (buyerLoginPasskeyMatch) {
+      const tenantId = buyerLoginPasskeyMatch[1];
+      if (method === "POST") return await handleBuyerLoginPasskey(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
     const buyerUsersMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/buyer\/users$/.exec(pathname);
     if (buyerUsersMatch) {
       const tenantId = buyerUsersMatch[1];
       if (method === "GET") return await handleBuyerUsersList(req, res, tenantId);
       if (method === "POST") return await handleBuyerUsersUpsert(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const buyerSessionRevokeMatch = /^\/v1\/buyer\/sessions\/([a-zA-Z0-9._-]{1,128})\/revoke$/.exec(pathname);
+    if (buyerSessionRevokeMatch) {
+      const sessionId = buyerSessionRevokeMatch[1];
+      if (method === "POST") return await handleBuyerSessionRevoke(req, res, sessionId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBuyerNotificationsPreviewMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/settings\/buyer-notifications\/preview$/.exec(pathname);
+    if (tenantBuyerNotificationsPreviewMatch) {
+      const tenantId = tenantBuyerNotificationsPreviewMatch[1];
+      if (method === "GET") return await handleTenantBuyerNotificationsPreview(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBuyerNotificationsTestMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/settings\/buyer-notifications\/test$/.exec(pathname);
+    if (tenantBuyerNotificationsTestMatch) {
+      const tenantId = tenantBuyerNotificationsTestMatch[1];
+      if (method === "POST") return await handleTenantBuyerNotificationsTest(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBuyerProductPreviewMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/settings\/buyer-notifications\/product-event\/preview$/.exec(pathname);
+    if (tenantBuyerProductPreviewMatch) {
+      const tenantId = tenantBuyerProductPreviewMatch[1];
+      if (method === "POST") return await handleTenantBuyerProductNotificationPreview(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBuyerProductSendMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/settings\/buyer-notifications\/product-event\/send$/.exec(pathname);
+    if (tenantBuyerProductSendMatch) {
+      const tenantId = tenantBuyerProductSendMatch[1];
+      if (method === "POST") return await handleTenantBuyerProductNotificationSend(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantConsumerInboxMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/settings\/consumer-inbox$/.exec(pathname);
+    if (tenantConsumerInboxMatch) {
+      const tenantId = tenantConsumerInboxMatch[1];
+      if (method === "GET") return await handleTenantConsumerInboxGet(req, res, tenantId);
+      if (method === "PUT") return await handleTenantConsumerInboxPut(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 
@@ -15736,6 +17868,117 @@ export async function magicLinkHandler(req, res) {
       if (action === "disconnect") return await handleTenantIntegrationDisconnect(req, res, tenantId, provider);
       if (action === "test-send") return await handleTenantIntegrationTestSend(req, res, tenantId, provider);
       return sendText(res, 404, "not found\n");
+    }
+
+    const tenantDocumentsMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/documents$/.exec(pathname);
+    if (tenantDocumentsMatch) {
+      const tenantId = tenantDocumentsMatch[1];
+      if (method === "GET") return await handleTenantDocumentsList(req, res, tenantId, url);
+      if (method === "POST") return await handleTenantDocumentsCreate(req, res, tenantId, url);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantDocumentRevokeMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/documents\/([a-zA-Z0-9_-]{1,64})\/revoke$/.exec(pathname);
+    if (tenantDocumentRevokeMatch) {
+      const tenantId = tenantDocumentRevokeMatch[1];
+      const documentId = tenantDocumentRevokeMatch[2];
+      if (method === "POST") return await handleTenantDocumentRevoke(req, res, tenantId, documentId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantConsumerConnectorOauthStartMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/consumer-connectors\/(email|calendar)\/(gmail|google_calendar|outlook|outlook_calendar)\/oauth\/start$/.exec(pathname);
+    if (tenantConsumerConnectorOauthStartMatch) {
+      const tenantId = tenantConsumerConnectorOauthStartMatch[1];
+      const kind = tenantConsumerConnectorOauthStartMatch[2];
+      const provider = tenantConsumerConnectorOauthStartMatch[3];
+      if (method === "GET") return await handleTenantConsumerConnectorOauthStart(req, res, tenantId, kind, provider, url);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantConsumerConnectorsMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/consumer-connectors$/.exec(pathname);
+    if (tenantConsumerConnectorsMatch) {
+      const tenantId = tenantConsumerConnectorsMatch[1];
+      if (method === "GET") return await handleTenantConsumerConnectorsList(req, res, tenantId, url);
+      if (method === "POST") return await handleTenantConsumerConnectorsCreate(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantAccountSessionsMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/account-sessions$/.exec(pathname);
+    if (tenantAccountSessionsMatch) {
+      const tenantId = tenantAccountSessionsMatch[1];
+      if (method === "GET") return await handleTenantAccountSessionsList(req, res, tenantId, url);
+      if (method === "POST") return await handleTenantAccountSessionsCreate(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBrowserStatesMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/browser-states$/.exec(pathname);
+    if (tenantBrowserStatesMatch) {
+      const tenantId = tenantBrowserStatesMatch[1];
+      if (method === "GET") return await handleTenantBrowserStatesList(req, res, tenantId, url);
+      if (method === "POST") return await handleTenantBrowserStatesCreate(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBrowserStateResolveMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/browser-states\/resolve$/.exec(pathname);
+    if (tenantBrowserStateResolveMatch) {
+      const tenantId = tenantBrowserStateResolveMatch[1];
+      if (method === "GET") return await handleTenantBrowserStateResolve(req, res, tenantId, url);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBrowserStateMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/browser-states\/([A-Za-z0-9_-]{1,64})$/.exec(pathname);
+    if (tenantBrowserStateMatch) {
+      const tenantId = tenantBrowserStateMatch[1];
+      const stateId = tenantBrowserStateMatch[2];
+      if (method === "GET") return await handleTenantBrowserStateGet(req, res, tenantId, stateId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantBrowserStateRevokeMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/browser-states\/([A-Za-z0-9_-]{1,64})\/revoke$/.exec(pathname);
+    if (tenantBrowserStateRevokeMatch) {
+      const tenantId = tenantBrowserStateRevokeMatch[1];
+      const stateId = tenantBrowserStateRevokeMatch[2];
+      if (method === "POST") return await handleTenantBrowserStateRevoke(req, res, tenantId, stateId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantConsumerConnectorMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/consumer-connectors\/([A-Za-z0-9_-]{1,64})$/.exec(pathname);
+    if (tenantConsumerConnectorMatch) {
+      const tenantId = tenantConsumerConnectorMatch[1];
+      const connectorId = tenantConsumerConnectorMatch[2];
+      if (method === "GET") return await handleTenantConsumerConnectorGet(req, res, tenantId, connectorId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const consumerConnectorOauthCallbackMatch = /^\/v1\/consumer-connectors\/(gmail|google_calendar|outlook|outlook_calendar)\/oauth\/callback$/.exec(pathname);
+    if (consumerConnectorOauthCallbackMatch) {
+      const provider = consumerConnectorOauthCallbackMatch[1];
+      if (method === "GET") return await handleConsumerConnectorOauthCallback(req, res, provider, url);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantConsumerConnectorRevokeMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/consumer-connectors\/([A-Za-z0-9_-]{1,64})\/revoke$/.exec(pathname);
+    if (tenantConsumerConnectorRevokeMatch) {
+      const tenantId = tenantConsumerConnectorRevokeMatch[1];
+      const connectorId = tenantConsumerConnectorRevokeMatch[2];
+      if (method === "POST") return await handleTenantConsumerConnectorRevoke(req, res, tenantId, connectorId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantAccountSessionMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/account-sessions\/([a-zA-Z0-9_-]{1,64})$/.exec(pathname);
+    if (tenantAccountSessionMatch) {
+      const tenantId = tenantAccountSessionMatch[1];
+      const sessionId = tenantAccountSessionMatch[2];
+      if (method === "GET") return await handleTenantAccountSessionGet(req, res, tenantId, sessionId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantAccountSessionRevokeMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/account-sessions\/([a-zA-Z0-9_-]{1,64})\/revoke$/.exec(pathname);
+    if (tenantAccountSessionRevokeMatch) {
+      const tenantId = tenantAccountSessionRevokeMatch[1];
+      const sessionId = tenantAccountSessionRevokeMatch[2];
+      if (method === "POST") return await handleTenantAccountSessionRevoke(req, res, tenantId, sessionId);
+      return sendText(res, 405, "method not allowed\n");
     }
 
     const tenantSlaTemplatesMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/sla-templates$/.exec(pathname);

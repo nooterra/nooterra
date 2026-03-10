@@ -1,0 +1,197 @@
+{
+  "schemaVersion": "ActionWalletV1Freeze.v1",
+  "scopeLock": "V1 lets external agent hosts create action intents for buy and cancel/recover flows, send users to Nooterra-hosted approval pages, receive scoped execution grants, submit evidence, finalize runs, issue receipts, and open disputes.",
+  "launchActions": ["buy", "cancel/recover"],
+  "launchChannels": ["Claude MCP", "OpenClaw"],
+  "outOfScope": [
+    "booking/rebooking",
+    "Nooterra-owned last-mile execution",
+    "certified execution adapters and strict-domain browser fallback",
+    "ChatGPT app",
+    "enterprise connectors and packaging",
+    "A2A",
+    "BYO payment rails",
+    "open specialist publication and marketplace",
+    "general consumer ask box and first-party assistant shell",
+    "physical-world actions"
+  ],
+  "objects": [
+    {
+      "name": "Action Intent",
+      "schemaVersion": "ActionIntent.v1",
+      "runtimeBinding": "Public alias over AuthorityEnvelope.v1 plus host launch metadata for the initiating action.",
+      "anchors": ["src/core/authority-envelope.js", "src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js"]
+    },
+    {
+      "name": "Approval Request",
+      "schemaVersion": "ApprovalRequest.v1",
+      "runtimeBinding": "Deterministic approval prompt bound to the initiating action intent and approval URL lifecycle.",
+      "anchors": ["src/core/authority-envelope.js", "src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js"]
+    },
+    {
+      "name": "Approval Decision",
+      "schemaVersion": "ApprovalDecision.v1",
+      "runtimeBinding": "Single decision artifact for approve or deny, bound back to the approval request.",
+      "anchors": ["src/core/authority-envelope.js", "src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js"]
+    },
+    {
+      "name": "Execution Grant",
+      "schemaVersion": "ExecutionGrant.v1",
+      "runtimeBinding": "Scoped execution handle bound to the approval request and materialized work order.",
+      "anchors": ["src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js", "test/mcp-action-wallet-aliases.test.js"]
+    },
+    {
+      "name": "Evidence Bundle",
+      "schemaVersion": "EvidenceBundle.v1",
+      "runtimeBinding": "Canonical evidence submission for finalize, represented today by evidence refs and hosted artifacts.",
+      "anchors": ["src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js", "docs/spec/public/SubAgentCompletionReceipt.v1.md"]
+    },
+    {
+      "name": "Receipt",
+      "schemaVersion": "ActionReceipt.v1",
+      "runtimeBinding": "Public receipt alias over completion receipt plus settlement detail.",
+      "anchors": [
+        "src/api/openapi.js",
+        "test/api-e2e-action-wallet-v1.test.js",
+        "docs/spec/public/SubAgentCompletionReceipt.v1.md",
+        "docs/spec/SettlementReceipt.v1.md"
+      ]
+    },
+    {
+      "name": "Dispute Case",
+      "schemaVersion": "DisputeCase.v1",
+      "runtimeBinding": "Public dispute alias with opener-proof envelope and operator-visible dispute detail.",
+      "anchors": ["src/core/dispute-open-envelope.js", "src/api/openapi.js", "test/dispute-open-envelope-schemas.test.js"]
+    },
+    {
+      "name": "Standing Rule",
+      "schemaVersion": "ApprovalStandingPolicy.v1",
+      "runtimeBinding": "User rule that can auto-approve or force approval for bounded action classes and hosts.",
+      "anchors": ["src/core/approval-standing-policy.js", "test/approval-standing-policy.test.js", "test/api-e2e-approval-standing-policy-auto.test.js"]
+    },
+    {
+      "name": "Settlement Event",
+      "schemaVersion": "SettlementEvent.v1",
+      "runtimeBinding": "Money-state transition attached to finalization, capture, refund, and dispute hold outcomes.",
+      "anchors": ["src/api/openapi.js", "test/api-e2e-action-wallet-v1.test.js", "test/api-e2e-idempotency-settlement-disputes.test.js"]
+    }
+  ],
+  "stateMachines": {
+    "intent": {
+      "states": [
+        "draft",
+        "approval_required",
+        "approved",
+        "executing",
+        "evidence_submitted",
+        "verifying",
+        "completed",
+        "failed",
+        "disputed",
+        "refunded",
+        "cancelled"
+      ],
+      "allowedTransitions": [
+        ["draft", "approval_required"],
+        ["draft", "cancelled"],
+        ["approval_required", "approved"],
+        ["approval_required", "failed"],
+        ["approval_required", "cancelled"],
+        ["approved", "executing"],
+        ["approved", "cancelled"],
+        ["executing", "evidence_submitted"],
+        ["executing", "failed"],
+        ["executing", "cancelled"],
+        ["evidence_submitted", "verifying"],
+        ["evidence_submitted", "failed"],
+        ["verifying", "completed"],
+        ["verifying", "failed"],
+        ["verifying", "disputed"],
+        ["verifying", "refunded"],
+        ["completed", "disputed"],
+        ["completed", "refunded"],
+        ["failed", "disputed"],
+        ["disputed", "completed"],
+        ["disputed", "refunded"]
+      ],
+      "terminalStates": ["cancelled", "completed", "failed", "refunded"]
+    },
+    "approval": {
+      "states": ["pending", "approved", "denied", "expired", "revoked"],
+      "allowedTransitions": [
+        ["pending", "approved"],
+        ["pending", "denied"],
+        ["pending", "expired"],
+        ["approved", "revoked"]
+      ],
+      "terminalStates": ["denied", "expired", "revoked"]
+    },
+    "dispute": {
+      "states": ["opened", "triaged", "awaiting_evidence", "refunded", "denied", "resolved"],
+      "allowedTransitions": [
+        ["opened", "triaged"],
+        ["opened", "refunded"],
+        ["triaged", "awaiting_evidence"],
+        ["triaged", "denied"],
+        ["triaged", "refunded"],
+        ["awaiting_evidence", "resolved"],
+        ["awaiting_evidence", "denied"],
+        ["awaiting_evidence", "refunded"]
+      ],
+      "terminalStates": ["denied", "refunded", "resolved"]
+    }
+  },
+  "grantSemantics": {
+    "principal": "user principal bound to the approval decision",
+    "actionType": "one of the launch actions only",
+    "hostId": "trusted external host identifier",
+    "vendorOrDomainAllowlist": "bounded vendor and domain scope",
+    "spendCap": "maximum spend for the run",
+    "expiry": "short-lived execution deadline",
+    "evidenceRequirements": "required proof list before finalize",
+    "grantNonce": "single-run anti-replay nonce",
+    "delegationLineageReference": "placeholder lineage reference for downstream compatibility"
+  },
+  "receiptBindings": [
+    "originating approval",
+    "execution grant",
+    "evidence bundle",
+    "settlement status",
+    "verifier verdict",
+    "dispute state",
+    "deterministic hash"
+  ],
+  "hashSubjects": ["intent", "grant", "evidence_bundle", "receipt"],
+  "events": [
+    "intent created",
+    "approval opened",
+    "approval decided",
+    "grant issued",
+    "evidence submitted",
+    "finalize requested",
+    "receipt issued",
+    "dispute opened",
+    "dispute resolved"
+  ],
+  "idempotentEndpoints": [
+    "POST /v1/action-intents",
+    "POST /v1/action-intents/{actionIntentId}/approval-requests",
+    "POST /v1/approval-requests/{requestId}/decisions",
+    "POST /v1/execution-grants/{executionGrantId}/evidence",
+    "POST /v1/execution-grants/{executionGrantId}/finalize",
+    "POST /v1/disputes",
+    "POST /v1/integrations/install"
+  ],
+  "publishedApiAliases": [
+    "/v1/action-intents",
+    "/v1/action-intents/{actionIntentId}/approval-requests",
+    "/v1/approval-requests/{requestId}",
+    "/v1/approval-requests/{requestId}/decisions",
+    "/v1/execution-grants/{executionGrantId}",
+    "/v1/execution-grants/{executionGrantId}/evidence",
+    "/v1/execution-grants/{executionGrantId}/finalize",
+    "/v1/receipts/{receiptId}",
+    "/v1/disputes",
+    "/v1/integrations/install"
+  ]
+}

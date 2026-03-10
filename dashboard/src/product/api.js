@@ -8,6 +8,7 @@ export const DEFAULT_AUTH_BASE_URL =
     : "/__magic";
 
 export const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v2";
+export const PRODUCT_BUYER_PASSKEY_STORAGE_KEY = "nooterra_product_buyer_passkeys_v1";
 
 function toBase64(bytes) {
   let binary = "";
@@ -18,6 +19,10 @@ function toBase64(bytes) {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+}
+
+function toBase64Url(bytes) {
+  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function fromBase64(value) {
@@ -145,6 +150,97 @@ export function loadRuntimeConfig() {
   }
 }
 
+function normalizeBuyerPasskeyStorageId({ tenantId, email }) {
+  const normalizedTenantId = typeof tenantId === "string" && tenantId.trim() ? tenantId.trim() : "";
+  const normalizedEmail = typeof email === "string" && email.trim() ? email.trim().toLowerCase() : "";
+  if (!normalizedTenantId || !normalizedEmail) return "";
+  return `${normalizedTenantId}\n${normalizedEmail}`;
+}
+
+function normalizeStoredBuyerPasskeyBundle(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const tenantId = typeof value.tenantId === "string" && value.tenantId.trim() ? value.tenantId.trim() : "";
+  const email = typeof value.email === "string" && value.email.trim() ? value.email.trim().toLowerCase() : "";
+  const credentialId = typeof value.credentialId === "string" && value.credentialId.trim() ? value.credentialId.trim() : "";
+  const publicKeyPem = typeof value.publicKeyPem === "string" && value.publicKeyPem.trim() ? value.publicKeyPem.trim() : "";
+  const privateKeyPem = typeof value.privateKeyPem === "string" && value.privateKeyPem.trim() ? value.privateKeyPem.trim() : "";
+  if (!tenantId || !email || !credentialId || !publicKeyPem || !privateKeyPem) return null;
+  return {
+    tenantId,
+    email,
+    credentialId,
+    publicKeyPem,
+    privateKeyPem,
+    keyId: typeof value.keyId === "string" && value.keyId.trim() ? value.keyId.trim() : "",
+    label: typeof value.label === "string" ? value.label.trim() : "",
+    createdAt: typeof value.createdAt === "string" && value.createdAt.trim() ? value.createdAt : new Date().toISOString(),
+    lastUsedAt: typeof value.lastUsedAt === "string" && value.lastUsedAt.trim() ? value.lastUsedAt : null
+  };
+}
+
+function readStoredBuyerPasskeyMap() {
+  if (typeof window === "undefined" || !globalThis.localStorage) return {};
+  try {
+    const raw = localStorage.getItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredBuyerPasskeyMap(value) {
+  if (typeof window === "undefined" || !globalThis.localStorage) return;
+  try {
+    localStorage.setItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadStoredBuyerPasskeyBundle({ tenantId, email } = {}) {
+  const id = normalizeBuyerPasskeyStorageId({ tenantId, email });
+  if (!id) return null;
+  const map = readStoredBuyerPasskeyMap();
+  return normalizeStoredBuyerPasskeyBundle(map[id] ?? null);
+}
+
+export function saveStoredBuyerPasskeyBundle(bundle) {
+  const normalized = normalizeStoredBuyerPasskeyBundle(bundle);
+  if (!normalized) return null;
+  const id = normalizeBuyerPasskeyStorageId(normalized);
+  if (!id) return null;
+  const map = readStoredBuyerPasskeyMap();
+  map[id] = normalized;
+  writeStoredBuyerPasskeyMap(map);
+  return normalized;
+}
+
+export function touchStoredBuyerPasskeyBundle({ tenantId, email } = {}) {
+  const current = loadStoredBuyerPasskeyBundle({ tenantId, email });
+  if (!current) return null;
+  return saveStoredBuyerPasskeyBundle({
+    ...current,
+    lastUsedAt: new Date().toISOString()
+  });
+}
+
+export function removeStoredBuyerPasskeyBundle({ tenantId, email } = {}) {
+  const id = normalizeBuyerPasskeyStorageId({ tenantId, email });
+  if (!id || typeof window === "undefined" || !globalThis.localStorage) return false;
+  try {
+    const map = readStoredBuyerPasskeyMap();
+    if (!Object.prototype.hasOwnProperty.call(map, id)) return false;
+    delete map[id];
+    writeStoredBuyerPasskeyMap(map);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildHeaders({ tenantId, protocol, apiKey, write = false, idempotencyKey = null } = {}) {
   const headers = {
     "content-type": "application/json",
@@ -170,6 +266,42 @@ export async function requestJson({
     method,
     headers,
     body: body === null ? undefined : JSON.stringify(body),
+    ...(credentials ? { credentials } : {})
+  });
+  const text = await response.text();
+  let parsed = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+  if (!response.ok) {
+    const message =
+      parsed && typeof parsed === "object"
+        ? String(parsed?.message ?? parsed?.error ?? `HTTP ${response.status}`)
+        : String(parsed ?? `HTTP ${response.status}`);
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = parsed && typeof parsed === "object" ? parsed?.code ?? null : null;
+    error.details = parsed && typeof parsed === "object" ? parsed?.details ?? null : null;
+    throw error;
+  }
+  return parsed;
+}
+
+export async function requestBinaryJson({
+  baseUrl,
+  pathname,
+  method = "POST",
+  headers,
+  body,
+  credentials
+} = {}) {
+  const url = `${String(baseUrl).replace(/\/$/, "")}${pathname}`;
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body ?? undefined,
     ...(credentials ? { credentials } : {})
   });
   const text = await response.text();
@@ -260,6 +392,17 @@ export async function generateBrowserEd25519KeypairPem() {
   return { publicKeyPem, privateKeyPem, keyId };
 }
 
+export async function signBrowserPasskeyChallengeBase64Url({ privateKeyPem, challenge } = {}) {
+  const normalizedPrivateKeyPem = String(privateKeyPem ?? "").trim();
+  const normalizedChallenge = String(challenge ?? "").trim();
+  if (!normalizedPrivateKeyPem) throw new Error("privateKeyPem is required");
+  if (!normalizedChallenge) throw new Error("challenge is required");
+  if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is not available in this browser");
+  const importedKey = await crypto.subtle.importKey("pkcs8", pemToArrayBuffer(normalizedPrivateKeyPem), { name: "Ed25519" }, false, ["sign"]);
+  const signatureBytes = await crypto.subtle.sign("Ed25519", importedKey, new TextEncoder().encode(normalizedChallenge));
+  return toBase64Url(new Uint8Array(signatureBytes));
+}
+
 export async function buildAgentCardPublishSignature({
   tenantId,
   requestBody,
@@ -295,4 +438,1033 @@ export async function buildAgentCardPublishSignature({
     payloadHash,
     signature: toBase64(new Uint8Array(signatureBytes))
   };
+}
+
+export async function buildEd25519JwksFromPublicKeyPem(publicKeyPem) {
+  const pem = String(publicKeyPem ?? "").trim();
+  if (!pem) throw new Error("publicKeyPem is required");
+  const importedKey = await crypto.subtle.importKey("spki", pemToArrayBuffer(pem), { name: "Ed25519" }, true, ["verify"]);
+  const exported = await crypto.subtle.exportKey("jwk", importedKey);
+  const jwk = canonicalize({
+    kty: "OKP",
+    crv: "Ed25519",
+    x: String(exported?.x ?? "")
+  });
+  const keyId = `key_${(await sha256HexUtf8(pem)).slice(0, 24)}`;
+  const thumbprintSha256 = await sha256HexUtf8(canonicalJsonStringify(jwk));
+  return {
+    schemaVersion: "NooterraBuilderJwks.v1",
+    keyId,
+    providerRef: `jwk:${thumbprintSha256}`,
+    jwks: {
+      keys: [
+        {
+          ...jwk,
+          kid: keyId,
+          use: "sig",
+          alg: "EdDSA"
+        }
+      ]
+    }
+  };
+}
+
+export async function mintProviderPublishProofTokenV1({
+  providerId,
+  manifestHash,
+  signerKeyId,
+  privateKeyPem,
+  publicKeyPem = null,
+  nonce = null,
+  iat = Math.floor(Date.now() / 1000),
+  exp = Math.floor(Date.now() / 1000) + 600
+} = {}) {
+  const normalizedProviderId = String(providerId ?? "").trim();
+  const normalizedManifestHash = String(manifestHash ?? "").trim().toLowerCase();
+  if (!normalizedProviderId) throw new Error("providerId is required");
+  if (!/^[0-9a-f]{64}$/.test(normalizedManifestHash)) throw new Error("manifestHash must be sha256 hex");
+  const normalizedPrivateKeyPem = String(privateKeyPem ?? "").trim();
+  if (!normalizedPrivateKeyPem) throw new Error("privateKeyPem is required");
+  const derivedKeyId = publicKeyPem ? `key_${(await sha256HexUtf8(String(publicKeyPem).trim())).slice(0, 24)}` : "";
+  const normalizedSignerKeyId = String(signerKeyId ?? "").trim() || derivedKeyId;
+  if (!normalizedSignerKeyId) throw new Error("signerKeyId is required");
+  if (derivedKeyId && normalizedSignerKeyId !== derivedKeyId) throw new Error("signerKeyId does not match publicKeyPem");
+  const normalizedIat = Number(iat);
+  const normalizedExp = Number(exp);
+  if (!Number.isSafeInteger(normalizedIat) || normalizedIat <= 0) throw new Error("iat must be a positive safe integer");
+  if (!Number.isSafeInteger(normalizedExp) || normalizedExp <= normalizedIat) throw new Error("exp must be greater than iat");
+
+  const payload = canonicalize({
+    schemaVersion: "ProviderPublishProofPayload.v1",
+    aud: "nooterra.marketplace.publish",
+    typ: "nooterra.marketplace.publish_proof.v1",
+    manifestHash: normalizedManifestHash,
+    providerId: normalizedProviderId,
+    iat: normalizedIat,
+    exp: normalizedExp,
+    ...(String(nonce ?? "").trim() ? { nonce: String(nonce).trim() } : {})
+  });
+  const header = canonicalize({
+    alg: "EdDSA",
+    kid: normalizedSignerKeyId,
+    typ: "JWT"
+  });
+  const headerB64 = toBase64Url(new TextEncoder().encode(canonicalJsonStringify(header)));
+  const payloadB64 = toBase64Url(new TextEncoder().encode(canonicalJsonStringify(payload)));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const importedKey = await crypto.subtle.importKey("pkcs8", pemToArrayBuffer(normalizedPrivateKeyPem), { name: "Ed25519" }, false, ["sign"]);
+  const signatureBytes = await crypto.subtle.sign("Ed25519", importedKey, new TextEncoder().encode(signingInput));
+  const token = `${signingInput}.${toBase64Url(new Uint8Array(signatureBytes))}`;
+  return {
+    token,
+    tokenSha256: await sha256HexUtf8(token),
+    header,
+    payload,
+    kid: normalizedSignerKeyId
+  };
+}
+
+function resolveRuntimeConfig(runtime) {
+  const fallback = loadRuntimeConfig();
+  if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) return fallback;
+  return {
+    ...fallback,
+    ...runtime,
+    baseUrl: typeof runtime.baseUrl === "string" && runtime.baseUrl.trim() ? runtime.baseUrl.trim() : fallback.baseUrl,
+    authBaseUrl:
+      typeof runtime.authBaseUrl === "string" && runtime.authBaseUrl.trim() ? runtime.authBaseUrl.trim() : fallback.authBaseUrl,
+    apiKey: typeof runtime.apiKey === "string" ? runtime.apiKey : fallback.apiKey,
+    tenantId: typeof runtime.tenantId === "string" && runtime.tenantId.trim() ? runtime.tenantId.trim() : fallback.tenantId,
+    protocol: typeof runtime.protocol === "string" && runtime.protocol.trim() ? runtime.protocol.trim() : fallback.protocol
+  };
+}
+
+export async function fetchApprovalInbox(runtime, { status = "pending" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (status) query.set("status", String(status).trim());
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/approval-inbox${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function decideApprovalInboxItem(runtime, requestId, { approved, note = "", evidenceRefs = [], metadata = null } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedRequestId = String(requestId ?? "").trim();
+  const normalizedNote = String(note ?? "").trim();
+  const normalizedMetadata =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? { ...metadata }
+      : { source: "dashboard.approvals" };
+  if (normalizedNote) {
+    normalizedMetadata.note = normalizedNote;
+    normalizedMetadata.rationale = normalizedNote;
+  }
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/approval-inbox/${encodeURIComponent(normalizedRequestId)}/decide`,
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId(approved ? "approval_approve" : "approval_deny")
+    }),
+    body: {
+      requestId: normalizedRequestId,
+      approved: Boolean(approved),
+      decision: approved ? "approved" : "denied",
+      note: normalizedNote || null,
+      rationale: normalizedNote || null,
+      decidedBy: resolvedRuntime.tenantId || "tenant_default",
+      evidenceRefs: Array.isArray(evidenceRefs)
+        ? evidenceRefs.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : [],
+      metadata: normalizedMetadata
+    }
+  });
+}
+
+export async function fetchApprovalPolicies(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: "/approval-policies",
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function upsertApprovalPolicy(runtime, policy) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: "/approval-policies",
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("approval_policy")
+    }),
+    body: policy
+  });
+}
+
+export async function fetchTenantSettings(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function updateTenantSettings(runtime, patch) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings`,
+    method: "PUT",
+    credentials: "include",
+    body: patch
+  });
+}
+
+export async function fetchTenantConsumerInboxState(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/consumer-inbox`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function updateTenantConsumerInboxState(runtime, state) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/consumer-inbox`,
+    method: "PUT",
+    credentials: "include",
+    body: state
+  });
+}
+
+export async function fetchTenantIntegrationsState(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/integrations/state`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function disconnectTenantIntegration(runtime, provider) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedProvider = String(provider ?? "").trim().toLowerCase();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedProvider) throw new Error("provider is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/integrations/${encodeURIComponent(normalizedProvider)}/disconnect`,
+    method: "POST",
+    credentials: "include",
+    body: {}
+  });
+}
+
+export async function fetchTenantDocuments(runtime, { includeRevoked = false, limit = 50 } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const query = new URLSearchParams();
+  if (includeRevoked) query.set("includeRevoked", "true");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function uploadTenantDocument(
+  runtime,
+  file,
+  {
+    purpose = "",
+    label = ""
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!(file instanceof Blob)) throw new Error("file is required");
+  const headers = {};
+  const contentType = typeof file.type === "string" && file.type.trim() ? file.type.trim() : "application/octet-stream";
+  headers["content-type"] = contentType;
+  if (typeof file.name === "string" && file.name.trim()) headers["x-upload-filename"] = file.name.trim();
+  if (String(purpose).trim()) headers["x-upload-purpose"] = String(purpose).trim();
+  if (String(label).trim()) headers["x-upload-label"] = String(label).trim();
+  return requestBinaryJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents`,
+    method: "POST",
+    headers,
+    body: file,
+    credentials: "include"
+  });
+}
+
+export async function revokeTenantDocument(runtime, documentId, { reason = "USER_REVOKED_DOCUMENT" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedDocumentId = String(documentId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedDocumentId) throw new Error("documentId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents/${encodeURIComponent(normalizedDocumentId)}/revoke`,
+    method: "POST",
+    credentials: "include",
+    body: {
+      reason: String(reason ?? "").trim() || "USER_REVOKED_DOCUMENT"
+    }
+  });
+}
+
+export async function fetchTenantBrowserStates(runtime, { includeRevoked = false, limit = 50 } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const query = new URLSearchParams();
+  if (includeRevoked) query.set("includeRevoked", "true");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function createTenantBrowserState(runtime, browserState) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states`,
+    method: "POST",
+    credentials: "include",
+    body: browserState
+  });
+}
+
+export async function revokeTenantBrowserState(runtime, stateId, { reason = "USER_WALLET_REVOKE_BROWSER_STATE" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedStateId = String(stateId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedStateId) throw new Error("stateId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states/${encodeURIComponent(normalizedStateId)}/revoke`,
+    method: "POST",
+    credentials: "include",
+    body: {
+      reason: String(reason ?? "").trim() || "USER_WALLET_REVOKE_BROWSER_STATE"
+    }
+  });
+}
+
+export async function fetchTenantConsumerConnectors(runtime, { kind = null, includeRevoked = false, limit = 50 } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const query = new URLSearchParams();
+  if (kind && String(kind).trim()) query.set("kind", String(kind).trim());
+  if (includeRevoked) query.set("includeRevoked", "true");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function createTenantConsumerConnector(runtime, connector) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors`,
+    method: "POST",
+    credentials: "include",
+    body: connector
+  });
+}
+
+export async function revokeTenantConsumerConnector(runtime, connectorId, { reason = "USER_WALLET_REVOKE_CONNECTOR" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedConnectorId = String(connectorId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedConnectorId) throw new Error("connectorId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors/${encodeURIComponent(normalizedConnectorId)}/revoke`,
+    method: "POST",
+    credentials: "include",
+    body: {
+      reason: String(reason ?? "").trim() || "USER_WALLET_REVOKE_CONNECTOR"
+    }
+  });
+}
+
+export function buildTenantConsumerConnectorOauthStartUrl(
+  runtime,
+  { kind, provider, returnTo = null, accountAddressHint = null, accountLabelHint = null, timezone = null } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedKind = String(kind ?? "").trim().toLowerCase();
+  const normalizedProvider = String(provider ?? "").trim().toLowerCase();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedKind) throw new Error("kind is required");
+  if (!normalizedProvider) throw new Error("provider is required");
+  const query = new URLSearchParams();
+  if (returnTo && String(returnTo).trim()) query.set("returnTo", String(returnTo).trim());
+  if (accountAddressHint && String(accountAddressHint).trim()) query.set("accountAddressHint", String(accountAddressHint).trim());
+  if (accountLabelHint && String(accountLabelHint).trim()) query.set("accountLabelHint", String(accountLabelHint).trim());
+  if (timezone && String(timezone).trim()) query.set("timezone", String(timezone).trim());
+  const path = `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors/${encodeURIComponent(normalizedKind)}/${encodeURIComponent(normalizedProvider)}/oauth/start`;
+  return `${String(resolvedRuntime.authBaseUrl).replace(/\/$/, "")}${path}${query.size ? `?${query.toString()}` : ""}`;
+}
+
+export async function fetchTenantAccountSessions(runtime, { includeRevoked = false, limit = 50 } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const query = new URLSearchParams();
+  if (includeRevoked) query.set("includeRevoked", "true");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function createTenantAccountSession(runtime, session) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions`,
+    method: "POST",
+    credentials: "include",
+    body: session
+  });
+}
+
+export async function revokeTenantAccountSession(runtime, sessionId, { reason = "USER_REVOKED_ACCOUNT_SESSION" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const normalizedSessionId = String(sessionId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  if (!normalizedSessionId) throw new Error("sessionId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions/${encodeURIComponent(normalizedSessionId)}/revoke`,
+    method: "POST",
+    credentials: "include",
+    body: {
+      reason: String(reason ?? "").trim() || "USER_REVOKED_ACCOUNT_SESSION"
+    }
+  });
+}
+
+export async function fetchTenantBuyerNotificationPreview(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/preview`,
+    method: "GET",
+    credentials: "include"
+  });
+}
+
+export async function sendTenantBuyerNotificationTest(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/test`,
+    method: "POST",
+    credentials: "include"
+  });
+}
+
+export async function previewTenantBuyerProductNotification(runtime, payload) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/product-event/preview`,
+    method: "POST",
+    credentials: "include",
+    body: payload
+  });
+}
+
+export async function sendTenantBuyerProductNotification(runtime, payload) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  if (!normalizedTenantId) throw new Error("tenantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.authBaseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/product-event/send`,
+    method: "POST",
+    credentials: "include",
+    body: payload
+  });
+}
+
+export async function fetchWorkOrderReceipts(
+  runtime,
+  {
+    receiptId = "",
+    workOrderId = "",
+    principalAgentId = "",
+    subAgentId = "",
+    status = "",
+    limit = 100,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(receiptId).trim()) query.set("receiptId", String(receiptId).trim());
+  if (String(workOrderId).trim()) query.set("workOrderId", String(workOrderId).trim());
+  if (String(principalAgentId).trim()) query.set("principalAgentId", String(principalAgentId).trim());
+  if (String(subAgentId).trim()) query.set("subAgentId", String(subAgentId).trim());
+  if (String(status).trim()) query.set("status", String(status).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/work-orders/receipts${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchWorkOrderReceiptDetail(runtime, receiptId) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedReceiptId = String(receiptId ?? "").trim();
+  if (!normalizedReceiptId) throw new Error("receiptId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/work-orders/receipts/${encodeURIComponent(normalizedReceiptId)}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchRouterLaunchStatus(runtime, launchId) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedLaunchId = String(launchId ?? "").trim();
+  if (!normalizedLaunchId) throw new Error("launchId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/router/launches/${encodeURIComponent(normalizedLaunchId)}/status`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchRunDetail(runtime, runId) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedRunId = String(runId ?? "").trim();
+  if (!normalizedRunId) throw new Error("runId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/runs/${encodeURIComponent(normalizedRunId)}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function respondToRunActionRequired(
+  runtime,
+  runId,
+  {
+    providedFields = {},
+    providedEvidenceKinds = [],
+    evidenceRefs = [],
+    note = "",
+    respondedAt = null
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedRunId = String(runId ?? "").trim();
+  if (!normalizedRunId) throw new Error("runId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/runs/${encodeURIComponent(normalizedRunId)}/action-required/respond`,
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("run_action_response")
+    }),
+    body: {
+      providedFields:
+        providedFields && typeof providedFields === "object" && !Array.isArray(providedFields)
+          ? { ...providedFields }
+          : {},
+      providedEvidenceKinds: Array.isArray(providedEvidenceKinds)
+        ? providedEvidenceKinds.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : [],
+      evidenceRefs: Array.isArray(evidenceRefs)
+        ? evidenceRefs.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : [],
+      note: String(note ?? "").trim() || null,
+      respondedAt: respondedAt ? String(respondedAt).trim() : null
+    }
+  });
+}
+
+export async function runMarketplaceProviderConformance(
+  runtime,
+  {
+    providerId,
+    manifest,
+    baseUrl,
+    toolId = "",
+    providerSigningPublicKeyPem = ""
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: "/marketplace/providers/conformance/run",
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("provider_conformance")
+    }),
+    body: {
+      providerId,
+      manifest,
+      baseUrl,
+      ...(String(toolId).trim() ? { toolId: String(toolId).trim() } : {}),
+      ...(String(providerSigningPublicKeyPem).trim() ? { providerSigningPublicKeyPem: String(providerSigningPublicKeyPem).trim() } : {})
+    }
+  });
+}
+
+export async function publishMarketplaceProvider(
+  runtime,
+  {
+    providerId,
+    manifest,
+    baseUrl,
+    runConformance = true,
+    toolId = "",
+    providerSigningPublicKeyPem = "",
+    tags = [],
+    description = "",
+    contactUrl = "",
+    termsUrl = "",
+    publishProof,
+    publishProofJwksUrl
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: "/marketplace/providers/publish",
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("provider_publish")
+    }),
+    body: {
+      providerId,
+      manifest,
+      baseUrl,
+      runConformance: runConformance !== false,
+      ...(String(toolId).trim() ? { toolId: String(toolId).trim() } : {}),
+      ...(String(providerSigningPublicKeyPem).trim() ? { providerSigningPublicKeyPem: String(providerSigningPublicKeyPem).trim() } : {}),
+      ...(Array.isArray(tags) ? { tags: tags.map((value) => String(value ?? "").trim()).filter(Boolean) } : {}),
+      ...(String(description).trim() ? { description: String(description).trim() } : {}),
+      ...(String(contactUrl).trim() ? { contactUrl: String(contactUrl).trim() } : {}),
+      ...(String(termsUrl).trim() ? { termsUrl: String(termsUrl).trim() } : {}),
+      publishProof: String(publishProof ?? "").trim(),
+      publishProofJwksUrl: String(publishProofJwksUrl ?? "").trim()
+    }
+  });
+}
+
+export async function fetchMarketplaceProviderPublications(
+  runtime,
+  {
+    status = "all",
+    providerId = "",
+    providerRef = "",
+    q = "",
+    toolId = "",
+    limit = 20,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(status).trim()) query.set("status", String(status).trim());
+  if (String(providerId).trim()) query.set("providerId", String(providerId).trim());
+  if (String(providerRef).trim()) query.set("providerRef", String(providerRef).trim());
+  if (String(q).trim()) query.set("q", String(q).trim());
+  if (String(toolId).trim()) query.set("toolId", String(toolId).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/marketplace/providers${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchMarketplaceProviderPublication(runtime, providerRefOrId) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedProvider = String(providerRefOrId ?? "").trim();
+  if (!normalizedProvider) throw new Error("providerRefOrId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/marketplace/providers/${encodeURIComponent(normalizedProvider)}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchTenantX402WalletPolicies(
+  runtime,
+  {
+    sponsorWalletRef = "",
+    sponsorRef = "",
+    policyRef = "",
+    status = "",
+    limit = 200,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(sponsorWalletRef).trim()) query.set("sponsorWalletRef", String(sponsorWalletRef).trim());
+  if (String(sponsorRef).trim()) query.set("sponsorRef", String(sponsorRef).trim());
+  if (String(policyRef).trim()) query.set("policyRef", String(policyRef).trim());
+  if (String(status).trim()) query.set("status", String(status).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/ops/x402/wallet-policies${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchX402WalletPolicies(
+  runtime,
+  sponsorWalletRef,
+  {
+    policyRef = "",
+    policyVersion = "",
+    status = "",
+    limit = 20,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedWalletRef = String(sponsorWalletRef ?? "").trim();
+  if (!normalizedWalletRef) throw new Error("sponsorWalletRef is required");
+  const query = new URLSearchParams();
+  if (String(policyRef).trim()) query.set("policyRef", String(policyRef).trim());
+  if (String(policyVersion).trim()) query.set("policyVersion", String(policyVersion).trim());
+  if (String(status).trim()) query.set("status", String(status).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/x402/wallets/${encodeURIComponent(normalizedWalletRef)}/policy${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchArbitrationQueue(
+  runtime,
+  {
+    status = "",
+    openedSince = "",
+    runId = "",
+    caseId = "",
+    priority = "",
+    assignedArbiter = null,
+    slaHours = "",
+    limit = 50,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(status).trim()) query.set("status", String(status).trim());
+  if (String(openedSince).trim()) query.set("openedSince", String(openedSince).trim());
+  if (String(runId).trim()) query.set("runId", String(runId).trim());
+  if (String(caseId).trim()) query.set("caseId", String(caseId).trim());
+  if (String(priority).trim()) query.set("priority", String(priority).trim());
+  if (assignedArbiter === true) query.set("assignedArbiter", "true");
+  if (assignedArbiter === false) query.set("assignedArbiter", "false");
+  if (String(slaHours).trim()) query.set("slaHours", String(slaHours).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/ops/arbitration/queue${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchDisputeInbox(
+  runtime,
+  {
+    runId = "",
+    disputeId = "",
+    disputeStatus = "",
+    settlementStatus = "",
+    limit = 100,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(runId).trim()) query.set("runId", String(runId).trim());
+  if (String(disputeId).trim()) query.set("disputeId", String(disputeId).trim());
+  if (String(disputeStatus).trim()) query.set("disputeStatus", String(disputeStatus).trim());
+  if (String(settlementStatus).trim()) query.set("settlementStatus", String(settlementStatus).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/disputes${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchDisputeDetail(runtime, disputeId, { caseId = "" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedDisputeId = String(disputeId ?? "").trim();
+  if (!normalizedDisputeId) throw new Error("disputeId is required");
+  const query = new URLSearchParams();
+  if (String(caseId).trim()) query.set("caseId", String(caseId).trim());
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/disputes/${encodeURIComponent(normalizedDisputeId)}${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchAuthorityGrants(
+  runtime,
+  {
+    grantId = "",
+    grantHash = "",
+    principalId = "",
+    granteeAgentId = "",
+    includeRevoked = false,
+    limit = 100,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(grantId).trim()) query.set("grantId", String(grantId).trim());
+  if (String(grantHash).trim()) query.set("grantHash", String(grantHash).trim());
+  if (String(principalId).trim()) query.set("principalId", String(principalId).trim());
+  if (String(granteeAgentId).trim()) query.set("granteeAgentId", String(granteeAgentId).trim());
+  query.set("includeRevoked", includeRevoked === true ? "true" : "false");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/authority-grants${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function revokeAuthorityGrant(runtime, grantId, { revocationReasonCode = "USER_WALLET_REVOKE" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedGrantId = String(grantId ?? "").trim();
+  if (!normalizedGrantId) throw new Error("grantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/authority-grants/${encodeURIComponent(normalizedGrantId)}/revoke`,
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("wallet_authority_revoke")
+    }),
+    body: { revocationReasonCode }
+  });
+}
+
+export async function fetchDelegationGrants(
+  runtime,
+  {
+    grantId = "",
+    grantHash = "",
+    delegatorAgentId = "",
+    delegateeAgentId = "",
+    includeRevoked = false,
+    limit = 100,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const query = new URLSearchParams();
+  if (String(grantId).trim()) query.set("grantId", String(grantId).trim());
+  if (String(grantHash).trim()) query.set("grantHash", String(grantHash).trim());
+  if (String(delegatorAgentId).trim()) query.set("delegatorAgentId", String(delegatorAgentId).trim());
+  if (String(delegateeAgentId).trim()) query.set("delegateeAgentId", String(delegateeAgentId).trim());
+  query.set("includeRevoked", includeRevoked === true ? "true" : "false");
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/delegation-grants${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function revokeDelegationGrant(runtime, grantId, { reasonCode = "USER_WALLET_REVOKE" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedGrantId = String(grantId ?? "").trim();
+  if (!normalizedGrantId) throw new Error("grantId is required");
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/delegation-grants/${encodeURIComponent(normalizedGrantId)}/revoke`,
+    method: "POST",
+    headers: buildHeaders({
+      ...resolvedRuntime,
+      write: true,
+      idempotencyKey: createClientId("wallet_delegation_revoke")
+    }),
+    body: { reasonCode }
+  });
+}
+
+export async function fetchArbitrationWorkspace(runtime, caseId, { slaHours = "" } = {}) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedCaseId = String(caseId ?? "").trim();
+  if (!normalizedCaseId) throw new Error("caseId is required");
+  const query = new URLSearchParams();
+  if (String(slaHours).trim()) query.set("slaHours", String(slaHours).trim());
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/ops/arbitration/cases/${encodeURIComponent(normalizedCaseId)}/workspace${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchX402WalletBudgets(
+  runtime,
+  sponsorWalletRef,
+  {
+    policyRef = "",
+    policyVersion = "",
+    at = ""
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedWalletRef = String(sponsorWalletRef ?? "").trim();
+  if (!normalizedWalletRef) throw new Error("sponsorWalletRef is required");
+  const query = new URLSearchParams();
+  if (String(policyRef).trim()) query.set("policyRef", String(policyRef).trim());
+  if (String(policyVersion).trim()) query.set("policyVersion", String(policyVersion).trim());
+  if (String(at).trim()) query.set("at", String(at).trim());
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/x402/wallets/${encodeURIComponent(normalizedWalletRef)}/budgets${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
+export async function fetchX402WalletLedger(
+  runtime,
+  sponsorWalletRef,
+  {
+    agentId = "",
+    toolId = "",
+    state = "",
+    from = "",
+    to = "",
+    cursor = "",
+    limit = 50,
+    offset = 0
+  } = {}
+) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  const normalizedWalletRef = String(sponsorWalletRef ?? "").trim();
+  if (!normalizedWalletRef) throw new Error("sponsorWalletRef is required");
+  const query = new URLSearchParams();
+  if (String(agentId).trim()) query.set("agentId", String(agentId).trim());
+  if (String(toolId).trim()) query.set("toolId", String(toolId).trim());
+  if (String(state).trim()) query.set("state", String(state).trim());
+  if (String(from).trim()) query.set("from", String(from).trim());
+  if (String(to).trim()) query.set("to", String(to).trim());
+  if (String(cursor).trim()) query.set("cursor", String(cursor).trim());
+  if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(limit));
+  if (Number.isSafeInteger(Number(offset)) && Number(offset) >= 0) query.set("offset", String(offset));
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: `/x402/wallets/${encodeURIComponent(normalizedWalletRef)}/ledger${query.size ? `?${query.toString()}` : ""}`,
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
 }

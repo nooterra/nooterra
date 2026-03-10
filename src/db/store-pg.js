@@ -220,6 +220,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.simulationHarnessRuns.clear();
     if (!(store.financeReconciliationTriages instanceof Map)) store.financeReconciliationTriages = new Map();
     store.financeReconciliationTriages.clear();
+    if (!(store.opsRescueTriages instanceof Map)) store.opsRescueTriages = new Map();
+    store.opsRescueTriages.clear();
     if (!(store.marketplaceProviderPublications instanceof Map)) store.marketplaceProviderPublications = new Map();
     store.marketplaceProviderPublications.clear();
     if (!(store.marketplaceCapabilityListings instanceof Map)) store.marketplaceCapabilityListings = new Map();
@@ -481,6 +483,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           triageKey: snap?.triageKey ?? String(id)
         });
       }
+      if (type === "ops_rescue_triage") {
+        store.opsRescueTriages.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          rescueId: snap?.rescueId ?? String(id)
+        });
+      }
       if (type === "marketplace_provider_publication") {
         const providerRef =
           typeof snap?.providerRef === "string" && snap.providerRef.trim() !== ""
@@ -695,6 +704,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
   function financeReconciliationTriageMapKey({ tenantId, triageKey }) {
     return makeScopedKey({ tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID), id: String(triageKey) });
+  }
+
+  function opsRescueTriageMapKey({ tenantId, rescueId }) {
+    return makeScopedKey({ tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID), id: String(rescueId) });
   }
 
   function marketplaceProviderPublicationMapKey({ tenantId, providerRef }) {
@@ -1674,6 +1687,96 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       aggregateId: normalizedGrantId,
       snapshot: normalizedAuthorityGrant,
       updatedAt: normalizedAuthorityGrant.updatedAt ?? normalizedAuthorityGrant.createdAt ?? null
+    });
+  }
+
+  async function persistAuthorityEnvelope(client, { tenantId, envelopeId, authorityEnvelope }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!authorityEnvelope || typeof authorityEnvelope !== "object" || Array.isArray(authorityEnvelope)) {
+      throw new TypeError("authorityEnvelope is required");
+    }
+    const normalizedEnvelopeId =
+      envelopeId ? String(envelopeId) : authorityEnvelope.envelopeId ? String(authorityEnvelope.envelopeId) : null;
+    if (!normalizedEnvelopeId) throw new TypeError("envelopeId is required");
+    const normalizedAuthorityEnvelope = { ...authorityEnvelope, tenantId, envelopeId: normalizedEnvelopeId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "authority_envelope",
+      aggregateId: normalizedEnvelopeId,
+      snapshot: normalizedAuthorityEnvelope,
+      updatedAt: normalizedAuthorityEnvelope.updatedAt ?? normalizedAuthorityEnvelope.createdAt ?? null
+    });
+  }
+
+  async function persistApprovalRequest(client, { tenantId, requestId, approvalRequest }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!approvalRequest || typeof approvalRequest !== "object" || Array.isArray(approvalRequest)) {
+      throw new TypeError("approvalRequest is required");
+    }
+    const normalizedRequestId =
+      requestId ? String(requestId) : approvalRequest.requestId ? String(approvalRequest.requestId) : null;
+    if (!normalizedRequestId) throw new TypeError("requestId is required");
+    const normalizedApprovalRequest = { ...approvalRequest, tenantId, requestId: normalizedRequestId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "approval_request",
+      aggregateId: normalizedRequestId,
+      snapshot: normalizedApprovalRequest,
+      updatedAt: normalizedApprovalRequest.updatedAt ?? normalizedApprovalRequest.requestedAt ?? null
+    });
+  }
+
+  async function persistApprovalDecision(client, { tenantId, decisionId, approvalDecision }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!approvalDecision || typeof approvalDecision !== "object" || Array.isArray(approvalDecision)) {
+      throw new TypeError("approvalDecision is required");
+    }
+    const normalizedDecisionId =
+      decisionId ? String(decisionId) : approvalDecision.decisionId ? String(approvalDecision.decisionId) : null;
+    if (!normalizedDecisionId) throw new TypeError("decisionId is required");
+    const normalizedApprovalDecision = { ...approvalDecision, tenantId, decisionId: normalizedDecisionId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "approval_decision",
+      aggregateId: normalizedDecisionId,
+      snapshot: normalizedApprovalDecision,
+      updatedAt: normalizedApprovalDecision.updatedAt ?? normalizedApprovalDecision.decidedAt ?? null
+    });
+  }
+
+  async function persistApprovalStandingPolicy(client, { tenantId, policyId, approvalStandingPolicy }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!approvalStandingPolicy || typeof approvalStandingPolicy !== "object" || Array.isArray(approvalStandingPolicy)) {
+      throw new TypeError("approvalStandingPolicy is required");
+    }
+    const normalizedPolicyId =
+      policyId ? String(policyId) : approvalStandingPolicy.policyId ? String(approvalStandingPolicy.policyId) : null;
+    if (!normalizedPolicyId) throw new TypeError("policyId is required");
+    const normalizedApprovalStandingPolicy = { ...approvalStandingPolicy, tenantId, policyId: normalizedPolicyId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "approval_standing_policy",
+      aggregateId: normalizedPolicyId,
+      snapshot: normalizedApprovalStandingPolicy,
+      updatedAt: normalizedApprovalStandingPolicy.updatedAt ?? normalizedApprovalStandingPolicy.createdAt ?? null
+    });
+  }
+
+  async function persistApprovalContinuation(client, { tenantId, requestId, approvalContinuation }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!approvalContinuation || typeof approvalContinuation !== "object" || Array.isArray(approvalContinuation)) {
+      throw new TypeError("approvalContinuation is required");
+    }
+    const normalizedRequestId =
+      requestId ? String(requestId) : approvalContinuation.requestId ? String(approvalContinuation.requestId) : null;
+    if (!normalizedRequestId) throw new TypeError("requestId is required");
+    const normalizedApprovalContinuation = { ...approvalContinuation, tenantId, requestId: normalizedRequestId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "approval_continuation",
+      aggregateId: normalizedRequestId,
+      snapshot: normalizedApprovalContinuation,
+      updatedAt: normalizedApprovalContinuation.updatedAt ?? normalizedApprovalContinuation.createdAt ?? null
     });
   }
 
@@ -2919,6 +3022,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGREEMENT_DELEGATION_UPSERT",
       "DELEGATION_GRANT_UPSERT",
       "AUTHORITY_GRANT_UPSERT",
+      "AUTHORITY_ENVELOPE_UPSERT",
+      "APPROVAL_REQUEST_UPSERT",
+      "APPROVAL_DECISION_UPSERT",
+      "APPROVAL_STANDING_POLICY_UPSERT",
       "TASK_QUOTE_UPSERT",
       "TASK_OFFER_UPSERT",
       "TASK_ACCEPTANCE_UPSERT",
@@ -3799,6 +3906,46 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.authorityGrant?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAuthorityGrant(client, { tenantId, grantId: op.grantId, authorityGrant: op.authorityGrant });
         }
+        if (op.kind === "AUTHORITY_ENVELOPE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.authorityEnvelope?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAuthorityEnvelope(client, {
+            tenantId,
+            envelopeId: op.envelopeId,
+            authorityEnvelope: op.authorityEnvelope
+          });
+        }
+        if (op.kind === "APPROVAL_REQUEST_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.approvalRequest?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistApprovalRequest(client, {
+            tenantId,
+            requestId: op.requestId,
+            approvalRequest: op.approvalRequest
+          });
+        }
+        if (op.kind === "APPROVAL_DECISION_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.approvalDecision?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistApprovalDecision(client, {
+            tenantId,
+            decisionId: op.decisionId,
+            approvalDecision: op.approvalDecision
+          });
+        }
+        if (op.kind === "APPROVAL_STANDING_POLICY_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.approvalStandingPolicy?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistApprovalStandingPolicy(client, {
+            tenantId,
+            policyId: op.policyId,
+            approvalStandingPolicy: op.approvalStandingPolicy
+          });
+        }
+        if (op.kind === "APPROVAL_CONTINUATION_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.approvalContinuation?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistApprovalContinuation(client, {
+            tenantId,
+            requestId: op.requestId,
+            approvalContinuation: op.approvalContinuation
+          });
+        }
         if (op.kind === "TASK_QUOTE_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.taskQuote?.tenantId ?? DEFAULT_TENANT_ID);
           await persistTaskQuote(client, { tenantId, quoteId: op.quoteId, taskQuote: op.taskQuote });
@@ -4148,6 +4295,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       ...triage,
       tenantId,
       triageKey
+    };
+  }
+
+  function opsRescueTriageSnapshotRowToRecord(row) {
+    const triage = row?.snapshot_json ?? null;
+    if (!triage || typeof triage !== "object" || Array.isArray(triage)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? triage?.tenantId ?? DEFAULT_TENANT_ID);
+    const rescueId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof triage?.rescueId === "string" && triage.rescueId.trim() !== ""
+          ? triage.rescueId.trim()
+          : null;
+    if (!rescueId) return null;
+    return {
+      ...triage,
+      tenantId,
+      rescueId
     };
   }
 
@@ -4734,6 +4899,136 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return applyFilters(res.rows.map(financeReconciliationTriageSnapshotRowToRecord).filter(Boolean));
   };
 
+  store.getOpsRescueTriage = async function getOpsRescueTriage({
+    tenantId = DEFAULT_TENANT_ID,
+    rescueId
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(rescueId, "rescueId");
+    const normalizedRescueId = String(rescueId).trim();
+    const res = await pool.query(
+      `
+        SELECT tenant_id, aggregate_id, snapshot_json
+        FROM snapshots
+        WHERE tenant_id = $1 AND aggregate_type = 'ops_rescue_triage' AND aggregate_id = $2
+        LIMIT 1
+      `,
+      [tenantId, normalizedRescueId]
+    );
+    return res.rows.length ? opsRescueTriageSnapshotRowToRecord(res.rows[0]) : null;
+  };
+
+  store.putOpsRescueTriage = async function putOpsRescueTriage({
+    tenantId = DEFAULT_TENANT_ID,
+    triage,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!triage || typeof triage !== "object" || Array.isArray(triage)) throw new TypeError("triage is required");
+    const rescueId = assertNonEmptyString(triage.rescueId ?? null, "triage.rescueId");
+    const status = assertNonEmptyString(triage.status ?? null, "triage.status").toLowerCase();
+    const existing = await store.getOpsRescueTriage({ tenantId, rescueId });
+    const nowAt = new Date().toISOString();
+    const normalized = {
+      schemaVersion: triage.schemaVersion ?? "OpsRescueTriage.v1",
+      tenantId,
+      rescueId,
+      sourceType:
+        triage.sourceType === null || triage.sourceType === undefined || String(triage.sourceType).trim() === ""
+          ? null
+          : String(triage.sourceType).trim().toLowerCase(),
+      rescueState:
+        triage.rescueState === null || triage.rescueState === undefined || String(triage.rescueState).trim() === ""
+          ? null
+          : String(triage.rescueState).trim().toLowerCase(),
+      status,
+      ownerPrincipalId:
+        triage.ownerPrincipalId === null || triage.ownerPrincipalId === undefined || String(triage.ownerPrincipalId).trim() === ""
+          ? null
+          : String(triage.ownerPrincipalId).trim(),
+      notes:
+        triage.notes === null || triage.notes === undefined || String(triage.notes).trim() === ""
+          ? null
+          : String(triage.notes).trim(),
+      metadata:
+        triage.metadata && typeof triage.metadata === "object" && !Array.isArray(triage.metadata)
+          ? { ...triage.metadata }
+          : null,
+      actionLog: Array.isArray(triage.actionLog) ? triage.actionLog.slice(0, 50) : existing?.actionLog ?? [],
+      revision:
+        Number.isSafeInteger(triage.revision) && triage.revision > 0
+          ? Number(triage.revision)
+          : Number(existing?.revision ?? 0) + 1,
+      createdAt: parseIsoOrNull(triage.createdAt) ?? existing?.createdAt ?? nowAt,
+      updatedAt: parseIsoOrNull(triage.updatedAt) ?? nowAt,
+      resolvedAt: parseIsoOrNull(triage.resolvedAt) ?? null,
+      resolvedByPrincipalId:
+        triage.resolvedByPrincipalId === null || triage.resolvedByPrincipalId === undefined || String(triage.resolvedByPrincipalId).trim() === ""
+          ? null
+          : String(triage.resolvedByPrincipalId).trim()
+    };
+
+    await withTx(async (client) => {
+      await persistSnapshotAggregate(client, {
+        tenantId,
+        aggregateType: "ops_rescue_triage",
+        aggregateId: rescueId,
+        snapshot: normalized,
+        updatedAt: normalized.updatedAt
+      });
+      if (audit) await insertOpsAuditRow(client, { tenantId, audit });
+    });
+
+    if (!(store.opsRescueTriages instanceof Map)) store.opsRescueTriages = new Map();
+    store.opsRescueTriages.set(opsRescueTriageMapKey({ tenantId, rescueId }), normalized);
+    return normalized;
+  };
+
+  store.listOpsRescueTriages = async function listOpsRescueTriages({
+    tenantId = DEFAULT_TENANT_ID,
+    rescueId = null,
+    status = null,
+    ownerPrincipalId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (rescueId !== null) rescueId = assertNonEmptyString(rescueId, "rescueId");
+    if (status !== null) status = assertNonEmptyString(status, "status").toLowerCase();
+    if (ownerPrincipalId !== null) ownerPrincipalId = assertNonEmptyString(ownerPrincipalId, "ownerPrincipalId");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+
+    function applyFilters(rows) {
+      const filtered = rows.filter((row) => {
+        if (!row) return false;
+        if (rescueId !== null && String(row.rescueId ?? "") !== rescueId) return false;
+        if (status !== null && String(row.status ?? "").toLowerCase() !== status) return false;
+        if (ownerPrincipalId !== null && String(row.ownerPrincipalId ?? "") !== ownerPrincipalId) return false;
+        return true;
+      });
+      filtered.sort((left, right) => {
+        const leftMs = Date.parse(String(left?.updatedAt ?? left?.createdAt ?? ""));
+        const rightMs = Date.parse(String(right?.updatedAt ?? right?.createdAt ?? ""));
+        if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+        return String(left?.rescueId ?? "").localeCompare(String(right?.rescueId ?? ""));
+      });
+      return filtered;
+    }
+
+    const res = await pool.query(
+      `
+        SELECT tenant_id, aggregate_id, snapshot_json
+        FROM snapshots
+        WHERE tenant_id = $1 AND aggregate_type = 'ops_rescue_triage'
+      `,
+      [tenantId]
+    );
+    return applyFilters(res.rows.map(opsRescueTriageSnapshotRowToRecord).filter(Boolean)).slice(safeOffset, safeOffset + safeLimit);
+  };
+
   store.getMarketplaceProviderPublication = async function getMarketplaceProviderPublication({
     tenantId = DEFAULT_TENANT_ID,
     providerId = null,
@@ -5141,6 +5436,96 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       ...authorityGrant,
       tenantId,
       grantId
+    };
+  }
+
+  function authorityEnvelopeSnapshotRowToRecord(row) {
+    const authorityEnvelope = row?.snapshot_json ?? null;
+    if (!authorityEnvelope || typeof authorityEnvelope !== "object" || Array.isArray(authorityEnvelope)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? authorityEnvelope?.tenantId ?? DEFAULT_TENANT_ID);
+    const envelopeId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof authorityEnvelope?.envelopeId === "string" && authorityEnvelope.envelopeId.trim() !== ""
+          ? authorityEnvelope.envelopeId.trim()
+          : null;
+    if (!envelopeId) return null;
+    return {
+      ...authorityEnvelope,
+      tenantId,
+      envelopeId
+    };
+  }
+
+  function approvalRequestSnapshotRowToRecord(row) {
+    const approvalRequest = row?.snapshot_json ?? null;
+    if (!approvalRequest || typeof approvalRequest !== "object" || Array.isArray(approvalRequest)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? approvalRequest?.tenantId ?? DEFAULT_TENANT_ID);
+    const requestId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof approvalRequest?.requestId === "string" && approvalRequest.requestId.trim() !== ""
+          ? approvalRequest.requestId.trim()
+          : null;
+    if (!requestId) return null;
+    return {
+      ...approvalRequest,
+      tenantId,
+      requestId
+    };
+  }
+
+  function approvalDecisionSnapshotRowToRecord(row) {
+    const approvalDecision = row?.snapshot_json ?? null;
+    if (!approvalDecision || typeof approvalDecision !== "object" || Array.isArray(approvalDecision)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? approvalDecision?.tenantId ?? DEFAULT_TENANT_ID);
+    const decisionId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof approvalDecision?.decisionId === "string" && approvalDecision.decisionId.trim() !== ""
+          ? approvalDecision.decisionId.trim()
+          : null;
+    if (!decisionId) return null;
+    return {
+      ...approvalDecision,
+      tenantId,
+      decisionId
+    };
+  }
+
+  function approvalStandingPolicySnapshotRowToRecord(row) {
+    const approvalStandingPolicy = row?.snapshot_json ?? null;
+    if (!approvalStandingPolicy || typeof approvalStandingPolicy !== "object" || Array.isArray(approvalStandingPolicy)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? approvalStandingPolicy?.tenantId ?? DEFAULT_TENANT_ID);
+    const policyId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof approvalStandingPolicy?.policyId === "string" && approvalStandingPolicy.policyId.trim() !== ""
+          ? approvalStandingPolicy.policyId.trim()
+          : null;
+    if (!policyId) return null;
+    return {
+      ...approvalStandingPolicy,
+      tenantId,
+      policyId
+    };
+  }
+
+  function approvalContinuationSnapshotRowToRecord(row) {
+    const approvalContinuation = row?.snapshot_json ?? null;
+    if (!approvalContinuation || typeof approvalContinuation !== "object" || Array.isArray(approvalContinuation)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? approvalContinuation?.tenantId ?? DEFAULT_TENANT_ID);
+    const requestId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof approvalContinuation?.requestId === "string" && approvalContinuation.requestId.trim() !== ""
+          ? approvalContinuation.requestId.trim()
+          : null;
+    if (!requestId) return null;
+    return {
+      ...approvalContinuation,
+      tenantId,
+      requestId
     };
   }
 
@@ -6323,6 +6708,420 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
   };
 
+  store.getAuthorityEnvelope = async function getAuthorityEnvelope({ tenantId = DEFAULT_TENANT_ID, envelopeId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(envelopeId, "envelopeId");
+    const normalizedEnvelopeId = String(envelopeId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_envelope' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedEnvelopeId]
+      );
+      return res.rows.length ? authorityEnvelopeSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.authorityEnvelopes.get(makeScopedKey({ tenantId, id: normalizedEnvelopeId })) ?? null;
+    }
+  };
+
+  store.listAuthorityEnvelopes = async function listAuthorityEnvelopes({
+    tenantId = DEFAULT_TENANT_ID,
+    envelopeId = null,
+    envelopeHash = null,
+    actorAgentId = null,
+    principalId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (envelopeId !== null && (typeof envelopeId !== "string" || envelopeId.trim() === "")) {
+      throw new TypeError("envelopeId must be null or a non-empty string");
+    }
+    if (envelopeHash !== null && (typeof envelopeHash !== "string" || envelopeHash.trim() === "")) {
+      throw new TypeError("envelopeHash must be null or a non-empty string");
+    }
+    if (actorAgentId !== null && (typeof actorAgentId !== "string" || actorAgentId.trim() === "")) {
+      throw new TypeError("actorAgentId must be null or a non-empty string");
+    }
+    if (principalId !== null && (typeof principalId !== "string" || principalId.trim() === "")) {
+      throw new TypeError("principalId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const envelopeIdFilter = envelopeId ? String(envelopeId).trim() : null;
+    const envelopeHashFilter = envelopeHash ? String(envelopeHash).trim().toLowerCase() : null;
+    const actorFilter = actorAgentId ? String(actorAgentId).trim() : null;
+    const principalFilter = principalId ? String(principalId).trim() : null;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (envelopeIdFilter && String(row.envelopeId ?? "") !== envelopeIdFilter) continue;
+        if (envelopeHashFilter && String(row.envelopeHash ?? "").toLowerCase() !== envelopeHashFilter) continue;
+        if (actorFilter && String(row?.actor?.agentId ?? "") !== actorFilter) continue;
+        if (principalFilter && String(row?.principalRef?.principalId ?? "") !== principalFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.envelopeId ?? "").localeCompare(String(right.envelopeId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_envelope'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(authorityEnvelopeSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.authorityEnvelopes.values()));
+    }
+  };
+
+  store.getApprovalRequest = async function getApprovalRequest({ tenantId = DEFAULT_TENANT_ID, requestId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(requestId, "requestId");
+    const normalizedRequestId = String(requestId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_request' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedRequestId]
+      );
+      return res.rows.length ? approvalRequestSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.approvalRequests.get(makeScopedKey({ tenantId, id: normalizedRequestId })) ?? null;
+    }
+  };
+
+  store.listApprovalRequests = async function listApprovalRequests({
+    tenantId = DEFAULT_TENANT_ID,
+    requestId = null,
+    envelopeId = null,
+    envelopeHash = null,
+    requestedBy = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (requestId !== null && (typeof requestId !== "string" || requestId.trim() === "")) {
+      throw new TypeError("requestId must be null or a non-empty string");
+    }
+    if (envelopeId !== null && (typeof envelopeId !== "string" || envelopeId.trim() === "")) {
+      throw new TypeError("envelopeId must be null or a non-empty string");
+    }
+    if (envelopeHash !== null && (typeof envelopeHash !== "string" || envelopeHash.trim() === "")) {
+      throw new TypeError("envelopeHash must be null or a non-empty string");
+    }
+    if (requestedBy !== null && (typeof requestedBy !== "string" || requestedBy.trim() === "")) {
+      throw new TypeError("requestedBy must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const requestIdFilter = requestId ? String(requestId).trim() : null;
+    const envelopeIdFilter = envelopeId ? String(envelopeId).trim() : null;
+    const envelopeHashFilter = envelopeHash ? String(envelopeHash).trim().toLowerCase() : null;
+    const requestedByFilter = requestedBy ? String(requestedBy).trim() : null;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (requestIdFilter && String(row.requestId ?? "") !== requestIdFilter) continue;
+        if (envelopeIdFilter && String(row?.envelopeRef?.envelopeId ?? "") !== envelopeIdFilter) continue;
+        if (envelopeHashFilter && String(row?.envelopeRef?.envelopeHash ?? "").toLowerCase() !== envelopeHashFilter) continue;
+        if (requestedByFilter && String(row.requestedBy ?? "") !== requestedByFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.requestId ?? "").localeCompare(String(right.requestId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_request'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(approvalRequestSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.approvalRequests.values()));
+    }
+  };
+
+  store.getApprovalDecision = async function getApprovalDecision({ tenantId = DEFAULT_TENANT_ID, decisionId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(decisionId, "decisionId");
+    const normalizedDecisionId = String(decisionId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_decision' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedDecisionId]
+      );
+      return res.rows.length ? approvalDecisionSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.approvalDecisions.get(makeScopedKey({ tenantId, id: normalizedDecisionId })) ?? null;
+    }
+  };
+
+  store.listApprovalDecisions = async function listApprovalDecisions({
+    tenantId = DEFAULT_TENANT_ID,
+    decisionId = null,
+    requestId = null,
+    decidedBy = null,
+    approved = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (decisionId !== null && (typeof decisionId !== "string" || decisionId.trim() === "")) {
+      throw new TypeError("decisionId must be null or a non-empty string");
+    }
+    if (requestId !== null && (typeof requestId !== "string" || requestId.trim() === "")) {
+      throw new TypeError("requestId must be null or a non-empty string");
+    }
+    if (decidedBy !== null && (typeof decidedBy !== "string" || decidedBy.trim() === "")) {
+      throw new TypeError("decidedBy must be null or a non-empty string");
+    }
+    if (approved !== null && approved !== undefined && typeof approved !== "boolean") {
+      throw new TypeError("approved must be null or a boolean");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const decisionIdFilter = decisionId ? String(decisionId).trim() : null;
+    const requestIdFilter = requestId ? String(requestId).trim() : null;
+    const decidedByFilter = decidedBy ? String(decidedBy).trim() : null;
+    const approvedFilter = typeof approved === "boolean" ? approved : null;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (decisionIdFilter && String(row.decisionId ?? "") !== decisionIdFilter) continue;
+        if (requestIdFilter && String(row.requestId ?? "") !== requestIdFilter) continue;
+        if (decidedByFilter && String(row.decidedBy ?? "") !== decidedByFilter) continue;
+        if (approvedFilter !== null && Boolean(row.approved) !== approvedFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.decisionId ?? "").localeCompare(String(right.decisionId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_decision'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(approvalDecisionSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.approvalDecisions.values()));
+    }
+  };
+
+  store.getApprovalStandingPolicy = async function getApprovalStandingPolicy({ tenantId = DEFAULT_TENANT_ID, policyId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(policyId, "policyId");
+    const normalizedPolicyId = String(policyId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_standing_policy' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedPolicyId]
+      );
+      return res.rows.length ? approvalStandingPolicySnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.approvalStandingPolicies.get(makeScopedKey({ tenantId, id: normalizedPolicyId })) ?? null;
+    }
+  };
+
+  store.listApprovalStandingPolicies = async function listApprovalStandingPolicies({
+    tenantId = DEFAULT_TENANT_ID,
+    policyId = null,
+    principalId = null,
+    principalType = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (policyId !== null && (typeof policyId !== "string" || policyId.trim() === "")) {
+      throw new TypeError("policyId must be null or a non-empty string");
+    }
+    if (principalId !== null && (typeof principalId !== "string" || principalId.trim() === "")) {
+      throw new TypeError("principalId must be null or a non-empty string");
+    }
+    if (principalType !== null && (typeof principalType !== "string" || principalType.trim() === "")) {
+      throw new TypeError("principalType must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) {
+      throw new TypeError("status must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const policyIdFilter = policyId ? String(policyId).trim() : null;
+    const principalIdFilter = principalId ? String(principalId).trim() : null;
+    const principalTypeFilter = principalType ? String(principalType).trim().toLowerCase() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (policyIdFilter && String(row.policyId ?? "") !== policyIdFilter) continue;
+        if (principalIdFilter && String(row?.principalRef?.principalId ?? "") !== principalIdFilter) continue;
+        if (principalTypeFilter && String(row?.principalRef?.principalType ?? "").toLowerCase() !== principalTypeFilter) continue;
+        if (statusFilter && String(row?.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.policyId ?? "").localeCompare(String(right.policyId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_standing_policy'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(approvalStandingPolicySnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.approvalStandingPolicies.values()));
+    }
+  };
+
+  store.getApprovalContinuation = async function getApprovalContinuation({ tenantId = DEFAULT_TENANT_ID, requestId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(requestId, "requestId");
+    const normalizedRequestId = String(requestId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_continuation' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedRequestId]
+      );
+      return res.rows.length ? approvalContinuationSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.approvalContinuations.get(makeScopedKey({ tenantId, id: normalizedRequestId })) ?? null;
+    }
+  };
+
+  store.listApprovalContinuations = async function listApprovalContinuations({
+    tenantId = DEFAULT_TENANT_ID,
+    requestId = null,
+    status = null,
+    kind = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (requestId !== null && (typeof requestId !== "string" || requestId.trim() === "")) {
+      throw new TypeError("requestId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) {
+      throw new TypeError("status must be null or a non-empty string");
+    }
+    if (kind !== null && (typeof kind !== "string" || kind.trim() === "")) {
+      throw new TypeError("kind must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const requestIdFilter = requestId ? String(requestId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const kindFilter = kind ? String(kind).trim().toLowerCase() : null;
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (requestIdFilter && String(row.requestId ?? "") !== requestIdFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (kindFilter && String(row.kind ?? "").toLowerCase() !== kindFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.requestId ?? "").localeCompare(String(right.requestId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'approval_continuation'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(approvalContinuationSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.approvalContinuations.values()));
+    }
+  };
+
   store.getTaskQuote = async function getTaskQuote({ tenantId = DEFAULT_TENANT_ID, quoteId } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     assertNonEmptyString(quoteId, "quoteId");
@@ -7195,6 +7994,101 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return store.agentRunSettlements.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+    }
+  };
+
+  store.listAgentRunSettlements = async function listAgentRunSettlements({
+    tenantId = DEFAULT_TENANT_ID,
+    runId = null,
+    agentId = null,
+    payerAgentId = null,
+    disputeId = null,
+    disputeStatus = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (runId !== null) assertNonEmptyString(runId, "runId");
+    if (agentId !== null) assertNonEmptyString(agentId, "agentId");
+    if (payerAgentId !== null) assertNonEmptyString(payerAgentId, "payerAgentId");
+    if (disputeId !== null) assertNonEmptyString(disputeId, "disputeId");
+    if (disputeStatus !== null) assertNonEmptyString(disputeStatus, "disputeStatus");
+    if (status !== null) assertNonEmptyString(status, "status");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1"];
+      if (runId !== null) {
+        params.push(String(runId));
+        where.push(`run_id = $${params.length}`);
+      }
+      if (agentId !== null) {
+        params.push(String(agentId));
+        where.push(`agent_id = $${params.length}`);
+      }
+      if (payerAgentId !== null) {
+        params.push(String(payerAgentId));
+        where.push(`payer_agent_id = $${params.length}`);
+      }
+      if (disputeId !== null) {
+        params.push(String(disputeId));
+        where.push(`settlement_json->>'disputeId' = $${params.length}`);
+      }
+      if (disputeStatus !== null) {
+        params.push(String(disputeStatus).trim().toLowerCase());
+        where.push(`lower(coalesce(settlement_json->>'disputeStatus', '')) = $${params.length}`);
+      }
+      if (status !== null) {
+        params.push(String(status).trim().toLowerCase());
+        where.push(`lower(status) = $${params.length}`);
+      }
+      params.push(safeLimit);
+      params.push(safeOffset);
+      const res = await pool.query(
+        `
+          SELECT
+            tenant_id, run_id, status, agent_id, payer_agent_id, amount_cents, currency,
+            resolution_event_id, run_status, revision, locked_at, resolved_at, created_at, updated_at, settlement_json
+          FROM agent_run_settlements
+          WHERE ${where.join(" AND ")}
+          ORDER BY updated_at DESC, run_id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}
+        `,
+        params
+      );
+      return res.rows.map(agentRunSettlementRowToRecord).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      const normalizedDisputeStatus = disputeStatus === null ? null : String(disputeStatus).trim().toLowerCase();
+      const normalizedStatus = status === null ? null : String(status).trim().toLowerCase();
+      const out = [];
+      for (const row of store.agentRunSettlements.values()) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (runId !== null && String(row.runId ?? "") !== String(runId)) continue;
+        if (agentId !== null && String(row.agentId ?? "") !== String(agentId)) continue;
+        if (payerAgentId !== null && String(row.payerAgentId ?? "") !== String(payerAgentId)) continue;
+        if (disputeId !== null && String(row.disputeId ?? "") !== String(disputeId)) continue;
+        if (normalizedDisputeStatus !== null && String(row.disputeStatus ?? "").toLowerCase() !== normalizedDisputeStatus) continue;
+        if (normalizedStatus !== null && String(row.status ?? "").toLowerCase() !== normalizedStatus) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => {
+        const leftAt = Number.isFinite(Date.parse(String(left?.updatedAt ?? left?.disputeOpenedAt ?? left?.lockedAt ?? "")))
+          ? Date.parse(String(left.updatedAt ?? left.disputeOpenedAt ?? left.lockedAt))
+          : Number.NaN;
+        const rightAt = Number.isFinite(Date.parse(String(right?.updatedAt ?? right?.disputeOpenedAt ?? right?.lockedAt ?? "")))
+          ? Date.parse(String(right.updatedAt ?? right.disputeOpenedAt ?? right.lockedAt))
+          : Number.NaN;
+        if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+        return String(left?.runId ?? "").localeCompare(String(right?.runId ?? ""));
+      });
+      return out.slice(safeOffset, safeOffset + safeLimit);
     }
   };
 

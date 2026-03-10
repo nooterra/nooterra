@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/ApprovalDecision.v1.schema.json",
+  "title": "ApprovalDecision.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "requestId",
+    "envelopeHash",
+    "actionId",
+    "actionSha256",
+    "decidedBy",
+    "decidedAt",
+    "approved",
+    "evidenceRefs",
+    "decisionHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ApprovalDecision.v1" },
+    "decisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "envelopeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "actionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "actionSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "decidedBy": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "decidedAt": { "type": "string", "format": "date-time" },
+    "approved": { "type": "boolean" },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "uniqueItems": true },
+    "binding": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "gateId": { "type": ["string", "null"] },
+        "runId": { "type": ["string", "null"] },
+        "settlementId": { "type": ["string", "null"] },
+        "delegationGrantRef": { "type": ["string", "null"] },
+        "authorityGrantRef": { "type": ["string", "null"] },
+        "policyHashSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "policyVersion": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "metadata": { "type": ["object", "null"], "additionalProperties": true },
+    "decisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -1,6 +1,7 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { sha256Hex } from "./crypto.js";
 import { normalizeCapabilityIdentifier } from "./capability-attestation.js";
+import { evaluatePhase1TaskPolicy } from "./phase1-task-policy.js";
 
 export const ROUTER_PLAN_SCHEMA_VERSION = "RouterPlan.v1";
 export const ROUTER_REQUEST_SCHEMA_VERSION = "RouterRequest.v1";
@@ -25,7 +26,8 @@ export const ROUTER_PLAN_ISSUE_CODE = Object.freeze({
   INTENT_NO_MATCH: "ROUTER_INTENT_NO_MATCH",
   INTENT_AMBIGUOUS: "ROUTER_INTENT_AMBIGUOUS",
   CAPABILITY_NO_CANDIDATES: "ROUTER_CAPABILITY_NO_CANDIDATES",
-  CAPABILITY_EXPLICIT_INVALID: "ROUTER_CAPABILITY_EXPLICIT_INVALID"
+  CAPABILITY_EXPLICIT_INVALID: "ROUTER_CAPABILITY_EXPLICIT_INVALID",
+  PHASE1_TASK_UNSUPPORTED: "ROUTER_PHASE1_TASK_UNSUPPORTED"
 });
 
 function assertPlainObject(value, name) {
@@ -195,16 +197,92 @@ function computeIntentScores(textLower) {
     score: codeScore
   });
 
+  let compareScore = 0;
+  if (/\bcompare\w*\b/.test(textLower)) compareScore += 4;
+  if (/\boption\w*\b/.test(textLower)) compareScore += 2;
+  if (/\brecommend\w*\b/.test(textLower)) compareScore += 3;
+  if (/\btradeoff\w*\b/.test(textLower)) compareScore += 2;
+  if (/\bbest\b/.test(textLower)) compareScore += 1;
+  scored.push({
+    intentId: "intent.comparison.selection",
+    label: "Comparison and selection",
+    score: compareScore
+  });
+
+  let purchaseScore = 0;
+  if (/\bbuy\w*\b/.test(textLower)) purchaseScore += 4;
+  if (/\border\w*\b/.test(textLower)) purchaseScore += 4;
+  if (/\bpurchase\w*\b/.test(textLower)) purchaseScore += 4;
+  if (/\breplacement\b/.test(textLower)) purchaseScore += 2;
+  if (/\bunder\b/.test(textLower) && /\$\d+/.test(textLower)) purchaseScore += 3;
+  if (/\bcharger\b/.test(textLower) || /\bchair\b/.test(textLower) || /\blaptop\b/.test(textLower)) purchaseScore += 1;
+  scored.push({
+    intentId: "intent.purchase.sourcing",
+    label: "Purchase under a cap",
+    score: purchaseScore
+  });
+
+  let schedulingScore = 0;
+  if (/\bschedul\w*\b/.test(textLower)) schedulingScore += 4;
+  if (/\bappointment\w*\b/.test(textLower)) schedulingScore += 4;
+  if (/\bcalendar\b/.test(textLower)) schedulingScore += 2;
+  if (/\bdentist\b/.test(textLower)) schedulingScore += 3;
+  if (/\breservation\w*\b/.test(textLower)) schedulingScore += 3;
+  scored.push({
+    intentId: "intent.scheduling.booking",
+    label: "Scheduling and booking",
+    score: schedulingScore
+  });
+
+  let subscriptionScore = 0;
+  if (/\bcancel\w*\b/.test(textLower)) subscriptionScore += 4;
+  if (/\bsubscription\w*\b/.test(textLower)) subscriptionScore += 4;
+  if (/\bgym\b/.test(textLower)) subscriptionScore += 3;
+  if (/\bmembership\w*\b/.test(textLower)) subscriptionScore += 3;
+  if (/\binternet bill\b/.test(textLower)) subscriptionScore += 3;
+  scored.push({
+    intentId: "intent.subscription.management",
+    label: "Subscription and account management",
+    score: subscriptionScore
+  });
+
+  let supportScore = 0;
+  if (/\brefund\w*\b/.test(textLower)) supportScore += 4;
+  if (/\bclaim\w*\b/.test(textLower)) supportScore += 3;
+  if (/\bsupport\b/.test(textLower)) supportScore += 3;
+  if (/\bfollow up\b/.test(textLower)) supportScore += 4;
+  if (/\bescalat\w*\b/.test(textLower)) supportScore += 2;
+  if (/\bnever arrived\b/.test(textLower)) supportScore += 3;
+  scored.push({
+    intentId: "intent.support.follow_up",
+    label: "Support and refund follow-up",
+    score: supportScore
+  });
+
   let travelScore = 0;
   if (/\bbook\w*\b/.test(textLower)) travelScore += 3;
   if (/\bflight\w*\b/.test(textLower)) travelScore += 4;
   if (/\bhotel\w*\b/.test(textLower)) travelScore += 4;
   if (/\btravel\w*\b/.test(textLower)) travelScore += 2;
   if (/\bairbnb\b/.test(textLower)) travelScore += 4;
+  if (/\btrip\b/.test(textLower)) travelScore += 3;
+  if (/\bairport\b/.test(textLower) || /\bparking\b/.test(textLower)) travelScore += 2;
   scored.push({
     intentId: "intent.travel.booking",
     label: "Travel booking",
     score: travelScore
+  });
+
+  let documentScore = 0;
+  if (/\bdocument\w*\b/.test(textLower)) documentScore += 4;
+  if (/\bpaperwork\b/.test(textLower)) documentScore += 3;
+  if (/\bform\w*\b/.test(textLower)) documentScore += 3;
+  if (/\bapplication\w*\b/.test(textLower)) documentScore += 3;
+  if (/\bsubmit\w*\b/.test(textLower)) documentScore += 2;
+  scored.push({
+    intentId: "intent.document.packaging",
+    label: "Document collection and admin packaging",
+    score: documentScore
   });
 
   scored.sort((a, b) => b.score - a.score || a.intentId.localeCompare(b.intentId));
@@ -245,15 +323,103 @@ function deriveTasksForIntent({ intentId, textLower }) {
   if (intentId === "intent.travel.booking") {
     return [
       {
+        taskId: "t_research_travel",
+        title: "Compare travel options",
+        requiredCapability: "capability://research.analysis",
+        dependsOnTaskIds: []
+      },
+      {
         taskId: "t_book",
         title: "Book travel",
         requiredCapability: "capability://travel.booking@v2",
+        dependsOnTaskIds: ["t_research_travel"]
+      }
+    ];
+  }
+
+  if (intentId === "intent.comparison.selection") {
+    return [
+      {
+        taskId: "t_compare",
+        title: "Compare viable options",
+        requiredCapability: "capability://research.analysis",
         dependsOnTaskIds: []
       }
     ];
   }
 
+  if (intentId === "intent.purchase.sourcing") {
+    return [
+      {
+        taskId: "t_compare",
+        title: "Compare options under the requested cap",
+        requiredCapability: "capability://research.analysis",
+        dependsOnTaskIds: []
+      },
+      {
+        taskId: "t_purchase",
+        title: "Complete the bounded purchase",
+        requiredCapability: "capability://consumer.purchase.execute",
+        dependsOnTaskIds: ["t_compare"]
+      }
+    ];
+  }
+
+  if (intentId === "intent.scheduling.booking") {
+    return [
+      {
+        taskId: "t_schedule",
+        title: "Coordinate and book the requested slot",
+        requiredCapability: "capability://consumer.scheduling.booking",
+        dependsOnTaskIds: []
+      }
+    ];
+  }
+
+  if (intentId === "intent.subscription.management") {
+    return [
+      {
+        taskId: "t_manage_subscription",
+        title: "Handle the subscription or plan change",
+        requiredCapability: "capability://consumer.subscription.manage",
+        dependsOnTaskIds: []
+      }
+    ];
+  }
+
+  if (intentId === "intent.support.follow_up") {
+    return [
+      {
+        taskId: "t_support",
+        title: "Follow up until the issue is resolved or escalated",
+        requiredCapability: "capability://consumer.support.follow_up",
+        dependsOnTaskIds: []
+      }
+    ];
+  }
+
+  if (intentId === "intent.document.packaging") {
+    return [
+      {
+        taskId: "t_collect",
+        title: "Collect the required materials",
+        requiredCapability: "capability://consumer.document.collect",
+        dependsOnTaskIds: []
+      },
+      {
+        taskId: "t_package",
+        title: "Package the admin work into a submission-ready bundle",
+        requiredCapability: "capability://consumer.document.package",
+        dependsOnTaskIds: ["t_collect"]
+      }
+    ];
+  }
+
   return [];
+}
+
+export function evaluateRouterPhase1ConsumerTask({ text } = {}) {
+  return evaluatePhase1TaskPolicy({ text });
 }
 
 export function deriveRouterDraftFromText({ text } = {}) {

@@ -37,6 +37,21 @@ async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
   return response.json?.wallet ?? null;
 }
 
+function overwriteAgentRunSettlement(api, { runId, mutate }) {
+  assert.ok(api?.store?.agentRunSettlements instanceof Map, "agentRunSettlements map is required for test setup");
+  let scopedSettlementKey = null;
+  for (const [candidateKey, row] of api.store.agentRunSettlements.entries()) {
+    if (row && typeof row === "object" && String(row.runId ?? "") === String(runId)) {
+      scopedSettlementKey = candidateKey;
+      break;
+    }
+  }
+  assert.ok(scopedSettlementKey, `agent run settlement not found for setup: ${runId}`);
+  const prior = api.store.agentRunSettlements.get(scopedSettlementKey);
+  const next = mutate(prior);
+  api.store.agentRunSettlements.set(scopedSettlementKey, next);
+}
+
 async function createAgreementDelegation(
   api,
   {
@@ -68,6 +83,20 @@ async function createAgreementDelegation(
   });
   assert.equal(response.statusCode, 201, response.body);
   return response.json?.delegation ?? null;
+}
+
+function autoPolicy100() {
+  return {
+    mode: "automatic",
+    rules: {
+      autoReleaseOnGreen: true,
+      greenReleaseRatePct: 100,
+      autoReleaseOnAmber: false,
+      amberReleaseRatePct: 0,
+      autoReleaseOnRed: true,
+      redReleaseRatePct: 0
+    }
+  };
 }
 
 test("API e2e: x402 wallet issuer exposes policy, ledger, and budget snapshots", async () => {
@@ -420,4 +449,244 @@ test("API e2e: x402 wallet issuer authorize enforces delegation lineage and pers
     gateRead.json?.gate?.authorization?.delegationLineage?.resolution?.leafDelegationId,
     "dlg_wallet_issuer_lineage_leaf_1"
   );
+});
+
+test("API e2e: x402 wallet issuer verify fails closed when settlement run binding drifts before release", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payer = await registerAgent(api, { agentId: "agt_x402_wallet_issuer_binding_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_wallet_issuer_binding_payee_1" });
+  await creditWallet(api, {
+    agentId: payer.agentId,
+    amountCents: 5000,
+    idempotencyKey: "wallet_credit_x402_wallet_issuer_binding_1"
+  });
+
+  const sponsorRef = "sponsor_wallet_issuer_binding_1";
+  const sponsorWalletRef = "x402wallet_issuer_binding_1";
+  const createdWallet = await request(api, {
+    method: "POST",
+    path: "/x402/wallets",
+    headers: { "x-idempotency-key": "x402_wallet_issuer_binding_create_1" },
+    body: {
+      sponsorRef,
+      sponsorWalletRef,
+      policy: {
+        policyRef: "binding_default",
+        policyVersion: 1,
+        maxAmountCents: 1000,
+        maxDailyAuthorizationCents: 2000,
+        allowedProviderIds: [payee.agentId],
+        allowedToolIds: ["mock_weather"],
+        allowedAgentKeyIds: [payer.keyId],
+        allowedCurrencies: ["USD"],
+        requireQuote: false,
+        requireStrictRequestBinding: false,
+        requireAgentKeyMatch: true
+      }
+    }
+  });
+  assert.equal(createdWallet.statusCode, 201, createdWallet.body);
+
+  const gateId = "gate_x402_wallet_issuer_binding_1";
+  const createdGate = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_binding_create_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 450,
+      currency: "USD",
+      toolId: "mock_weather",
+      agentPassport: {
+        sponsorRef,
+        sponsorWalletRef,
+        agentKeyId: payer.keyId,
+        policyRef: "binding_default",
+        policyVersion: 1
+      }
+    }
+  });
+  assert.equal(createdGate.statusCode, 201, createdGate.body);
+  const runId = String(createdGate.json?.gate?.runId ?? createdGate.json?.settlement?.runId ?? "");
+  assert.ok(runId, "runId should be present on created gate");
+
+  const issuedDecision = await request(api, {
+    method: "POST",
+    path: `/x402/wallets/${encodeURIComponent(sponsorWalletRef)}/authorize`,
+    headers: { "x-idempotency-key": "x402_wallet_issuer_binding_authorize_1" },
+    body: { gateId }
+  });
+  assert.equal(issuedDecision.statusCode, 200, issuedDecision.body);
+
+  const authorizedWithDecision = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_binding_authz_1" },
+    body: {
+      gateId,
+      walletAuthorizationDecisionToken: issuedDecision.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(authorizedWithDecision.statusCode, 200, authorizedWithDecision.body);
+  assert.equal(authorizedWithDecision.json?.reserve?.status, "reserved");
+
+  overwriteAgentRunSettlement(api, {
+    runId,
+    mutate(prior) {
+      return {
+        ...prior,
+        runId: `${runId}_drifted`
+      };
+    }
+  });
+
+  const requestSha256 = sha256Hex("GET\nexample.com\n/tools/weather?city=portland\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  const responseSha256 = sha256Hex("{\"ok\":true,\"city\":\"Portland\"}");
+  const verified = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_binding_verify_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${requestSha256}`, `http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verified.statusCode, 409, verified.body);
+  assert.equal(verified.json?.code, "SETTLEMENT_KERNEL_BINDING_INVALID");
+  assert.deepEqual(verified.json?.details?.errors, ["settlement_run_id_mismatch"]);
+
+  const gateStatus = await request(api, {
+    method: "GET",
+    path: `/x402/gate/${encodeURIComponent(gateId)}`
+  });
+  assert.equal(gateStatus.statusCode, 200, gateStatus.body);
+  assert.equal(gateStatus.json?.settlement?.status, "locked");
+
+  const ledger = await request(api, {
+    method: "GET",
+    path: `/x402/wallets/${encodeURIComponent(sponsorWalletRef)}/ledger?limit=10`
+  });
+  assert.equal(ledger.statusCode, 200, ledger.body);
+  assert.equal(Array.isArray(ledger.json?.entries), true);
+  assert.equal(ledger.json.entries.length, 0);
+});
+
+test("API e2e: x402 wallet issuer immediate holdback release emits settlement kernel artifacts", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payer = await registerAgent(api, { agentId: "agt_x402_wallet_issuer_holdback_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_wallet_issuer_holdback_payee_1" });
+  await creditWallet(api, {
+    agentId: payer.agentId,
+    amountCents: 5000,
+    idempotencyKey: "wallet_credit_x402_wallet_issuer_holdback_1"
+  });
+
+  const sponsorRef = "sponsor_wallet_issuer_holdback_1";
+  const sponsorWalletRef = "x402wallet_issuer_holdback_1";
+  const createdWallet = await request(api, {
+    method: "POST",
+    path: "/x402/wallets",
+    headers: { "x-idempotency-key": "x402_wallet_issuer_holdback_create_1" },
+    body: {
+      sponsorRef,
+      sponsorWalletRef,
+      policy: {
+        policyRef: "holdback_default",
+        policyVersion: 1,
+        maxAmountCents: 1000,
+        maxDailyAuthorizationCents: 2000,
+        allowedProviderIds: [payee.agentId],
+        allowedToolIds: ["mock_weather"],
+        allowedAgentKeyIds: [payer.keyId],
+        allowedCurrencies: ["USD"],
+        requireQuote: false,
+        requireStrictRequestBinding: false,
+        requireAgentKeyMatch: true
+      }
+    }
+  });
+  assert.equal(createdWallet.statusCode, 201, createdWallet.body);
+
+  const gateId = "gate_x402_wallet_issuer_holdback_1";
+  const createdGate = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_holdback_create_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 500,
+      currency: "USD",
+      toolId: "mock_weather",
+      holdbackBps: 2000,
+      disputeWindowMs: 0,
+      agentPassport: {
+        sponsorRef,
+        sponsorWalletRef,
+        agentKeyId: payer.keyId,
+        policyRef: "holdback_default",
+        policyVersion: 1
+      }
+    }
+  });
+  assert.equal(createdGate.statusCode, 201, createdGate.body);
+
+  const issuedDecision = await request(api, {
+    method: "POST",
+    path: `/x402/wallets/${encodeURIComponent(sponsorWalletRef)}/authorize`,
+    headers: { "x-idempotency-key": "x402_wallet_issuer_holdback_authorize_1" },
+    body: { gateId }
+  });
+  assert.equal(issuedDecision.statusCode, 200, issuedDecision.body);
+
+  const authorizedWithDecision = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_holdback_authz_1" },
+    body: {
+      gateId,
+      walletAuthorizationDecisionToken: issuedDecision.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(authorizedWithDecision.statusCode, 200, authorizedWithDecision.body);
+
+  const requestSha256 = sha256Hex("GET\nexample.com\n/tools/weather?city=miami\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  const responseSha256 = sha256Hex("{\"ok\":true,\"city\":\"Miami\"}");
+  const verified = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_wallet_issuer_holdback_verify_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${requestSha256}`, `http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verified.statusCode, 200, verified.body);
+  assert.equal(verified.json?.settlement?.status, "released");
+  assert.equal(verified.json?.holdbackSettlement?.status, "released");
+  assert.equal(verified.json?.holdbackSettlement?.decisionTrace?.decisionRecord?.schemaVersion, "SettlementDecisionRecord.v2");
+  assert.equal(verified.json?.holdbackSettlement?.decisionTrace?.settlementReceipt?.schemaVersion, "SettlementReceipt.v1");
 });

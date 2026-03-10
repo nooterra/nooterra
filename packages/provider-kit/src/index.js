@@ -37,9 +37,27 @@ function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
 
 const PROVIDER_QUOTE_HEADER = "x-nooterra-provider-quote";
 const PROVIDER_QUOTE_SIGNATURE_HEADER = "x-nooterra-provider-quote-signature";
+const DELEGATED_ACCOUNT_SESSION_HEADER = "x-nooterra-account-session-binding";
+const DELEGATED_ACCOUNT_SESSION_BROWSER_PROFILE_HEADER = "x-nooterra-account-session-browser-profile";
+const TASK_WALLET_HEADER = "x-nooterra-task-wallet";
 
 function toBase64UrlJson(value) {
   return Buffer.from(canonicalJsonStringify(value), "utf8").toString("base64url");
+}
+
+function fromBase64UrlJson(value, { name = "value" } = {}) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) throw new TypeError(`${name} must be a non-empty base64url JSON string`);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+  } catch {
+    throw new TypeError(`${name} must be valid base64url JSON`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new TypeError(`${name} must decode to an object`);
+  }
+  return parsed;
 }
 
 function parseCacheControlMaxAgeMs(value, fallbackMs) {
@@ -196,6 +214,453 @@ export function parseNooterraPayAuthorizationHeader(authorizationHeaderRaw) {
   if (!lower.startsWith("nooterrapay ")) return null;
   const token = authorizationHeader.slice("nooterrapay ".length).trim();
   return token || null;
+}
+
+export function buildDelegatedAccountSessionBindingHeaderValue(binding) {
+  if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
+    throw new TypeError("binding must be an object");
+  }
+  const normalized = {
+    sessionId: assertNonEmptyString(binding.sessionId, "binding.sessionId").trim(),
+    sessionRef: assertNonEmptyString(binding.sessionRef, "binding.sessionRef").trim(),
+    providerKey: assertNonEmptyString(binding.providerKey, "binding.providerKey").trim(),
+    siteKey: assertNonEmptyString(binding.siteKey, "binding.siteKey").trim(),
+    mode: assertNonEmptyString(binding.mode, "binding.mode").trim(),
+    accountHandleMasked:
+      typeof binding.accountHandleMasked === "string" && binding.accountHandleMasked.trim() !== "" ? binding.accountHandleMasked.trim() : null,
+    maxSpendCents: Number.isSafeInteger(Number(binding.maxSpendCents)) ? Number(binding.maxSpendCents) : null,
+    currency: typeof binding.currency === "string" && binding.currency.trim() !== "" ? binding.currency.trim().toUpperCase() : null
+  };
+  return toBase64UrlJson(normalized);
+}
+
+export function parseDelegatedAccountSessionBindingHeaderValue(value) {
+  const parsed = fromBase64UrlJson(value, { name: DELEGATED_ACCOUNT_SESSION_HEADER });
+  return {
+    sessionId: assertNonEmptyString(parsed.sessionId, "binding.sessionId").trim(),
+    sessionRef: assertNonEmptyString(parsed.sessionRef, "binding.sessionRef").trim(),
+    providerKey: assertNonEmptyString(parsed.providerKey, "binding.providerKey").trim(),
+    siteKey: assertNonEmptyString(parsed.siteKey, "binding.siteKey").trim(),
+    mode: assertNonEmptyString(parsed.mode, "binding.mode").trim(),
+    accountHandleMasked:
+      typeof parsed.accountHandleMasked === "string" && parsed.accountHandleMasked.trim() !== "" ? parsed.accountHandleMasked.trim() : null,
+    maxSpendCents: Number.isSafeInteger(Number(parsed.maxSpendCents)) ? Number(parsed.maxSpendCents) : null,
+    currency: typeof parsed.currency === "string" && parsed.currency.trim() !== "" ? parsed.currency.trim().toUpperCase() : null
+  };
+}
+
+function normalizeDelegatedBrowserProfileHostname(value, { fieldName = "hostname" } = {}) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) throw new TypeError(`${fieldName} is required`);
+  if (normalized.length > 253) throw new TypeError(`${fieldName} must be <= 253 chars`);
+  if (!/^[a-z0-9.-]+$/.test(normalized) || normalized.startsWith(".") || normalized.endsWith(".")) {
+    throw new TypeError(`${fieldName} must be a valid hostname`);
+  }
+  return normalized;
+}
+
+function normalizeDelegatedBrowserProfileUrl(value, { fieldName = "url", allowNull = true } = {}) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    if (allowNull) return null;
+    throw new TypeError(`${fieldName} is required`);
+  }
+  let parsed = null;
+  try {
+    parsed = new URL(String(value).trim());
+  } catch {
+    throw new TypeError(`${fieldName} must be a valid absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new TypeError(`${fieldName} must use http or https`);
+  }
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+export function normalizeDelegatedBrowserProfileBinding(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("delegated browser profile binding must be an object");
+  }
+  const storageStateRef =
+    typeof value.storageStateRef === "string" && value.storageStateRef.trim() !== "" ? value.storageStateRef.trim() : null;
+  const loginOrigin = normalizeDelegatedBrowserProfileUrl(value.loginOrigin, { fieldName: "loginOrigin", allowNull: true });
+  const startUrl = normalizeDelegatedBrowserProfileUrl(value.startUrl, { fieldName: "startUrl", allowNull: true });
+  const reviewMode =
+    typeof value.reviewMode === "string" && value.reviewMode.trim() !== "" ? value.reviewMode.trim().toLowerCase() : null;
+  const allowedDomains = Array.isArray(value.allowedDomains)
+    ? Array.from(
+        new Set(
+          value.allowedDomains.map((row, index) =>
+            normalizeDelegatedBrowserProfileHostname(row, { fieldName: `allowedDomains[${index}]` })
+          )
+        )
+      )
+    : [];
+  if (!storageStateRef && !loginOrigin && !startUrl && allowedDomains.length === 0 && !reviewMode) {
+    throw new TypeError("delegated browser profile binding must include at least one browser profile field");
+  }
+  return {
+    storageStateRef,
+    loginOrigin,
+    startUrl,
+    allowedDomains,
+    reviewMode
+  };
+}
+
+export function buildDelegatedBrowserProfileHeaderValue(binding) {
+  return toBase64UrlJson(normalizeDelegatedBrowserProfileBinding(binding));
+}
+
+export function parseDelegatedBrowserProfileHeaderValue(value) {
+  return normalizeDelegatedBrowserProfileBinding(fromBase64UrlJson(value, { name: "delegatedBrowserProfileBinding" }));
+}
+
+function normalizeTaskWalletBinding(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("task wallet binding must be an object");
+  }
+  const schemaVersion = assertNonEmptyString(value.schemaVersion ?? "TaskWallet.v1", "taskWallet.schemaVersion").trim();
+  const walletId = assertNonEmptyString(value.walletId, "taskWallet.walletId").trim();
+  const tenantId = assertNonEmptyString(value.tenantId, "taskWallet.tenantId").trim();
+  const currency =
+    typeof value.currency === "string" && value.currency.trim() !== "" ? value.currency.trim().toUpperCase() : "USD";
+  const categoryId = typeof value.categoryId === "string" && value.categoryId.trim() !== "" ? value.categoryId.trim() : null;
+  const reviewMode = typeof value.reviewMode === "string" && value.reviewMode.trim() !== "" ? value.reviewMode.trim() : null;
+  const maxSpendCents = Number.isSafeInteger(Number(value.maxSpendCents)) ? Number(value.maxSpendCents) : null;
+  const allowedMerchantScopes = Array.isArray(value.allowedMerchantScopes)
+    ? Array.from(new Set(value.allowedMerchantScopes.map((row) => assertNonEmptyString(row, "taskWallet.allowedMerchantScopes[]").trim())))
+    : [];
+  const allowedSpecialistProfileIds = Array.isArray(value.allowedSpecialistProfileIds)
+    ? Array.from(new Set(value.allowedSpecialistProfileIds.map((row) => assertNonEmptyString(row, "taskWallet.allowedSpecialistProfileIds[]").trim())))
+    : [];
+  const allowedProviderIds = Array.isArray(value.allowedProviderIds)
+    ? Array.from(new Set(value.allowedProviderIds.map((row) => assertNonEmptyString(row, "taskWallet.allowedProviderIds[]").trim())))
+    : [];
+  const evidenceRequirements = Array.isArray(value.evidenceRequirements)
+    ? Array.from(new Set(value.evidenceRequirements.map((row) => assertNonEmptyString(row, "taskWallet.evidenceRequirements[]").trim())))
+    : [];
+  const settlementPolicy =
+    value.settlementPolicy && typeof value.settlementPolicy === "object" && !Array.isArray(value.settlementPolicy)
+      ? {
+          settlementModel:
+            typeof value.settlementPolicy.settlementModel === "string" && value.settlementPolicy.settlementModel.trim() !== ""
+              ? value.settlementPolicy.settlementModel.trim()
+              : null,
+          requireEvidenceBeforeFinalize: value.settlementPolicy.requireEvidenceBeforeFinalize !== false,
+          allowRefunds: value.settlementPolicy.allowRefunds !== false
+        }
+      : null;
+  return {
+    schemaVersion,
+    walletId,
+    tenantId,
+    currency,
+    categoryId,
+    reviewMode,
+    maxSpendCents,
+    allowedMerchantScopes,
+    allowedSpecialistProfileIds,
+    allowedProviderIds,
+    evidenceRequirements,
+    settlementPolicy
+  };
+}
+
+export function buildTaskWalletHeaderValue(binding) {
+  return toBase64UrlJson(normalizeTaskWalletBinding(binding));
+}
+
+export function parseTaskWalletHeaderValue(value) {
+  return normalizeTaskWalletBinding(fromBase64UrlJson(value, { name: TASK_WALLET_HEADER }));
+}
+
+function normalizeDelegatedBrowserHostname(value, { fieldName = "hostname" } = {}) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) throw new TypeError(`${fieldName} is required`);
+  if (normalized.length > 253) throw new TypeError(`${fieldName} must be <= 253 chars`);
+  if (!/^[a-z0-9.-]+$/.test(normalized) || normalized.startsWith(".") || normalized.endsWith(".")) {
+    throw new TypeError(`${fieldName} must be a valid hostname`);
+  }
+  return normalized;
+}
+
+function normalizeDelegatedBrowserAllowedDomains(value, { fallback = [] } = {}) {
+  if (value === undefined || value === null) return [...fallback];
+  if (!Array.isArray(value)) throw new TypeError("allowedDomains must be an array");
+  return Array.from(new Set(value.map((row, index) => normalizeDelegatedBrowserHostname(row, { fieldName: `allowedDomains[${index}]` }))));
+}
+
+function normalizeDelegatedBrowserUrl(value, { fieldName = "url", allowNull = true } = {}) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    if (allowNull) return null;
+    throw new TypeError(`${fieldName} is required`);
+  }
+  let parsed = null;
+  try {
+    parsed = new URL(String(value).trim());
+  } catch {
+    throw new TypeError(`${fieldName} must be a valid absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new TypeError(`${fieldName} must use http or https`);
+  }
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeDelegatedBrowserSessionRuntimeConfig(raw, { delegatedAccountSession, delegatedBrowserProfile = null } = {}) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new TypeError("delegated browser session config must be an object");
+  }
+  const storageStatePath =
+    typeof raw.storageStatePath === "string" && raw.storageStatePath.trim() !== "" ? raw.storageStatePath.trim() : null;
+  const storageState =
+    raw.storageState && typeof raw.storageState === "object" && !Array.isArray(raw.storageState) ? raw.storageState : null;
+  const storageStateRef =
+    typeof raw.storageStateRef === "string" && raw.storageStateRef.trim() !== "" ? raw.storageStateRef.trim() : null;
+  if (!storageStatePath && !storageState && !storageStateRef) {
+    throw new TypeError("delegated browser session config must provide storageState, storageStatePath, or storageStateRef");
+  }
+  const fallbackDomain = Array.isArray(delegatedBrowserProfile?.allowedDomains) && delegatedBrowserProfile.allowedDomains.length > 0
+    ? delegatedBrowserProfile.allowedDomains
+    : delegatedAccountSession?.siteKey && typeof delegatedAccountSession.siteKey === "string"
+      ? [delegatedAccountSession.siteKey]
+      : [];
+  const allowedDomains = normalizeDelegatedBrowserAllowedDomains(raw.allowedDomains, { fallback: fallbackDomain });
+  const loginOrigin = normalizeDelegatedBrowserUrl(raw.loginOrigin ?? delegatedBrowserProfile?.loginOrigin, { fieldName: "loginOrigin", allowNull: true });
+  const startUrl = normalizeDelegatedBrowserUrl(raw.startUrl ?? delegatedBrowserProfile?.startUrl, { fieldName: "startUrl", allowNull: true });
+  const headless = raw.headless === undefined ? true : Boolean(raw.headless);
+  const contextOptions =
+    raw.contextOptions && typeof raw.contextOptions === "object" && !Array.isArray(raw.contextOptions) ? { ...raw.contextOptions } : {};
+  const launchOptions =
+    raw.launchOptions && typeof raw.launchOptions === "object" && !Array.isArray(raw.launchOptions) ? { ...raw.launchOptions } : {};
+  return {
+    storageStatePath,
+    storageState,
+    storageStateRef,
+    allowedDomains,
+    loginOrigin,
+    startUrl: startUrl ?? loginOrigin,
+    headless,
+    contextOptions,
+    launchOptions
+  };
+}
+
+function hostAllowedForDelegatedBrowser(urlText, allowedDomains) {
+  if (!Array.isArray(allowedDomains) || allowedDomains.length === 0) return true;
+  let parsed = null;
+  try {
+    parsed = new URL(String(urlText));
+  } catch {
+    return false;
+  }
+  const host = String(parsed.hostname ?? "").trim().toLowerCase();
+  if (!host) return false;
+  return allowedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+export function createPlaywrightDelegatedAccountRuntime({
+  resolveSessionRuntime,
+  importPlaywright = null,
+  launchOptions = {}
+} = {}) {
+  const resolveSessionRuntimeFn = assertFn(resolveSessionRuntime, "resolveSessionRuntime");
+  const importPlaywrightFn =
+    typeof importPlaywright === "function"
+      ? importPlaywright
+      : async () => {
+          try {
+            return await import("playwright");
+          } catch (err) {
+            const wrapped = new Error("playwright is required for delegated browser runtime");
+            wrapped.code = "DELEGATED_BROWSER_RUNTIME_UNAVAILABLE";
+            wrapped.cause = err;
+            throw wrapped;
+          }
+        };
+
+  return async function delegatedAccountRuntimeFactory({
+    delegatedAccountSession,
+    delegatedBrowserProfile = null,
+    req,
+    url,
+    offer,
+    verification
+  } = {}) {
+    if (!delegatedAccountSession) return null;
+    const rawConfig = await resolveSessionRuntimeFn({ delegatedAccountSession, delegatedBrowserProfile, req, url, offer, verification });
+    const config = normalizeDelegatedBrowserSessionRuntimeConfig(rawConfig, { delegatedAccountSession, delegatedBrowserProfile });
+    return {
+      kind: "playwright_delegated_browser_session",
+      session: delegatedAccountSession,
+      config,
+      async withBrowserSession({
+        expectedProviderKey = null,
+        expectedSiteKey = null,
+        allowedModes = ["browser_delegated", "approval_at_boundary", "operator_supervised"],
+        action
+      } = {}) {
+        const actionFn = assertFn(action, "action");
+        if (expectedProviderKey && String(delegatedAccountSession.providerKey).trim() !== String(expectedProviderKey).trim()) {
+          const err = new Error("delegated account session provider does not match this browser action");
+          err.code = "DELEGATED_BROWSER_SESSION_PROVIDER_MISMATCH";
+          throw err;
+        }
+        if (expectedSiteKey && String(delegatedAccountSession.siteKey).trim() !== String(expectedSiteKey).trim()) {
+          const err = new Error("delegated account session site does not match this browser action");
+          err.code = "DELEGATED_BROWSER_SESSION_SITE_MISMATCH";
+          throw err;
+        }
+        if (Array.isArray(allowedModes) && allowedModes.length > 0 && !allowedModes.includes(delegatedAccountSession.mode)) {
+          const err = new Error("delegated account session mode is not allowed for this browser action");
+          err.code = "DELEGATED_BROWSER_SESSION_MODE_NOT_ALLOWED";
+          throw err;
+        }
+        const playwright = await importPlaywrightFn();
+        const chromium = playwright?.chromium;
+        if (!chromium || typeof chromium.launch !== "function") {
+          const err = new Error("playwright chromium launcher is unavailable");
+          err.code = "DELEGATED_BROWSER_RUNTIME_UNAVAILABLE";
+          throw err;
+        }
+        const browser = await chromium.launch({ headless: config.headless, ...launchOptions, ...config.launchOptions });
+        const context = await browser.newContext({
+          ...config.contextOptions,
+          ...(config.storageState ? { storageState: config.storageState } : {}),
+          ...(config.storageStatePath ? { storageState: config.storageStatePath } : {})
+        });
+        if (Array.isArray(config.allowedDomains) && config.allowedDomains.length > 0 && typeof context.route === "function") {
+          await context.route("**/*", async (route) => {
+            const requestUrl = typeof route?.request === "function" ? route.request().url() : "";
+            if (hostAllowedForDelegatedBrowser(requestUrl, config.allowedDomains)) {
+              await route.continue();
+              return;
+            }
+            await route.abort("blockedbyclient");
+          });
+        }
+        const page = typeof context.newPage === "function" ? await context.newPage() : null;
+        if (page && config.startUrl && typeof page.goto === "function") {
+          await page.goto(config.startUrl);
+        }
+        try {
+          return await actionFn({
+            browser,
+            context,
+            page,
+            delegatedAccountSession,
+            config,
+            offer,
+            verification,
+            req,
+            url
+          });
+        } finally {
+          if (context && typeof context.close === "function") {
+            await context.close();
+          }
+          if (browser && typeof browser.close === "function") {
+            await browser.close();
+          }
+        }
+      }
+    };
+  };
+}
+
+function parseWalletBrowserStateRef(value) {
+  const normalized = String(value ?? "").trim();
+  const match = /^state:\/\/wallet\/([^/]+)\/([A-Za-z0-9_-]{1,64})$/.exec(normalized);
+  if (!match) {
+    throw new TypeError("storageStateRef must be state://wallet/<tenantId>/<stateId>");
+  }
+  return {
+    tenantId: String(match[1]).trim(),
+    stateId: String(match[2]).trim(),
+    stateRef: normalized
+  };
+}
+
+export function createNooterraAuthDelegatedSessionRuntimeResolver({
+  authBaseUrl,
+  opsToken,
+  fetchImpl = null,
+  defaultHeadless = true
+} = {}) {
+  const normalizedAuthBaseUrl = assertNonEmptyString(String(authBaseUrl ?? "").trim(), "authBaseUrl").replace(/\/+$/, "");
+  const normalizedOpsToken = assertNonEmptyString(opsToken, "opsToken").trim();
+  const upstreamFetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
+  if (typeof upstreamFetch !== "function") throw new TypeError("fetchImpl must be available");
+
+  return async function resolveDelegatedSessionRuntime({
+    delegatedAccountSession,
+    delegatedBrowserProfile
+  } = {}) {
+    const binding = delegatedBrowserProfile ? normalizeDelegatedBrowserProfileBinding(delegatedBrowserProfile) : null;
+    if (!binding?.storageStateRef) {
+      const err = new Error("delegated browser profile storageStateRef is required");
+      err.code = "DELEGATED_BROWSER_PROFILE_STORAGE_STATE_REQUIRED";
+      throw err;
+    }
+    const parsedRef = parseWalletBrowserStateRef(binding.storageStateRef);
+    const resolveUrl = new URL(
+      `/v1/tenants/${encodeURIComponent(parsedRef.tenantId)}/browser-states/resolve?ref=${encodeURIComponent(parsedRef.stateRef)}`,
+      `${normalizedAuthBaseUrl}/`
+    );
+    let response = null;
+    let text = "";
+    try {
+      response = await upstreamFetch(resolveUrl, {
+        method: "GET",
+        headers: {
+          "x-proxy-tenant-id": parsedRef.tenantId,
+          "x-proxy-ops-token": normalizedOpsToken
+        },
+        redirect: "error"
+      });
+      text = await response.text();
+    } catch (cause) {
+      const err = new Error("delegated browser state resolver is unreachable");
+      err.code = "DELEGATED_BROWSER_STATE_RESOLVER_UNREACHABLE";
+      err.cause = cause;
+      throw err;
+    }
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!response.ok) {
+      const err = new Error(json?.message ?? text ?? "delegated browser state resolver failed");
+      err.code = json?.code ?? "DELEGATED_BROWSER_STATE_RESOLVER_ERROR";
+      err.statusCode = response.status;
+      throw err;
+    }
+    const browserState =
+      json?.browserState && typeof json.browserState === "object" && !Array.isArray(json.browserState) ? json.browserState : null;
+    if (!browserState || browserState.stateRef !== parsedRef.stateRef || browserState.revokedAt) {
+      const err = new Error("delegated browser state is invalid or revoked");
+      err.code = "DELEGATED_BROWSER_STATE_INVALID";
+      throw err;
+    }
+    return {
+      storageStateRef: parsedRef.stateRef,
+      storageState: browserState.storageState,
+      allowedDomains: binding.allowedDomains,
+      loginOrigin: binding.loginOrigin,
+      startUrl: binding.startUrl,
+      headless: defaultHeadless,
+      contextOptions: {
+        extraHTTPHeaders: {
+          "x-nooterra-account-session-provider": delegatedAccountSession?.providerKey ?? "",
+          "x-nooterra-account-session-site": delegatedAccountSession?.siteKey ?? ""
+        }
+      }
+    };
+  };
 }
 
 export function buildPaymentRequiredHeaderValue(offer) {
@@ -643,6 +1108,14 @@ export function createNooterraPaidNodeHttpHandler({
 
   const resolver =
     keysetResolver && typeof keysetResolver.getKeyset === "function" ? keysetResolver : createNooterraPayKeysetResolver(nooterraPay);
+  const requireDelegatedAccountSession =
+    nooterraPay && typeof nooterraPay === "object" && !Array.isArray(nooterraPay) && nooterraPay.requireDelegatedAccountSession === true;
+  const requireTaskWallet =
+    nooterraPay && typeof nooterraPay === "object" && !Array.isArray(nooterraPay) && nooterraPay.requireTaskWallet === true;
+  const delegatedAccountRuntimeFactory =
+    nooterraPay && typeof nooterraPay === "object" && !Array.isArray(nooterraPay) && typeof nooterraPay.delegatedAccountRuntime === "function"
+      ? nooterraPay.delegatedAccountRuntime
+      : null;
 
   async function paidHandler(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -727,6 +1200,112 @@ export function createNooterraPaidNodeHttpHandler({
 
     const verification = verified.verification;
     const payload = verification.payload ?? {};
+    let delegatedAccountSession = null;
+    const delegatedAccountSessionHeader = typeof req?.headers?.[DELEGATED_ACCOUNT_SESSION_HEADER] === "string"
+      ? req.headers[DELEGATED_ACCOUNT_SESSION_HEADER]
+      : Array.isArray(req?.headers?.[DELEGATED_ACCOUNT_SESSION_HEADER])
+        ? req.headers[DELEGATED_ACCOUNT_SESSION_HEADER][0]
+        : "";
+    if (delegatedAccountSessionHeader) {
+      try {
+        delegatedAccountSession = parseDelegatedAccountSessionBindingHeaderValue(delegatedAccountSessionHeader);
+      } catch (err) {
+        sendJson(res, {
+          statusCode: 409,
+          payload: {
+            ok: false,
+            error: "delegated_account_session_invalid",
+            message: err?.message ?? "delegated account session binding header is invalid"
+          }
+        });
+        return;
+      }
+    } else if (requireDelegatedAccountSession) {
+      sendJson(res, {
+        statusCode: 409,
+        payload: {
+          ok: false,
+          error: "delegated_account_session_required",
+          message: "delegated account session binding is required for this provider"
+        }
+      });
+      return;
+    }
+    let taskWallet = null;
+    const taskWalletHeader = typeof req?.headers?.[TASK_WALLET_HEADER] === "string"
+      ? req.headers[TASK_WALLET_HEADER]
+      : Array.isArray(req?.headers?.[TASK_WALLET_HEADER])
+        ? req.headers[TASK_WALLET_HEADER][0]
+        : "";
+    if (taskWalletHeader) {
+      try {
+        taskWallet = parseTaskWalletHeaderValue(taskWalletHeader);
+      } catch (err) {
+        sendJson(res, {
+          statusCode: 409,
+          payload: {
+            ok: false,
+            error: "task_wallet_invalid",
+            message: err?.message ?? "task wallet binding header is invalid"
+          }
+        });
+        return;
+      }
+    } else if (requireTaskWallet) {
+      sendJson(res, {
+        statusCode: 409,
+        payload: {
+          ok: false,
+          error: "task_wallet_required",
+          message: "task wallet binding is required for this provider"
+        }
+      });
+      return;
+    }
+    let delegatedBrowserProfile = null;
+    const delegatedBrowserProfileHeader = typeof req?.headers?.[DELEGATED_ACCOUNT_SESSION_BROWSER_PROFILE_HEADER] === "string"
+      ? req.headers[DELEGATED_ACCOUNT_SESSION_BROWSER_PROFILE_HEADER]
+      : Array.isArray(req?.headers?.[DELEGATED_ACCOUNT_SESSION_BROWSER_PROFILE_HEADER])
+        ? req.headers[DELEGATED_ACCOUNT_SESSION_BROWSER_PROFILE_HEADER][0]
+        : "";
+    if (delegatedBrowserProfileHeader) {
+      try {
+        delegatedBrowserProfile = parseDelegatedBrowserProfileHeaderValue(delegatedBrowserProfileHeader);
+      } catch (err) {
+        sendJson(res, {
+          statusCode: 409,
+          payload: {
+            ok: false,
+            error: "delegated_browser_profile_invalid",
+            message: err?.message ?? "delegated browser profile binding header is invalid"
+          }
+        });
+        return;
+      }
+    }
+    let delegatedAccountRuntime = null;
+    if (delegatedAccountSession && delegatedAccountRuntimeFactory) {
+      try {
+        delegatedAccountRuntime = await delegatedAccountRuntimeFactory({
+          delegatedAccountSession,
+          delegatedBrowserProfile,
+          req,
+          url,
+          offer,
+          verification
+        });
+      } catch (err) {
+        sendJson(res, {
+          statusCode: 409,
+          payload: {
+            ok: false,
+            error: "delegated_account_runtime_unavailable",
+            message: err?.message ?? "delegated account runtime is unavailable"
+          }
+        });
+        return;
+      }
+    }
     const replayKey = (() => {
       const authorizationRef = typeof payload.authorizationRef === "string" ? payload.authorizationRef.trim() : "";
       if (authorizationRef) return authorizationRef;
@@ -750,7 +1329,12 @@ export function createNooterraPaidNodeHttpHandler({
         "x-nooterra-keyset-source": verified.keysetSource,
         "x-nooterra-provider-replay": "duplicate",
         "x-nooterra-request-binding-mode": replayExisting.requestBindingMode ?? offer.requestBindingMode ?? "none",
-        "x-nooterra-request-binding-sha256": replayExisting.requestBindingSha256 ?? requestBindingSha256 ?? ""
+        "x-nooterra-request-binding-sha256": replayExisting.requestBindingSha256 ?? requestBindingSha256 ?? "",
+        "x-nooterra-task-wallet-id": replayExisting.taskWalletId ?? taskWallet?.walletId ?? "",
+        "x-nooterra-task-wallet-review-mode": replayExisting.taskWalletReviewMode ?? taskWallet?.reviewMode ?? "",
+        "x-nooterra-account-session-mode": replayExisting.accountSessionMode ?? delegatedAccountSession?.mode ?? "",
+        "x-nooterra-account-session-provider": replayExisting.accountSessionProvider ?? delegatedAccountSession?.providerKey ?? "",
+        "x-nooterra-account-session-site": replayExisting.accountSessionSite ?? delegatedAccountSession?.siteKey ?? ""
       };
       if (!replayHeaders["content-type"]) replayHeaders["content-type"] = replayExisting.contentType ?? "application/json; charset=utf-8";
       res.writeHead(replayExisting.statusCode ?? 200, replayHeaders);
@@ -760,8 +1344,30 @@ export function createNooterraPaidNodeHttpHandler({
 
     let execRaw;
     try {
-      execRaw = await executeFn({ req, url, offer, verification, requestBodyBuffer, requestBindingSha256 });
+      execRaw = await executeFn({
+        req,
+        url,
+        offer,
+        verification,
+        requestBodyBuffer,
+        requestBindingSha256,
+        delegatedAccountSession,
+        delegatedAccountRuntime,
+        taskWallet
+      });
     } catch (err) {
+      if (typeof err?.code === "string" && err.code.startsWith("TASK_WALLET_")) {
+        sendJson(res, {
+          statusCode: 409,
+          payload: {
+            ok: false,
+            error: "task_wallet_violation",
+            code: err.code,
+            message: err?.message ?? "task wallet enforcement blocked execution"
+          }
+        });
+        return;
+      }
       sendJson(res, {
         statusCode: 500,
         payload: {
@@ -811,7 +1417,12 @@ export function createNooterraPaidNodeHttpHandler({
       "x-nooterra-provider-token-sha256": String(verification.tokenSha256 ?? ""),
       "x-nooterra-keyset-source": verified.keysetSource,
       "x-nooterra-request-binding-mode": offer.requestBindingMode ?? "none",
-      "x-nooterra-request-binding-sha256": requestBindingSha256 ?? ""
+      "x-nooterra-request-binding-sha256": requestBindingSha256 ?? "",
+      "x-nooterra-task-wallet-id": taskWallet?.walletId ?? "",
+      "x-nooterra-task-wallet-review-mode": taskWallet?.reviewMode ?? "",
+      "x-nooterra-account-session-mode": delegatedAccountSession?.mode ?? "",
+      "x-nooterra-account-session-provider": delegatedAccountSession?.providerKey ?? "",
+      "x-nooterra-account-session-site": delegatedAccountSession?.siteKey ?? ""
     };
     res.writeHead(execResult.statusCode, responseHeaders);
     res.end(body.bodyBuffer);
@@ -827,7 +1438,12 @@ export function createNooterraPaidNodeHttpHandler({
         bodyBuffer: body.bodyBuffer,
         signature,
         requestBindingMode: offer.requestBindingMode ?? "none",
-        requestBindingSha256: requestBindingSha256 ?? null
+        requestBindingSha256: requestBindingSha256 ?? null,
+        taskWalletId: taskWallet?.walletId ?? null,
+        taskWalletReviewMode: taskWallet?.reviewMode ?? null,
+        accountSessionMode: delegatedAccountSession?.mode ?? null,
+        accountSessionProvider: delegatedAccountSession?.providerKey ?? null,
+        accountSessionSite: delegatedAccountSession?.siteKey ?? null
       },
       nowMs
     );

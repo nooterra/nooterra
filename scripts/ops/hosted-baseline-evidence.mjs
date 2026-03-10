@@ -197,6 +197,9 @@ function normalizeRateLimitProbeResult(result) {
     mode: normalizeOptionalString(result.mode) ?? RATE_LIMIT_MODE.OPTIONAL,
     statusCodeCounts: sortObjectKeys(result.statusCodeCounts),
     saw429: result.saw429 === true,
+    saw2xx: result.saw2xx === true,
+    saw5xx: result.saw5xx === true,
+    failureCode: normalizeOptionalString(result.failureCode),
     ok: result.ok === true
   };
 }
@@ -275,6 +278,16 @@ function tailText(input, maxChars = 12_000) {
   const text = String(input ?? "");
   if (text.length <= maxChars) return text;
   return text.slice(text.length - maxChars);
+}
+
+function countStatusCodesInRange(statusCodeCounts, min, max) {
+  let total = 0;
+  for (const [statusCode, count] of Object.entries(statusCodeCounts ?? {})) {
+    const numericStatus = Number(statusCode);
+    if (!Number.isSafeInteger(numericStatus) || numericStatus < min || numericStatus > max) continue;
+    total += Number(count ?? 0);
+  }
+  return total;
 }
 
 function validateBackupRestoreDatabaseUrl(raw, { name }) {
@@ -579,8 +592,12 @@ function getHeaders({ tenantId, opsToken }) {
   return headers;
 }
 
-function validateBillingCatalog(catalogBody) {
+export function validateBillingCatalog(catalogBody) {
   const failures = [];
+  const schemaVersion = normalizeOptionalString(catalogBody?.schemaVersion);
+  if (schemaVersion !== "BillingPlanCatalog.v1") {
+    failures.push("catalog.schemaVersion must be BillingPlanCatalog.v1");
+  }
   const plans = catalogBody?.plans;
   if (!plans || typeof plans !== "object" || Array.isArray(plans)) {
     failures.push("catalog.plans must be an object");
@@ -591,6 +608,12 @@ function validateBillingCatalog(catalogBody) {
     if (!plan || typeof plan !== "object") {
       failures.push(`missing plan ${planId}`);
       continue;
+    }
+    if (normalizeOptionalString(plan.planId) !== planId) {
+      failures.push(`plan ${planId} missing matching planId`);
+    }
+    if (!normalizeOptionalString(plan.displayName)) {
+      failures.push(`plan ${planId} missing displayName`);
     }
     const requiredNumericFields = [
       "subscriptionCents",
@@ -609,9 +632,65 @@ function validateBillingCatalog(catalogBody) {
     ok: failures.length === 0,
     failures,
     summary: {
+      schemaVersion,
       planIds: Object.keys(plans).sort()
     }
   };
+}
+
+export function evaluateRateLimitProbe({ mode, requests, statusCodeCounts }) {
+  const normalizedCounts = sortObjectKeys(statusCodeCounts);
+  const saw429 = Number(normalizedCounts["429"] ?? 0) > 0;
+  const saw2xx = countStatusCodesInRange(normalizedCounts, 200, 299) > 0;
+  const saw4xxNon429 = countStatusCodesInRange(normalizedCounts, 400, 499) - Number(normalizedCounts["429"] ?? 0) > 0;
+  const saw5xx = countStatusCodesInRange(normalizedCounts, 500, 599) > 0;
+  let ok = true;
+  let failureCode = null;
+  if (!saw2xx) {
+    ok = false;
+    failureCode = "rate_limit_probe_no_success";
+  } else if (saw5xx) {
+    ok = false;
+    failureCode = "rate_limit_probe_saw_5xx";
+  } else if (saw4xxNon429) {
+    ok = false;
+    failureCode = "rate_limit_probe_saw_unexpected_4xx";
+  } else if (mode === RATE_LIMIT_MODE.REQUIRED && saw429 !== true) {
+    ok = false;
+    failureCode = "rate_limit_probe_expected_429_missing";
+  } else if (mode === RATE_LIMIT_MODE.DISABLED && saw429 === true) {
+    ok = false;
+    failureCode = "rate_limit_probe_unexpected_429";
+  }
+  return {
+    path: null,
+    requests,
+    mode,
+    statusCodeCounts: normalizedCounts,
+    saw429,
+    saw2xx,
+    saw5xx,
+    ok,
+    failureCode
+  };
+}
+
+export function evaluateBackupRestoreEvidencePayload(payload) {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    if (payload.ok === true || payload.status === "pass" || payload.verdict?.ok === true) {
+      return { ok: true, format: "json", failureCode: null };
+    }
+    const rawText = normalizeOptionalString(payload.raw);
+    if (rawText && rawText.includes("=== Backup/Restore Verification PASSED ===")) {
+      return { ok: true, format: "json", failureCode: null };
+    }
+    return { ok: false, format: "json", failureCode: "backup_restore_json_not_pass" };
+  }
+  const text = String(payload?.raw ?? payload ?? "");
+  if (text.includes("=== Backup/Restore Verification PASSED ===")) {
+    return { ok: true, format: "text", failureCode: null };
+  }
+  return { ok: false, format: "text", failureCode: "backup_restore_text_not_pass" };
 }
 
 async function loadBackupRestoreEvidenceFromPath(evidencePath) {
@@ -623,10 +702,14 @@ async function loadBackupRestoreEvidenceFromPath(evidencePath) {
   } catch {
     parsed = { raw: tailText(raw, 16_000) };
   }
+  const evaluation = evaluateBackupRestoreEvidencePayload(parsed);
   return {
     source: "file",
     path: resolved,
     hash: sha256Hex(raw),
+    ok: evaluation.ok,
+    evidenceFormat: evaluation.format,
+    failureCode: evaluation.failureCode,
     payload: parsed
   };
 }
@@ -943,19 +1026,17 @@ export async function main() {
       const key = String(res.statusCode);
       statusCodeCounts[key] = Number(statusCodeCounts[key] ?? 0) + 1;
     }
-    const saw429 = Number(statusCodeCounts["429"] ?? 0) > 0;
-    let modePass = true;
-    if (args.rateLimitMode === RATE_LIMIT_MODE.REQUIRED && saw429 !== true) modePass = false;
-    if (args.rateLimitMode === RATE_LIMIT_MODE.DISABLED && saw429 === true) modePass = false;
-    if (!modePass) failures.push(`rate-limit probe failed for mode=${args.rateLimitMode}`);
-    rateLimitProbe = {
-      path: args.rateLimitProbePath,
-      requests: args.rateLimitProbeRequests,
+    rateLimitProbe = evaluateRateLimitProbe({
       mode: args.rateLimitMode,
-      statusCodeCounts: sortObjectKeys(statusCodeCounts),
-      saw429,
-      ok: modePass
-    };
+      requests: args.rateLimitProbeRequests,
+      statusCodeCounts
+    });
+    rateLimitProbe.path = args.rateLimitProbePath;
+    if (!rateLimitProbe.ok) {
+      failures.push(
+        `rate-limit probe failed for mode=${args.rateLimitMode}${rateLimitProbe.failureCode ? ` (${rateLimitProbe.failureCode})` : ""}`
+      );
+    }
   }
 
   let backupRestore = null;
@@ -995,6 +1076,11 @@ export async function main() {
   } else if (args.backupRestoreEvidencePath) {
     try {
       backupRestore = await loadBackupRestoreEvidenceFromPath(args.backupRestoreEvidencePath);
+      if (backupRestore.ok !== true) {
+        failures.push(
+          `backup/restore evidence did not prove a passing drill${backupRestore.failureCode ? ` (${backupRestore.failureCode})` : ""}`
+        );
+      }
     } catch (err) {
       failures.push(`backup/restore evidence read failed: ${err?.message ?? String(err)}`);
       backupRestore = {

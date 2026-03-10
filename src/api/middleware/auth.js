@@ -86,7 +86,9 @@ export async function authenticateRequest({
       }
 
       const scopes = new Set(Array.isArray(record.scopes) ? record.scopes : []);
-      return { ok: true, tenantId, principalId: `auth:${keyId}`, scopes, method: "api_key", keyId };
+      const principalId =
+        typeof record.principalId === "string" && record.principalId.trim() !== "" ? record.principalId.trim() : `auth:${keyId}`;
+      return { ok: true, tenantId, principalId, scopes, method: "api_key", keyId };
     }
 
     // Legacy ops token (pre-hardening). Accepted only if configured explicitly.

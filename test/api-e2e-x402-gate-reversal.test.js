@@ -688,6 +688,15 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(resolved.json?.reversalEvent?.providerDecisionVerification?.verified, true);
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_requested"));
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_resolved"));
+  const receiptView = await request(api, {
+    method: "GET",
+    path: `/x402/receipts/${encodeURIComponent(bindings.receiptId)}`
+  });
+  assert.equal(receiptView.statusCode, 200, receiptView.body);
+  assert.equal(receiptView.json?.receipt?.settlementState, "refunded");
+  assert.equal(receiptView.json?.receipt?.settlementReceipt?.status, "refunded");
+  assert.equal(receiptView.json?.receipt?.settlementReceipt?.refundedAmountCents, amountCents);
+  assert.equal(receiptView.json?.receipt?.settlementReceipt?.releasedAmountCents, 0);
   const resolvedIdempotentReplay = await request(api, {
     method: "POST",
     path: "/x402/gate/reversal",
@@ -732,6 +741,141 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(latest.eventType, "refund_resolved");
   assert.equal(prior.eventType, "refund_requested");
   assert.equal(latest.prevEventHash, prior.eventHash);
+});
+
+test("API e2e: x402 receipt view reflects live dispute state from settlement open and close", async () => {
+  const api = createApi({ now: () => "2026-03-08T19:00:00.000Z", opsToken: "tok_ops" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_receipt_dispute_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_receipt_dispute_payee_1" });
+  const operator = await registerAgent(api, { agentId: "agt_x402_receipt_dispute_operator_1" });
+  await creditWallet(api, { agentId: payer.agentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_receipt_dispute_1" });
+
+  const gateId = "x402gate_receipt_dispute_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_receipt_dispute_1" },
+    body: {
+      gateId,
+      payerAgentId: payer.agentId,
+      payeeAgentId: payee.agentId,
+      amountCents: 650,
+      currency: "USD",
+      toolId: "mock_search"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authorize_receipt_dispute_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_receipt_dispute_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: autoPolicy100(),
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"7".repeat(64)}`, `http:response_sha256:${"8".repeat(64)}`]
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  assert.equal(verify.json?.settlement?.status, "released");
+
+  const gateRead = await request(api, { method: "GET", path: `/x402/gate/${encodeURIComponent(gateId)}` });
+  assert.equal(gateRead.statusCode, 200, gateRead.body);
+  const runId = gateRead.json?.settlement?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+  const storedSettlement = await api.store.getAgentRunSettlement({ tenantId: "tenant_default", runId });
+  assert.ok(storedSettlement);
+  await api.store.commitTx({
+    at: "2026-03-08T19:00:00.000Z",
+    ops: [
+      {
+        kind: "AGENT_RUN_SETTLEMENT_UPSERT",
+        tenantId: "tenant_default",
+        runId,
+        settlement: {
+          ...storedSettlement,
+          settledAt: "2026-03-08T19:00:00.000Z",
+          disputeWindowDays: 30
+        }
+      }
+    ]
+  });
+
+  const bindings = await loadReversalBindings(api, { gateId, payerAgentId: payer.agentId });
+
+  const receiptInitial = await request(api, {
+    method: "GET",
+    path: `/x402/receipts/${encodeURIComponent(bindings.receiptId)}`
+  });
+  assert.equal(receiptInitial.statusCode, 200, receiptInitial.body);
+  assert.equal(receiptInitial.json?.receipt?.receiptId, bindings.receiptId);
+  assert.equal(receiptInitial.json?.receipt?.settlementState, "released");
+  assert.equal(receiptInitial.json?.receipt?.dispute?.status ?? "none", "none");
+
+  const opened = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "x402_receipt_dispute_open_1" },
+    body: {
+      disputeId: "dsp_x402_receipt_dispute_1",
+      disputeType: "quality",
+      disputePriority: "high",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: operator.agentId,
+      reason: "receipt should expose live dispute state",
+      evidenceRefs: [`http:request_sha256:${bindings.requestSha256}`, "evidence://x402/receipt-dispute/open.json"]
+    }
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
+  assert.equal(opened.json?.settlement?.disputeStatus, "open");
+
+  const receiptOpen = await request(api, {
+    method: "GET",
+    path: `/x402/receipts/${encodeURIComponent(bindings.receiptId)}`
+  });
+  assert.equal(receiptOpen.statusCode, 200, receiptOpen.body);
+  assert.equal(receiptOpen.json?.receipt?.dispute?.disputeId, "dsp_x402_receipt_dispute_1");
+  assert.equal(receiptOpen.json?.receipt?.dispute?.status, "open");
+  assert.equal(receiptOpen.json?.receipt?.dispute?.openedByAgentId, operator.agentId);
+  assert.equal(receiptOpen.json?.receipt?.dispute?.priority, "high");
+  assert.equal(receiptOpen.json?.receipt?.dispute?.channel, "counterparty");
+
+  const closed = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "x402_receipt_dispute_close_1" },
+    body: {
+      disputeId: "dsp_x402_receipt_dispute_1",
+      resolutionOutcome: "accepted",
+      resolutionSummary: "receipt reflects closure",
+      closedByAgentId: operator.agentId,
+      resolutionEvidenceRefs: [`http:request_sha256:${bindings.requestSha256}`]
+    }
+  });
+  assert.equal(closed.statusCode, 200, closed.body);
+  assert.equal(closed.json?.settlement?.disputeStatus, "closed");
+
+  const receiptClosed = await request(api, {
+    method: "GET",
+    path: `/x402/receipts/${encodeURIComponent(bindings.receiptId)}`
+  });
+  assert.equal(receiptClosed.statusCode, 200, receiptClosed.body);
+  assert.equal(receiptClosed.json?.receipt?.dispute?.disputeId, "dsp_x402_receipt_dispute_1");
+  assert.equal(receiptClosed.json?.receipt?.dispute?.status, "closed");
+  assert.equal(receiptClosed.json?.receipt?.dispute?.outcome, "accepted");
+  assert.equal(receiptClosed.json?.receipt?.dispute?.closedByAgentId, operator.agentId);
 });
 
 test("API e2e: x402 reversal resolve_refund denied releases held provider reserve", async () => {

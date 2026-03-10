@@ -2,6 +2,57 @@
 
 This document freezes dispute + arbitration lifecycle behavior enforced by Trust OS v1 APIs.
 
+## Action Wallet alias lifecycle (`DisputeCase.v1`)
+
+The Action Wallet launch surface exposes a public dispute alias over the richer run-settlement and arbitration substrate.
+
+Public states:
+
+- `opened`
+- `triaged`
+- `awaiting_evidence`
+- `refunded`
+- `denied`
+- `resolved`
+
+Allowed lifecycle:
+
+- `opened -> triaged`
+- `opened -> awaiting_evidence`
+- `opened -> refunded`
+- `triaged -> awaiting_evidence`
+- `triaged -> denied`
+- `triaged -> refunded`
+- `triaged -> resolved`
+- `awaiting_evidence -> triaged`
+- `awaiting_evidence -> denied`
+- `awaiting_evidence -> refunded`
+- `awaiting_evidence -> resolved`
+
+```mermaid
+stateDiagram-v2
+  opened --> triaged
+  opened --> awaiting_evidence
+  opened --> refunded
+  triaged --> awaiting_evidence
+  triaged --> denied
+  triaged --> refunded
+  triaged --> resolved
+  awaiting_evidence --> triaged
+  awaiting_evidence --> denied
+  awaiting_evidence --> refunded
+  awaiting_evidence --> resolved
+```
+
+Projection rules:
+
+- `opened`: settlement dispute status is `open` and no arbitration case is attached yet.
+- `awaiting_evidence`: arbitration exists but hosted dispute evidence is still absent.
+- `triaged`: arbitration exists and hosted dispute evidence has been attached.
+- `refunded`: dispute is closed and settlement status resolved to `refunded`.
+- `denied`: dispute is closed with rejection semantics (`disputeResolution.outcome=rejected` or provider denial).
+- `resolved`: dispute is closed and does not map to `refunded` or `denied`.
+
 ## Run dispute lifecycle (`AgentRunSettlement.v1`)
 
 State machine:

@@ -66,6 +66,35 @@
         "webhookSecret": { "type": ["string", "null"] }
       }
     },
+    "consumerDataSources": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "provider": { "enum": ["manual", "gmail", "outlook", "imap"] },
+            "address": { "type": ["string", "null"] },
+            "label": { "type": ["string", "null"] },
+            "connectedAt": { "type": ["string", "null"] }
+          }
+        },
+        "calendar": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "provider": { "enum": ["manual", "google_calendar", "outlook_calendar", "ical"] },
+            "address": { "type": ["string", "null"] },
+            "timezone": { "type": ["string", "null"] },
+            "availabilityNotes": { "type": ["string", "null"] },
+            "connectedAt": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
     "autoDecision": {
       "type": ["object", "null"],
       "additionalProperties": false,
