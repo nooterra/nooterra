@@ -3805,6 +3805,10 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const [busyState, setBusyState] = useState("");
   const [statusMessage, setStatusMessage] = useState("Create or unlock a workspace with a saved browser passkey. Email OTP stays available as the recovery path.");
   const browserPasskeyReady = typeof window !== "undefined" && Boolean(globalThis.crypto?.subtle);
+  const buyerTenantId = String(buyer?.tenantId ?? "").trim();
+  const runtimeBootstrapTenantId = String(bootstrapBundle?.tenantId ?? "").trim();
+  const resolvedWorkspaceTenantId = runtimeBootstrapTenantId || buyerTenantId;
+  const workspaceTenantLabel = resolvedWorkspaceTenantId || "Issue workspace first";
 
   useEffect(() => {
     let cancelled = false;
@@ -3905,10 +3909,10 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }, [buyer]);
 
   useEffect(() => {
-    const tenantId = buyer?.tenantId || loginForm.tenantId || signupForm.tenantId || runtime.tenantId;
+    const tenantId = buyer?.tenantId || loginForm.tenantId || signupForm.tenantId;
     const email = buyer?.email || loginForm.email || signupForm.email;
     setStoredPasskey(loadStoredBuyerPasskeyBundle({ tenantId, email }));
-  }, [buyer, loginForm.tenantId, loginForm.email, runtime.tenantId, signupForm.tenantId, signupForm.email]);
+  }, [buyer, loginForm.tenantId, loginForm.email, signupForm.tenantId, signupForm.email]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4070,7 +4074,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   function loadStoredPasskeyForCurrentIdentity({ tenantId = null, email = null } = {}) {
     const bundle = loadStoredBuyerPasskeyBundle({
-      tenantId: tenantId ?? buyer?.tenantId ?? loginForm.tenantId ?? signupForm.tenantId ?? runtime.tenantId,
+      tenantId: tenantId ?? buyer?.tenantId ?? loginForm.tenantId ?? signupForm.tenantId,
       email: email ?? buyer?.email ?? loginForm.email ?? signupForm.email
     });
     setStoredPasskey(bundle);
@@ -4079,7 +4083,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   async function runBootstrapSmokeTest(bootstrapOverride = null) {
     const activeBootstrap = bootstrapOverride ?? bootstrapBundle;
-    const tenantId = activeBootstrap?.tenantId ?? buyer?.tenantId ?? runtime.tenantId;
+    const tenantId = activeBootstrap?.tenantId ?? buyer?.tenantId;
     const env = activeBootstrap?.mcp?.env ?? null;
     if (!tenantId || !env) throw new Error("runtime bootstrap must exist before smoke test");
     const out = await requestJson({
@@ -5214,7 +5218,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           <div className="product-sidebar-list">
             <div>
               <strong>Tenant</strong>
-              <span>{buyer?.tenantId ?? runtime.tenantId ?? "Not resolved yet"}</span>
+              <span>{workspaceTenantLabel}</span>
             </div>
             <div>
               <strong>API key</strong>
