@@ -13,7 +13,16 @@ Prereqs:
 
 - Node.js 20.x (install is fail-fast if you use a different major)
 
-## 1) Install and onboard OpenClaw
+## The exact Action Wallet activation loop
+
+OpenClaw uses the same launch loop as Claude MCP and Codex:
+
+1. `Runtime bootstrap`
+2. `Request first approval`
+3. `Open receipt`
+4. `Open dispute`
+
+## 1) Runtime bootstrap
 
 Follow OpenClaw docs:
 
@@ -48,7 +57,7 @@ Choose:
 3. sign in or create account
 4. let setup write the OpenClaw MCP config
 
-## 3) First approval proof
+## 2) Request first approval
 
 Run:
 
@@ -71,7 +80,7 @@ openclaw tui --session main
 
 Stop here first. This is the launch proof path.
 
-## 4) After approval
+## 3) Open receipt
 
 After opening the approval URL and making a decision, continue with:
 
@@ -91,6 +100,12 @@ After OpenClaw or the connected adapter completes the external action, run:
 Expected result:
 
 - finalization returns a hosted receipt path and a dispute path
+
+## 4) Open dispute
+
+If the receipt needs follow-up, continue with:
+
+- `Use Nooterra to open or look up the dispute case for receiptId <receiptId> and return only JSON with disputeId and dispute state.`
 
 ## Notes for operators
 

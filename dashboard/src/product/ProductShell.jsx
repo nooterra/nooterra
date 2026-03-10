@@ -4745,6 +4745,53 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   );
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
+  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : "/onboarding";
+  const receiptSurfaceHref = latestFirstPaidReceiptId
+    ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
+    : "/receipts";
+  const disputeSurfaceHref = latestFirstPaidRunId
+    ? `/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`
+    : "/disputes";
+  const firstGovernedActionSteps = [
+    {
+      title: "Install against one runtime",
+      detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? `Bootstrap ${bootstrapBundle.bootstrap.apiKey.keyId} is ready for Claude MCP, OpenClaw, Codex, CLI, and API.`
+        : "Issue runtime bootstrap once, then reuse the same base URL, API key, and approval surfaces everywhere.",
+      ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId)
+    },
+    {
+      title: "Reach a hosted approval URL",
+      detail: hostedApprovalReady
+        ? "A hosted approval path has already been exercised from this workspace."
+        : "Create one governed action and verify the host hands back a durable approval URL instead of trying to inline approval logic.",
+      ready: hostedApprovalReady
+    },
+    {
+      title: "Close the proof loop",
+      detail: proofAndRecourseReady
+        ? "This workspace already has a receipt or verified outcome linked to recourse."
+        : "Fetch the grant, finalize with evidence, then confirm the receipt and dispute links resolve against the same run.",
+      ready: proofAndRecourseReady
+    }
+  ];
+  const activationChannels = [
+    {
+      label: "Claude MCP",
+      body: "Primary launch host. Paste the generated MCP config, request one governed action, and verify the approval deep link resolves in the hosted surface.",
+      href: "/developers"
+    },
+    {
+      label: "OpenClaw",
+      body: "Package OpenClaw with the same runtime bundle. The approval, receipt, and dispute surfaces should stay identical to the Claude path.",
+      href: "/integrations"
+    },
+    {
+      label: "Codex / API / CLI",
+      body: "Engineering shells should call the same Action Wallet contract and hand users into hosted approval, receipt, and dispute pages instead of inventing new UI.",
+      href: "/developers"
+    }
+  ];
 
   return (
     <div className="product-page">
@@ -4863,33 +4910,59 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             <p>First governed action</p>
             <h2>Once onboarding is green, the next steps should be boring.</h2>
           </div>
+          <div className="product-detail-meta">
+            <div>
+              <strong>Runtime bundle</strong>
+              <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "Not issued yet"}</span>
+            </div>
+            <div>
+              <strong>Approval route</strong>
+              <span>{hostedApprovalReady ? "Reachable" : "Not proven yet"}</span>
+            </div>
+            <div>
+              <strong>Receipt route</strong>
+              <span>{latestFirstPaidReceiptId ? "Bound to run" : "Pending"}</span>
+            </div>
+            <div>
+              <strong>Dispute route</strong>
+              <span>{latestFirstPaidRunId ? "Linked to run" : "Pending"}</span>
+            </div>
+          </div>
           <div className="product-step-list">
-            <div className="product-step-item">
-              <div className="product-step-copy">
-                <strong>1. Install one host</strong>
-                <span>Use Claude MCP or OpenClaw first. Codex, CLI, and API should reuse the same runtime values, not fork the install logic.</span>
+            {firstGovernedActionSteps.map((step, index) => (
+              <div key={`first_governed_action:${step.title}`} className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>{index + 1}. {step.title}</strong>
+                  <span>{step.detail}</span>
+                </div>
+                <StatusPill value={step.ready ? "active" : "pending"} />
               </div>
-              <StatusPill value={bootstrapBundle?.bootstrap?.apiKey?.keyId ? "active" : "pending"} />
-            </div>
-            <div className="product-step-item">
-              <div className="product-step-copy">
-                <strong>2. Reach hosted approval</strong>
-                <span>Create one action intent and verify the host returns a hosted approval URL with stable action and request ids.</span>
-              </div>
-              <StatusPill value={hostedApprovalReady ? "active" : "pending"} />
-            </div>
-            <div className="product-step-item">
-              <div className="product-step-copy">
-                <strong>3. Finish proof and recourse</strong>
-                <span>Fetch the execution grant, finalize with evidence, then confirm the receipt and dispute pages resolve against the same run.</span>
-              </div>
-              <StatusPill value={proofAndRecourseReady ? "active" : "pending"} />
-            </div>
+            ))}
           </div>
           <div className="product-actions">
             <a className="product-button product-button-ghost" href="/developers">Open developers</a>
-            <a className="product-button product-button-ghost" href="/approvals">Open approvals</a>
-            <a className="product-button product-button-solid" href="/receipts">Open receipts</a>
+            <a className="product-button product-button-ghost" href={approvalSurfaceHref}>Open approvals</a>
+            <a className="product-button product-button-solid" href={receiptSurfaceHref}>Open receipts</a>
+            <a className="product-button product-button-ghost" href={disputeSurfaceHref}>Open disputes</a>
+          </div>
+          <CodeBlock
+            title="Shared runtime contract"
+            code={builderCliSnippet}
+            hint="Every host should point at one runtime, one approval surface, and one receipt trail."
+          />
+          <div className="product-access-grid">
+            {activationChannels.map((channel) => (
+              <div key={`activation_channel:${channel.label}`} className="product-access-card">
+                <div className="product-mini-card-head">
+                  <Shield size={18} />
+                  <span>{channel.label}</span>
+                </div>
+                <p>{channel.body}</p>
+                <div className="product-actions">
+                  <a className="product-button product-button-ghost" href={channel.href}>Open path</a>
+                </div>
+              </div>
+            ))}
           </div>
         </article>
       </section>

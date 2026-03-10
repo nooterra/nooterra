@@ -18,7 +18,18 @@ Use Codex when you want to:
 
 Do not treat Codex as a separate MCP launch host. Treat it as the same runtime exercised through code and shell commands.
 
-## 1) Issue runtime values
+## The exact Action Wallet activation loop
+
+Codex uses the same launch loop as Claude MCP and OpenClaw:
+
+1. `Runtime bootstrap`
+2. `Request first approval`
+3. `Open receipt`
+4. `Open dispute`
+
+Codex only changes the shell. It does not change the Action Wallet contract.
+
+## 1) Runtime bootstrap
 
 The fastest path is still:
 
@@ -50,29 +61,43 @@ If you only need the public runtime path, the important part is that the same te
 - receipt lookup
 - dispute / recourse lookup
 
-## 3) Use the first governed action path
+## 2) Request first approval
 
-From Codex, the shortest install-to-value loop is:
+From Codex, the shortest install-to-first-approval loop is:
 
 1. create an action intent
 2. request approval
-3. open the hosted approval URL
-4. fetch the execution grant after approval
-5. submit evidence if needed
-6. finalize and fetch the receipt
+3. print or return only `approvalUrl`, `actionIntentId`, and `requestId`
+
+Stop there first. If you have those three values, the launch-scoped activation loop is alive.
+
+## 3) Open receipt
+
+After opening the hosted approval URL and making a decision:
+
+1. fetch the approval status
+2. if approved, fetch the execution grant
+3. let the host-side execution happen outside Nooterra
+4. submit evidence if needed
+5. finalize and fetch the receipt
 
 Keep the execution step host-side. Nooterra governs approval, grants, receipts, and disputes.
 
-## 4) Recommended developer surfaces
-
-While using Codex, keep these hosted pages open:
+Recommended hosted surfaces to keep open while using Codex:
 
 - `/approvals`
 - `/receipts`
 - `/disputes`
 - `/wallet`
 
-That gives you the same trust surfaces a launch-host integration would rely on.
+## 4) Open dispute
+
+If the receipt needs follow-up:
+
+1. open the dispute from the same receipt or run context
+2. return or print only `disputeId` and dispute state
+
+This keeps Codex on the same recourse path as the certified launch hosts.
 
 ## 5) What success looks like
 

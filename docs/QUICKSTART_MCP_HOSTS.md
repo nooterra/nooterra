@@ -32,7 +32,18 @@ For deeper channel-specific steps, see:
 - `docs/integrations/claude-desktop/PUBLIC_QUICKSTART.md`
 - `docs/integrations/openclaw/PUBLIC_QUICKSTART.md`
 
-## 1) Run setup
+## The exact Action Wallet activation loop
+
+Every supported entrypoint uses the same launch-scoped loop:
+
+1. `Runtime bootstrap`
+2. `Request first approval`
+3. `Open receipt`
+4. `Open dispute`
+
+The host or engineering shell changes. The trust surfaces do not.
+
+## 1) Runtime bootstrap
 
 Recommended interactive path:
 
@@ -52,12 +63,16 @@ Do not use unsupported hosts or BYO payment-rail setup for the launch train.
 
 If you are validating from Codex, keep the same runtime values and follow the API or CLI install path instead of trying to register Codex as a separate MCP host.
 
-## 2) Activate the host
+Channel-specific bootstrap:
 
-- `claude`: restart Claude Desktop after setup writes the MCP config.
-- `openclaw`: run `openclaw doctor`, then open `openclaw tui --session main` if you want an interactive session.
+- `Claude MCP`
+  - restart Claude Desktop after setup writes the MCP config
+- `OpenClaw`
+  - run `openclaw doctor`, then open `openclaw tui --session main` if you want an interactive session
+- `Codex / API / CLI`
+  - export the same runtime values from setup or onboarding and use them through the engineering quickstart in `docs/integrations/codex/ENGINEERING_QUICKSTART.md`
 
-## 3) First Action Wallet flow
+## 2) Request first approval
 
 First-approval path tools:
 
@@ -80,13 +95,23 @@ Modern MCP host ergonomics:
 - `resources/read` can hydrate `nooterra://action-wallet/...` objects directly into the host context window
 - task-augmented `tools/call` is available for the Action Wallet host tools, with `tasks/get`, `tasks/list`, `tasks/result`, and `tasks/cancel`
 
-Suggested first prompt inside the host:
+Suggested first prompt in Claude MCP or OpenClaw:
 
 - `Use Nooterra to create a buy action intent for a small demo purchase, request approval, and return only JSON with approvalUrl, actionIntentId, and requestId.`
 
-Stop here first. The launch proof is successful once the host returns a Nooterra-hosted approval URL and stable ids.
+Suggested first request from Codex/API/CLI:
 
-## 4) After the user decides
+- create the action intent
+- request the approval
+- print only `approvalUrl`, `actionIntentId`, and `requestId`
+
+Stop here first. The activation loop is working once you have:
+
+- a Nooterra-hosted approval URL
+- a stable `actionIntentId`
+- a stable `requestId`
+
+## 3) Open receipt
 
 After opening the approval URL and making a decision, continue with:
 
@@ -98,14 +123,32 @@ Expected result:
 - approved requests return a scoped execution grant the host can use to execute the external action
 - hosts that need to span model turns can start the same flow in task mode and later resolve it with `tasks/result`
 
-## 5) Complete the loop
+Then complete the launch loop:
 
 Only after the host has executed the external action and has evidence:
 
 - `Use Nooterra to submit host-captured evidence if needed, finalize the host-completed run, and fetch the receipt. Return only JSON with receiptId, settlement status, and dispute state.`
-- `If the receipt needs follow-up, use Nooterra to open or look up the dispute case and return only JSON.`
 
-## 6) Expected success signals
+Success for this step means:
+
+- the host or shell can fetch the execution grant after approval
+- the external action still happens host-side, not in Nooterra
+- finalization returns a stable `receiptId`
+- the hosted receipt page opens cleanly
+
+## 4) Open dispute
+
+Only if the receipt needs follow-up:
+
+- `Use Nooterra to open or look up the dispute case for receiptId <receiptId> and return only JSON with disputeId and dispute state.`
+
+Success for this step means:
+
+- the dispute is opened from the same run or receipt context
+- the dispute path is hosted by Nooterra
+- the run stays legible to support and operators without manual reconstruction
+
+## 5) Expected success signals
 
 - host can call the `nooterra.*` tools without manual key edits
 - approval link opens a Nooterra-hosted page
@@ -113,7 +156,7 @@ Only after the host has executed the external action and has evidence:
 - approved runs return an execution grant that stays in scope for host-side execution
 - finalization returns a receipt id and the receipt page can be opened
 
-## 7) Local smoke from the repo workspace
+## 6) Local smoke from the repo workspace
 
 If you are developing inside the repo, this checks tool wiring:
 
@@ -127,7 +170,7 @@ If your MCP client supports resources and task-augmented requests, also use:
 - `resources/read` on `nooterra://action-wallet/receipts/<receiptId>`
 - `tools/call` with `task: { "ttl": 60000 }` for `nooterra.finalize_action`, then `tasks/result`
 
-## 8) Troubleshooting
+## 7) Troubleshooting
 
 - `approval link expired`
   - create a fresh approval request from the host and retry
