@@ -1,7 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/install-mkdocs.sh\"",
-  "buildCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/build-mkdocs.sh\"",
-  "ignoreCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/ignore-mkdocs.sh\"",
-  "outputDirectory": "mkdocs/site"
+  "installCommand": "npm ci --prefix dashboard",
+  "buildCommand": "npm --prefix dashboard run build",
+  "ignoreCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/ignore-dashboard.sh\"",
+  "outputDirectory": "dashboard/dist",
+  "rewrites": [
+    {
+      "source": "/((?!.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
