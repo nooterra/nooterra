@@ -27,6 +27,7 @@ import {
   buildTenantConsumerConnectorOauthStartUrl,
   canonicalJsonStringify,
   createClientId,
+  DEFAULT_AUTH_BASE_URL,
   decideApprovalInboxItem,
   buildEd25519JwksFromPublicKeyPem,
   fetchApprovalInbox,
@@ -3811,13 +3812,45 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const resolvedWorkspaceTenantId = runtimeBootstrapTenantId || buyerTenantId;
   const workspaceTenantLabel = resolvedWorkspaceTenantId || "Issue workspace first";
 
+  async function requestAuthJson(request) {
+    const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
+    const baseUrlCandidates = [configuredBaseUrl];
+    if (DEFAULT_AUTH_BASE_URL && DEFAULT_AUTH_BASE_URL !== configuredBaseUrl) {
+      baseUrlCandidates.push(DEFAULT_AUTH_BASE_URL);
+    }
+    let lastError = null;
+    for (const baseUrl of baseUrlCandidates) {
+      try {
+        const out = await requestJson({
+          ...request,
+          baseUrl
+        });
+        if (baseUrl !== configuredBaseUrl) {
+          setRuntime((previous) => (
+            previous.authBaseUrl === baseUrl
+              ? previous
+              : { ...previous, authBaseUrl: baseUrl }
+          ));
+        }
+        return out;
+      } catch (error) {
+        lastError = error;
+        const message = String(error?.message ?? "");
+        const shouldFallback =
+          (!Number.isInteger(error?.status) || error.status >= 500) &&
+          /failed to fetch|networkerror|load failed|fetch/i.test(message);
+        if (!shouldFallback || baseUrl === DEFAULT_AUTH_BASE_URL) break;
+      }
+    }
+    throw lastError;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     async function hydrate() {
       try {
-        const authOut = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const authOut = await requestAuthJson({
           pathname: "/v1/public/auth-mode",
           method: "GET",
           credentials: "include"
@@ -3846,8 +3879,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       }
 
       try {
-        const meOut = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const meOut = await requestAuthJson({
           pathname: "/v1/buyer/me",
           method: "GET",
           credentials: "include"
@@ -3941,8 +3973,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
     async function loadOnboardingMetrics() {
       try {
-        const out = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const out = await requestAuthJson({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
           method: "GET",
           credentials: "include"
@@ -3965,8 +3996,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
     async function loadFirstPaidHistory() {
       try {
-        const out = await requestJson({
-          baseUrl: runtime.authBaseUrl,
+        const out = await requestAuthJson({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
           method: "GET",
           credentials: "include"
@@ -4021,8 +4051,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       error: ""
     }));
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
         method: "GET",
         credentials: "include"
@@ -4044,8 +4073,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   }
 
   async function loadBuyerSession() {
-    const meOut = await requestJson({
-      baseUrl: runtime.authBaseUrl,
+    const meOut = await requestAuthJson({
       pathname: "/v1/buyer/me",
       method: "GET",
       credentials: "include"
@@ -4087,8 +4115,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const tenantId = activeBootstrap?.tenantId ?? buyer?.tenantId;
     const env = activeBootstrap?.mcp?.env ?? null;
     if (!tenantId || !env) throw new Error("runtime bootstrap must exist before smoke test");
-    const out = await requestJson({
-      baseUrl: runtime.authBaseUrl,
+    const out = await requestAuthJson({
       pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap/smoke-test`,
       method: "POST",
       headers: {
@@ -4110,8 +4137,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("signup");
     setStatusMessage("Creating the workspace and issuing the first recovery code...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: "/v1/public/signup",
         method: "POST",
         headers: {
@@ -4169,8 +4195,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setStatusMessage("Generating a device passkey, creating the workspace, and opening the first buyer session...");
     try {
       const keypair = await generateBrowserEd25519KeypairPem();
-      const options = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const options = await requestAuthJson({
         pathname: "/v1/public/signup/passkey/options",
         method: "POST",
         headers: {
@@ -4190,8 +4215,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         privateKeyPem: keypair.privateKeyPem,
         challenge: options?.challenge
       });
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: "/v1/public/signup/passkey",
         method: "POST",
         headers: {
@@ -4265,8 +4289,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       if (!bundle) {
         throw new Error("No saved device passkey was found for this tenant/email. Use the recovery code or create the workspace on this browser first.");
       }
-      const options = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const options = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
         method: "POST",
         headers: {
@@ -4284,8 +4307,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         privateKeyPem: bundle.privateKeyPem,
         challenge: options?.challenge
       });
-      await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`,
         method: "POST",
         headers: {
@@ -4320,8 +4342,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("otp");
     setStatusMessage("Requesting a recovery code...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(loginForm.tenantId)}/buyer/login/otp`,
         method: "POST",
         headers: {
@@ -4344,8 +4365,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("verify");
     setStatusMessage("Verifying the recovery code and creating the buyer session...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(loginForm.tenantId)}/buyer/login`,
         method: "POST",
         headers: {
@@ -4390,8 +4410,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         },
         ...(runtimeForm.paidToolsBaseUrl ? { paidToolsBaseUrl: runtimeForm.paidToolsBaseUrl.trim() } : {})
       };
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(buyer.tenantId)}/onboarding/runtime-bootstrap`,
         method: "POST",
         headers: {
@@ -4460,8 +4479,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       error: ""
     }));
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
         method: "GET",
         credentials: "include"
@@ -4502,16 +4520,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }));
     setStatusMessage(replayAttemptId ? "Replaying stored first paid call attempt..." : "Running first paid call...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`,
         method: "POST",
         headers: { "content-type": "application/json" },
         body: replayAttemptId ? { replayAttemptId } : {},
         credentials: "include"
       });
-      const historyOut = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const historyOut = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
         method: "GET",
         credentials: "include"
@@ -4557,8 +4573,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }));
     setStatusMessage("Running runtime conformance matrix...");
     try {
-      const out = await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      const out = await requestAuthJson({
         pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4593,8 +4608,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setBusyState("logout");
     setStatusMessage("Signing out of the buyer session...");
     try {
-      await requestJson({
-        baseUrl: runtime.authBaseUrl,
+      await requestAuthJson({
         pathname: "/v1/buyer/logout",
         method: "POST",
         headers: {
