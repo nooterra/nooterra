@@ -9,6 +9,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 Current Release: 0.2.8
 
 ### Added
+- Action Wallet v1 launch surfaces now include hosted trust and host-readiness improvements across the public frontend and onboarding path:
+  - Lovable-derived public site shell for `/`, `/developers`, and `/integrations`
+  - onboarding activation telemetry, first-paid-call proof actions, runtime conformance visibility, and install-to-first-approval readiness tracking
+  - Codex engineering quickstart alongside Claude MCP and OpenClaw launch-host guidance
+- Action Wallet operator and trust-product surfaces now expose more of the production rescue and recourse model:
+  - operator rescue UI actions for revoke, retry finalize, and dispute resolution
+  - clearer receipt/dispute recourse state and hosted trust-surface metadata
+- Action Wallet prod hardening for settlement, dispute, and money-rail correctness:
+  - fail-closed verifier requirements on finalize and legacy work-order completion/settlement paths
+  - dispute intake from receipt/run/grant/work-order context
+  - stricter Stripe operation/webhook/reconciliation binding, payout artifact validation, and settlement kernel validation on the `buy` path
 - Agent inbox, intent negotiation, and identity transparency publication set:
   - public specs for `AgentInbox.v1`, `IdentityTransparencyLog.v1`, and `IntentContract.v1`
   - public JSON schemas for inbox cursors/messages, identity log proofs/checkpoints/entries, and intent negotiation events
