@@ -14,7 +14,16 @@ Prereqs:
 - Claude Desktop installed and signed in
 - Node.js 20.x
 
-## 1) Run setup
+## The exact Action Wallet activation loop
+
+Claude MCP uses the same launch loop as every other supported path:
+
+1. `Runtime bootstrap`
+2. `Request first approval`
+3. `Open receipt`
+4. `Open dispute`
+
+## 1) Runtime bootstrap
 
 Interactive path:
 
@@ -33,7 +42,7 @@ Choose:
 
 Restart Claude Desktop after setup writes MCP config.
 
-## 3) First approval proof
+## 2) Request first approval
 
 In Claude Desktop, run:
 
@@ -47,7 +56,7 @@ Expected result:
 
 Stop here first. This is the launch proof path.
 
-## 4) After approval
+## 3) Open receipt
 
 After opening the approval URL and making a decision, run:
 
@@ -67,3 +76,9 @@ After Claude or the connected adapter completes the external action, run:
 Expected result:
 
 - finalization returns a receipt id that can be opened on the hosted receipt page
+
+## 4) Open dispute
+
+If the receipt needs follow-up, run:
+
+- `Use Nooterra to open or look up the dispute case for receiptId <receiptId> and return only JSON with disputeId and dispute state.`

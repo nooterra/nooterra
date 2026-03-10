@@ -32,11 +32,17 @@ For curated public docs, start here:
 
 ## Fastest onboarding path
 
-1. Run `nooterra setup` (or `./bin/nooterra.js setup`), choose `quick`, and pick `claude` or `openclaw`.
-2. Complete sign-in and let setup write the hosted approval configuration for that host.
-3. In the host, ask Nooterra to create an action intent and request approval.
-4. Open the hosted approval URL, approve or deny, then return to the host.
-5. Fetch the execution grant, finalize the action, and open the receipt or dispute flow.
+Use the same Action Wallet activation loop everywhere:
+
+1. **Runtime bootstrap**
+   Run `nooterra setup`, choose `quick`, and connect the runtime for `claude` or `openclaw`.
+   If you are working from Codex, reuse the same runtime values through the API or CLI path.
+2. **Request first approval**
+   From the host or shell, create an action intent and request a hosted approval.
+3. **Open receipt**
+   After approval and host-side execution, submit evidence if needed, finalize, and open the hosted receipt.
+4. **Open dispute**
+   If something is wrong, open the dispute from the same receipt or run context.
 
 If you are testing from Codex instead of a launch host, reuse the same runtime values through the API or CLI examples in the developers page and docs. The approval, receipt, and dispute surfaces stay identical.
 
