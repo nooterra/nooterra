@@ -365,6 +365,8 @@ function DevelopersPage() {
       id: "mcp",
       label: "Claude MCP",
       desc: "Integrate Nooterra as a Model Context Protocol server. Claude gains governed authority to take real-world actions.",
+      docsHref: docsLinks.claudeDesktopQuickstart,
+      docsLabel: "Claude quickstart",
       code: `# Install the Nooterra MCP server
 npx @nooterra/mcp-server init
 
@@ -385,6 +387,8 @@ npx @nooterra/mcp-server init
       id: "openclaw",
       label: "OpenClaw",
       desc: "Drop-in OpenClaw provider. Your framework gets approvals, receipts, and recourse without changing execution logic.",
+      docsHref: docsLinks.openClawQuickstart,
+      docsLabel: "OpenClaw quickstart",
       code: `import { NooterraClaw } from "@nooterra/openclaw";
 
 const claw = new NooterraClaw({
@@ -402,6 +406,8 @@ const result = await claw.execute({
       id: "cli",
       label: "CLI",
       desc: "Manage policies, inspect receipts, and configure wallets from your terminal.",
+      docsHref: docsLinks.codexEngineeringQuickstart,
+      docsLabel: "CLI / Codex guide",
       code: `npm install -g @nooterra/cli
 nooterra auth login
 nooterra wallet create --name "production-agent"
@@ -411,6 +417,8 @@ nooterra receipts list --wallet prod-agent --last 24h`
       id: "api",
       label: "REST API",
       desc: "Direct HTTP integration for approvals, grants, receipts, and dispute resolution.",
+      docsHref: docsLinks.api,
+      docsLabel: "API reference",
       code: `curl -X POST https://api.nooterra.com/v1/approve \\
   -H "Authorization: Bearer nt_live_..." \\
   -H "Content-Type: application/json" \\
@@ -464,6 +472,14 @@ nooterra receipts list --wallet prod-agent --last 24h`
               <div className="lg:col-span-2">
                 <h3 className="mb-4 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{active.label}</h3>
                 <p className="leading-relaxed text-stone-400">{active.desc}</p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                    Create workspace <ArrowRight size={16} />
+                  </a>
+                  <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                    {active.docsLabel} <ArrowUpRight size={15} />
+                  </a>
+                </div>
               </div>
               <div className="lg:col-span-3">
                 <div className="overflow-hidden rounded-lg border border-white/10 bg-[#10151c]">
@@ -498,8 +514,8 @@ nooterra receipts list --wallet prod-agent --last 24h`
                 <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Open onboarding <ArrowRight size={16} />
                 </a>
-                <a href={docsLinks.quickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  Quickstart docs <ArrowUpRight size={15} />
+                <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Host quickstart <ArrowUpRight size={15} />
                 </a>
               </div>
             </div>

@@ -5431,7 +5431,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <p>Primary launch host. Use the generated MCP config and aim for first hosted approval fast.</p>
             <div className="product-actions">
-              <a className="product-button product-button-ghost" href={docsLinks.integrations}>Host guide</a>
+              <a className="product-button product-button-ghost" href={docsLinks.claudeDesktopQuickstart}>Claude guide</a>
               <a className="product-button product-button-ghost" href="/developers">Open developers</a>
             </div>
           </div>
@@ -5442,7 +5442,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <p>Second launch host. Reuse the same runtime bundle and approval contract without forking the flow.</p>
             <div className="product-actions">
-              <a className="product-button product-button-ghost" href={docsLinks.integrations}>OpenClaw guide</a>
+              <a className="product-button product-button-ghost" href={docsLinks.openClawQuickstart}>OpenClaw guide</a>
               <a className="product-button product-button-ghost" href="/developers">Open developers</a>
             </div>
           </div>
@@ -5453,7 +5453,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
             </div>
             <p>Engineering shells reuse the same Action Wallet runtime. Keep approval, receipt, and dispute on the hosted surfaces.</p>
             <div className="product-actions">
-              <a className="product-button product-button-ghost" href="/developers">Open developers</a>
+              <a className="product-button product-button-ghost" href={docsLinks.codexEngineeringQuickstart}>Codex guide</a>
               <a className="product-button product-button-ghost" href="/wallet">Open wallet</a>
             </div>
           </div>

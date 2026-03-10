@@ -15,9 +15,15 @@ export const ossLinks = {
   discussions: `${rawGithubRepo.replace(/\/+$/, "")}/discussions`
 };
 
+const repoBlobUrl = `${ossLinks.repo}/blob/main`;
+
 export const docsLinks = {
   home: `${docsBaseUrl}/`,
   quickstart: `${docsBaseUrl}/guides/quickstart/`,
+  hostQuickstart: `${repoBlobUrl}/docs/QUICKSTART_MCP_HOSTS.md`,
+  claudeDesktopQuickstart: `${repoBlobUrl}/docs/integrations/claude-desktop/PUBLIC_QUICKSTART.md`,
+  openClawQuickstart: `${repoBlobUrl}/docs/integrations/openclaw/PUBLIC_QUICKSTART.md`,
+  codexEngineeringQuickstart: `${repoBlobUrl}/docs/integrations/codex/ENGINEERING_QUICKSTART.md`,
   localEnvironment: `${docsBaseUrl}/guides/local-environment/`,
   architecture: `${docsBaseUrl}/architecture/control-plane/`,
   api: `${docsBaseUrl}/reference/api-surface/`,
