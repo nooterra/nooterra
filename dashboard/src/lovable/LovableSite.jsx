@@ -654,8 +654,8 @@ function TrustEntryPage({
   artifactBody,
   artifactStats,
   ctaLabel = "Open onboarding",
-  supportHref = "/developers",
-  supportLabel = "Read integration docs"
+  supportHref = docsLinks.hostQuickstart,
+  supportLabel = "Launch host guide"
 }) {
   return (
     <SiteLayout>
