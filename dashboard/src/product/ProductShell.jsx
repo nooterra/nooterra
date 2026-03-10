@@ -4769,7 +4769,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const hostedApprovalReady = Boolean(firstApprovalSharedAt);
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
-  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : "/developers";
+  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart;
   const receiptSurfaceHref = latestFirstPaidReceiptId
     ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
     : "/receipts";
@@ -4800,7 +4800,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Next exact move: install Claude MCP or OpenClaw and trigger one yellow-state action so /approvals receives a live request.`
           : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
-      href: hostedApprovalReady ? "/approvals" : "/developers",
+      href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
       cta: hostedApprovalReady ? "Open approvals" : "Open install path"
     },
     {
@@ -4839,17 +4839,17 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     {
       label: "Claude MCP",
       body: "Primary launch host. Paste the generated MCP config, request one governed action, and verify the approval deep link resolves in the hosted surface.",
-      href: "/developers"
+      href: docsLinks.claudeDesktopQuickstart
     },
     {
       label: "OpenClaw",
       body: "Package OpenClaw with the same runtime bundle. The approval, receipt, and dispute surfaces should stay identical to the Claude path.",
-      href: "/integrations"
+      href: docsLinks.openClawQuickstart
     },
     {
       label: "Codex / API / CLI",
       body: "Engineering shells should call the same Action Wallet contract and hand users into hosted approval, receipt, and dispute pages instead of inventing new UI.",
-      href: "/developers"
+      href: docsLinks.codexEngineeringQuickstart
     }
   ];
 
