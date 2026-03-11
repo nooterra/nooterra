@@ -138,7 +138,7 @@ function SiteFooter() {
             <div className="space-y-3">
               <a href="/developers" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Documentation</a>
               <a href="/integrations" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Integrations</a>
-              <a href={docsLinks.api} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
+              <a href="/docs/api" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
               <a href={docsLinks.designPartnerKit} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Partner kit</a>
               <a href={ossLinks.repo} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">GitHub</a>
             </div>
@@ -146,10 +146,10 @@ function SiteFooter() {
           <div>
             <h4 className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-stone-500">Company</h4>
             <div className="space-y-3">
-              <a href={docsLinks.security} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Security</a>
-              <a href={docsLinks.ops} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Operations</a>
-              <a href={docsLinks.launchChecklist} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Launch checklist</a>
-              <a href={ossLinks.issues} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Support</a>
+              <a href="/security" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Security</a>
+              <a href="/status" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Status</a>
+              <a href="/privacy" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Privacy</a>
+              <a href="/terms" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Terms</a>
             </div>
           </div>
         </div>
@@ -1096,10 +1096,327 @@ function TrustEntryPage({
   );
 }
 
+function ResourcePage({
+  eyebrow,
+  title,
+  summary,
+  primaryCta,
+  secondaryCta,
+  sections,
+  proofPoints
+}) {
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[68vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                {title}
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href={primaryCta.href} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  {primaryCta.label} <ArrowRight size={16} />
+                </a>
+                <a href={secondaryCta.href} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  {secondaryCta.label} <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Why this page exists</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    One clear route for one clear question.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  First-class route
+                </div>
+              </div>
+              <div className="space-y-3">
+                {proofPoints.map((item, index) => (
+                  <div key={item.title} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-5 px-6 py-24 lg:grid-cols-3 lg:px-8 lg:py-32">
+          {sections.map((section, index) => (
+            <FadeIn key={section.title} delay={0.08 * index}>
+              <div className="lovable-panel h-full">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{section.eyebrow}</p>
+                <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  {section.title}
+                </h3>
+                <p className="mt-4 text-sm leading-relaxed text-stone-400">{section.body}</p>
+                <a href={section.href} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                  {section.ctaLabel} <ArrowUpRight size={14} />
+                </a>
+              </div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
 export default function LovableSite({ mode = "home" }) {
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
   if (mode === "onboarding") return <OnboardingPage />;
+  if (mode === "docs") {
+    return (
+      <ResourcePage
+        eyebrow="Docs"
+        title="Documentation with the website as the index, not a dead-end redirect."
+        summary="Every major public route should explain itself first, then hand users into the deeper docs where the runtime details live."
+        primaryCta={{ label: "Open docs home", href: docsLinks.home }}
+        secondaryCta={{ label: "Quickstart", href: "/docs/quickstart" }}
+        proofPoints={[
+          { title: "Browse by job", body: "Quickstart, architecture, integrations, API, security, and ops each get their own route and context." },
+          { title: "Keep the jump short", body: "The website explains what the doc set is for before sending users into the full reference surface." },
+          { title: "Make the next click obvious", body: "Every route should present one clear primary doc path instead of a generic docs redirect." }
+        ]}
+        sections={[
+          { eyebrow: "Start", title: "Quickstart", body: "Get from zero to first governed action with the smallest possible loop.", href: "/docs/quickstart", ctaLabel: "Open quickstart" },
+          { eyebrow: "Build", title: "Architecture", body: "Understand the control plane, artifact chain, and runtime boundaries before you widen scope.", href: "/docs/architecture", ctaLabel: "View architecture" },
+          { eyebrow: "Run", title: "Operations", body: "Launch checklist, cutover, incidents, and operator runbooks for real production usage.", href: "/docs/ops", ctaLabel: "Open ops docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_quickstart") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Quickstart"
+        title="Start with one governed action, not a giant setup ritual."
+        summary="The quickstart should get a builder or operator to the first approval and receipt path with the fewest moving parts possible."
+        primaryCta={{ label: "Open quickstart", href: docsLinks.quickstart }}
+        secondaryCta={{ label: "Create workspace", href: MANAGED_ONBOARDING_HREF }}
+        proofPoints={[
+          { title: "One runtime", body: "Bootstrap the workspace once, then reuse the same trust contract across hosts." },
+          { title: "One live loop", body: "Install, approval, receipt, dispute. Nothing else matters until that path is boring." },
+          { title: "One artifact chain", body: "The quickstart should leave users with a real approval URL and a real receipt, not a shell-only success message." }
+        ]}
+        sections={[
+          { eyebrow: "Hosted", title: "Managed onboarding", body: "Use the public onboarding rail if you want the website to issue the runtime for you.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Start onboarding" },
+          { eyebrow: "CLI", title: "Codex / CLI quickstart", body: "The fastest engineering path is still the Action Wallet first-governed-action script.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" },
+          { eyebrow: "Hosts", title: "Launch host guide", body: "Pick the supported host path you want to prove first.", href: docsLinks.hostQuickstart, ctaLabel: "Open host guide" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_architecture") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Architecture"
+        title="Understand the control plane before you trust it."
+        summary="Architecture should explain what Nooterra governs, what it does not, and how proofs, receipts, and recourse remain bound to each action."
+        primaryCta={{ label: "Open architecture docs", href: docsLinks.architecture }}
+        secondaryCta={{ label: "API surface", href: "/docs/api" }}
+        proofPoints={[
+          { title: "Policy, not prompts", body: "The system makes decisions through explicit rules and bounded grants, not hidden prompt state." },
+          { title: "Evidence, not vibes", body: "Receipts, verifier results, and disputes are attached to the same artifact chain." },
+          { title: "Recourse, not dead history", body: "The system is only trustworthy if the same run can later be challenged and unwound." }
+        ]}
+        sections={[
+          { eyebrow: "Control plane", title: "Architecture", body: "Read the full control-plane description and artifact lineage.", href: docsLinks.architecture, ctaLabel: "View docs" },
+          { eyebrow: "Reference", title: "API surface", body: "See the launch-scoped lifecycle as a real contract, not a loose set of endpoints.", href: "/docs/api", ctaLabel: "API docs" },
+          { eyebrow: "Ops", title: "Launch checklist", body: "Translate the architecture into concrete launch gates and operator controls.", href: docsLinks.launchChecklist, ctaLabel: "Launch checklist" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_integrations") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Integrations"
+        title="Every channel should reuse the same trust contract."
+        summary="Claude MCP, OpenClaw, Codex, CLI, and direct API should all resolve into the same approval, receipt, and dispute surfaces."
+        primaryCta={{ label: "Open integrations reference", href: docsLinks.integrations }}
+        secondaryCta={{ label: "Launch hosts", href: docsLinks.hostQuickstart }}
+        proofPoints={[
+          { title: "Host-native in front", body: "The agent experience stays inside the host until trust, proof, or recourse is needed." },
+          { title: "Hosted trust surfaces", body: "Approval, wallet, receipt, and dispute stay canonical even when the initiating host changes." },
+          { title: "Parity over breadth", body: "One boring first-run loop per channel matters more than a long unsupported matrix." }
+        ]}
+        sections={[
+          { eyebrow: "Claude", title: "Claude MCP", body: "Best first host when you want the clearest approval handoff.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "Claude quickstart" },
+          { eyebrow: "Framework", title: "OpenClaw", body: "Use the same Action Wallet loop inside a more agentic shell.", href: docsLinks.openClawQuickstart, ctaLabel: "OpenClaw guide" },
+          { eyebrow: "Engineering", title: "Codex / CLI / API", body: "For builders who want the shortest path from install to first governed action.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Engineering guide" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_api") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / API"
+        title="The API is the runtime contract, not a bag of endpoints."
+        summary="Action Wallet becomes trustworthy when the lifecycle is explicit: intent, approval, grant, evidence, receipt, and dispute."
+        primaryCta={{ label: "Open API reference", href: docsLinks.api }}
+        secondaryCta={{ label: "Engineering guide", href: docsLinks.codexEngineeringQuickstart }}
+        proofPoints={[
+          { title: "Deterministic writes", body: "The contract should fail closed on missing evidence, mismatched scope, or non-JSON control-plane drift." },
+          { title: "Canonical links", body: "Hosted approval, receipt, and dispute surfaces should resolve consistently from every channel." },
+          { title: "Idempotent state", body: "The API should make repeated retries safe and auditable instead of ambiguous." }
+        ]}
+        sections={[
+          { eyebrow: "Lifecycle", title: "Action Wallet v1", body: "Read the full launch-scoped lifecycle and object model.", href: docsLinks.api, ctaLabel: "View lifecycle" },
+          { eyebrow: "Quickstart", title: "First governed action", body: "Use the quickstart script to exercise the same API contract end to end.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Run quickstart" },
+          { eyebrow: "Ops", title: "Launch checklist", body: "See what the API must prove before you trust it in production.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_security") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Security"
+        title="Security should explain the boundaries, not just claim them."
+        summary="Nooterra is only credible if the public docs explain fail-closed behavior, scoped authority, operator controls, and the ways the system blocks unsafe state drift."
+        primaryCta={{ label: "Open security docs", href: docsLinks.security }}
+        secondaryCta={{ label: "Security overview", href: "/security" }}
+        proofPoints={[
+          { title: "Fail closed by default", body: "Missing artifacts, route drift, or mismatched bindings should stop the action, not silently succeed." },
+          { title: "Scoped authority", body: "Hosts get bounded grants, not vague permission to act however they like." },
+          { title: "Operator backstops", body: "Kill switches, quarantine, and dispute resolution are part of the product, not an afterthought." }
+        ]}
+        sections={[
+          { eyebrow: "Model", title: "Security model", body: "Read the full trust boundaries and runtime constraints.", href: docsLinks.security, ctaLabel: "Open model" },
+          { eyebrow: "Ops", title: "Operations", body: "See how production controls and incident response connect to the security posture.", href: docsLinks.ops, ctaLabel: "Ops docs" },
+          { eyebrow: "Policy", title: "Launch checklist", body: "Use the launch list as the concrete security bar for go-live.", href: docsLinks.launchChecklist, ctaLabel: "Launch checklist" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_ops") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Operations"
+        title="Operator pages should lead to runbooks, not leave you guessing."
+        summary="The ops surface is part of the product. Launch checklists, incidents, cutover, and host success gates should be discoverable from the website too."
+        primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
+        secondaryCta={{ label: "Launch checklist", href: docsLinks.launchChecklist }}
+        proofPoints={[
+          { title: "Readiness before launch", body: "Synthetic smokes and onboarding gates should catch route drift before a user does." },
+          { title: "Rescue before scale", body: "Operators need quarantine, revoke, refund, and dispute resolution before the product broadens." },
+          { title: "Cutover with evidence", body: "Prod claims should be backed by machine-readable reports, not gut feel." }
+        ]}
+        sections={[
+          { eyebrow: "Runbooks", title: "Operations", body: "Daily runbook, health loops, and launch readiness details.", href: docsLinks.ops, ctaLabel: "Open ops" },
+          { eyebrow: "Launch", title: "Checklist", body: "The go-live bar for the first product loop.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" },
+          { eyebrow: "Incidents", title: "Incident response", body: "What happens when a run, host, or money lane goes sideways.", href: docsLinks.incidents, ctaLabel: "Open incident docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "status") {
+    return (
+      <ResourcePage
+        eyebrow="Status"
+        title="Production posture should be visible."
+        summary="Use this route as the public index for launch health, known issues, and operational trust posture instead of burying that information in internal dashboards."
+        primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
+        secondaryCta={{ label: "Launch checklist", href: docsLinks.launchChecklist }}
+        proofPoints={[
+          { title: "Health is a product feature", body: "Customers should know where to look when onboarding or approvals feel wrong." },
+          { title: "Known issues should be explicit", body: "If there is route drift, degraded auth, or host instability, that should not be hidden." },
+          { title: "Ops links should be direct", body: "The status route should be a clear handoff into real runbooks and support channels." }
+        ]}
+        sections={[
+          { eyebrow: "Health", title: "Operations runbook", body: "Current best source for live readiness posture and operational drill-down.", href: docsLinks.ops, ctaLabel: "Open operations" },
+          { eyebrow: "Support", title: "GitHub issues", body: "Public issue tracker for sharp edges, regressions, and support follow-up.", href: ossLinks.issues, ctaLabel: "Open support" },
+          { eyebrow: "Launch", title: "Go-live checklist", body: "The concrete release bar we hold the system to.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" }
+        ]}
+      />
+    );
+  }
+  if (mode === "security") {
+    return (
+      <ResourcePage
+        eyebrow="Security"
+        title="The product should say how it fails, not just how it succeeds."
+        summary="Security for Nooterra means bounded authority, deterministic evidence, operator kill switches, and route-level fail-closed behavior when the web shell drifts from the control plane."
+        primaryCta={{ label: "Open security model", href: docsLinks.security }}
+        secondaryCta={{ label: "View docs hub", href: "/docs" }}
+        proofPoints={[
+          { title: "Authority is scoped", body: "The system grants only bounded permission to act and keeps that scope inspectable." },
+          { title: "Artifacts are canonical", body: "Receipts, disputes, and verification stay attached to the same run lineage." },
+          { title: "Route drift is treated as failure", body: "If the website serves HTML where control-plane JSON belongs, launch gates now block." }
+        ]}
+        sections={[
+          { eyebrow: "Reference", title: "Security model", body: "Read the formal runtime boundaries and protections.", href: docsLinks.security, ctaLabel: "Open model" },
+          { eyebrow: "Ops", title: "Incident response", body: "See how the operator side handles drift, abuse, and failures.", href: docsLinks.incidents, ctaLabel: "Incident docs" },
+          { eyebrow: "Product", title: "Disputes", body: "Recourse is part of the trust model, not separate from it.", href: "/disputes", ctaLabel: "View disputes" }
+        ]}
+      />
+    );
+  }
+  if (mode === "privacy") {
+    return (
+      <ResourcePage
+        eyebrow="Privacy"
+        title="The public site should explain the data boundary before people enter the product."
+        summary="This route gives users a clear starting point for how onboarding identities, hosted approvals, receipts, and disputes relate to the broader Nooterra trust model."
+        primaryCta={{ label: "Open security model", href: docsLinks.security }}
+        secondaryCta={{ label: "Contact support", href: ossLinks.issues }}
+        proofPoints={[
+          { title: "Identity is explicit", body: "Work email, company, and runtime issuance are part of the trust boundary." },
+          { title: "Artifacts outlive the host", body: "Approval, receipt, and dispute records persist beyond the initiating conversation." },
+          { title: "Data should be explainable", body: "Every stored artifact should have a product reason, not just a logging reason." }
+        ]}
+        sections={[
+          { eyebrow: "Identity", title: "Onboarding", body: "See the public onboarding path and what the product asks for first.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Artifacts", title: "Receipts", body: "Understand the durable records the system keeps after actions complete.", href: "/receipts", ctaLabel: "View receipts" },
+          { eyebrow: "Support", title: "Questions", body: "Route unusual privacy or data handling questions into support and operator channels.", href: ossLinks.issues, ctaLabel: "Open support" }
+        ]}
+      />
+    );
+  }
+  if (mode === "terms") {
+    return (
+      <ResourcePage
+        eyebrow="Terms"
+        title="Product boundaries should be visible before users sign in."
+        summary="This page is the public route for what the first product actually is: host-first Action Wallet, launch-scoped hosts, and explicit recourse instead of vague automation claims."
+        primaryCta={{ label: "Open docs hub", href: "/docs" }}
+        secondaryCta={{ label: "Developers", href: "/developers" }}
+        proofPoints={[
+          { title: "Launch scope is narrow", body: "Buy plus cancel/recover on the supported host/runtime paths." },
+          { title: "The website is not the whole product", body: "Host-native interaction, hosted trust surfaces, and the runtime contract all matter." },
+          { title: "Recourse is part of the promise", body: "Users should understand that approvals, receipts, and disputes are core, not optional." }
+        ]}
+        sections={[
+          { eyebrow: "Scope", title: "Developers", body: "See the actual launch channels and runtime entry points.", href: "/developers", ctaLabel: "View developers" },
+          { eyebrow: "Surfaces", title: "Trust pages", body: "Approvals, receipts, disputes, and wallet are the public trust layer.", href: "/wallet", ctaLabel: "View trust pages" },
+          { eyebrow: "Reference", title: "Docs", body: "Full reference, launch checklist, and architecture beyond the marketing layer.", href: "/docs", ctaLabel: "Open docs" }
+        ]}
+      />
+    );
+  }
   if (mode === "wallet") {
     return (
       <TrustEntryPage
