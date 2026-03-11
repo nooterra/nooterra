@@ -245,14 +245,53 @@ async function main() {
         : null;
   }
 
+  const rawWebsiteBaseUrl = typeof process.env.NOOTERRA_WEBSITE_BASE_URL === "string"
+    ? process.env.NOOTERRA_WEBSITE_BASE_URL.trim()
+    : "";
+  const websiteBaseUrl = rawWebsiteBaseUrl ? rawWebsiteBaseUrl.replace(/\/+$/, "") : "";
+  const approvalUrl = resolveHostedUrl(seededApproval?.approvalUrl, {
+    websiteBaseUrl,
+    fieldName: "approvalUrl"
+  });
+  const resolvedRunUrl =
+    !skipFirstPaidCall && ((firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId) || (firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl))
+      ? resolveHostedUrl(firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl, {
+          websiteBaseUrl,
+          fieldName: "runUrl",
+          fallbackPath:
+            (firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId)
+              ? `/runs/${encodeURIComponent(firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId)}`
+              : ""
+        })
+      : null;
+  const resolvedReceiptUrl =
+    !skipFirstPaidCall && ((firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId) || (firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl))
+      ? resolveHostedUrl(firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl, {
+          websiteBaseUrl,
+          fieldName: "receiptUrl",
+          fallbackPath:
+            (firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId)
+              ? `/receipts/${encodeURIComponent(firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId)}`
+              : ""
+        })
+      : null;
+  const resolvedDisputeUrl =
+    !skipFirstPaidCall && ((firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId) || (firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl))
+      ? resolveHostedUrl(firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl, {
+          websiteBaseUrl,
+          fieldName: "disputeUrl",
+          fallbackPath:
+            (firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId)
+              ? `/disputes/${encodeURIComponent(firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId)}`
+              : ""
+        })
+      : null;
+
   const summary = {
     schemaVersion: "ActionWalletFirstGovernedAction.v1",
     baseUrl,
-<<<<<<< HEAD
-=======
     websiteBaseUrl: websiteBaseUrl || null,
     verifyHostedRoutes,
->>>>>>> 106bfa1 (Verify hosted routes in first governed action flow)
     tenantId: tenant.tenantId,
     tenantCreated: tenant.created,
     hostTrack,
@@ -263,7 +302,7 @@ async function main() {
     approval: {
       attemptId,
       requestId: seededApproval?.approvalRequest?.requestId ?? null,
-      approvalUrl: seededApproval?.approvalUrl ?? null,
+      approvalUrl,
       approvalStatus: seededAttempt?.approvalStatus ?? seededApproval?.approvalRequest?.approvalStatus ?? null,
       status: seededAttempt?.status ?? null
     },
@@ -276,16 +315,13 @@ async function main() {
       verificationStatus: firstPaidAttempt?.verificationStatus ?? firstPaidCall?.verificationStatus ?? null,
       settlementStatus: firstPaidAttempt?.settlementStatus ?? firstPaidCall?.settlementStatus ?? null,
       status: firstPaidAttempt?.status ?? null,
-      runUrl: firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl ?? null,
-      receiptUrl: firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl ?? null,
-      disputeUrl: firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl ?? null
+      runUrl: resolvedRunUrl,
+      receiptUrl: resolvedReceiptUrl,
+      disputeUrl: resolvedDisputeUrl
     },
     runtime: {
       tenantId: runtimeEnv?.NOOTERRA_TENANT_ID ?? null,
       apiKeyIssued: typeof runtimeEnv?.NOOTERRA_API_KEY === "string" && runtimeEnv.NOOTERRA_API_KEY.trim() !== ""
-<<<<<<< HEAD
-    }
-=======
     },
     nextSteps: buildNextSteps({
       hostTrack,
@@ -294,7 +330,6 @@ async function main() {
       disputeUrl: resolvedDisputeUrl
     }),
     hostedRouteChecks: []
->>>>>>> 106bfa1 (Verify hosted routes in first governed action flow)
   };
 
   if (verifyHostedRoutes) {
