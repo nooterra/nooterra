@@ -62,7 +62,19 @@ npm run ops:hosted-baseline:evidence -- \
 ```
 
 2. Confirm alert metric presence and health signals.
-3. Run backup/restore drill evidence path at least once before opening customer traffic.
+3. Run backup/restore drill evidence path at least once before opening customer traffic:
+
+```bash
+npm run ops:backup-restore:drill -- \
+  --tenant-id tenant_default \
+  --database-url "$DATABASE_URL" \
+  --restore-database-url "$RESTORE_DATABASE_URL" \
+  --out artifacts/ops/backup-restore-drill.json
+```
+
+Expected artifact:
+
+`artifacts/ops/backup-restore-drill.json` with `schemaVersion="BackupRestoreDrillReport.v1"` and `status="pass"`.
 4. Run OpenClaw operator readiness gate (hosted + self-host):
 
 ```bash
