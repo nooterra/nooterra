@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
+const MANAGED_ONBOARDING_HREF = "/onboarding?experience=app#identity-access";
+
 function FadeIn({ children, delay = 0, className = "" }) {
   return (
     <div className={`lovable-fade ${className}`.trim()} style={{ animationDelay: `${delay}s` }}>
@@ -65,8 +67,8 @@ function SiteNav() {
         </div>
 
         <div className="hidden lg:block">
-          <a
-            href="/onboarding"
+            <a
+            href={MANAGED_ONBOARDING_HREF}
             className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
           >
             Get started
@@ -98,7 +100,7 @@ function SiteNav() {
               </a>
             ))}
             <a
-              href="/onboarding"
+              href={MANAGED_ONBOARDING_HREF}
               onClick={() => setMobileOpen(false)}
               className="mt-2 inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14]"
             >
@@ -196,7 +198,7 @@ function HomePage() {
           </FadeIn>
           <FadeIn delay={0.3}>
             <div className="mt-12 flex flex-wrap gap-4">
-              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 Get started <ArrowRight size={16} />
               </a>
               <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -348,7 +350,7 @@ function HomePage() {
               <a href="/developers" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 View documentation <ArrowRight size={16} />
               </a>
-              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                 Set up Action Wallet
               </a>
             </div>
@@ -501,7 +503,7 @@ nooterra receipts list --wallet prod-agent --last 24h`
                   <p className="mt-3 text-sm leading-relaxed text-[#d2b06f]">{activeTrack.success}</p>
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                     Create workspace <ArrowRight size={16} />
                   </a>
                   <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -539,7 +541,7 @@ nooterra receipts list --wallet prod-agent --last 24h`
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
-                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Open onboarding <ArrowRight size={16} />
                 </a>
                 <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -678,7 +680,7 @@ function IntegrationsPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
-                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Set up runtime <ArrowRight size={16} />
                 </a>
                 <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -770,7 +772,7 @@ function OnboardingPage() {
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
                 <a
-                  href="#identity-access"
+                  href={MANAGED_ONBOARDING_HREF}
                   className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
                 >
                   Create workspace <ArrowRight size={16} />
@@ -944,7 +946,7 @@ function TrustEntryPage({
             </FadeIn>
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
-                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   {ctaLabel} <ArrowRight size={16} />
                 </a>
                 <a href={supportHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -1051,7 +1053,7 @@ function TrustEntryPage({
                   Once your workspace is issued, this route becomes the live Action Wallet surface. Until then, we show the product clearly instead of dumping you into an empty shell.
                 </p>
               </div>
-              <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 Create workspace <ArrowRight size={16} />
               </a>
             </div>
