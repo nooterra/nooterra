@@ -1295,6 +1295,25 @@ textarea {
   margin: 0;
 }
 
+.product-onboarding-host-runbook {
+  align-items: start;
+}
+
+.product-onboarding-proof-artifacts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-onboarding-proof-artifacts .product-access-card {
+  align-content: start;
+  gap: 0.7rem;
+}
+
+.product-onboarding-proof-artifacts .product-access-card strong {
+  color: var(--product-ink-strong);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
 .product-inline-note-plain {
   display: grid;
   gap: 0.2rem;
@@ -1971,6 +1990,7 @@ textarea {
   .product-task-grid,
   .product-capability-list,
   .product-option-grid,
+  .product-onboarding-proof-artifacts,
   .product-home-command-stage,
   .product-home-proofband,
   .product-home-sequence,
