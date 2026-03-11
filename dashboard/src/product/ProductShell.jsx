@@ -1,5 +1,5 @@
 import * as Tabs from "@radix-ui/react-tabs";
-import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -3858,6 +3858,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     loading: false,
     error: ""
   });
+  const lastActivationArtifactRefreshRef = useRef(0);
   const [busyState, setBusyState] = useState("");
   const [statusMessage, setStatusMessage] = useState("Create or unlock a workspace with a saved browser passkey. Email OTP stays available as the recovery path.");
   const browserPasskeyReady = typeof window !== "undefined" && Boolean(globalThis.crypto?.subtle);
@@ -4671,6 +4672,34 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       setStatusMessage(`First paid call history failed: ${error.message}`);
     }
   }
+
+  useEffect(() => {
+    const tenantId = buyer?.tenantId;
+    if (!tenantId || typeof window === "undefined" || typeof document === "undefined") return undefined;
+
+    function refreshActivationArtifactsOnReturn() {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastActivationArtifactRefreshRef.current < 15000) return;
+      lastActivationArtifactRefreshRef.current = now;
+      void refreshHostedApprovalHistory().catch(() => {});
+      void refreshFirstPaidHistory().catch(() => {});
+      void refreshOnboardingMetrics().catch(() => {});
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshActivationArtifactsOnReturn();
+      }
+    }
+
+    window.addEventListener("focus", refreshActivationArtifactsOnReturn);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshActivationArtifactsOnReturn);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [buyer?.tenantId]);
 
   async function handleRunFirstPaidCall({ replayAttemptId = null } = {}) {
     const tenantId = buyer?.tenantId;
