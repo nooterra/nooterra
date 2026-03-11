@@ -139,6 +139,7 @@ function SiteFooter() {
               <a href="/developers" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Documentation</a>
               <a href="/integrations" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Integrations</a>
               <a href={docsLinks.api} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
+              <a href={docsLinks.designPartnerKit} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Partner kit</a>
               <a href={ossLinks.repo} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">GitHub</a>
             </div>
           </div>
@@ -147,6 +148,7 @@ function SiteFooter() {
             <div className="space-y-3">
               <a href={docsLinks.security} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Security</a>
               <a href={docsLinks.ops} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Operations</a>
+              <a href={docsLinks.launchChecklist} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Launch checklist</a>
               <a href={ossLinks.issues} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Support</a>
             </div>
           </div>
@@ -509,6 +511,9 @@ nooterra receipts list --wallet prod-agent --last 24h`
                   <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                     {active.docsLabel} <ArrowUpRight size={15} />
                   </a>
+                  <a href={docsLinks.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                    Partner kit <ArrowUpRight size={15} />
+                  </a>
                 </div>
               </div>
               <div className="lg:col-span-3">
@@ -685,6 +690,9 @@ function IntegrationsPage() {
                 </a>
                 <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Launch host guide <ArrowUpRight size={15} />
+                </a>
+                <a href={docsLinks.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Partner onboarding kit <ArrowUpRight size={15} />
                 </a>
               </div>
             </div>

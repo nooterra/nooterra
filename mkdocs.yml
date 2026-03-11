@@ -29,6 +29,7 @@ nav:
   - Home: index.md
   - Start:
       - Quickstart: guides/quickstart.md
+      - Design Partner Onboarding Kit: guides/design-partner-onboarding-kit.md
       - Launch Host Channels: guides/launch-host-channels.md
       - Claude Desktop Quickstart: guides/claude-desktop-quickstart.md
       - OpenClaw Quickstart: guides/openclaw-quickstart.md
@@ -52,6 +53,7 @@ nav:
       - Integrations: reference/integrations.md
   - Ops:
       - Operations: runbooks/operations.md
+      - Launch Checklist: runbooks/launch-checklist.md
       - Onboarding Loop: runbooks/onboarding-runtime.md
       - Incident Response: runbooks/incidents.md
       - Key Management: runbooks/key-management.md

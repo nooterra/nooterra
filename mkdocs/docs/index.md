@@ -15,6 +15,7 @@ npm run demo:mcp-paid-exa
 Then follow:
 
 1. [Quickstart](guides/quickstart.md)
+2. [Design Partner Onboarding Kit](guides/design-partner-onboarding-kit.md)
 2. [State-of-the-Art Onboarding](guides/state-of-the-art-onboarding.md)
 3. [Launch Readiness Scorecard](guides/launch-readiness-scorecard.md)
 4. [Execution Plan](guides/execution-plan.md)
@@ -35,3 +36,9 @@ Then follow:
 - Deterministic finance and compliance evidence
 - Dispute and reversal flows with idempotent retries
 - Fail-closed onboarding and production gates
+
+## Launch Operators Need
+
+- [Launch Checklist](runbooks/launch-checklist.md)
+- [Operations Runbook](runbooks/operations.md)
+- [Incident Response](runbooks/incidents.md)

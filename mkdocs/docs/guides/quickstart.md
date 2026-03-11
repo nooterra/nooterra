@@ -63,6 +63,15 @@ nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json
 - First paid run returns deterministic IDs such as `gateId`, `decisionId`, `settlementReceiptId`
 - Receipt verification succeeds
 
+## Recommended next guides
+
+Once the quickstart works, move immediately to:
+
+1. [Design Partner Onboarding Kit](design-partner-onboarding-kit.md)
+2. [Launch Host Channels](launch-host-channels.md)
+3. [API Surface](../reference/api-surface.md)
+4. [Launch Checklist](../runbooks/launch-checklist.md)
+
 ## Optional: hosted onboarding API loop (Magic Link service)
 
 ```bash
