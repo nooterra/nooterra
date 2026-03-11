@@ -378,9 +378,11 @@ test("API e2e: ops phase1 metrics summarize launch-scoped buy and cancel/recover
   assert.equal(response.json?.metrics?.rescue?.total, 2);
   assert.equal(response.json?.metrics?.approvals?.pending, 2);
   assert.equal(response.json?.metrics?.receiptCoverageSupported, true);
+  assert.equal(response.json?.metrics?.launchEventSummary?.schemaVersion, "ActionWalletLaunchEventSummary.v1");
 
   const byCategory = Array.isArray(response.json?.metrics?.byCategory) ? response.json.metrics.byCategory : [];
   const byChannel = Array.isArray(response.json?.metrics?.byChannel) ? response.json.metrics.byChannel : [];
+  const launchEventSummary = response.json?.metrics?.launchEventSummary ?? null;
   const categoryIds = byCategory.map((row) => row?.categoryId).filter(Boolean).sort();
   const buyRow = byCategory.find((row) => row?.categoryId === "purchases_under_cap");
   const cancelRow = byCategory.find((row) => row?.categoryId === "subscriptions_cancellations");
@@ -419,4 +421,34 @@ test("API e2e: ops phase1 metrics summarize launch-scoped buy and cancel/recover
   const topIssueCodes = Array.isArray(response.json?.metrics?.topIssueCodes) ? response.json.metrics.topIssueCodes : [];
   assert.ok(topIssueCodes.some((row) => row?.code === "PHASE1_COMPLETION_STATE_UNRESOLVED"));
   assert.ok(topIssueCodes.some((row) => row?.code === "PHASE1_REQUIRED_EVIDENCE_MISSING"));
+
+  assert.equal(launchEventSummary?.totals?.["intent.created"], 2);
+  assert.equal(launchEventSummary?.totals?.["approval.opened"], 2);
+  assert.equal(launchEventSummary?.totals?.["approval.decided"], 0);
+  assert.equal(launchEventSummary?.totals?.["grant.issued"], 2);
+  assert.equal(launchEventSummary?.totals?.["evidence.submitted"], 2);
+  assert.equal(launchEventSummary?.totals?.["finalize.requested"], 2);
+  assert.equal(launchEventSummary?.totals?.["receipt.issued"], 0);
+  assert.equal(launchEventSummary?.totals?.["dispute.opened"], 0);
+  assert.equal(launchEventSummary?.totals?.["dispute.resolved"], 0);
+
+  const byEventChannel = Array.isArray(launchEventSummary?.byChannel) ? launchEventSummary.byChannel : [];
+  const claudeEvents = byEventChannel.find((row) => row?.channel === "Claude MCP");
+  const openClawEvents = byEventChannel.find((row) => row?.channel === "OpenClaw");
+  assert.equal(claudeEvents?.eventCounts?.["intent.created"], 1);
+  assert.equal(claudeEvents?.eventCounts?.["grant.issued"], 1);
+  assert.equal(claudeEvents?.eventCounts?.["evidence.submitted"], 1);
+  assert.equal(claudeEvents?.eventCounts?.["finalize.requested"], 1);
+  assert.equal(openClawEvents?.eventCounts?.["intent.created"], 1);
+  assert.equal(openClawEvents?.eventCounts?.["grant.issued"], 1);
+  assert.equal(openClawEvents?.eventCounts?.["evidence.submitted"], 1);
+  assert.equal(openClawEvents?.eventCounts?.["finalize.requested"], 1);
+
+  const byActionType = Array.isArray(launchEventSummary?.byActionType) ? launchEventSummary.byActionType : [];
+  const buyEvents = byActionType.find((row) => row?.actionType === "buy");
+  const cancelEvents = byActionType.find((row) => row?.actionType === "cancel/recover");
+  assert.equal(buyEvents?.eventCounts?.["intent.created"], 1);
+  assert.equal(buyEvents?.eventCounts?.["grant.issued"], 1);
+  assert.equal(cancelEvents?.eventCounts?.["intent.created"], 1);
+  assert.equal(cancelEvents?.eventCounts?.["grant.issued"], 1);
 });

@@ -27,6 +27,17 @@ const LAUNCH_GATE_THRESHOLDS = Object.freeze({
   disputeLinkedRescues: Object.freeze({ warn: 1, fail: 3 }),
   openLaunchRescues: Object.freeze({ warn: 1, fail: 3 })
 });
+const ACTION_WALLET_LAUNCH_EVENT_TYPES = Object.freeze([
+  "intent.created",
+  "approval.opened",
+  "approval.decided",
+  "grant.issued",
+  "evidence.submitted",
+  "finalize.requested",
+  "receipt.issued",
+  "dispute.opened",
+  "dispute.resolved"
+]);
 const OUT_OF_SCOPE_ISSUE_CODE_MARKERS = Object.freeze([
   "BLOCKED_CATEGORY",
   "CATEGORY_NOT_SUPPORTED",
@@ -193,8 +204,41 @@ function buildLaunchScopedMetrics(metricsPacket) {
     topIssueCodes: Object.entries(issueCodeCounts)
       .map(([code, count]) => ({ code, count }))
       .sort((left, right) => toSafeNumber(right.count) - toSafeNumber(left.count) || String(left.code ?? "").localeCompare(String(right.code ?? "")))
-      .slice(0, 20)
+      .slice(0, 20),
+    launchEventSummary:
+      metricsPacket?.launchEventSummary && typeof metricsPacket.launchEventSummary === "object" && !Array.isArray(metricsPacket.launchEventSummary)
+        ? metricsPacket.launchEventSummary
+        : { schemaVersion: null, totals: {}, byChannel: [], byActionType: [], rows: [] }
   };
+}
+
+function launchEventCount(summary, eventType) {
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return 0;
+  const totals = summary.totals && typeof summary.totals === "object" && !Array.isArray(summary.totals) ? summary.totals : {};
+  return toSafeNumber(totals[eventType]);
+}
+
+function buildLaunchLifecycleRows(launchMetrics) {
+  const summary =
+    launchMetrics?.launchEventSummary && typeof launchMetrics.launchEventSummary === "object" && !Array.isArray(launchMetrics.launchEventSummary)
+      ? launchMetrics.launchEventSummary
+      : { totals: {}, byChannel: [], byActionType: [] };
+  const byChannel = Array.isArray(summary.byChannel) ? summary.byChannel : [];
+  const byActionType = Array.isArray(summary.byActionType) ? summary.byActionType : [];
+  return ACTION_WALLET_LAUNCH_EVENT_TYPES.map((eventType) => ({
+    eventType,
+    total: launchEventCount(summary, eventType),
+    byChannel: LAUNCH_SCOPE.channels.map((channel) => {
+      const row = byChannel.find((candidate) => String(candidate?.channel ?? "").trim() === channel) ?? null;
+      const counts = row?.eventCounts && typeof row.eventCounts === "object" && !Array.isArray(row.eventCounts) ? row.eventCounts : {};
+      return { channel, count: toSafeNumber(counts[eventType]) };
+    }),
+    byActionType: LAUNCH_SCOPE.actions.map((actionType) => {
+      const row = byActionType.find((candidate) => String(candidate?.actionType ?? "").trim() === actionType) ?? null;
+      const counts = row?.eventCounts && typeof row.eventCounts === "object" && !Array.isArray(row.eventCounts) ? row.eventCounts : {};
+      return { actionType, count: toSafeNumber(counts[eventType]) };
+    })
+  }));
 }
 
 function buildLaunchSafeRescueDetails(details) {
@@ -986,6 +1030,7 @@ export default function OperatorDashboard() {
     [launchMetrics]
   );
   const launchChannelScorecards = useMemo(() => buildLaunchChannelScorecards(launchMetrics), [launchMetrics]);
+  const launchLifecycleRows = useMemo(() => buildLaunchLifecycleRows(launchMetrics), [launchMetrics]);
   const rescueTotal = rescueQueue.length;
   const pendingCount = escalations.filter((row) => String(row?.status ?? "").toLowerCase() === "pending").length;
   const pillLabel = activeTab === "metrics"
@@ -1360,6 +1405,39 @@ export default function OperatorDashboard() {
                     </div>
                     <p className="operator-muted operator-small">
                       Channel cards stay inside the locked wallet-only launch scope and now read the per-channel partitions from <code>/ops/network/phase1-metrics</code>.
+                    </p>
+                  </section>
+
+                  <section className="operator-json-block">
+                    <p>Lifecycle funnel</p>
+                    <div className="operator-table-wrap">
+                      <table className="operator-table">
+                        <thead>
+                          <tr>
+                            <th>Event</th>
+                            <th>Total</th>
+                            <th>Claude MCP</th>
+                            <th>OpenClaw</th>
+                            <th>buy</th>
+                            <th>cancel/recover</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {launchLifecycleRows.map((row) => (
+                            <tr key={row.eventType}>
+                              <td><code>{row.eventType}</code></td>
+                              <td>{row.total}</td>
+                              <td>{row.byChannel.find((candidate) => candidate.channel === "Claude MCP")?.count ?? 0}</td>
+                              <td>{row.byChannel.find((candidate) => candidate.channel === "OpenClaw")?.count ?? 0}</td>
+                              <td>{row.byActionType.find((candidate) => candidate.actionType === "buy")?.count ?? 0}</td>
+                              <td>{row.byActionType.find((candidate) => candidate.actionType === "cancel/recover")?.count ?? 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="operator-muted operator-small">
+                      Funnel counts come from the frozen Action Wallet lifecycle taxonomy and stay scoped to the two launch channels and launch action types only.
                     </p>
                   </section>
 

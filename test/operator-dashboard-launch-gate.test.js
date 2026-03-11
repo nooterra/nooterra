@@ -23,6 +23,12 @@ test("operator dashboard launch gate scorecard stays locked to the two host chan
   assert.match(source, /Pending approvals/);
   assert.match(source, /Resume queue/);
   assert.match(source, /Watchpoints/);
+  assert.match(source, /Lifecycle funnel/);
+  assert.match(source, /intent\.created/);
+  assert.match(source, /approval\.opened/);
+  assert.match(source, /grant\.issued/);
+  assert.match(source, /receipt\.issued/);
+  assert.match(source, /Funnel counts come from the frozen Action Wallet lifecycle taxonomy/i);
   assert.match(source, /wallet-only launch scope/i);
 
   assert.doesNotMatch(source, /Cursor/);
