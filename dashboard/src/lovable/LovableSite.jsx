@@ -15,6 +15,20 @@ import {
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
 const MANAGED_ONBOARDING_HREF = "/onboarding?experience=app#identity-access";
+const SITE_DOC_ROUTES = {
+  home: "/docs",
+  quickstart: "/docs/quickstart",
+  architecture: "/docs/architecture",
+  integrations: "/docs/integrations",
+  api: "/docs/api",
+  security: "/docs/security",
+  ops: "/docs/ops",
+  hostQuickstart: "/docs/launch-hosts",
+  designPartnerKit: "/docs/partner-kit",
+  launchChecklist: "/docs/launch-checklist",
+  incidents: "/docs/incidents",
+  support: "/support"
+};
 
 function FadeIn({ children, delay = 0, className = "" }) {
   return (
@@ -139,7 +153,7 @@ function SiteFooter() {
               <a href="/developers" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Documentation</a>
               <a href="/integrations" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Integrations</a>
               <a href="/docs/api" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
-              <a href={docsLinks.designPartnerKit} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Partner kit</a>
+              <a href={SITE_DOC_ROUTES.designPartnerKit} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Partner kit</a>
               <a href={ossLinks.repo} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">GitHub</a>
             </div>
           </div>
@@ -148,6 +162,7 @@ function SiteFooter() {
             <div className="space-y-3">
               <a href="/security" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Security</a>
               <a href="/status" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Status</a>
+              <a href="/support" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Support</a>
               <a href="/privacy" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Privacy</a>
               <a href="/terms" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Terms</a>
             </div>
@@ -529,7 +544,7 @@ curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding
                   <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                     {active.docsLabel} <ArrowUpRight size={15} />
                   </a>
-                  <a href={docsLinks.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  <a href={SITE_DOC_ROUTES.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                     Partner kit <ArrowUpRight size={15} />
                   </a>
                 </div>
@@ -567,7 +582,7 @@ curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding
                 <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Open onboarding <ArrowRight size={16} />
                 </a>
-                <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                <a href={SITE_DOC_ROUTES.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Host quickstart <ArrowUpRight size={15} />
                 </a>
               </div>
@@ -712,10 +727,10 @@ function IntegrationsPage() {
                 <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Set up runtime <ArrowRight size={16} />
                 </a>
-                <a href={docsLinks.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                <a href={SITE_DOC_ROUTES.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Launch host guide <ArrowUpRight size={15} />
                 </a>
-                <a href={docsLinks.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                <a href={SITE_DOC_ROUTES.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Partner onboarding kit <ArrowUpRight size={15} />
                 </a>
               </div>
@@ -810,7 +825,7 @@ function OnboardingPage() {
                   Create workspace <ArrowRight size={16} />
                 </a>
                 <a
-                  href={docsLinks.hostQuickstart}
+                  href={SITE_DOC_ROUTES.hostQuickstart}
                   className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5"
                 >
                   Launch host guide <ArrowUpRight size={15} />
@@ -958,7 +973,7 @@ function TrustEntryPage({
   artifactBody,
   artifactStats,
   ctaLabel = "Open onboarding",
-  supportHref = docsLinks.hostQuickstart,
+  supportHref = SITE_DOC_ROUTES.hostQuickstart,
   supportLabel = "Launch host guide"
 }) {
   return (
@@ -1301,7 +1316,7 @@ export default function LovableSite({ mode = "home" }) {
         sections={[
           { eyebrow: "Hosted", title: "Managed onboarding", body: "Use the public onboarding rail if you want the website to issue the runtime for you.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Start onboarding" },
           { eyebrow: "CLI", title: "Codex / CLI quickstart", body: "The fastest engineering path is still the Action Wallet first-governed-action script.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" },
-          { eyebrow: "Hosts", title: "Launch host guide", body: "Pick the supported host path you want to prove first.", href: docsLinks.hostQuickstart, ctaLabel: "Open host guide" }
+          { eyebrow: "Hosts", title: "Launch host guide", body: "Pick the supported host path you want to prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" }
         ]}
       />
     );
@@ -1322,7 +1337,7 @@ export default function LovableSite({ mode = "home" }) {
         sections={[
           { eyebrow: "Control plane", title: "Architecture", body: "Read the full control-plane description and artifact lineage.", href: docsLinks.architecture, ctaLabel: "View docs" },
           { eyebrow: "Reference", title: "API surface", body: "See the launch-scoped lifecycle as a real contract, not a loose set of endpoints.", href: "/docs/api", ctaLabel: "API docs" },
-          { eyebrow: "Ops", title: "Launch checklist", body: "Translate the architecture into concrete launch gates and operator controls.", href: docsLinks.launchChecklist, ctaLabel: "Launch checklist" }
+          { eyebrow: "Ops", title: "Launch checklist", body: "Translate the architecture into concrete launch gates and operator controls.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Launch checklist" }
         ]}
       />
     );
@@ -1334,7 +1349,7 @@ export default function LovableSite({ mode = "home" }) {
         title="Every channel should reuse the same trust contract."
         summary="Claude MCP, OpenClaw, Codex, CLI, and direct API should all resolve into the same approval, receipt, and dispute surfaces."
         primaryCta={{ label: "Open integrations reference", href: docsLinks.integrations }}
-        secondaryCta={{ label: "Launch hosts", href: docsLinks.hostQuickstart }}
+        secondaryCta={{ label: "Launch hosts", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Host-native in front", body: "The agent experience stays inside the host until trust, proof, or recourse is needed." },
           { title: "Hosted trust surfaces", body: "Approval, wallet, receipt, and dispute stay canonical even when the initiating host changes." },
@@ -1364,7 +1379,7 @@ export default function LovableSite({ mode = "home" }) {
         sections={[
           { eyebrow: "Lifecycle", title: "Action Wallet v1", body: "Read the full launch-scoped lifecycle and object model.", href: docsLinks.api, ctaLabel: "View lifecycle" },
           { eyebrow: "Quickstart", title: "First governed action", body: "Use the quickstart script to exercise the same API contract end to end.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Run quickstart" },
-          { eyebrow: "Ops", title: "Launch checklist", body: "See what the API must prove before you trust it in production.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" }
+          { eyebrow: "Ops", title: "Launch checklist", body: "See what the API must prove before you trust it in production.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" }
         ]}
       />
     );
@@ -1385,7 +1400,7 @@ export default function LovableSite({ mode = "home" }) {
         sections={[
           { eyebrow: "Model", title: "Security model", body: "Read the full trust boundaries and runtime constraints.", href: docsLinks.security, ctaLabel: "Open model" },
           { eyebrow: "Ops", title: "Operations", body: "See how production controls and incident response connect to the security posture.", href: docsLinks.ops, ctaLabel: "Ops docs" },
-          { eyebrow: "Policy", title: "Launch checklist", body: "Use the launch list as the concrete security bar for go-live.", href: docsLinks.launchChecklist, ctaLabel: "Launch checklist" }
+          { eyebrow: "Policy", title: "Launch checklist", body: "Use the launch list as the concrete security bar for go-live.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Launch checklist" }
         ]}
       />
     );
@@ -1397,7 +1412,7 @@ export default function LovableSite({ mode = "home" }) {
         title="Operator pages should lead to runbooks, not leave you guessing."
         summary="The ops surface is part of the product. Launch checklists, incidents, cutover, and host success gates should be discoverable from the website too."
         primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
-        secondaryCta={{ label: "Launch checklist", href: docsLinks.launchChecklist }}
+        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Readiness before launch", body: "Synthetic smokes and onboarding gates should catch route drift before a user does." },
           { title: "Rescue before scale", body: "Operators need quarantine, revoke, refund, and dispute resolution before the product broadens." },
@@ -1405,8 +1420,92 @@ export default function LovableSite({ mode = "home" }) {
         ]}
         sections={[
           { eyebrow: "Runbooks", title: "Operations", body: "Daily runbook, health loops, and launch readiness details.", href: docsLinks.ops, ctaLabel: "Open ops" },
-          { eyebrow: "Launch", title: "Checklist", body: "The go-live bar for the first product loop.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" },
-          { eyebrow: "Incidents", title: "Incident response", body: "What happens when a run, host, or money lane goes sideways.", href: docsLinks.incidents, ctaLabel: "Open incident docs" }
+          { eyebrow: "Launch", title: "Checklist", body: "The go-live bar for the first product loop.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" },
+          { eyebrow: "Incidents", title: "Incident response", body: "What happens when a run, host, or money lane goes sideways.", href: SITE_DOC_ROUTES.incidents, ctaLabel: "Open incident docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_launch_hosts") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Launch hosts"
+        title="Every supported host should land on the same approval, receipt, and dispute loop."
+        summary="The launch host guide is the public index for proving Claude MCP, OpenClaw, and engineering-shell integrations against one Action Wallet runtime."
+        primaryCta={{ label: "Open launch host guide", href: docsLinks.hostQuickstart }}
+        secondaryCta={{ label: "Integrations", href: "/integrations" }}
+        proofPoints={[
+          { title: "Claude MCP first", body: "The cleanest host handoff still matters most for proving the trust layer." },
+          { title: "Framework parity second", body: "OpenClaw and engineering shells should reuse the same approval URL, receipt link, and dispute route." },
+          { title: "One runtime everywhere", body: "Hosts change. The authority contract and artifact chain should not." }
+        ]}
+        sections={[
+          { eyebrow: "Launch", title: "Claude MCP", body: "The primary host for the simplest install-to-approval proof loop.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "Open Claude quickstart" },
+          { eyebrow: "Framework", title: "OpenClaw", body: "The supported framework path for proving host-native parity.", href: docsLinks.openClawQuickstart, ctaLabel: "Open OpenClaw guide" },
+          { eyebrow: "Engineering", title: "Codex / CLI / API", body: "Use the same managed runtime contract from scripts and shells.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_partner_kit") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Partner kit"
+        title="Design partners should get one disciplined onboarding pack, not tribal knowledge."
+        summary="The partner kit is the public handoff for what a launch partner needs to run a first governed action, what evidence to expect, and how to escalate problems."
+        primaryCta={{ label: "Open partner kit", href: docsLinks.designPartnerKit }}
+        secondaryCta={{ label: "Open onboarding", href: "/onboarding" }}
+        proofPoints={[
+          { title: "Fast first value", body: "Partners should reach one hosted approval and one receipt quickly." },
+          { title: "Sharp expectations", body: "What is supported, what is not, and where to escalate must be visible before the first run." },
+          { title: "Shared language", body: "Hosts, receipts, disputes, and operator rescue should be explained the same way everywhere." }
+        ]}
+        sections={[
+          { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Hosts", title: "Launch host guide", body: "Choose the exact host path the partner will prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Runbook", title: "Support and escalation", body: "Use the same support and operator path when something breaks.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support path" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_launch_checklist") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Launch checklist"
+        title="A production claim should map to a concrete release bar."
+        summary="This route turns the launch checklist into a public website page first, then hands off into the full runbook when deeper operator detail is needed."
+        primaryCta={{ label: "Open launch checklist", href: docsLinks.launchChecklist }}
+        secondaryCta={{ label: "Status", href: "/status" }}
+        proofPoints={[
+          { title: "Route health first", body: "Public routes and same-origin control-plane paths should be green before any launch claim." },
+          { title: "Proof loop second", body: "Install, approval, receipt, and dispute should work on live hosts before broad rollout." },
+          { title: "Operator controls third", body: "Kill switches, quarantine, and recourse must exist before scale." }
+        ]}
+        sections={[
+          { eyebrow: "Website", title: "Public route smoke", body: "The live website has to prove each public route is branded, intentional, and wired correctly.", href: "/status", ctaLabel: "Open status" },
+          { eyebrow: "Runtime", title: "First governed action", body: "The real product bar is still the first live approval-to-receipt loop.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Docs", title: "Operations", body: "Dive into the full operator checklist and cutover docs if you need the full detail.", href: docsLinks.ops, ctaLabel: "Open ops docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_incidents") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Incidents"
+        title="When something goes wrong, the support path should already exist."
+        summary="Incident response is part of the product. This route gives operators, partners, and builders a clear first stop before they dive into the full runbook."
+        primaryCta={{ label: "Open incident docs", href: docsLinks.incidents }}
+        secondaryCta={{ label: "Support", href: "/support" }}
+        proofPoints={[
+          { title: "One escalation path", body: "Users should know where to go when approvals, receipts, or disputes drift." },
+          { title: "Keep the artifact chain intact", body: "Incident handling should preserve grants, receipts, verifier results, and disputes." },
+          { title: "Operator action is part of trust", body: "Rescue, revoke, refund, quarantine, and kill switches are all public trust commitments." }
+        ]}
+        sections={[
+          { eyebrow: "Rescue", title: "Operator controls", body: "The operator console is the first place incidents become actionable.", href: "/status", ctaLabel: "Open status" },
+          { eyebrow: "Recourse", title: "Disputes", body: "Challenge and unwind the bad action without losing the underlying record.", href: "/disputes", ctaLabel: "Open disputes" },
+          { eyebrow: "Support", title: "Public support path", body: "Use the website support route for the visible escalation path.", href: "/support", ctaLabel: "Open support" }
         ]}
       />
     );
@@ -1418,7 +1517,7 @@ export default function LovableSite({ mode = "home" }) {
         title="Production posture should be visible."
         summary="Use this route as the public index for launch health, known issues, and operational trust posture instead of burying that information in internal dashboards."
         primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
-        secondaryCta={{ label: "Launch checklist", href: docsLinks.launchChecklist }}
+        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Health is a product feature", body: "Customers should know where to look when onboarding or approvals feel wrong." },
           { title: "Known issues should be explicit", body: "If there is route drift, degraded auth, or host instability, that should not be hidden." },
@@ -1426,8 +1525,8 @@ export default function LovableSite({ mode = "home" }) {
         ]}
         sections={[
           { eyebrow: "Health", title: "Operations runbook", body: "Current best source for live readiness posture and operational drill-down.", href: docsLinks.ops, ctaLabel: "Open operations" },
-          { eyebrow: "Support", title: "GitHub issues", body: "Public issue tracker for sharp edges, regressions, and support follow-up.", href: ossLinks.issues, ctaLabel: "Open support" },
-          { eyebrow: "Launch", title: "Go-live checklist", body: "The concrete release bar we hold the system to.", href: docsLinks.launchChecklist, ctaLabel: "Open checklist" }
+          { eyebrow: "Support", title: "Support path", body: "Public issue tracker, operator docs, and launch guidance for sharp edges and regressions.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support" },
+          { eyebrow: "Launch", title: "Go-live checklist", body: "The concrete release bar we hold the system to.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" }
         ]}
       />
     );
@@ -1447,7 +1546,7 @@ export default function LovableSite({ mode = "home" }) {
         ]}
         sections={[
           { eyebrow: "Reference", title: "Security model", body: "Read the formal runtime boundaries and protections.", href: docsLinks.security, ctaLabel: "Open model" },
-          { eyebrow: "Ops", title: "Incident response", body: "See how the operator side handles drift, abuse, and failures.", href: docsLinks.incidents, ctaLabel: "Incident docs" },
+          { eyebrow: "Ops", title: "Incident response", body: "See how the operator side handles drift, abuse, and failures.", href: SITE_DOC_ROUTES.incidents, ctaLabel: "Incident docs" },
           { eyebrow: "Product", title: "Disputes", body: "Recourse is part of the trust model, not separate from it.", href: "/disputes", ctaLabel: "View disputes" }
         ]}
       />
@@ -1460,7 +1559,7 @@ export default function LovableSite({ mode = "home" }) {
         title="The public site should explain the data boundary before people enter the product."
         summary="This route gives users a clear starting point for how onboarding identities, hosted approvals, receipts, and disputes relate to the broader Nooterra trust model."
         primaryCta={{ label: "Open security model", href: docsLinks.security }}
-        secondaryCta={{ label: "Contact support", href: ossLinks.issues }}
+        secondaryCta={{ label: "Contact support", href: SITE_DOC_ROUTES.support }}
         proofPoints={[
           { title: "Identity is explicit", body: "Work email, company, and runtime issuance are part of the trust boundary." },
           { title: "Artifacts outlive the host", body: "Approval, receipt, and dispute records persist beyond the initiating conversation." },
@@ -1469,7 +1568,7 @@ export default function LovableSite({ mode = "home" }) {
         sections={[
           { eyebrow: "Identity", title: "Onboarding", body: "See the public onboarding path and what the product asks for first.", href: "/onboarding", ctaLabel: "Open onboarding" },
           { eyebrow: "Artifacts", title: "Receipts", body: "Understand the durable records the system keeps after actions complete.", href: "/receipts", ctaLabel: "View receipts" },
-          { eyebrow: "Support", title: "Questions", body: "Route unusual privacy or data handling questions into support and operator channels.", href: ossLinks.issues, ctaLabel: "Open support" }
+          { eyebrow: "Support", title: "Questions", body: "Route unusual privacy or data handling questions into support and operator channels.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support" }
         ]}
       />
     );
@@ -1495,6 +1594,27 @@ export default function LovableSite({ mode = "home" }) {
       />
     );
   }
+  if (mode === "support") {
+    return (
+      <ResourcePage
+        eyebrow="Support"
+        title="Support should route users into the right trust surface fast."
+        summary="This route exists so users do not have to guess whether they should open a dispute, check status, return to onboarding, or file a public issue."
+        primaryCta={{ label: "Open GitHub support", href: ossLinks.issues }}
+        secondaryCta={{ label: "Status", href: "/status" }}
+        proofPoints={[
+          { title: "Action problems go to receipts or disputes", body: "If a governed action happened, the right first stop is the linked trust artifact, not a generic support inbox." },
+          { title: "Install problems go to onboarding and host guides", body: "Host setup should fall back to the shortest doc path, not a maze." },
+          { title: "Platform problems go to status and ops", body: "Known issues and launch blockers should already be visible before a user files a report." }
+        ]}
+        sections={[
+          { eyebrow: "Activation", title: "Onboarding", body: "If you cannot create the runtime or complete the first governed action, start here.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Artifacts", title: "Receipts and disputes", body: "If the action happened but looks wrong, move into the artifact and recourse surfaces.", href: "/receipts", ctaLabel: "Open receipts" },
+          { eyebrow: "Platform", title: "Status and incidents", body: "If the product itself feels off, check live status and incident paths first.", href: "/status", ctaLabel: "Open status" }
+        ]}
+      />
+    );
+  }
   if (mode === "expired") {
     return (
       <FailStatePage
@@ -1505,7 +1625,7 @@ export default function LovableSite({ mode = "home" }) {
         proofBody="Approval links should fail closed when the time window is over. The host must ask again so the user can re-confirm consequence, amount, and current context."
         reasonCode="EXPIRED_LINK"
         primaryCta={{ label: "Issue a fresh approval", href: MANAGED_ONBOARDING_HREF }}
-        secondaryCta={{ label: "Launch host guide", href: docsLinks.hostQuickstart }}
+        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         steps={[
           { eyebrow: "Reopen", title: "Request again", body: "Seed a new hosted approval from onboarding or the initiating host instead of retrying the expired link.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Open onboarding" },
           { eyebrow: "Resume", title: "Return to the host", body: "Claude, OpenClaw, or Codex should create a fresh approval request when the user resumes the task.", href: "/integrations", ctaLabel: "View integrations" },
