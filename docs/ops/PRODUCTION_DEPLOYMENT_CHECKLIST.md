@@ -127,6 +127,20 @@ Expected report path:
 
 `artifacts/gates/serving-mode-boundary-gate.json`
 
+8. Run launch abuse controls report:
+
+```bash
+npm run ops:launch-abuse:report -- \
+  --base-url https://api.nooterra.work \
+  --tenant-id tenant_default \
+  --ops-token "$NOOTERRA_OPS_TOKEN" \
+  --period "$(date -u +%Y-%m)"
+```
+
+Expected artifact:
+
+`artifacts/ops/launch-abuse-report.json` with `schemaVersion="LaunchAbuseControlsReport.v1"` and `status="pass"`.
+
 ## Phase 4: MCP compatibility verification
 
 1. Run core MCP automated tests:
