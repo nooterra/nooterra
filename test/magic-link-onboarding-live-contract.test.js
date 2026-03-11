@@ -243,8 +243,13 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     });
     assert.equal(history.status, 200, history.text);
     assert.equal(history.json?.ok, true, history.text);
+    assert.equal(history.json?.refreshed, true, history.text);
     assert.ok(Array.isArray(history.json?.attempts), "history must include attempts[]");
-    assert.ok(history.json.attempts.some((row) => row?.attemptId === attemptId), "history must include latest attempt");
+    const historyAttempt = history.json.attempts.find((row) => row?.attemptId === attemptId) ?? null;
+    assert.ok(historyAttempt, "history must include latest attempt");
+    assert.equal(historyAttempt?.ids?.runId, firstPaidCall.json?.ids?.runId, history.text);
+    assert.equal(historyAttempt?.settlementStatus, "released", history.text);
+    assert.equal(historyAttempt?.verificationStatus, "green", history.text);
 
     const idemKey = `idem_${crypto.randomBytes(6).toString("hex")}`;
     const conformance = await httpJson({

@@ -2092,6 +2092,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(history.json?.ok, true);
     assert.equal(history.json?.schemaVersion, "MagicLinkFirstPaidCallHistory.v1");
     assert.equal(history.json?.tenantId, tenantId);
+    assert.equal(history.json?.refreshed, true);
     assert.ok(Array.isArray(history.json?.attempts));
     assert.ok(history.json.attempts.length >= 1);
     const latestAttempt = history.json.attempts[history.json.attempts.length - 1];
@@ -2099,6 +2100,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(latestAttempt?.status, "passed");
     assert.equal(latestAttempt?.verificationStatus, "green");
     assert.equal(latestAttempt?.settlementStatus, "released");
+    assert.equal(latestAttempt?.ids?.runId, out.json?.ids?.runId);
 
     const replay = await postTenantFirstPaidCall({
       tenantId,
