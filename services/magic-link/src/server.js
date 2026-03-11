@@ -7467,6 +7467,177 @@ async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
   return sendJson(res, 200, { ok: true, ...history });
 }
 
+async function handleTenantSeedHostedApproval(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const hostTrackRaw = typeof json.hostTrack === "string" ? json.hostTrack.trim().toLowerCase() : "claude";
+  const hostTrack = hostTrackRaw || "claude";
+  if (hostTrack !== "claude" && hostTrack !== "openclaw" && hostTrack !== "codex") {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_HOST_TRACK",
+      message: "hostTrack must be claude, openclaw, or codex"
+    });
+  }
+
+  const requestIdPrefix = `ml_onboarding_${hostTrack}_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const actorAgentId = `agt_onboarding_${hostTrack}`;
+  const hostRuntime = hostTrack === "claude" ? "claude-desktop" : hostTrack;
+  const hostChannel = hostTrack === "codex" ? "api" : "mcp";
+
+  const bootstrap = await callNooterraTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        description: "magic-link seeded hosted approval runtime key"
+      }
+    },
+    idempotencyKey: `${requestIdPrefix}_bootstrap`
+  });
+  if (!bootstrap.ok) {
+    return sendJson(res, bootstrap.statusCode ?? 502, {
+      ok: false,
+      code: bootstrap.code,
+      message: bootstrap.message
+    });
+  }
+
+  const runtimeApiKey = typeof bootstrap.response?.bootstrap?.apiKey?.token === "string"
+    ? bootstrap.response.bootstrap.apiKey.token.trim()
+    : "";
+  if (!runtimeApiKey) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Nooterra bootstrap response missing runtime API key token"
+    });
+  }
+
+  const principalId =
+    typeof auth.principal?.buyerId === "string" && auth.principal.buyerId.trim()
+      ? auth.principal.buyerId.trim()
+      : typeof auth.principal?.email === "string" && auth.principal.email.trim()
+        ? auth.principal.email.trim()
+        : tenantId;
+
+  const actionIntentId = `act_${requestIdPrefix}`;
+  const requestId = `apr_${requestIdPrefix}`;
+  const intentBody = {
+    actionIntentId,
+    actorAgentId,
+    principalId,
+    purpose:
+      hostTrack === "openclaw"
+        ? "Cancel an unused subscription after approval"
+        : "Buy a replacement charger after approval",
+    capabilitiesRequested: ["capability://workflow.intake"],
+    spendEnvelope: {
+      currency: "USD",
+      maxPerCallCents: hostTrack === "openclaw" ? 0 : 6_000,
+      maxTotalCents: hostTrack === "openclaw" ? 0 : 6_000
+    },
+    evidenceRequirements:
+      hostTrack === "openclaw"
+        ? ["cancellation_confirmation", "refund_status"]
+        : ["merchant_receipt", "order_confirmation"],
+    host: {
+      runtime: hostRuntime,
+      channel: hostChannel,
+      source: "magic-link-onboarding"
+    }
+  };
+
+  const createdIntent = await callNooterraTenantApi({
+    tenantId,
+    apiKey: runtimeApiKey,
+    method: "POST",
+    pathname: "/v1/action-intents",
+    body: intentBody,
+    idempotencyKey: `${requestIdPrefix}_intent`
+  });
+  if (!createdIntent.ok) {
+    return sendJson(res, createdIntent.statusCode ?? 502, {
+      ok: false,
+      code: createdIntent.code,
+      message: createdIntent.message
+    });
+  }
+
+  const approvalRequested = await callNooterraTenantApi({
+    tenantId,
+    apiKey: runtimeApiKey,
+    method: "POST",
+    pathname: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+    body: {
+      requestId,
+      requestedBy: actorAgentId
+    },
+    idempotencyKey: `${requestIdPrefix}_approval`
+  });
+  if (!approvalRequested.ok) {
+    return sendJson(res, approvalRequested.statusCode ?? 502, {
+      ok: false,
+      code: approvalRequested.code,
+      message: approvalRequested.message
+    });
+  }
+
+  const upstreamApprovalUrl = typeof approvalRequested.response?.approvalUrl === "string" && approvalRequested.response.approvalUrl.trim()
+    ? approvalRequested.response.approvalUrl.trim()
+    : typeof approvalRequested.response?.actionIntent?.approvalUrl === "string" && approvalRequested.response.actionIntent.approvalUrl.trim()
+      ? approvalRequested.response.actionIntent.approvalUrl.trim()
+      : `/approvals?requestId=${encodeURIComponent(requestId)}`;
+  const base = requestBaseUrl(req);
+  const approvalUrl = /^https?:\/\//i.test(upstreamApprovalUrl)
+    ? upstreamApprovalUrl
+    : base
+      ? new URL(upstreamApprovalUrl, `${base}/`).toString()
+      : upstreamApprovalUrl;
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_ONBOARDING_HOSTED_APPROVAL_SEEDED",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "approval_request",
+        targetId: requestId,
+        details: {
+          hostTrack,
+          actionIntentId,
+          actorAgentId,
+          principalId
+        }
+      }
+    });
+  } catch {
+    // ignore audit write failures for onboarding convenience endpoint
+  }
+
+  return sendJson(res, 201, {
+    ok: true,
+    schemaVersion: "MagicLinkSeedHostedApproval.v1",
+    tenantId,
+    hostTrack,
+    actionIntent: createdIntent.response?.actionIntent ?? null,
+    approvalRequest: approvalRequested.response?.approvalRequest ?? null,
+    approvalUrl
+  });
+}
+
 async function handleTenantFirstPaidCall(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
@@ -17728,6 +17899,13 @@ export async function magicLinkHandler(req, res) {
     if (tenantRuntimeBootstrapSmokeMatch) {
       const tenantId = tenantRuntimeBootstrapSmokeMatch[1];
       if (method === "POST") return await handleTenantRuntimeBootstrapSmokeTest(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantSeedHostedApprovalMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/seed-hosted-approval$/.exec(pathname);
+    if (tenantSeedHostedApprovalMatch) {
+      const tenantId = tenantSeedHostedApprovalMatch[1];
+      if (method === "POST") return await handleTenantSeedHostedApproval(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 
