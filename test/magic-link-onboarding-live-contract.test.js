@@ -132,6 +132,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       MAGIC_LINK_DATA_DIR: dataDir,
       MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
       MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0",
+      MAGIC_LINK_PUBLIC_BASE_URL: "https://www.nooterra.ai",
       MAGIC_LINK_NOOTERRA_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
       MAGIC_LINK_NOOTERRA_OPS_TOKEN: opsToken
     }
@@ -205,7 +206,23 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(seededApproval.json?.schemaVersion, "MagicLinkSeedHostedApproval.v1", seededApproval.text);
     assert.equal(seededApproval.json?.hostTrack, "claude", seededApproval.text);
     assert.ok(typeof seededApproval.json?.approvalRequest?.requestId === "string" && seededApproval.json.approvalRequest.requestId.length > 0, seededApproval.text);
+    assert.ok(typeof seededApproval.json?.attemptId === "string" && seededApproval.json.attemptId.length > 0, seededApproval.text);
     assert.match(String(seededApproval.json?.approvalUrl ?? ""), /\/approvals\?requestId=/, seededApproval.text);
+
+    const seededApprovalHistory = await httpJson({
+      baseUrl: magicBase,
+      method: "GET",
+      route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`
+    });
+    assert.equal(seededApprovalHistory.status, 200, seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.ok, true, seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.schemaVersion, "MagicLinkHostedApprovalHistory.v1", seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.refreshed, true, seededApprovalHistory.text);
+    assert.ok(Array.isArray(seededApprovalHistory.json?.attempts), seededApprovalHistory.text);
+    const seededAttempt = seededApprovalHistory.json.attempts.find((row) => row?.attemptId === seededApproval.json?.attemptId) ?? null;
+    assert.ok(seededAttempt, seededApprovalHistory.text);
+    assert.equal(seededAttempt?.status, "pending", seededApprovalHistory.text);
+    assert.equal(seededAttempt?.approvalStatus, "pending", seededApprovalHistory.text);
 
     const firstPaidCall = await httpJson({
       baseUrl: magicBase,
@@ -217,6 +234,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(firstPaidCall.json?.ok, true, firstPaidCall.text);
     assert.equal(firstPaidCall.json?.verificationStatus, "green", firstPaidCall.text);
     assert.equal(firstPaidCall.json?.settlementStatus, "released", firstPaidCall.text);
+    assert.match(String(firstPaidCall.json?.links?.runUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/runs\//, firstPaidCall.text);
     const attemptId = String(firstPaidCall.json?.attemptId ?? "");
     assert.ok(attemptId.length > 0, "first-paid-call must return attemptId");
 
@@ -227,8 +245,14 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     });
     assert.equal(history.status, 200, history.text);
     assert.equal(history.json?.ok, true, history.text);
+    assert.equal(history.json?.refreshed, true, history.text);
     assert.ok(Array.isArray(history.json?.attempts), "history must include attempts[]");
-    assert.ok(history.json.attempts.some((row) => row?.attemptId === attemptId), "history must include latest attempt");
+    const historyAttempt = history.json.attempts.find((row) => row?.attemptId === attemptId) ?? null;
+    assert.ok(historyAttempt, "history must include latest attempt");
+    assert.equal(historyAttempt?.ids?.runId, firstPaidCall.json?.ids?.runId, history.text);
+    assert.equal(historyAttempt?.settlementStatus, "released", history.text);
+    assert.equal(historyAttempt?.verificationStatus, "green", history.text);
+    assert.equal(historyAttempt?.links?.runUrl, firstPaidCall.json?.links?.runUrl, history.text);
 
     const idemKey = `idem_${crypto.randomBytes(6).toString("hex")}`;
     const conformance = await httpJson({

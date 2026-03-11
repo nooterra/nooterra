@@ -1010,6 +1010,23 @@ async function postTenantSeedHostedApproval({ tenantId, body = {}, headers = {} 
   };
 }
 
+async function getTenantSeedHostedApprovalHistory({ tenantId, headers = {} } = {}) {
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    ...headers
+  };
+  const res = await runReq({
+    method: "GET",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`,
+    headers: mergedHeaders,
+    bodyChunks: []
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
 async function getTenantBillingInvoiceRes({ tenantId, month = null, format = null } = {}) {
   const u = new URL(`/v1/tenants/${encodeURIComponent(tenantId)}/billing-invoice`, "http://localhost");
   if (month) u.searchParams.set("month", month);
@@ -2056,7 +2073,10 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       billingEmail: "billing+runtime-first-paid@example.com"
     });
 
-    const out = await postTenantFirstPaidCall({ tenantId });
+    const out = await postTenantFirstPaidCall({
+      tenantId,
+      headers: { host: "www.nooterra.ai", "x-forwarded-proto": "https", "x-forwarded-host": "www.nooterra.ai" }
+    });
     assert.equal(out.statusCode, 200, JSON.stringify(out.json));
     assert.equal(out.json?.ok, true);
     assert.equal(out.json?.schemaVersion, "MagicLinkFirstPaidCall.v1");
@@ -2069,12 +2089,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.ok(typeof out.json?.attemptId === "string" && out.json.attemptId.length > 0);
     assert.equal(out.json?.verificationStatus, "green");
     assert.equal(out.json?.settlementStatus, "released");
+    assert.match(String(out.json?.links?.runUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/runs\//);
 
     const history = await getTenantFirstPaidCallHistory({ tenantId });
     assert.equal(history.statusCode, 200, JSON.stringify(history.json));
     assert.equal(history.json?.ok, true);
     assert.equal(history.json?.schemaVersion, "MagicLinkFirstPaidCallHistory.v1");
     assert.equal(history.json?.tenantId, tenantId);
+    assert.equal(history.json?.refreshed, true);
     assert.ok(Array.isArray(history.json?.attempts));
     assert.ok(history.json.attempts.length >= 1);
     const latestAttempt = history.json.attempts[history.json.attempts.length - 1];
@@ -2082,6 +2104,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(latestAttempt?.status, "passed");
     assert.equal(latestAttempt?.verificationStatus, "green");
     assert.equal(latestAttempt?.settlementStatus, "released");
+    assert.equal(latestAttempt?.ids?.runId, out.json?.ids?.runId);
+    assert.equal(latestAttempt?.links?.runUrl, out.json?.links?.runUrl);
 
     const replay = await postTenantFirstPaidCall({
       tenantId,
@@ -2137,11 +2161,27 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(out.json?.schemaVersion, "MagicLinkSeedHostedApproval.v1");
     assert.equal(out.json?.tenantId, tenantId);
     assert.equal(out.json?.hostTrack, "codex");
+    assert.ok(typeof out.json?.attemptId === "string" && out.json.attemptId.length > 0);
     assert.match(String(out.json?.actionIntent?.actionIntentId ?? ""), /^act_ml_onboarding_codex_/);
     assert.match(String(out.json?.approvalRequest?.requestId ?? ""), /^apr_ml_onboarding_codex_/);
     assert.equal(out.json?.actionIntent?.host?.runtime, "codex");
     assert.equal(out.json?.actionIntent?.host?.channel, "api");
     assert.match(String(out.json?.approvalUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/approvals\?/);
+    assert.equal(Number(out.json?.history?.count ?? 0), 1);
+
+    const history = await getTenantSeedHostedApprovalHistory({ tenantId });
+    assert.equal(history.statusCode, 200, JSON.stringify(history.json));
+    assert.equal(history.json?.ok, true);
+    assert.equal(history.json?.schemaVersion, "MagicLinkHostedApprovalHistory.v1");
+    assert.equal(history.json?.tenantId, tenantId);
+    assert.equal(history.json?.refreshed, true);
+    assert.ok(Array.isArray(history.json?.attempts));
+    assert.equal(history.json.attempts.length, 1);
+    assert.equal(history.json.attempts[0]?.attemptId, out.json?.attemptId);
+    assert.equal(history.json.attempts[0]?.status, "pending");
+    assert.equal(history.json.attempts[0]?.approvalStatus, "pending");
+    assert.equal(history.json.attempts[0]?.hostTrack, "codex");
+    assert.equal(history.json.attempts[0]?.approvalRequestId, out.json?.approvalRequest?.requestId);
 
     const intentReq = nooterraOpsApiRequests.find((row) => row.pathname === "/v1/action-intents" && row.tenantId === tenantId);
     assert.ok(intentReq, "expected seeded action-intent request");

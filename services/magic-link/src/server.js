@@ -2219,6 +2219,34 @@ function requestBaseUrl(req) {
   return normalizeBaseUrl(`${proto}://${hostValue}`);
 }
 
+function buildHostedProductUrl(pathname, { baseUrl = null } = {}) {
+  const normalizedBase = normalizeBaseUrl(baseUrl ?? publicBaseUrl);
+  if (!normalizedBase || typeof pathname !== "string" || !pathname.trim()) return null;
+  const pathValue = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  try {
+    return new URL(pathValue, `${normalizedBase}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildFirstPaidCallLinks({ runId = null, receiptId = null, disputeId = null, baseUrl = null } = {}) {
+  const normalizedRunId = typeof runId === "string" && runId.trim() ? runId.trim() : null;
+  const normalizedReceiptId = typeof receiptId === "string" && receiptId.trim() ? receiptId.trim() : null;
+  const normalizedDisputeId = typeof disputeId === "string" && disputeId.trim() ? disputeId.trim() : null;
+  return {
+    runUrl: normalizedRunId ? buildHostedProductUrl(`/runs/${encodeURIComponent(normalizedRunId)}`, { baseUrl }) : null,
+    receiptUrl: normalizedReceiptId ? buildHostedProductUrl(`/receipts?selectedReceiptId=${encodeURIComponent(normalizedReceiptId)}`, { baseUrl }) : null,
+    disputeUrl: normalizedDisputeId
+      ? buildHostedProductUrl(`/disputes?selectedDisputeId=${encodeURIComponent(normalizedDisputeId)}`, { baseUrl })
+      : normalizedReceiptId
+        ? buildHostedProductUrl(`/receipts?selectedReceiptId=${encodeURIComponent(normalizedReceiptId)}`, { baseUrl })
+        : normalizedRunId
+          ? buildHostedProductUrl(`/disputes?runId=${encodeURIComponent(normalizedRunId)}`, { baseUrl })
+          : null
+  };
+}
+
 function integrationOauthCallbackPath(provider) {
   return `/v1/integrations/${provider}/oauth/callback`;
 }
@@ -6987,12 +7015,92 @@ function tenantFirstPaidCallHistoryPath({ tenantId }) {
   return path.join(dataDir, "tenants", tenantId, "onboarding_first_paid_calls.json");
 }
 
+function tenantHostedApprovalHistoryPath({ tenantId }) {
+  return path.join(dataDir, "tenants", tenantId, "onboarding_hosted_approvals.json");
+}
+
 function defaultTenantFirstPaidCallHistory({ tenantId }) {
   return {
     schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
     tenantId,
     updatedAt: null,
     attempts: []
+  };
+}
+
+function defaultTenantHostedApprovalHistory({ tenantId }) {
+  return {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: null,
+    attempts: []
+  };
+}
+
+function normalizeHostedApprovalAttemptRow(input) {
+  if (!isPlainObject(input)) return null;
+  const attemptId = typeof input.attemptId === "string" && input.attemptId.trim() ? safeTruncate(input.attemptId.trim(), { max: 120 }) : null;
+  if (!attemptId) return null;
+  const normalizeIso = (value) => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  };
+  const createdAt = normalizeIso(input.createdAt) ?? nowIso();
+  const completedAt = normalizeIso(input.completedAt);
+  const status = (() => {
+    const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
+    if (
+      raw === "opened" ||
+      raw === "pending" ||
+      raw === "approved" ||
+      raw === "denied" ||
+      raw === "expired" ||
+      raw === "revoked" ||
+      raw === "failed"
+    ) {
+      return raw;
+    }
+    return "pending";
+  })();
+  const hostTrack = (() => {
+    const raw = typeof input.hostTrack === "string" ? input.hostTrack.trim().toLowerCase() : "";
+    if (raw === "claude" || raw === "openclaw" || raw === "codex") return raw;
+    return "claude";
+  })();
+  const approvalStatus = (() => {
+    const raw = typeof input.approvalStatus === "string" ? input.approvalStatus.trim().toLowerCase() : "";
+    if (raw === "pending" || raw === "approved" || raw === "denied" || raw === "expired" || raw === "revoked") return raw;
+    return null;
+  })();
+  const lastCheckedAt = normalizeIso(input.lastCheckedAt);
+  const actionIntentId = typeof input.actionIntentId === "string" && input.actionIntentId.trim() ? safeTruncate(input.actionIntentId.trim(), { max: 140 }) : null;
+  const approvalRequestId = typeof input.approvalRequestId === "string" && input.approvalRequestId.trim() ? safeTruncate(input.approvalRequestId.trim(), { max: 140 }) : null;
+  const approvalUrl = typeof input.approvalUrl === "string" && input.approvalUrl.trim() ? safeTruncate(input.approvalUrl.trim(), { max: 2000 }) : null;
+  const actorAgentId = typeof input.actorAgentId === "string" && input.actorAgentId.trim() ? safeTruncate(input.actorAgentId.trim(), { max: 140 }) : null;
+  const principalId = typeof input.principalId === "string" && input.principalId.trim() ? safeTruncate(input.principalId.trim(), { max: 320 }) : null;
+  const error = isPlainObject(input.error)
+    ? {
+        code: typeof input.error.code === "string" ? safeTruncate(input.error.code, { max: 80 }) : null,
+        message: typeof input.error.message === "string" ? safeTruncate(input.error.message, { max: 500 }) : null
+      }
+    : null;
+  return {
+    schemaVersion: "MagicLinkHostedApprovalAttempt.v1",
+    attemptId,
+    createdAt,
+    completedAt,
+    status,
+    approvalStatus,
+    lastCheckedAt,
+    hostTrack,
+    actionIntentId,
+    approvalRequestId,
+    approvalUrl,
+    actorAgentId,
+    principalId,
+    error
   };
 }
 
@@ -7008,6 +7116,7 @@ function normalizeFirstPaidCallAttemptRow(input) {
   };
   const startedAt = normalizeIso(input.startedAt) ?? nowIso();
   const completedAt = normalizeIso(input.completedAt);
+  const lastCheckedAt = normalizeIso(input.lastCheckedAt);
   const status = (() => {
     const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
     if (raw === "passed" || raw === "completed" || raw === "degraded" || raw === "failed") return raw;
@@ -7018,8 +7127,17 @@ function normalizeFirstPaidCallAttemptRow(input) {
     bidderAgentId: typeof input.ids.bidderAgentId === "string" ? input.ids.bidderAgentId : null,
     rfqId: typeof input.ids.rfqId === "string" ? input.ids.rfqId : null,
     bidId: typeof input.ids.bidId === "string" ? input.ids.bidId : null,
-    runId: typeof input.ids.runId === "string" ? input.ids.runId : null
+    runId: typeof input.ids.runId === "string" ? input.ids.runId : null,
+    receiptId: typeof input.ids.receiptId === "string" ? input.ids.receiptId : null,
+    disputeId: typeof input.ids.disputeId === "string" ? input.ids.disputeId : null
   } : null;
+  const links = isPlainObject(input.links)
+    ? {
+        runUrl: typeof input.links.runUrl === "string" ? safeTruncate(input.links.runUrl, { max: 2000 }) : null,
+        receiptUrl: typeof input.links.receiptUrl === "string" ? safeTruncate(input.links.receiptUrl, { max: 2000 }) : null,
+        disputeUrl: typeof input.links.disputeUrl === "string" ? safeTruncate(input.links.disputeUrl, { max: 2000 }) : null
+      }
+    : null;
   const verificationStatus =
     typeof input.verificationStatus === "string" && input.verificationStatus.trim()
       ? input.verificationStatus.trim().toLowerCase()
@@ -7059,8 +7177,10 @@ function normalizeFirstPaidCallAttemptRow(input) {
     attemptId,
     startedAt,
     completedAt,
+    lastCheckedAt,
     status,
     ids,
+    links,
     verificationStatus,
     settlementStatus,
     config,
@@ -7087,8 +7207,33 @@ async function loadTenantFirstPaidCallHistoryBestEffort({ tenantId }) {
   }
 }
 
+async function loadTenantHostedApprovalHistoryBestEffort({ tenantId }) {
+  const fp = tenantHostedApprovalHistoryPath({ tenantId });
+  try {
+    const raw = JSON.parse(await fs.readFile(fp, "utf8"));
+    if (!isPlainObject(raw)) return defaultTenantHostedApprovalHistory({ tenantId });
+    const rows = Array.isArray(raw.attempts) ? raw.attempts : [];
+    const attempts = rows.map((row) => normalizeHostedApprovalAttemptRow(row)).filter(Boolean).slice(-100);
+    const updatedAt = typeof raw.updatedAt === "string" && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : null;
+    return {
+      schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+      tenantId,
+      updatedAt,
+      attempts
+    };
+  } catch {
+    return defaultTenantHostedApprovalHistory({ tenantId });
+  }
+}
+
 async function saveTenantFirstPaidCallHistory({ tenantId, history }) {
   const fp = tenantFirstPaidCallHistoryPath({ tenantId });
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  await fs.writeFile(fp, JSON.stringify(history, null, 2) + "\n", "utf8");
+}
+
+async function saveTenantHostedApprovalHistory({ tenantId, history }) {
+  const fp = tenantHostedApprovalHistoryPath({ tenantId });
   await fs.mkdir(path.dirname(fp), { recursive: true });
   await fs.writeFile(fp, JSON.stringify(history, null, 2) + "\n", "utf8");
 }
@@ -7106,6 +7251,122 @@ async function appendTenantFirstPaidCallAttempt({ tenantId, attempt }) {
   };
   await saveTenantFirstPaidCallHistory({ tenantId, history: next });
   return next;
+}
+
+async function appendTenantHostedApprovalAttempt({ tenantId, attempt }) {
+  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
+  const normalized = normalizeHostedApprovalAttemptRow(attempt);
+  if (!normalized) return history;
+  const attempts = [...history.attempts, normalized].slice(-100);
+  const next = {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: nowIso(),
+    attempts
+  };
+  await saveTenantHostedApprovalHistory({ tenantId, history: next });
+  return next;
+}
+
+async function refreshTenantHostedApprovalHistory({ tenantId } = {}) {
+  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
+  const candidates = history.attempts.filter(
+    (attempt) =>
+      String(attempt?.approvalRequestId ?? "").trim() !== "" &&
+      String(attempt?.status ?? "").trim().toLowerCase() !== "failed"
+  );
+  if (candidates.length === 0) {
+    return { history, refreshed: false };
+  }
+
+  const bootstrap = await callNooterraTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        keyId: "ak_ml_hosted_approval_history",
+        description: "magic-link hosted approval history refresh runtime key"
+      }
+    }
+  });
+  if (!bootstrap.ok) {
+    return { history, refreshed: false, refreshError: { code: bootstrap.code ?? null, message: bootstrap.message ?? null } };
+  }
+
+  const runtimeApiKey =
+    typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
+  if (!runtimeApiKey) {
+    return {
+      history,
+      refreshed: false,
+      refreshError: {
+        code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+        message: "Nooterra bootstrap response missing runtime API key token"
+      }
+    };
+  }
+
+  const checkedAt = nowIso();
+  let changed = false;
+  const attempts = [];
+  for (const attempt of history.attempts) {
+    const approvalRequestId = String(attempt?.approvalRequestId ?? "").trim();
+    if (!approvalRequestId || String(attempt?.status ?? "").trim().toLowerCase() === "failed") {
+      attempts.push(attempt);
+      continue;
+    }
+    const approvalLookup = await callNooterraTenantApi({
+      tenantId,
+      apiKey: runtimeApiKey,
+      method: "GET",
+      pathname: `/v1/approval-requests/${encodeURIComponent(approvalRequestId)}`
+    });
+    if (!approvalLookup.ok) {
+      attempts.push(attempt);
+      continue;
+    }
+    const approvalStatus =
+      typeof approvalLookup.response?.approvalStatus === "string" && approvalLookup.response.approvalStatus.trim()
+        ? approvalLookup.response.approvalStatus.trim().toLowerCase()
+        : null;
+    const nextApprovalUrl =
+      typeof approvalLookup.response?.approvalUrl === "string" && approvalLookup.response.approvalUrl.trim()
+        ? approvalLookup.response.approvalUrl.trim()
+        : attempt.approvalUrl;
+    const nextStatus = approvalStatus ?? attempt.status ?? "pending";
+    const nextCompletedAt =
+      attempt.completedAt ??
+      (nextStatus === "approved" || nextStatus === "denied" || nextStatus === "expired" || nextStatus === "revoked" ? checkedAt : null);
+    const nextAttempt = normalizeHostedApprovalAttemptRow({
+      ...attempt,
+      status: nextStatus,
+      approvalStatus,
+      approvalUrl: nextApprovalUrl,
+      completedAt: nextCompletedAt,
+      lastCheckedAt: checkedAt
+    });
+    if (JSON.stringify(nextAttempt) !== JSON.stringify(attempt)) changed = true;
+    attempts.push(nextAttempt ?? attempt);
+  }
+
+  if (!changed) {
+    return {
+      history: {
+        ...history,
+        attempts
+      },
+      refreshed: true
+    };
+  }
+
+  const nextHistory = {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: checkedAt,
+    attempts
+  };
+  await saveTenantHostedApprovalHistory({ tenantId, history: nextHistory });
+  return { history: nextHistory, refreshed: true };
 }
 
 function parseRequestIdempotencyKey({ req, body } = {}) {
@@ -7248,6 +7509,83 @@ function firstPaidCallExtractSettlementStatus(payload) {
     return payload.settlement.status.trim().toLowerCase();
   }
   return null;
+}
+
+function firstPaidCallExtractReceiptId(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.receiptId === "string" && payload.receiptId.trim()) return payload.receiptId.trim();
+  if (
+    payload.settlementReceipt &&
+    typeof payload.settlementReceipt === "object" &&
+    !Array.isArray(payload.settlementReceipt) &&
+    typeof payload.settlementReceipt.receiptId === "string" &&
+    payload.settlementReceipt.receiptId.trim()
+  ) {
+    return payload.settlementReceipt.receiptId.trim();
+  }
+  if (
+    payload.settlement &&
+    typeof payload.settlement === "object" &&
+    !Array.isArray(payload.settlement) &&
+    typeof payload.settlement.receiptId === "string" &&
+    payload.settlement.receiptId.trim()
+  ) {
+    return payload.settlement.receiptId.trim();
+  }
+  return null;
+}
+
+function firstPaidCallExtractDisputeId(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.disputeId === "string" && payload.disputeId.trim()) return payload.disputeId.trim();
+  if (
+    payload.settlement &&
+    typeof payload.settlement === "object" &&
+    !Array.isArray(payload.settlement) &&
+    typeof payload.settlement.disputeId === "string" &&
+    payload.settlement.disputeId.trim()
+  ) {
+    return payload.settlement.disputeId.trim();
+  }
+  if (
+    payload.settlementReceipt &&
+    typeof payload.settlementReceipt === "object" &&
+    !Array.isArray(payload.settlementReceipt) &&
+    typeof payload.settlementReceipt.disputeId === "string" &&
+    payload.settlementReceipt.disputeId.trim()
+  ) {
+    return payload.settlementReceipt.disputeId.trim();
+  }
+  return null;
+}
+
+function firstPaidCallExtractRunDetailRefresh(detail) {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return {
+      verificationStatus: null,
+      settlementStatus: null,
+      receiptId: null,
+      disputeId: null
+    };
+  }
+  const settlementPacket =
+    detail.settlement && typeof detail.settlement === "object" && !Array.isArray(detail.settlement) ? detail.settlement : null;
+  const settlement =
+    settlementPacket?.settlement && typeof settlementPacket.settlement === "object" && !Array.isArray(settlementPacket.settlement)
+      ? settlementPacket.settlement
+      : settlementPacket;
+  const settlementReceipt =
+    settlementPacket?.settlementReceipt &&
+    typeof settlementPacket.settlementReceipt === "object" &&
+    !Array.isArray(settlementPacket.settlementReceipt)
+      ? settlementPacket.settlementReceipt
+      : null;
+  return {
+    verificationStatus: firstPaidCallExtractVerificationStatus(detail.verification ?? detail),
+    settlementStatus: firstPaidCallExtractSettlementStatus(settlement ?? settlementPacket),
+    receiptId: firstPaidCallExtractReceiptId(settlementReceipt ?? settlement ?? settlementPacket),
+    disputeId: firstPaidCallExtractDisputeId(settlement ?? settlementReceipt ?? settlementPacket)
+  };
 }
 
 async function runTenantFirstPaidCallFlow({
@@ -7443,6 +7781,8 @@ async function runTenantFirstPaidCallFlow({
 
   const verificationStatus = firstPaidCallExtractVerificationStatus(verification.response);
   const settlementStatus = firstPaidCallExtractSettlementStatus(settlement.response);
+  const receiptId = firstPaidCallExtractReceiptId(settlement.response);
+  const disputeId = firstPaidCallExtractDisputeId(settlement.response);
 
   return {
     ok: true,
@@ -7451,7 +7791,9 @@ async function runTenantFirstPaidCallFlow({
       bidderAgentId,
       rfqId,
       bidId,
-      runId
+      runId,
+      receiptId,
+      disputeId
     },
     verificationStatus,
     settlementStatus,
@@ -7460,11 +7802,145 @@ async function runTenantFirstPaidCallFlow({
   };
 }
 
+async function refreshTenantFirstPaidCallHistory({ tenantId } = {}) {
+  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
+  const candidates = history.attempts.filter(
+    (attempt) =>
+      String(attempt?.ids?.runId ?? "").trim() !== "" &&
+      String(attempt?.status ?? "").trim().toLowerCase() !== "failed"
+  );
+  if (candidates.length === 0) {
+    return { history, refreshed: false };
+  }
+
+  const bootstrap = await callNooterraTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        keyId: "ak_ml_first_paid_history",
+        description: "magic-link first paid history refresh runtime key"
+      }
+    }
+  });
+  if (!bootstrap.ok) {
+    return { history, refreshed: false, refreshError: { code: bootstrap.code ?? null, message: bootstrap.message ?? null } };
+  }
+
+  const runtimeApiKey =
+    typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
+  if (!runtimeApiKey) {
+    return {
+      history,
+      refreshed: false,
+      refreshError: {
+        code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+        message: "Nooterra bootstrap response missing runtime API key token"
+      }
+    };
+  }
+
+  const checkedAt = nowIso();
+  const hostedBaseUrl = normalizeBaseUrl(publicBaseUrl);
+  let changed = false;
+  const attempts = [];
+  for (const attempt of history.attempts) {
+    const runId = String(attempt?.ids?.runId ?? "").trim();
+    if (!runId || String(attempt?.status ?? "").trim().toLowerCase() === "failed") {
+      attempts.push(attempt);
+      continue;
+    }
+    const runLookup = await callNooterraTenantApi({
+      tenantId,
+      apiKey: runtimeApiKey,
+      method: "GET",
+      pathname: `/runs/${encodeURIComponent(runId)}`
+    });
+    if (!runLookup.ok) {
+      attempts.push(attempt);
+      continue;
+    }
+    const refreshed = firstPaidCallExtractRunDetailRefresh(runLookup.response?.detail ?? null);
+    const nextIds = {
+      ...(attempt.ids && typeof attempt.ids === "object" && !Array.isArray(attempt.ids) ? attempt.ids : {}),
+      runId,
+      receiptId:
+        refreshed.receiptId ??
+        (typeof attempt?.ids?.receiptId === "string" && attempt.ids.receiptId.trim() ? attempt.ids.receiptId.trim() : null),
+      disputeId:
+        refreshed.disputeId ??
+        (typeof attempt?.ids?.disputeId === "string" && attempt.ids.disputeId.trim() ? attempt.ids.disputeId.trim() : null)
+    };
+    const previousLinks = isPlainObject(attempt?.links) ? attempt.links : null;
+    const nextLinks = hostedBaseUrl
+      ? buildFirstPaidCallLinks({
+          runId,
+          receiptId: nextIds.receiptId,
+          disputeId: nextIds.disputeId,
+          baseUrl: hostedBaseUrl
+        })
+      : previousLinks;
+    const nextVerificationStatus = refreshed.verificationStatus ?? attempt.verificationStatus ?? null;
+    const nextSettlementStatus = refreshed.settlementStatus ?? attempt.settlementStatus ?? null;
+    const nextStatus =
+      String(attempt?.status ?? "").trim().toLowerCase() === "failed"
+        ? "failed"
+        : nextVerificationStatus === "green" && nextSettlementStatus === "released"
+          ? "passed"
+          : nextVerificationStatus || nextSettlementStatus || nextIds.receiptId || nextIds.disputeId
+            ? "degraded"
+            : attempt.status ?? "completed";
+    const nextCompletedAt =
+      attempt.completedAt ??
+      (nextIds.receiptId || nextIds.disputeId || nextSettlementStatus === "released" || nextSettlementStatus === "refunded"
+        ? checkedAt
+        : null);
+    const nextAttempt = normalizeFirstPaidCallAttemptRow({
+      ...attempt,
+      completedAt: nextCompletedAt,
+      lastCheckedAt: checkedAt,
+      status: nextStatus,
+      ids: nextIds,
+      links: nextLinks,
+      verificationStatus: nextVerificationStatus,
+      settlementStatus: nextSettlementStatus
+    });
+    if (JSON.stringify(nextAttempt) !== JSON.stringify(attempt)) changed = true;
+    attempts.push(nextAttempt ?? attempt);
+  }
+
+  if (!changed) {
+    return {
+      history: {
+        ...history,
+        attempts
+      },
+      refreshed: true
+    };
+  }
+
+  const nextHistory = {
+    schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
+    tenantId,
+    updatedAt: checkedAt,
+    attempts
+  };
+  await saveTenantFirstPaidCallHistory({ tenantId, history: nextHistory });
+  return { history: nextHistory, refreshed: true };
+}
+
 async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
-  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
-  return sendJson(res, 200, { ok: true, ...history });
+  const out = await refreshTenantFirstPaidCallHistory({ tenantId });
+  return sendJson(res, 200, { ok: true, ...out.history, refreshed: Boolean(out.refreshed), refreshError: out.refreshError ?? null });
+}
+
+async function handleTenantHostedApprovalHistory(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+  const out = await refreshTenantHostedApprovalHistory({ tenantId });
+  return sendJson(res, 200, { ok: true, ...out.history, refreshed: Boolean(out.refreshed), refreshError: out.refreshError ?? null });
 }
 
 async function handleTenantSeedHostedApproval(req, res, tenantId) {
@@ -7491,6 +7967,8 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
   }
 
   const requestIdPrefix = `ml_onboarding_${hostTrack}_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const attemptId = requestIdPrefix;
+  const startedAt = nowIso();
   const actorAgentId = `agt_onboarding_${hostTrack}`;
   const hostRuntime = hostTrack === "claude" ? "claude-desktop" : hostTrack;
   const hostChannel = hostTrack === "codex" ? "api" : "mcp";
@@ -7506,6 +7984,21 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_bootstrap`
   });
   if (!bootstrap.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        error: {
+          code: bootstrap.code ?? "RUNTIME_BOOTSTRAP_FAILED",
+          message: bootstrap.message ?? "runtime bootstrap failed"
+        }
+      }
+    });
     return sendJson(res, bootstrap.statusCode ?? 502, {
       ok: false,
       code: bootstrap.code,
@@ -7517,6 +8010,21 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     ? bootstrap.response.bootstrap.apiKey.token.trim()
     : "";
   if (!runtimeApiKey) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        error: {
+          code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+          message: "Nooterra bootstrap response missing runtime API key token"
+        }
+      }
+    });
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
@@ -7567,6 +8075,23 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_intent`
   });
   if (!createdIntent.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        principalId,
+        actionIntentId,
+        error: {
+          code: createdIntent.code ?? "NOOTERRA_API_CALL_FAILED",
+          message: createdIntent.message ?? "action intent creation failed"
+        }
+      }
+    });
     return sendJson(res, createdIntent.statusCode ?? 502, {
       ok: false,
       code: createdIntent.code,
@@ -7586,6 +8111,24 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_approval`
   });
   if (!approvalRequested.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        principalId,
+        actionIntentId,
+        approvalRequestId: requestId,
+        error: {
+          code: approvalRequested.code ?? "NOOTERRA_API_CALL_FAILED",
+          message: approvalRequested.message ?? "approval request creation failed"
+        }
+      }
+    });
     return sendJson(res, approvalRequested.statusCode ?? 502, {
       ok: false,
       code: approvalRequested.code,
@@ -7604,6 +8147,23 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     : base
       ? new URL(upstreamApprovalUrl, `${base}/`).toString()
       : upstreamApprovalUrl;
+
+  const history = await appendTenantHostedApprovalAttempt({
+    tenantId,
+    attempt: {
+      attemptId,
+      createdAt: startedAt,
+      completedAt: nowIso(),
+      status: "pending",
+      approvalStatus: "pending",
+      hostTrack,
+      actionIntentId,
+      approvalRequestId: requestId,
+      approvalUrl,
+      actorAgentId,
+      principalId
+    }
+  });
 
   try {
     await appendAuditRecord({
@@ -7631,10 +8191,15 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     ok: true,
     schemaVersion: "MagicLinkSeedHostedApproval.v1",
     tenantId,
+    attemptId,
     hostTrack,
     actionIntent: createdIntent.response?.actionIntent ?? null,
     approvalRequest: approvalRequested.response?.approvalRequest ?? null,
-    approvalUrl
+    approvalUrl,
+    history: {
+      updatedAt: history.updatedAt,
+      count: Array.isArray(history.attempts) ? history.attempts.length : 0
+    }
   });
 }
 
@@ -7796,6 +8361,12 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
   }
 
   const verificationPassed = flow.verificationStatus === "green";
+  const links = buildFirstPaidCallLinks({
+    runId: flow.ids?.runId ?? null,
+    receiptId: flow.ids?.receiptId ?? null,
+    disputeId: flow.ids?.disputeId ?? null,
+    baseUrl: requestBaseUrl(req)
+  });
   await markTenantOnboardingProgress({
     dataDir,
     tenantId,
@@ -7812,6 +8383,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
       completedAt: nowIso(),
       status,
       ids: flow.ids,
+      links,
       verificationStatus: flow.verificationStatus,
       settlementStatus: flow.settlementStatus,
       config,
@@ -7851,6 +8423,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
     replayed: false,
     attemptId,
     ids: flow.ids,
+    links,
     verificationStatus: flow.verificationStatus,
     settlementStatus: flow.settlementStatus,
     verification: flow.verification,
@@ -7931,6 +8504,7 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   let mcpEnv = null;
   let runtimeApiKey = null;
   let paidFlow = null;
+  const hostedBaseUrl = requestBaseUrl(req);
 
   const bootstrap = await callNooterraTenantBootstrap({
     tenantId,
@@ -8022,6 +8596,12 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
           completedAt: nowIso(),
           status: verificationPassed && settlementReleased ? "passed" : "degraded",
           ids: flow.ids,
+          links: buildFirstPaidCallLinks({
+            runId: flow.ids?.runId ?? null,
+            receiptId: flow.ids?.receiptId ?? null,
+            disputeId: flow.ids?.disputeId ?? null,
+            baseUrl: hostedBaseUrl
+          }),
           verificationStatus: flow.verificationStatus,
           settlementStatus: flow.settlementStatus,
           config: {
@@ -17917,6 +18497,13 @@ export async function magicLinkHandler(req, res) {
     if (tenantSeedHostedApprovalMatch) {
       const tenantId = tenantSeedHostedApprovalMatch[1];
       if (method === "POST") return await handleTenantSeedHostedApproval(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantSeedHostedApprovalHistoryMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/seed-hosted-approval\/history$/.exec(pathname);
+    if (tenantSeedHostedApprovalHistoryMatch) {
+      const tenantId = tenantSeedHostedApprovalHistoryMatch[1];
+      if (method === "GET") return await handleTenantHostedApprovalHistory(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 
