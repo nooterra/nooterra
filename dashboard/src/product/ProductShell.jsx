@@ -8637,7 +8637,7 @@ function InboxPage({ runtime, onboardingState, lastLaunchId = null }) {
 function ApprovalsPage({ runtime, onboardingState }) {
   const [reloadToken, setReloadToken] = useState(0);
   const [busyState, setBusyState] = useState("loading");
-  const [statusMessage, setStatusMessage] = useState("Loading approval inbox and policy state...");
+  const [statusMessage, setStatusMessage] = useState("Loading approval requests, recent decisions, and saved approval rules...");
   const [pendingItems, setPendingItems] = useState([]);
   const [recentDecisions, setRecentDecisions] = useState([]);
   const [policies, setPolicies] = useState([]);
@@ -8652,7 +8652,7 @@ function ApprovalsPage({ runtime, onboardingState }) {
 
     async function load() {
       setBusyState("loading");
-      setStatusMessage("Loading approval inbox and policy state...");
+      setStatusMessage("Loading approval requests, recent decisions, and saved approval rules...");
       try {
         const [pendingOut, decidedOut, policiesOut] = await Promise.all([
           fetchApprovalInbox(runtime, { status: "pending" }),
@@ -8705,11 +8705,11 @@ function ApprovalsPage({ runtime, onboardingState }) {
           setPolicies(nextPolicies);
         });
         setStatusMessage(
-          `Loaded ${nextPending.length} pending request${nextPending.length === 1 ? "" : "s"}, ${nextDecided.length} recent decision${nextDecided.length === 1 ? "" : "s"}, and ${nextPolicies.length} standing polic${nextPolicies.length === 1 ? "y" : "ies"}.`
+          `Loaded ${nextPending.length} approval${nextPending.length === 1 ? "" : "s"} waiting for review, ${nextDecided.length} recent decision${nextDecided.length === 1 ? "" : "s"}, and ${nextPolicies.length} saved rule${nextPolicies.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         if (cancelled) return;
-        setStatusMessage(`Approval dashboard failed to load: ${error.message}`);
+        setStatusMessage(`Approval page failed to load: ${error.message}`);
       } finally {
         if (!cancelled) setBusyState("");
       }
@@ -8723,12 +8723,12 @@ function ApprovalsPage({ runtime, onboardingState }) {
 
   function loadPolicyIntoForm(policy) {
     setPolicyForm(buildApprovalPolicyFormState(policy));
-    setStatusMessage(`Policy ${policy.name} loaded into the upsert form.`);
+    setStatusMessage(`Rule ${policy.name} loaded into the editor.`);
   }
 
   function resetPolicyForm() {
     setPolicyForm(buildApprovalPolicyFormState());
-    setStatusMessage("Policy form reset. Enter a new standing rule or paste an existing policy ID to update.");
+    setStatusMessage("Rule editor reset. Create a new saved approval rule or load an existing one to update it.");
   }
 
   function updateDecisionNote(requestId, value) {
@@ -8873,9 +8873,9 @@ function ApprovalsPage({ runtime, onboardingState }) {
       <section className="product-page-top">
         <div>
           <p className="product-kicker">Approvals</p>
-          <h1>Work the human-approval queue without losing policy context.</h1>
+          <h1>Review what the agent wants to do before any authority is granted.</h1>
           <p className="product-lead">
-            Review pending requests, record decisions, and keep standing approval rules visible in one operational surface.
+            This is where you see the action, cost, scope, and timing clearly, then approve once, deny, or save a bounded rule for the next similar request.
           </p>
         </div>
         <div className="product-page-top-actions">
@@ -11655,7 +11655,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
   const [activeFilters, setActiveFilters] = useState(initialFilters);
   const [selectedReceiptId, setSelectedReceiptId] = useState(() => getQueryParam("selectedReceiptId") ?? getQueryParam("receiptId") ?? "");
   const [busyState, setBusyState] = useState("loading");
-  const [statusMessage, setStatusMessage] = useState("Loading completion receipts...");
+  const [statusMessage, setStatusMessage] = useState("Loading receipts, proof, and settlement state...");
   const [receipts, setReceipts] = useState([]);
   const [detailState, setDetailState] = useState({
     loading: false,
@@ -11678,7 +11678,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
         return;
       }
       setBusyState("loading");
-      setStatusMessage("Loading completion receipts...");
+      setStatusMessage("Loading receipts, proof, and settlement state...");
       try {
         const out = await fetchWorkOrderReceipts(runtime, {
           receiptId: activeFilters.receiptId,
@@ -11699,7 +11699,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
         setStatusMessage(`Loaded ${nextReceipts.length} receipt${nextReceipts.length === 1 ? "" : "s"} for ${buyer?.email ?? runtime.tenantId}.`);
       } catch (error) {
         if (cancelled) return;
-        setStatusMessage(`Receipt load failed: ${error.message}`);
+        setStatusMessage(`Receipt page failed to load: ${error.message}`);
       } finally {
         if (!cancelled) setBusyState("");
       }
@@ -11817,9 +11817,9 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-page-top">
         <div>
           <p className="product-kicker">Receipts Vault</p>
-          <h1>Keep completion proof and settlement references in one place.</h1>
+          <h1>See what happened, why the runtime trusted it, and whether recourse is still open.</h1>
           <p className="product-lead">
-            This page reads the finalized receipt objects already emitted for completed runs. It is the consumer-facing vault for proof of what happened after execution completed.
+            Every completed action should end here with a readable record: the outcome, the amount, the proof that came back, and the next step if something looks wrong.
           </p>
         </div>
         <div className="product-page-top-actions">
@@ -11838,7 +11838,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
       <form className="product-card" onSubmit={applyFilters}>
         <div className="product-section-head compact">
           <p>Receipt filters</p>
-          <h2>Narrow the vault by receipt or work order.</h2>
+          <h2>Find a receipt by ID, work order, or final status.</h2>
         </div>
         <div className="product-form-grid">
           <label>
@@ -11985,7 +11985,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
           <article className="product-card">
             <div className="product-section-head compact">
               <p>Selected receipt</p>
-              <h2>Inspect the linked work order, settlement binding, and proof chain from one detail view.</h2>
+              <h2>Inspect the outcome, proof, settlement state, and recourse window from one detail view.</h2>
             </div>
             {detailState.loading ? <div className="product-inline-note warn">Loading receipt detail…</div> : null}
             {detailState.error ? <div className="product-inline-note bad">Receipt detail failed: {detailState.error}</div> : null}
@@ -11994,8 +11994,8 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                 {selectedReceiptDetail ? (
                   <div className={`product-inline-note ${selectedIntegrityTone}`}>
                     {selectedReceiptDetail.integrityStatus === "verified"
-                      ? "The linked receipt, work order, and settlement references are internally consistent."
-                      : "This receipt is still readable, but one or more linked integrity checks require attention."}
+                      ? "The receipt, run, and settlement records still line up. This is the trusted record of what happened."
+                      : "This receipt is still readable, but one or more linked checks need attention before you treat it as final proof."}
                   </div>
                 ) : null}
                 {selectedReceiptDetail ? (
@@ -12048,7 +12048,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                   </div>
                   <div>
                     <strong>Settlement</strong>
-                    <span>{selectedReceiptDetail?.settlement?.status ?? "Not settled"}</span>
+                    <span>{selectedReceiptDetail?.settlement?.status ?? "Not settled yet"}</span>
                   </div>
                   <div>
                     <strong>Recourse</strong>
@@ -12095,7 +12095,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                   </div>
                 ) : null}
                 <details className="product-details" open>
-                  <summary>Receipt detail payload</summary>
+                  <summary>Raw receipt payload</summary>
                   <pre><code>{prettyJson({
                     completionReceipt: selectedCompletionReceipt.raw,
                     detail: selectedReceiptDetail?.raw ?? null
@@ -12103,7 +12103,7 @@ function ReceiptsPage({ runtime, onboardingState, lastLaunchId = null }) {
                 </details>
               </>
             ) : (
-              <div className="product-empty-state">Choose a receipt from the vault to inspect its linked execution detail.</div>
+              <div className="product-empty-state">Choose a receipt to inspect the proof, amount, settlement state, and recourse window.</div>
             )}
           </article>
         </div>
@@ -12120,7 +12120,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
   const [selectedCaseId, setSelectedCaseId] = useState(() => getQueryParam("caseId") ?? "");
   const [reloadToken, setReloadToken] = useState(0);
   const [busyState, setBusyState] = useState("loading");
-  const [statusMessage, setStatusMessage] = useState("Loading disputes...");
+  const [statusMessage, setStatusMessage] = useState("Loading disputes, dispute-ready runs, and recourse history...");
   const [queueItems, setQueueItems] = useState([]);
   const [workspaceState, setWorkspaceState] = useState({
     loading: false,
@@ -12175,7 +12175,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
         return;
       }
       setBusyState("loading");
-      setStatusMessage("Loading disputes...");
+      setStatusMessage("Loading disputes, dispute-ready runs, and recourse history...");
       try {
         const [queueOut, launchOut] = await Promise.all([
           fetchDisputeInbox(runtime, { limit: 100, offset: 0 }),
@@ -12220,7 +12220,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
             setLaunchSummary(launchOut);
             setRunRecords([]);
             setStatusMessage(
-              `Loaded ${nextQueueItems.length} dispute${nextQueueItems.length === 1 ? "" : "s"}. No dispute-ready run IDs are available yet for opening new recourse.`
+              `Loaded ${nextQueueItems.length} dispute${nextQueueItems.length === 1 ? "" : "s"}. No runs are ready to open a new dispute yet.`
             );
           }
           return;
@@ -12293,11 +12293,11 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
         setLaunchSummary(launchOut);
         setRunRecords(runDetails);
         setStatusMessage(
-          `Loaded ${nextQueueItems.length} dispute${nextQueueItems.length === 1 ? "" : "s"} and ${runDetails.length} dispute-ready run${runDetails.length === 1 ? "" : "s"}.`
+          `Loaded ${nextQueueItems.length} open dispute${nextQueueItems.length === 1 ? "" : "s"} and ${runDetails.length} run${runDetails.length === 1 ? "" : "s"} that can still open recourse.`
         );
       } catch (error) {
         if (cancelled) return;
-        setStatusMessage(`Dispute surface failed to load: ${error.message}`);
+        setStatusMessage(`Dispute page failed to load: ${error.message}`);
       } finally {
         if (!cancelled) setBusyState("");
       }
@@ -12506,9 +12506,9 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-page-top">
         <div>
           <p className="product-kicker">Disputes</p>
-          <h1>Track every disputed run in one inbox, then open new recourse only when you need it.</h1>
+          <h1>Challenge the outcome, add evidence, and track what happens next.</h1>
           <p className="product-lead">
-            The inbox is backed by live settlement and arbitration records. Inspect the latest case when one exists, and only drop into run-level recourse when you need to open or update a dispute.
+            This page shows whether the dispute window is still open, what evidence has been attached, and how the resolution is progressing without losing the original proof trail.
           </p>
         </div>
         <div className="product-page-top-actions">
@@ -12529,7 +12529,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-card">
         <div className="product-section-head compact">
           <p>Open new recourse</p>
-          <h2>Use the latest monitored host flow or add a run ID when you need to open a fresh dispute.</h2>
+          <h2>Use the latest monitored host flow or add a run ID when you need to challenge a result.</h2>
         </div>
         <div className="product-form-grid">
           <label className="wide">
@@ -12580,7 +12580,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-section">
         <div className="product-section-head">
           <p>Dispute inbox</p>
-          <h2>Every disputed run stays visible even if you did not keep the run ID or case ID handy.</h2>
+          <h2>Every disputed run stays visible even if you no longer have the run ID or case ID handy.</h2>
         </div>
         {queueItems.length > 0 ? (
           <div className="product-task-grid">
@@ -12599,10 +12599,10 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
                   <span>{record.caseCount ? `${record.caseCount} case${record.caseCount === 1 ? "" : "s"}` : "No case yet"}</span>
                 </div>
                 {record.disputeContext?.reason ? (
-                  <div className="product-inline-note accent">Reason: {record.disputeContext.reason}</div>
+                  <div className="product-inline-note accent">What is being challenged: {record.disputeContext.reason}</div>
                 ) : null}
                 {record.disputeResolution?.summary ? (
-                  <div className="product-inline-note good">Resolution: {record.disputeResolution.summary}</div>
+                  <div className="product-inline-note good">Latest resolution note: {record.disputeResolution.summary}</div>
                 ) : null}
                 <div className="product-detail-meta">
                   <div>
@@ -12653,7 +12653,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
           <article className="product-card">
             <div className="product-section-head compact">
               <p>Selected dispute</p>
-              <h2>Inspect the latest dispute detail without dropping into an ops-only workspace.</h2>
+              <h2>Inspect the issue, timing, evidence, and current resolution state without dropping into an ops-only workspace.</h2>
             </div>
             {workspaceState.error ? <div className="product-inline-note bad">{workspaceState.error}</div> : null}
             {workspaceState.loading ? <div className="product-inline-note warn">Loading dispute detail…</div> : null}
@@ -12678,10 +12678,10 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
                   </div>
                 </div>
                 {selectedInboxItem?.disputeContext?.reason ? (
-                  <div className="product-inline-note accent">Reason: {selectedInboxItem.disputeContext.reason}</div>
+                  <div className="product-inline-note accent">What the user is challenging: {selectedInboxItem.disputeContext.reason}</div>
                 ) : null}
                 {selectedSettlement?.disputeResolution?.summary ? (
-                  <div className="product-inline-note good">{selectedSettlement.disputeResolution.summary}</div>
+                  <div className="product-inline-note good">Latest resolution note: {selectedSettlement.disputeResolution.summary}</div>
                 ) : null}
                 <div className={`product-inline-note ${selectedDisputeWindowState.tone}`}>
                   <strong>{selectedDisputeWindowState.label}.</strong> {selectedDisputeWindowState.summary}
@@ -12730,7 +12730,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
           <article className="product-card">
             <div className="product-section-head compact">
               <p>Dispute timeline</p>
-              <h2>Every dispute stays bound to its settlement history.</h2>
+              <h2>Every dispute stays bound to the same settlement history from opening to resolution.</h2>
             </div>
             {selectedTimeline.length ? (
               <div className="product-step-list">
@@ -12745,7 +12745,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
                 ))}
               </div>
             ) : (
-              <div className="product-empty-state">No dispute timeline is available for the selected case yet.</div>
+              <div className="product-empty-state">No timeline is available for this dispute yet.</div>
             )}
             {selectedRelatedCases.length ? (
               <>
@@ -12775,7 +12775,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
       <section className="product-section">
         <div className="product-section-head">
           <p>Open new dispute</p>
-          <h2>Use run-level recourse only when you need to start or update a dispute.</h2>
+          <h2>Open a dispute only when the receipt or outcome needs review, refund, or reversal.</h2>
         </div>
         {runRecords.length > 0 ? (
           <div className="product-task-grid">
@@ -12898,7 +12898,7 @@ function DisputesPage({ runtime, onboardingState, lastLaunchId = null }) {
             })}
           </div>
         ) : (
-          <div className="product-empty-state">No runs are ready for dispute review yet. Start from the wallet or paste a run ID above.</div>
+          <div className="product-empty-state">No runs are ready for dispute review yet. Start from a receipt, the wallet, or a run ID above.</div>
         )}
       </section>
     </div>
