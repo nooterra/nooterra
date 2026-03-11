@@ -205,7 +205,19 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(seededApproval.json?.schemaVersion, "MagicLinkSeedHostedApproval.v1", seededApproval.text);
     assert.equal(seededApproval.json?.hostTrack, "claude", seededApproval.text);
     assert.ok(typeof seededApproval.json?.approvalRequest?.requestId === "string" && seededApproval.json.approvalRequest.requestId.length > 0, seededApproval.text);
+    assert.ok(typeof seededApproval.json?.attemptId === "string" && seededApproval.json.attemptId.length > 0, seededApproval.text);
     assert.match(String(seededApproval.json?.approvalUrl ?? ""), /\/approvals\?requestId=/, seededApproval.text);
+
+    const seededApprovalHistory = await httpJson({
+      baseUrl: magicBase,
+      method: "GET",
+      route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`
+    });
+    assert.equal(seededApprovalHistory.status, 200, seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.ok, true, seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.schemaVersion, "MagicLinkHostedApprovalHistory.v1", seededApprovalHistory.text);
+    assert.ok(Array.isArray(seededApprovalHistory.json?.attempts), seededApprovalHistory.text);
+    assert.ok(seededApprovalHistory.json.attempts.some((row) => row?.attemptId === seededApproval.json?.attemptId), seededApprovalHistory.text);
 
     const firstPaidCall = await httpJson({
       baseUrl: magicBase,

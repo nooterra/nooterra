@@ -3841,6 +3841,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     loading: false,
     error: ""
   });
+  const [hostedApprovalState, setHostedApprovalState] = useState({
+    latest: null,
+    history: [],
+    selectedAttemptId: "",
+    loading: false,
+    error: ""
+  });
   const [onboardingMetricsState, setOnboardingMetricsState] = useState({
     metrics: null,
     loading: false,
@@ -4004,6 +4011,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     let cancelled = false;
     const tenantId = buyer?.tenantId;
     if (!tenantId) {
+      setHostedApprovalState({
+        latest: null,
+        history: [],
+        selectedAttemptId: "",
+        loading: false,
+        error: ""
+      });
       setFirstPaidCallState({
         latest: null,
         history: [],
@@ -4076,11 +4090,43 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       }
     }
 
+    async function loadHostedApprovalHistory() {
+      try {
+        const out = await requestAuthJson({
+          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`,
+          method: "GET",
+          credentials: "include"
+        });
+        if (cancelled) return;
+        const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
+        setHostedApprovalState((previous) => ({
+          ...previous,
+          latest: attempts[attempts.length - 1] ?? null,
+          history: attempts,
+          selectedAttemptId:
+            previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
+              ? previous.selectedAttemptId
+              : String(attempts[attempts.length - 1]?.attemptId ?? ""),
+          error: ""
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setHostedApprovalState((previous) => ({
+          ...previous,
+          latest: null,
+          history: [],
+          selectedAttemptId: "",
+          error: error.message
+        }));
+      }
+    }
+
     setOnboardingMetricsState((previous) => ({
       ...previous,
       loading: true,
       error: ""
     }));
+    void loadHostedApprovalHistory();
     void loadOnboardingMetrics();
     void loadFirstPaidHistory();
     return () => {
@@ -4122,6 +4168,49 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         error: error.message
       });
       throw error;
+    }
+  }
+
+  async function refreshHostedApprovalHistory() {
+    const tenantId = buyer?.tenantId;
+    if (!tenantId) {
+      setStatusMessage("A tenant must be active before loading hosted approval history.");
+      return;
+    }
+    setHostedApprovalState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
+    try {
+      const out = await requestAuthJson({
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`,
+        method: "GET",
+        credentials: "include"
+      });
+      const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
+      setHostedApprovalState((previous) => ({
+        ...previous,
+        latest: attempts[attempts.length - 1] ?? null,
+        history: attempts,
+        selectedAttemptId:
+          previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
+            ? previous.selectedAttemptId
+            : String(attempts[attempts.length - 1]?.attemptId ?? ""),
+        loading: false,
+        error: ""
+      }));
+      setStatusMessage(`Loaded ${attempts.length} hosted approval attempt${attempts.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setHostedApprovalState((previous) => ({
+        ...previous,
+        latest: null,
+        history: [],
+        selectedAttemptId: "",
+        loading: false,
+        error: error.message
+      }));
+      setStatusMessage(`Hosted approval history failed: ${error.message}`);
     }
   }
 
@@ -4635,6 +4724,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       return;
     }
     setBusyState("seed_approval");
+    setHostedApprovalState((previous) => ({
+      ...previous,
+      loading: true,
+      error: ""
+    }));
     setStatusMessage(`Creating the first hosted approval for ${selectedHostTrack.label}...`);
     try {
       const approvalRequested = await requestAuthJson({
@@ -4646,6 +4740,20 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         },
         credentials: "include"
       });
+      const historyOut = await requestAuthJson({
+        pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval/history`,
+        method: "GET",
+        credentials: "include"
+      }).catch(() => null);
+      const attempts = Array.isArray(historyOut?.attempts) ? historyOut.attempts : [];
+      setHostedApprovalState((previous) => ({
+        ...previous,
+        latest: attempts[attempts.length - 1] ?? approvalRequested ?? null,
+        history: attempts.length ? attempts : previous.history,
+        selectedAttemptId: String(approvalRequested?.attemptId ?? previous.selectedAttemptId ?? ""),
+        loading: false,
+        error: ""
+      }));
       await refreshOnboardingMetrics().catch(() => {});
       const approvalUrl = pickFirstString(
         approvalRequested?.approvalUrl,
@@ -4658,6 +4766,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         return;
       }
     } catch (error) {
+      setHostedApprovalState((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message
+      }));
       setStatusMessage(`First hosted approval failed: ${error.message}`);
     } finally {
       setBusyState("");
@@ -4850,6 +4963,31 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     return `${minutes}m`;
   })();
   const latestFirstPaidAttempt = firstPaidCallState.latest;
+  const latestHostedApprovalAttempt = hostedApprovalState.latest;
+  const latestHostedApprovalTrack = humanizeLabel(latestHostedApprovalAttempt?.hostTrack, "Pending");
+  const latestHostedApprovalId = pickFirstString(
+    latestHostedApprovalAttempt?.approvalRequestId,
+    latestHostedApprovalAttempt?.approvalRequest?.requestId
+  );
+  const latestHostedApprovalUrl = pickFirstString(latestHostedApprovalAttempt?.approvalUrl);
+  const selectedHostedApprovalAttempt =
+    hostedApprovalState.selectedAttemptId
+      ? hostedApprovalState.history.find((attempt) => String(attempt?.attemptId ?? "").trim() === hostedApprovalState.selectedAttemptId) ?? null
+      : null;
+  const focusedHostedApprovalAttempt = selectedHostedApprovalAttempt ?? latestHostedApprovalAttempt ?? null;
+  const focusedHostedApprovalAttemptId = pickFirstString(focusedHostedApprovalAttempt?.attemptId);
+  const focusedHostedApprovalTrack = humanizeLabel(focusedHostedApprovalAttempt?.hostTrack, "Pending");
+  const focusedHostedApprovalId = pickFirstString(
+    focusedHostedApprovalAttempt?.approvalRequestId,
+    focusedHostedApprovalAttempt?.approvalRequest?.requestId
+  );
+  const focusedHostedApprovalUrl = pickFirstString(focusedHostedApprovalAttempt?.approvalUrl);
+  const focusedHostedApprovalTone =
+    focusedHostedApprovalAttempt?.status === "opened"
+      ? "good"
+      : focusedHostedApprovalAttempt
+        ? "warn"
+        : "neutral";
   const firstPaidVerificationLabel = latestFirstPaidAttempt
     ? humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "Pending")
     : "Pending";
@@ -4923,7 +5061,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         ? "warn"
         : "neutral";
   const firstApprovalSharedAt = String(onboardingMetrics?.firstBuyerLinkSharedAt ?? "").trim();
-  const hostedApprovalReady = Boolean(firstApprovalSharedAt);
+  const hostedApprovalReady = Boolean(focusedHostedApprovalId || firstApprovalSharedAt);
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
   const conformanceReadyLabel = conformanceMatrix?.ready === true
     ? "Yes"
@@ -4933,7 +5071,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         ? "Pending"
         : "Awaiting workspace";
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
-  const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart;
+  const approvalSurfaceHref = focusedHostedApprovalId
+    ? `/approvals?selectedApprovalId=${encodeURIComponent(focusedHostedApprovalId)}`
+    : hostedApprovalReady
+      ? "/approvals"
+      : docsLinks.claudeDesktopQuickstart;
   const receiptSurfaceHref = latestFirstPaidReceiptId
     ? `/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`
     : "/receipts";
@@ -4961,14 +5103,22 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     {
       id: "approval",
       label: "Approval",
-      value: focusedFirstPaidApprovalId || (hostedApprovalReady ? "Shared approvals live" : "Pending"),
+      value: focusedFirstPaidApprovalId || focusedHostedApprovalId || (hostedApprovalReady ? "Shared approvals live" : "Pending"),
       detail: focusedFirstPaidApprovalId
         ? "Open the approval artifact that authorized this exact attempt."
-        : hostedApprovalReady
-          ? "The shared approvals surface is live, but this attempt has not bound to a specific approval artifact yet."
+        : focusedHostedApprovalId
+          ? `Hosted approval ${focusedHostedApprovalId} is preserved as the first live approval artifact for ${focusedHostedApprovalTrack.toLowerCase()}.`
+          : hostedApprovalReady
+            ? "The shared approvals surface is live, but this attempt has not bound to a specific approval artifact yet."
           : "The host still needs to create a yellow-state action and land it on the hosted approvals page.",
-      href: focusedFirstPaidApprovalId ? focusedApprovalSurfaceHref : hostedApprovalReady ? approvalSurfaceHref : docsLinks.hostQuickstart,
-      cta: focusedFirstPaidApprovalId ? "Open approval" : hostedApprovalReady ? "Open approvals" : "Open launch host guide"
+      href: focusedFirstPaidApprovalId
+        ? focusedApprovalSurfaceHref
+        : focusedHostedApprovalUrl
+          ? focusedHostedApprovalUrl
+          : hostedApprovalReady
+            ? approvalSurfaceHref
+            : docsLinks.hostQuickstart,
+      cta: focusedFirstPaidApprovalId ? "Open approval" : focusedHostedApprovalId ? "Reopen hosted approval" : hostedApprovalReady ? "Open approvals" : "Open launch host guide"
     },
     {
       id: "run",
@@ -5017,14 +5167,16 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     },
     {
       title: "Reach the first hosted approval",
-      detail: hostedApprovalReady
-        ? `A hosted approval link was already shared at ${formatDateTime(firstApprovalSharedAt)}. Keep the next live decision in the same approvals surface.`
+      detail: focusedHostedApprovalId
+        ? `Hosted approval ${focusedHostedApprovalId} is live on the ${focusedHostedApprovalTrack} track${focusedHostedApprovalAttempt?.createdAt ? ` since ${formatDateTime(focusedHostedApprovalAttempt.createdAt)}` : ""}. Reopen the same artifact instead of minting duplicate first-run approvals.`
+        : hostedApprovalReady
+          ? `A hosted approval link was already shared at ${formatDateTime(firstApprovalSharedAt)}. Keep the next live decision in the same approvals surface.`
         : smokeBundle?.smoke?.initialized
           ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Fastest path: use Create hosted approval here, or trigger one yellow-state action from Claude MCP or OpenClaw so /approvals receives a live request.`
           : "Run the smoke after bootstrap, then use Create hosted approval here or trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
-      href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
-      cta: hostedApprovalReady ? "Open approvals" : "Open Claude quickstart"
+      href: focusedHostedApprovalUrl || (hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart),
+      cta: focusedHostedApprovalId ? "Reopen hosted approval" : hostedApprovalReady ? "Open approvals" : "Open Claude quickstart"
     },
     {
       title: "Produce the first receipt",
@@ -5373,7 +5525,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
             <div>
               <strong>Approval route</strong>
-              <span>{hostedApprovalReady ? formatDateTime(firstApprovalSharedAt) : smokeBundle?.smoke?.initialized ? "Smoke green · waiting on live approval" : "Not proven yet"}</span>
+              <span>{focusedHostedApprovalAttempt?.createdAt ? formatDateTime(focusedHostedApprovalAttempt.createdAt) : hostedApprovalReady ? formatDateTime(firstApprovalSharedAt) : smokeBundle?.smoke?.initialized ? "Smoke green · waiting on live approval" : "Not proven yet"}</span>
             </div>
             <div>
               <strong>Receipt route</strong>
@@ -5398,7 +5550,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <div className="product-actions">
             <button
               className="product-button product-button-solid"
-              disabled={busyState !== "" || !buyer?.tenantId || !runtime.baseUrl || !runtime.apiKey}
+              disabled={busyState !== "" || !buyer?.tenantId}
               onClick={() => void handleCreateFirstHostedApproval()}
             >
               {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
@@ -5413,6 +5565,61 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <a className="product-button product-button-ghost" href={disputeSurfaceHref}>
               {latestFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
             </a>
+          </div>
+          <div className="product-detail-meta">
+            <div>
+              <strong>Latest approval</strong>
+              <span>{latestHostedApprovalId || "Not created yet"}</span>
+            </div>
+            <div>
+              <strong>Host track</strong>
+              <span>{latestHostedApprovalTrack}</span>
+            </div>
+            <div>
+              <strong>Saved approvals</strong>
+              <span>{hostedApprovalState.history.length}</span>
+            </div>
+            <div>
+              <strong>Status</strong>
+              <span>{humanizeLabel(focusedHostedApprovalAttempt?.status, "Pending")}</span>
+            </div>
+          </div>
+          <div className={`product-inline-note ${focusedHostedApprovalTone}`}>
+            {focusedHostedApprovalAttempt
+              ? `Focused hosted approval ${focusedHostedApprovalId || focusedHostedApprovalAttemptId || "n/a"} is preserved for ${focusedHostedApprovalTrack.toLowerCase()}. Reuse it while you clear the first real run.`
+              : "Create one hosted approval and keep it visible here so activation does not fragment across channels."}
+          </div>
+          {hostedApprovalState.error ? <div className="product-inline-note bad">{hostedApprovalState.error}</div> : null}
+          <div className="product-actions">
+            <button className="product-button product-button-ghost" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void refreshHostedApprovalHistory()}>
+              {hostedApprovalState.loading && busyState === "" ? "Refreshing..." : "Refresh approval history"}
+            </button>
+            <a className="product-button product-button-ghost" href={focusedHostedApprovalUrl || approvalSurfaceHref}>
+              {focusedHostedApprovalId ? "Reopen hosted approval" : "Open approvals"}
+            </a>
+          </div>
+          <div className="product-form-grid">
+            <label className="wide">
+              <span>Hosted approval history</span>
+              <select
+                value={hostedApprovalState.selectedAttemptId}
+                onChange={(event) => setHostedApprovalState((previous) => ({ ...previous, selectedAttemptId: event.target.value }))}
+              >
+                <option value="">No hosted approvals yet</option>
+                {hostedApprovalState.history.slice().reverse().map((attempt) => {
+                  const attemptId = String(attempt?.attemptId ?? "").trim();
+                  if (!attemptId) return null;
+                  const createdAt = attempt?.createdAt ? formatDateTime(attempt.createdAt) : "time unavailable";
+                  const approvalId = String(attempt?.approvalRequestId ?? "n/a");
+                  const hostTrack = humanizeLabel(attempt?.hostTrack, "unknown");
+                  return (
+                    <option key={`hosted_approval_attempt:${attemptId}`} value={attemptId}>
+                      {createdAt} · {hostTrack} · {approvalId}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
           </div>
           <CodeBlock
             title="Shared runtime contract"
