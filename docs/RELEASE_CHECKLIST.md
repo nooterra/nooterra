@@ -77,6 +77,7 @@ Release-gate evidence should also include:
 - `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
 - `artifacts/gates/onboarding-host-success-gate.json`
 - `artifacts/gates/public-website-route-smoke.json`
+- `artifacts/ops/launch-security-review.json`
 - `artifacts/gates/release-promotion-guard.json` (NOO-65)
 - `artifacts/ops/backup-restore-drill.json` (`BackupRestoreDrillReport.v1`, pass)
 
