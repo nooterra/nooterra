@@ -78,6 +78,7 @@ Release-gate evidence should also include:
 - `artifacts/gates/onboarding-host-success-gate.json`
 - `artifacts/gates/public-website-route-smoke.json`
 - `artifacts/gates/release-promotion-guard.json` (NOO-65)
+- `artifacts/ops/backup-restore-drill.json` (`BackupRestoreDrillReport.v1`, pass)
 
 See `docs/spec/SUPPLY_CHAIN.md` for the release-channel threat model and verification posture.
 

@@ -121,6 +121,16 @@ npm run ops:hosted-baseline:evidence -- \
   --out ./artifacts/ops/hosted-baseline-evidence-staging.json
 ```
 
+If you want a standalone backup/restore artifact before folding it into hosted baseline evidence:
+
+```bash
+npm run ops:backup-restore:drill -- \
+  --tenant-id tenant_default \
+  --database-url "$DATABASE_URL" \
+  --restore-database-url "$RESTORE_DATABASE_URL" \
+  --out ./artifacts/ops/backup-restore-drill.json
+```
+
 Important:
 
 - `DATABASE_URL` and `RESTORE_DATABASE_URL` must be real connection strings (not redacted placeholders like `postgres://...`).

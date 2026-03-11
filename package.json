@@ -192,6 +192,7 @@
     "ops:x402:hitl:smoke": "node scripts/ops/run-x402-hitl-smoke.mjs",
     "ops:x402:receipt:sample-check": "node scripts/ops/check-x402-receipt-sample.mjs",
     "ops:audit:lineage:verify": "node scripts/ops/verify-audit-lineage.mjs",
+    "ops:backup-restore:drill": "node scripts/ops/run-backup-restore-drill.mjs",
     "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",

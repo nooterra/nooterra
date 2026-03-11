@@ -111,4 +111,28 @@ npm run -s test:ops:release-promotion-guard -- \
 
 ## DR: backup/restore drill
 
-Use `scripts/backup-restore-test.sh` (PG mode) to prove restore correctness.
+Use the deterministic wrapper below to prove restore correctness and archive a machine-readable report:
+
+```bash
+npm run ops:backup-restore:drill -- \
+  --tenant-id tenant_default \
+  --database-url "$DATABASE_URL" \
+  --restore-database-url "$RESTORE_DATABASE_URL" \
+  --schema backup_launch_drill \
+  --jobs 10 \
+  --month 2026-03 \
+  --out artifacts/ops/backup-restore-drill.json
+```
+
+Required artifact:
+
+- `artifacts/ops/backup-restore-drill.json` with `schemaVersion="BackupRestoreDrillReport.v1"` and `status="pass"`
+
+The report records:
+
+- source/restore database hosts without secrets
+- total runtime
+- per-step timing
+- blocking issues when a step or the drill exits non-zero
+
+If you need the raw shell path directly, `scripts/backup-restore-test.sh` remains the underlying PG-mode drill.
