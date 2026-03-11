@@ -49,6 +49,40 @@ const OUT_OF_SCOPE_ISSUE_CODE_MARKERS = Object.freeze([
   "SCOPE_MISMATCH",
   "PHASE1_TASK_UNSUPPORTED"
 ]);
+const EXECUTION_RUNTIME_BUCKETS = Object.freeze([
+  Object.freeze({
+    id: "approval_resume",
+    label: "Approval / resume",
+    markers: Object.freeze(["APPROVAL", "RESUME", "GRANT", "ACTION_REQUIRED"])
+  }),
+  Object.freeze({
+    id: "verification_evidence",
+    label: "Verification / evidence",
+    markers: Object.freeze(["VERIFY", "VERIFICATION", "EVIDENCE", "COMPLETION_STATE", "INVALID", "MISSING"])
+  }),
+  Object.freeze({
+    id: "receipt_recourse",
+    label: "Receipt / recourse",
+    markers: Object.freeze(["RECEIPT", "DISPUTE", "REFUND", "REVERS", "SETTLEMENT"])
+  })
+]);
+const PROVIDER_TOUCHPOINT_BUCKETS = Object.freeze([
+  Object.freeze({
+    id: "managed_handoff",
+    label: "Managed handoff",
+    markers: Object.freeze(["HANDOFF", "MANAGED_PROVIDER"])
+  }),
+  Object.freeze({
+    id: "provider_invocation",
+    label: "Provider invocation",
+    markers: Object.freeze(["INVOCATION", "PROVIDER", "MERCHANT"])
+  }),
+  Object.freeze({
+    id: "money_settlement",
+    label: "Money / settlement",
+    markers: Object.freeze(["X402", "PAYMENT", "PAYOUT", "WALLET", "CAPTURE", "SETTLEMENT"])
+  })
+]);
 const TAB_OPTIONS = [
   { id: "metrics", label: "Launch Metrics" },
   { id: "rescue", label: "Rescue Queue" },
@@ -451,6 +485,118 @@ function topIssueCodeRows(issueCodeCounts, limit = 3) {
     .map(([code, count]) => ({ code, count: toSafeNumber(count) }))
     .sort((left, right) => toSafeNumber(right.count) - toSafeNumber(left.count) || String(left.code ?? "").localeCompare(String(right.code ?? "")))
     .slice(0, limit);
+}
+
+function buildIssueBucketRows(issueCodeCounts, bucketDefinitions, runs) {
+  return (Array.isArray(bucketDefinitions) ? bucketDefinitions : []).map((bucket) => {
+    const count = countIssueCodeMatchesFromMap(issueCodeCounts, Array.isArray(bucket?.markers) ? bucket.markers : []);
+    return {
+      id: bucket?.id ?? "unknown",
+      label: bucket?.label ?? "Unknown",
+      count,
+      ratePct: toPct(count, Math.max(1, toSafeNumber(runs)))
+    };
+  });
+}
+
+function buildIssueBucketTotals(channelRows, bucketDefinitions) {
+  return buildIssueBucketRows(
+    (Array.isArray(channelRows) ? channelRows : []).reduce((acc, row) => {
+      const issueCodeCounts = row?.issueCodeCounts && typeof row.issueCodeCounts === "object" ? row.issueCodeCounts : {};
+      for (const [code, count] of Object.entries(issueCodeCounts)) {
+        acc[code] = toSafeNumber(acc[code]) + toSafeNumber(count);
+      }
+      return acc;
+    }, {}),
+    bucketDefinitions,
+    (Array.isArray(channelRows) ? channelRows : []).reduce((total, row) => total + toSafeNumber(row?.runs), 0)
+  );
+}
+
+function isLaunchEmergencyEvent(event) {
+  const scopeType = String(event?.scopeType ?? "").trim().toLowerCase();
+  const scopeId = String(event?.scopeId ?? "").trim();
+  if (!scopeType || scopeType === "tenant") return true;
+  if (scopeType === "channel") return LAUNCH_SCOPE.channels.includes(scopeId);
+  if (scopeType === "action_type") return LAUNCH_SCOPE.actions.includes(scopeId);
+  return false;
+}
+
+function parseComparableTime(value) {
+  const ms = Date.parse(String(value ?? ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function buildRecentLaunchIncidents({ launchRescueItems, emergencyEvents }) {
+  const rescueRows = (Array.isArray(launchRescueItems) ? launchRescueItems : []).map((item) => {
+    const at =
+      item?.triage?.updatedAt ??
+      item?.triage?.openedAt ??
+      item?.openedAt ??
+      item?.details?.lastEvaluatedAt ??
+      null;
+    return {
+      id: String(item?.rescueId ?? ""),
+      at,
+      source: "rescue",
+      title: String(item?.title ?? item?.summary ?? "Run needs operator rescue"),
+      detail: `${rescueSourceLabel(item?.sourceType)} · ${formatRescueState(item?.rescueState)}`,
+      href: typeof item?.links?.operator === "string" ? item.links.operator : null,
+      tone:
+        String(item?.priority ?? "").trim().toLowerCase() === "critical"
+          ? "operator-pill operator-pill-critical"
+          : "operator-pill operator-pill-high",
+      badge: String(item?.priority ?? "rescue")
+    };
+  });
+  const emergencyRows = (Array.isArray(emergencyEvents) ? emergencyEvents : [])
+    .filter((event) => isLaunchEmergencyEvent(event))
+    .map((event, index) => ({
+      id: `${String(event?.scopeType ?? "tenant")}:${String(event?.scopeId ?? "")}:${String(event?.action ?? event?.controlType ?? "event")}:${index}`,
+      at: event?.at ?? event?.createdAt ?? null,
+      source: "emergency",
+      title: `${formatEmergencyActionLabel(event?.action ?? event?.controlType)} ${formatEmergencyScopeLabel(event?.scopeType, event?.scopeId)}`,
+      detail: event?.reasonCode ? `Reason code ${event.reasonCode}` : "Emergency control event",
+      href: null,
+      tone: emergencyControlTone(event?.controlType ?? event?.action, true),
+      badge: String(event?.action ?? event?.controlType ?? "event")
+    }));
+  return [...rescueRows, ...emergencyRows]
+    .sort((left, right) => parseComparableTime(right?.at) - parseComparableTime(left?.at))
+    .slice(0, 8);
+}
+
+function buildExecutionPathHealth(launchMetrics, launchRescueItems, emergencyEvents) {
+  const channelRows = Array.isArray(launchMetrics?.byChannel) ? launchMetrics.byChannel : [];
+  const byChannel = LAUNCH_SCOPE.channels.map((channel) => {
+    const row = channelRows.find((candidate) => String(candidate?.channel ?? "").trim() === channel) ?? {
+      channel,
+      runs: 0,
+      managedInvocationRuns: 0,
+      managedHandoffRuns: 0,
+      issueCodeCounts: {}
+    };
+    const runtimeBuckets = buildIssueBucketRows(row.issueCodeCounts, EXECUTION_RUNTIME_BUCKETS, row.runs);
+    const providerBuckets = buildIssueBucketRows(row.issueCodeCounts, PROVIDER_TOUCHPOINT_BUCKETS, row.runs);
+    const runtimeFailureCount = runtimeBuckets.reduce((total, bucket) => total + toSafeNumber(bucket.count), 0);
+    const providerFailureCount = providerBuckets.reduce((total, bucket) => total + toSafeNumber(bucket.count), 0);
+    return {
+      channel,
+      row,
+      runtimeBuckets,
+      providerBuckets,
+      runtimeFailureCount,
+      providerFailureRatePct: toPct(providerFailureCount, Math.max(1, row.runs)),
+      runtimeFailureRatePct: toPct(runtimeFailureCount, Math.max(1, row.runs))
+    };
+  });
+
+  return {
+    byChannel,
+    providerTotals: buildIssueBucketTotals(channelRows, PROVIDER_TOUCHPOINT_BUCKETS),
+    runtimeTotals: buildIssueBucketTotals(channelRows, EXECUTION_RUNTIME_BUCKETS),
+    recentIncidents: buildRecentLaunchIncidents({ launchRescueItems, emergencyEvents })
+  };
 }
 
 function isLaunchRescueItem(item) {
@@ -1244,6 +1390,10 @@ export default function OperatorDashboard() {
   );
   const launchChannelScorecards = useMemo(() => buildLaunchChannelScorecards(launchMetrics), [launchMetrics]);
   const launchLifecycleRows = useMemo(() => buildLaunchLifecycleRows(launchMetrics), [launchMetrics]);
+  const executionPathHealth = useMemo(
+    () => buildExecutionPathHealth(launchMetrics, launchRescueItems, emergencyEvents),
+    [emergencyEvents, launchMetrics, launchRescueItems]
+  );
   const rescueTotal = rescueQueue.length;
   const pendingCount = escalations.filter((row) => String(row?.status ?? "").toLowerCase() === "pending").length;
   const pillLabel = activeTab === "metrics"
@@ -1730,6 +1880,153 @@ export default function OperatorDashboard() {
                     </div>
                     <p className="operator-muted operator-small">
                       Funnel counts come from the frozen Action Wallet lifecycle taxonomy and stay scoped to the two launch channels and launch action types only.
+                    </p>
+                  </section>
+
+                  <section className="operator-json-block">
+                    <p>Execution path health</p>
+                    <div className="operator-queue-tags" style={{ marginBottom: "0.75rem" }}>
+                      <button type="button" className="operator-ghost-btn" onClick={() => setActiveTab("rescue")}>
+                        Open rescue queue
+                      </button>
+                      <button type="button" className="operator-ghost-btn" onClick={() => setActiveTab("emergency")}>
+                        Open emergency controls
+                      </button>
+                    </div>
+                    <div className="operator-channel-grid">
+                      {executionPathHealth.byChannel.map((card) => (
+                        <article key={`execution:${card.channel}`} className="operator-channel-card">
+                          <div className="operator-channel-card-head">
+                            <div>
+                              <strong>{card.channel}</strong>
+                              <p className="operator-muted operator-small">
+                                Runtime failures {card.runtimeFailureRatePct}% · provider touchpoint failures {card.providerFailureRatePct}%.
+                              </p>
+                            </div>
+                            <span className={card.runtimeFailureCount > 0 ? "operator-pill operator-pill-high" : "operator-pill operator-pill-normal"}>
+                              {card.runtimeFailureCount > 0 ? "watch" : "stable"}
+                            </span>
+                          </div>
+                          <div className="operator-meta-grid">
+                            <article>
+                              <span>Runs</span>
+                              <p>{Number(card.row?.runs ?? 0)}</p>
+                            </article>
+                            <article>
+                              <span>Managed handoffs</span>
+                              <p>{Number(card.row?.managedHandoffRuns ?? 0)}</p>
+                            </article>
+                            <article>
+                              <span>Managed invocations</span>
+                              <p>{Number(card.row?.managedInvocationRuns ?? 0)}</p>
+                            </article>
+                            <article>
+                              <span>Open rescues</span>
+                              <p>{Number(card.row?.rescueOpenRuns ?? 0)}</p>
+                            </article>
+                          </div>
+                          <div className="operator-channel-reasons">
+                            <span>Runtime verification path</span>
+                            <div className="operator-queue-tags">
+                              {card.runtimeBuckets.map((bucket) => (
+                                <span
+                                  key={`${card.channel}:runtime:${bucket.id}`}
+                                  className={bucket.count > 0 ? "operator-pill operator-pill-high" : "operator-pill operator-pill-normal"}
+                                  title={`${bucket.count} issues across ${Number(card.row?.runs ?? 0)} runs`}
+                                >
+                                  {bucket.label} {bucket.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="operator-channel-reasons">
+                            <span>Provider touchpoints</span>
+                            <div className="operator-queue-tags">
+                              {card.providerBuckets.map((bucket) => (
+                                <span
+                                  key={`${card.channel}:provider:${bucket.id}`}
+                                  className={bucket.count > 0 ? "operator-pill operator-pill-high" : "operator-pill operator-pill-normal"}
+                                  title={`${bucket.count} issues across ${Number(card.row?.runs ?? 0)} runs`}
+                                >
+                                  {bucket.label} {bucket.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="operator-meta-grid">
+                      <article>
+                        <span>Runtime totals</span>
+                        <p>{executionPathHealth.runtimeTotals.reduce((total, bucket) => total + toSafeNumber(bucket.count), 0)}</p>
+                      </article>
+                      <article>
+                        <span>Provider totals</span>
+                        <p>{executionPathHealth.providerTotals.reduce((total, bucket) => total + toSafeNumber(bucket.count), 0)}</p>
+                      </article>
+                      <article>
+                        <span>Recent incidents</span>
+                        <p>{executionPathHealth.recentIncidents.length}</p>
+                      </article>
+                      <article>
+                        <span>Rescue-linked disputes</span>
+                        <p>{disputeLinkedLaunchRescueCount}</p>
+                      </article>
+                    </div>
+                    <div className="operator-channel-grid">
+                      <article className="operator-channel-card">
+                        <div className="operator-channel-card-head">
+                          <div>
+                            <strong>Provider touchpoint totals</strong>
+                            <p className="operator-muted operator-small">Failures stay bucketed by handoff, invocation, and money-state touchpoints.</p>
+                          </div>
+                        </div>
+                        <div className="operator-queue-tags">
+                          {executionPathHealth.providerTotals.map((bucket) => (
+                            <span
+                              key={`provider-total:${bucket.id}`}
+                              className={bucket.count > 0 ? "operator-pill operator-pill-high" : "operator-pill operator-pill-normal"}
+                            >
+                              {bucket.label} {bucket.count}
+                            </span>
+                          ))}
+                        </div>
+                      </article>
+                      <article className="operator-channel-card">
+                        <div className="operator-channel-card-head">
+                          <div>
+                            <strong>Recent incidents</strong>
+                            <p className="operator-muted operator-small">Latest rescues and emergency actions affecting the locked launch scope.</p>
+                          </div>
+                        </div>
+                        {executionPathHealth.recentIncidents.length > 0 ? (
+                          <div className="operator-channel-reasons">
+                            {executionPathHealth.recentIncidents.map((incident) => (
+                              <div key={incident.id} className="operator-step-item">
+                                <div>
+                                  <strong>{incident.title}</strong>
+                                  <p className="operator-muted operator-small">{incident.detail}</p>
+                                  <small>{toIso(incident.at)}</small>
+                                </div>
+                                <div className="operator-queue-tags">
+                                  <span className={incident.tone}>{incident.badge}</span>
+                                  {incident.href ? (
+                                    <a className="operator-ghost-btn" href={incident.href}>
+                                      Open
+                                    </a>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="operator-muted operator-small">No recent launch incidents are attached to rescue or emergency telemetry right now.</p>
+                        )}
+                      </article>
+                    </div>
+                    <p className="operator-muted operator-small">
+                      This panel reads the same launch metrics, rescue queue, and emergency telemetry already loaded by the console, then groups failures by runtime verification path and provider touchpoint for launch ops.
                     </p>
                   </section>
 
