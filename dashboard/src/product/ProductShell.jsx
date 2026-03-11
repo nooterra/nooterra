@@ -5105,6 +5105,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       : focusedFirstPaidRunId
         ? `/disputes?runId=${encodeURIComponent(focusedFirstPaidRunId)}`
         : disputeSurfaceHref;
+  const focusedFirstPaidRecourseLabel = focusedFirstPaidDisputeId
+    ? focusedFirstPaidDisputeId
+    : focusedFirstPaidReceiptId
+      ? "Validate from receipt"
+      : "Pending";
   const focusedProofArtifacts = [
     {
       id: "approval",
@@ -5186,27 +5191,27 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     },
     {
       title: "Produce the first receipt",
-      detail: latestFirstPaidReceiptId
-        ? `Receipt ${latestFirstPaidReceiptId}${latestFirstPaidRunId ? ` is attached to run ${latestFirstPaidRunId}` : ""}. Use it as the canonical proof record for the first governed action.`
-        : latestFirstPaidAttempt
-          ? `Latest first paid call ${latestFirstPaidAttempt.attemptId ?? "attempt"} ended with verification ${humanizeLabel(latestFirstPaidAttempt.verificationStatus, "unknown")} and settlement ${humanizeLabel(latestFirstPaidAttempt.settlementStatus, "unknown")}, but no receipt is linked yet. Replay or rerun it until one receipt is issued.`
+      detail: focusedFirstPaidReceiptId
+        ? `Receipt ${focusedFirstPaidReceiptId}${focusedFirstPaidRunId ? ` is attached to run ${focusedFirstPaidRunId}` : ""}. Use it as the canonical proof record for the selected governed action.`
+        : focusedFirstPaidAttempt
+          ? `Focused first paid call ${focusedFirstPaidAttempt.attemptId ?? "attempt"} ended with verification ${humanizeLabel(focusedFirstPaidAttempt.verificationStatus, "unknown")} and settlement ${humanizeLabel(focusedFirstPaidAttempt.settlementStatus, "unknown")}, but no receipt is linked yet. Replay or rerun it until one receipt is issued.`
           : "Run the first paid call below to push one governed action from approval through verified receipt.",
-      ready: Boolean(latestFirstPaidReceiptId),
-      href: latestFirstPaidReceiptId ? receiptSurfaceHref : "#first-live-paid-call",
-      cta: latestFirstPaidReceiptId ? "Open receipt" : "Run first paid call"
+      ready: Boolean(focusedFirstPaidReceiptId),
+      href: focusedFirstPaidReceiptId ? focusedReceiptSurfaceHref : "#first-live-paid-call",
+      cta: focusedFirstPaidReceiptId ? "Open receipt" : "Run first paid call"
     },
     {
       title: "Verify dispute and recourse",
-      detail: latestFirstPaidDisputeId
-        ? `Dispute ${latestFirstPaidDisputeId} is already linked to the first governed action. Keep receipt and recourse on the same run before partner handoff.`
-        : latestFirstPaidReceiptId
-          ? `Receipt ${latestFirstPaidReceiptId} is live. Next exact move: open that receipt and confirm the dispute / recourse link resolves for the same run before launch.`
+      detail: focusedFirstPaidDisputeId
+        ? `Dispute ${focusedFirstPaidDisputeId} is already linked to the selected governed action. Keep receipt and recourse on the same run before partner handoff.`
+        : focusedFirstPaidReceiptId
+          ? `Receipt ${focusedFirstPaidReceiptId} is live. Next exact move: open that receipt and confirm the dispute / recourse link resolves for the same run before launch.`
           : "Dispute validation starts from a real receipt. Reach the first receipt first, then confirm recourse from that record.",
-      ready: Boolean(latestFirstPaidDisputeId),
-      href: disputeSurfaceHref,
-      cta: latestFirstPaidDisputeId
+      ready: Boolean(focusedFirstPaidDisputeId),
+      href: focusedDisputeSurfaceHref,
+      cta: focusedFirstPaidDisputeId
         ? "Open dispute"
-        : latestFirstPaidReceiptId
+        : focusedFirstPaidReceiptId
           ? "Verify recourse from receipt"
           : "Open dispute center"
     }
@@ -5314,8 +5319,8 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
       href: docsLinks.openClawQuickstart,
       guideLabel: "OpenClaw guide",
       snippet: openClawFirstActionSnippet,
-      success: latestFirstPaidReceiptId
-        ? `Receipt ${latestFirstPaidReceiptId} proves the hosted surfaces are already binding to a live run.`
+      success: focusedFirstPaidReceiptId
+        ? `Receipt ${focusedFirstPaidReceiptId} proves the hosted surfaces are already binding to the selected live run.`
         : "Target: one approved run later issues a receipt on the same hosted Action Wallet path."
     },
     {
@@ -5326,8 +5331,8 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
       href: docsLinks.codexEngineeringQuickstart,
       guideLabel: "Codex guide",
       snippet: codexFirstActionSnippet,
-      success: latestFirstPaidRunId
-        ? `Run ${latestFirstPaidRunId} is the canonical thread. Keep approval, receipt, and recourse attached to that same run.`
+      success: focusedFirstPaidRunId
+        ? `Run ${focusedFirstPaidRunId} is the canonical thread. Keep approval, receipt, and recourse attached to that same run.`
         : "Target: one API or CLI-created intent hands off to hosted approval instead of a shell-only flow."
     }
   ];
@@ -5365,12 +5370,12 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     },
     {
       title: "Close with receipt and recourse",
-      detail: latestFirstPaidReceiptId
-        ? latestFirstPaidDisputeId
-          ? `Receipt ${latestFirstPaidReceiptId} and dispute ${latestFirstPaidDisputeId} are both attached. The proof loop is complete for this runtime.`
-          : `Receipt ${latestFirstPaidReceiptId} is live. Open it, verify recourse from the same record, and only then call the first-host path done.`
+      detail: focusedFirstPaidReceiptId
+        ? focusedFirstPaidDisputeId
+          ? `Receipt ${focusedFirstPaidReceiptId} and dispute ${focusedFirstPaidDisputeId} are both attached. The proof loop is complete for this runtime.`
+          : `Receipt ${focusedFirstPaidReceiptId} is live. Open it, verify recourse from the same record, and only then call the first-host path done.`
         : "Run the first paid call from this workspace until it binds to one receipt. The host path is not proven until receipt and recourse both exist.",
-      ready: Boolean(latestFirstPaidReceiptId)
+      ready: Boolean(focusedFirstPaidReceiptId)
     }
   ];
   const selectedHostTrackProgressCount = selectedHostTrackSteps.filter((step) => step.ready).length;
@@ -5381,11 +5386,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         ? "#runtime-bootstrap"
         : !hostedApprovalReady
           ? selectedHostTrack.href
-          : !latestFirstPaidReceiptId
+          : !focusedFirstPaidReceiptId
             ? "#first-live-paid-call"
-            : latestFirstPaidDisputeId
-              ? disputeSurfaceHref
-              : receiptSurfaceHref;
+            : focusedFirstPaidDisputeId
+              ? focusedDisputeSurfaceHref
+              : focusedReceiptSurfaceHref;
   const firstActionPrimaryLabel =
     !buyer
       ? "Create workspace"
@@ -5393,11 +5398,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         ? "Issue bootstrap"
         : !hostedApprovalReady
           ? `Open ${selectedHostTrack.label} guide`
-          : !latestFirstPaidReceiptId
+          : !focusedFirstPaidReceiptId
             ? "Run first paid call"
-            : latestFirstPaidDisputeId
+            : focusedFirstPaidDisputeId
               ? "Open dispute"
-              : "Open first receipt";
+              : "Open focused receipt";
 
   return (
     <div className="product-page">
@@ -5535,11 +5540,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
             <div>
               <strong>Receipt route</strong>
-              <span>{latestFirstPaidReceiptId || "Not issued yet"}</span>
+              <span>{focusedFirstPaidReceiptId || "Not issued yet"}</span>
             </div>
             <div>
               <strong>Dispute route</strong>
-              <span>{latestFirstPaidDisputeId || (latestFirstPaidReceiptId ? "Validate from receipt" : "Pending")}</span>
+              <span>{focusedFirstPaidRecourseLabel}</span>
             </div>
           </div>
           <div className="product-step-list">
@@ -5565,11 +5570,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               {firstActionPrimaryLabel}
             </a>
             <a className="product-button product-button-ghost" href={approvalSurfaceHref}>Open approvals</a>
-            <a className="product-button product-button-ghost" href={receiptSurfaceHref}>
-              {latestFirstPaidReceiptId ? "Open first receipt" : "Open receipts"}
+            <a className="product-button product-button-ghost" href={focusedReceiptSurfaceHref}>
+              {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
             </a>
-            <a className="product-button product-button-ghost" href={disputeSurfaceHref}>
-              {latestFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
+            <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHref}>
+              {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
             </a>
           </div>
           <div className="product-detail-meta">
@@ -5679,7 +5684,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 </div>
                 <div>
                   <strong>Receipt</strong>
-                  <span>{latestFirstPaidReceiptId || "Pending"}</span>
+                  <span>{focusedFirstPaidReceiptId || "Pending"}</span>
                 </div>
               </div>
               <div className="product-step-list">
@@ -5828,11 +5833,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               </div>
             ))}
           </div>
-          {(latestFirstPaidRunId || latestFirstPaidReceiptId) ? (
+          {(focusedFirstPaidRunId || focusedFirstPaidReceiptId) ? (
             <div className="product-actions">
-              {latestFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/runs/${encodeURIComponent(latestFirstPaidRunId)}`}>Open run</a> : null}
-              {latestFirstPaidReceiptId ? <a className="product-button product-button-ghost" href={`/receipts?selectedReceiptId=${encodeURIComponent(latestFirstPaidReceiptId)}`}>Open receipt</a> : null}
-              {latestFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`}>Open dispute state</a> : null}
+              {focusedFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/runs/${encodeURIComponent(focusedFirstPaidRunId)}`}>Open run</a> : null}
+              {focusedFirstPaidReceiptId ? <a className="product-button product-button-ghost" href={`/receipts?selectedReceiptId=${encodeURIComponent(focusedFirstPaidReceiptId)}`}>Open receipt</a> : null}
+              {focusedFirstPaidRunId ? <a className="product-button product-button-ghost" href={`/disputes?runId=${encodeURIComponent(focusedFirstPaidRunId)}`}>Open dispute state</a> : null}
             </div>
           ) : null}
           {latestFirstPaidAttempt ? (
