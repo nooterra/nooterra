@@ -4915,6 +4915,92 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       href: docsLinks.codexEngineeringQuickstart
     }
   ];
+  const claudeFirstActionSnippet = bootstrapBundle?.bootstrap?.apiKey?.keyId
+    ? `# 1) Add the MCP config shown above to Claude Desktop.
+# 2) Restart Claude Desktop.
+# 3) Ask for one yellow-state action:
+
+"Buy this tool, but ask me before finalizing."
+
+# Success bar:
+# - the action creates an intent
+# - /approvals receives the request
+# - the same run later issues a receipt`
+    : `# Issue Runtime Bootstrap first.
+# Then copy the MCP config above into Claude Desktop.
+# Your first governed action should create a hosted approval request.`;
+  const openClawFirstActionSnippet = bootstrapBundle?.bootstrap?.apiKey?.keyId
+    ? `# Package OpenClaw with the same runtime values.
+# Then trigger one governed action that must ask first:
+
+openclaw run --goal "Cancel this unused subscription, but require approval first"
+
+# Success bar:
+# - the same tenant-scoped runtime is used
+# - /approvals opens the live decision
+# - /receipts later shows the finished record`
+    : `# Issue Runtime Bootstrap first.
+# Then package OpenClaw with the generated runtime values.
+# Keep approval, receipt, and dispute on the hosted Nooterra surfaces.`;
+  const codexFirstActionSnippet = bootstrapBundle?.bootstrap?.apiKey?.keyId
+    ? `${exportCommands}
+
+# Create one governed action from Codex / CLI / app code.
+curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
+  -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "actionType": "buy",
+    "summary": "Replacement charger under approval",
+    "risk": "medium",
+    "approvalMode": "required"
+  }'
+
+# Success bar:
+# - the intent is accepted
+# - the hosted approval page receives the request
+# - the resulting run later binds to a receipt`
+    : `# Issue Runtime Bootstrap first.
+# Then export the runtime values into Codex, CLI, or your app process.
+# Your first call should produce a hosted approval request, not a silent direct action.`;
+  const hostShortcutTracks = [
+    {
+      id: "claude",
+      icon: Cable,
+      label: "Claude MCP",
+      summary: "Primary launch host. Copy the generated MCP config, ask for one yellow-state action, and confirm the hosted approval page receives it.",
+      href: docsLinks.claudeDesktopQuickstart,
+      guideLabel: "Claude guide",
+      snippet: claudeFirstActionSnippet,
+      success: hostedApprovalReady
+        ? "Hosted approval is already live. Keep the next decision on the same approvals surface."
+        : "Target: one yellow-state action lands in /approvals from Claude Desktop."
+    },
+    {
+      id: "openclaw",
+      icon: GitBranchPlus,
+      label: "OpenClaw",
+      summary: "Second launch host. Reuse the same runtime bundle and prove approval, receipt, and dispute stay identical to the Claude path.",
+      href: docsLinks.openClawQuickstart,
+      guideLabel: "OpenClaw guide",
+      snippet: openClawFirstActionSnippet,
+      success: latestFirstPaidReceiptId
+        ? `Receipt ${latestFirstPaidReceiptId} proves the hosted surfaces are already binding to a live run.`
+        : "Target: one approved run later issues a receipt on the same hosted Action Wallet path."
+    },
+    {
+      id: "codex",
+      icon: SquareTerminal,
+      label: "Codex / API / CLI",
+      summary: "Engineering shells should call the same Action Wallet contract and hand users into hosted approval, receipt, and dispute pages instead of inventing new UI.",
+      href: docsLinks.codexEngineeringQuickstart,
+      guideLabel: "Codex guide",
+      snippet: codexFirstActionSnippet,
+      success: latestFirstPaidRunId
+        ? `Run ${latestFirstPaidRunId} is the canonical thread. Keep approval, receipt, and recourse attached to that same run.`
+        : "Target: one API or CLI-created intent hands off to hosted approval instead of a shell-only flow."
+    }
+  ];
 
   return (
     <div className="product-page">
@@ -5495,42 +5581,34 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       <section className="product-card product-onboarding-host-shortcuts" id="host-shortcuts">
         <div className="product-section-head compact">
           <p>Host shortcuts</p>
-          <h2>After bootstrap, move directly into the install path that matches your shell.</h2>
+          <h2>After bootstrap, move directly into the shell you want and finish one governed action end to end.</h2>
         </div>
         <div className="product-access-grid">
-          <div className="product-access-card">
-            <div className="product-mini-card-head">
-              <Cable size={18} />
-              <span>Claude MCP</span>
-            </div>
-            <p>Primary launch host. Use the generated MCP config and aim for first hosted approval fast.</p>
-            <div className="product-actions">
-              <a className="product-button product-button-ghost" href={docsLinks.claudeDesktopQuickstart}>Claude guide</a>
-              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
-            </div>
-          </div>
-          <div className="product-access-card">
-            <div className="product-mini-card-head">
-              <GitBranchPlus size={18} />
-              <span>OpenClaw</span>
-            </div>
-            <p>Second launch host. Reuse the same runtime bundle and approval contract without forking the flow.</p>
-            <div className="product-actions">
-              <a className="product-button product-button-ghost" href={docsLinks.openClawQuickstart}>OpenClaw guide</a>
-              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
-            </div>
-          </div>
-          <div className="product-access-card">
-            <div className="product-mini-card-head">
-              <SquareTerminal size={18} />
-              <span>Codex / API / CLI</span>
-            </div>
-            <p>Engineering shells reuse the same Action Wallet runtime. Keep approval, receipt, and dispute on the hosted surfaces.</p>
-            <div className="product-actions">
-              <a className="product-button product-button-ghost" href={docsLinks.codexEngineeringQuickstart}>Codex guide</a>
-              <a className="product-button product-button-ghost" href="/wallet">Open wallet</a>
-            </div>
-          </div>
+          {hostShortcutTracks.map((track) => {
+            const Icon = track.icon;
+            return (
+              <div key={`host_shortcut:${track.id}`} className="product-access-card product-access-card-activation">
+                <div className="product-mini-card-head">
+                  <Icon size={18} />
+                  <span>{track.label}</span>
+                </div>
+                <p>{track.summary}</p>
+                <div className="product-inline-note product-inline-note-plain">
+                  <strong>Success bar</strong>
+                  <span>{track.success}</span>
+                </div>
+                <CodeBlock
+                  title={`${track.label} first action`}
+                  code={track.snippet}
+                  hint="Do the minimum thing that proves the same runtime can create an intent, open hosted approval, and later bind to a receipt."
+                />
+                <div className="product-actions">
+                  <a className="product-button product-button-ghost" href={track.href}>{track.guideLabel}</a>
+                  <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
     </div>

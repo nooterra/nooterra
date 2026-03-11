@@ -1283,6 +1283,34 @@ textarea {
     radial-gradient(circle at top right, rgba(138, 91, 63, 0.08), transparent 16rem);
 }
 
+.product-access-card-activation {
+  align-content: start;
+  gap: 0.85rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 241, 234, 0.92)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.06), transparent 10rem);
+}
+
+.product-access-card-activation .product-code-card {
+  margin: 0;
+}
+
+.product-inline-note-plain {
+  display: grid;
+  gap: 0.2rem;
+  background:
+    linear-gradient(180deg, rgba(246, 249, 247, 0.92), rgba(255, 252, 248, 0.94)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.06), transparent 8rem);
+}
+
+.product-inline-note-plain strong {
+  color: var(--product-ink-strong);
+}
+
+.product-inline-note-plain span {
+  color: var(--product-ink);
+}
+
 .product-status-pill {
   display: inline-flex;
   align-items: center;
