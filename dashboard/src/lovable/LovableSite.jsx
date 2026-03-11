@@ -432,6 +432,29 @@ nooterra receipts list --wallet prod-agent --last 24h`
   ];
   const [activeTab, setActiveTab] = useState("mcp");
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const firstActionTracks = {
+    mcp: {
+      title: "First governed action",
+      body: "Install the MCP server, ask Claude for one action that must ask first, then confirm the request lands on the hosted approvals page.",
+      success: "What good looks like: the same run later binds to a receipt, not a shell-only success message."
+    },
+    openclaw: {
+      title: "First governed action",
+      body: "Package OpenClaw against the same runtime, trigger one approval-required action, and keep the decision on Nooterra’s hosted approval surface.",
+      success: "What good looks like: approval, receipt, and dispute all stay on the same runtime contract as the Claude path."
+    },
+    cli: {
+      title: "First governed action",
+      body: "Export the runtime values, create one intent from the terminal, and hand the user into hosted approval instead of building local approval UX.",
+      success: "What good looks like: the terminal creates the intent, but the proof record lives in the hosted receipt trail."
+    },
+    api: {
+      title: "First governed action",
+      body: "Create one medium-risk intent over HTTP, require approval, and then verify the finished run later issues a receipt against the same intent.",
+      success: "What good looks like: one API call opens approval, one governed run closes with a receipt, and recourse stays available."
+    }
+  };
+  const activeTrack = firstActionTracks[active.id] ?? firstActionTracks.mcp;
 
   return (
     <SiteLayout>
@@ -472,6 +495,11 @@ nooterra receipts list --wallet prod-agent --last 24h`
               <div className="lg:col-span-2">
                 <h3 className="mb-4 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{active.label}</h3>
                 <p className="leading-relaxed text-stone-400">{active.desc}</p>
+                <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">{activeTrack.title}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-300">{activeTrack.body}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-[#d2b06f]">{activeTrack.success}</p>
+                </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                     Create workspace <ArrowRight size={16} />
@@ -590,6 +618,29 @@ function IntegrationsPage() {
 
       <section className="border-t border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <FadeIn>
+            <div className="mb-10 grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  title: "Install one host",
+                  body: "Claude MCP, OpenClaw, Codex, or raw API. Do not widen the launch surface before one path is boring."
+                },
+                {
+                  title: "Reach hosted approval",
+                  body: "The first real proof point is not setup. It is a live decision opening on the Nooterra approval surface."
+                },
+                {
+                  title: "Close with receipt",
+                  body: "A successful integration ends with a receipt and recourse trail, not just a green terminal line."
+                }
+              ].map((item) => (
+                <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+                  <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                </div>
+              ))}
+            </div>
+          </FadeIn>
           <div className="overflow-hidden rounded-lg bg-white/10 lg:grid lg:grid-cols-3 lg:gap-px">
             {integrations.map((item, index) => (
               <FadeIn key={item.name} delay={index * 0.08}>
