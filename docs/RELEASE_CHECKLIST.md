@@ -25,10 +25,12 @@ This checklist is the “no surprises” gate for shipping Nooterra as a product
   - `NOOTERRA_STAGING_OPS_TOKEN`
 - Launch synthetic smoke secrets are configured for `.github/workflows/launch-synthetic-smokes.yml`:
   - `NOOTERRA_STAGING_BASE_URL`
+  - `NOOTERRA_STAGING_WEBSITE_BASE_URL`
   - `NOOTERRA_STAGING_TENANT_ID` (optional; defaults to `tenant_default`)
   - `NOOTERRA_STAGING_API_KEY`
   - `NOOTERRA_STAGING_ONBOARDING_PROBE_EMAIL` (optional)
   - `NOOTERRA_PRODUCTION_BASE_URL`
+  - `NOOTERRA_PRODUCTION_WEBSITE_BASE_URL`
   - `NOOTERRA_PRODUCTION_TENANT_ID` (optional; defaults to `tenant_default`)
   - `NOOTERRA_PRODUCTION_API_KEY`
   - `NOOTERRA_PRODUCTION_ONBOARDING_PROBE_EMAIL` (optional)
