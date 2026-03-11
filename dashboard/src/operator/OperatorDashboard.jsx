@@ -14,6 +14,7 @@ const EMERGENCY_SCOPE_TYPE_OPTIONS = ["tenant", "channel", "action_type", "agent
 const EMERGENCY_CONTROL_TYPE_OPTIONS = ["pause", "quarantine", "revoke", "kill-switch"];
 const EMERGENCY_ACTION_OPTIONS = ["pause", "quarantine", "revoke", "kill-switch", "resume"];
 const EMERGENCY_ACTIVE_FILTER_OPTIONS = ["active", "inactive", "all"];
+const AUDIT_TARGET_FILTER_OPTIONS = ["all", "run", "dispute"];
 const LAUNCH_SCOPE = Object.freeze({
   actions: Object.freeze(["buy", "cancel/recover"]),
   channels: Object.freeze(["Claude MCP", "OpenClaw"]),
@@ -86,6 +87,7 @@ const PROVIDER_TOUCHPOINT_BUCKETS = Object.freeze([
 const TAB_OPTIONS = [
   { id: "metrics", label: "Launch Metrics" },
   { id: "rescue", label: "Rescue Queue" },
+  { id: "audit", label: "Audit Feed" },
   { id: "emergency", label: "Emergency Controls" },
   { id: "spend", label: "Spend Escalations" }
 ];
@@ -1021,6 +1023,81 @@ function buildRescueLinks(item) {
   return links;
 }
 
+function normalizeAuditDetails(details) {
+  return details && typeof details === "object" && !Array.isArray(details) ? details : {};
+}
+
+function buildAuditLinkedRefs(row) {
+  const details = normalizeAuditDetails(row?.details);
+  const linkedRefs =
+    details.linkedRefs && typeof details.linkedRefs === "object" && !Array.isArray(details.linkedRefs) ? details.linkedRefs : {};
+  const candidate = (value) => {
+    const normalized = String(value ?? "").trim();
+    return normalized !== "" ? normalized : "";
+  };
+  return {
+    runId:
+      candidate(linkedRefs.runId) ||
+      candidate(details.runId) ||
+      (String(row?.targetType ?? "").trim() === "run" ? candidate(row?.targetId) : ""),
+    disputeId:
+      candidate(linkedRefs.disputeId) ||
+      candidate(details.disputeId) ||
+      (String(row?.targetType ?? "").trim() === "dispute" ? candidate(row?.targetId) : ""),
+    receiptId: candidate(linkedRefs.receiptId) || candidate(details.receiptId),
+    executionGrantId: candidate(linkedRefs.executionGrantId) || candidate(details.executionGrantId),
+    approvalRequestId: candidate(linkedRefs.approvalRequestId) || candidate(details.approvalRequestId),
+    workOrderId: candidate(linkedRefs.workOrderId) || candidate(details.workOrderId)
+  };
+}
+
+function auditNoteValue(row) {
+  const details = normalizeAuditDetails(row?.details);
+  return (
+    String(details.note ?? "").trim() ||
+    String(details.reason ?? "").trim() ||
+    String(details.notes ?? "").trim() ||
+    ""
+  );
+}
+
+function buildAuditActorLabel(row) {
+  const details = normalizeAuditDetails(row?.details);
+  return (
+    String(details?.operatorAction?.action?.actor?.operatorId ?? "").trim() ||
+    String(row?.actorPrincipalId ?? "").trim() ||
+    String(row?.actorKeyId ?? "").trim() ||
+    "system"
+  );
+}
+
+function auditMatchesFilter(row, targetType, targetId) {
+  const refs = buildAuditLinkedRefs(row);
+  const normalizedType = String(targetType ?? "all").trim().toLowerCase();
+  const needle = String(targetId ?? "").trim().toLowerCase();
+  const haystack = [
+    String(row?.action ?? ""),
+    String(row?.targetType ?? ""),
+    String(row?.targetId ?? ""),
+    refs.runId,
+    refs.disputeId,
+    refs.receiptId,
+    refs.executionGrantId,
+    refs.approvalRequestId,
+    refs.workOrderId,
+    auditNoteValue(row)
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (normalizedType === "run" && !refs.runId) return false;
+  if (normalizedType === "dispute" && !refs.disputeId) return false;
+  if (!needle) return true;
+  if (normalizedType === "run") return refs.runId.toLowerCase().includes(needle);
+  if (normalizedType === "dispute") return refs.disputeId.toLowerCase().includes(needle);
+  return haystack.includes(needle);
+}
+
 export default function OperatorDashboard() {
   const saved = loadSavedConfig();
   const [config, setConfig] = useState(
@@ -1084,6 +1161,13 @@ export default function OperatorDashboard() {
   const [emergencyResumeControlTypes, setEmergencyResumeControlTypes] = useState("pause");
   const [emergencyOperatorActionJson, setEmergencyOperatorActionJson] = useState("");
   const [emergencySecondOperatorActionJson, setEmergencySecondOperatorActionJson] = useState("");
+
+  const [auditTargetTypeFilter, setAuditTargetTypeFilter] = useState("all");
+  const [auditTargetIdFilter, setAuditTargetIdFilter] = useState("");
+  const [auditRecords, setAuditRecords] = useState([]);
+  const [selectedAuditId, setSelectedAuditId] = useState(null);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditError, setAuditError] = useState(null);
 
   const [statusFilter, setStatusFilter] = useState("pending");
   const [escalations, setEscalations] = useState([]);
@@ -1263,6 +1347,32 @@ export default function OperatorDashboard() {
     }
   }, [config.baseUrl, requestHeaders, selectedId, statusFilter]);
 
+  const loadAuditFeed = useCallback(async () => {
+    setLoadingAudit(true);
+    setAuditError(null);
+    try {
+      const out = await requestJson({
+        baseUrl: config.baseUrl,
+        pathname: "/ops/audit?limit=200&offset=0",
+        method: "GET",
+        headers: requestHeaders
+      });
+      const rows = Array.isArray(out?.audit) ? out.audit : [];
+      setAuditRecords(rows);
+      if (rows.length === 0) {
+        setSelectedAuditId(null);
+      } else if (!selectedAuditId || !rows.some((row) => Number(row?.id) === Number(selectedAuditId))) {
+        setSelectedAuditId(rows[0]?.id ?? null);
+      }
+    } catch (err) {
+      setAuditError(err?.message ?? String(err));
+      setAuditRecords([]);
+      setSelectedAuditId(null);
+    } finally {
+      setLoadingAudit(false);
+    }
+  }, [config.baseUrl, requestHeaders, selectedAuditId]);
+
   const loadSelected = useCallback(async () => {
     if (!selectedId) {
       setSelected(null);
@@ -1301,6 +1411,10 @@ export default function OperatorDashboard() {
   useEffect(() => {
     void loadEmergencyData();
   }, [loadEmergencyData]);
+
+  useEffect(() => {
+    void loadAuditFeed();
+  }, [loadAuditFeed]);
 
   useEffect(() => {
     void loadSelected();
@@ -1394,12 +1508,22 @@ export default function OperatorDashboard() {
     () => buildExecutionPathHealth(launchMetrics, launchRescueItems, emergencyEvents),
     [emergencyEvents, launchMetrics, launchRescueItems]
   );
+  const filteredAuditRecords = useMemo(
+    () => auditRecords.filter((row) => auditMatchesFilter(row, auditTargetTypeFilter, auditTargetIdFilter)),
+    [auditRecords, auditTargetIdFilter, auditTargetTypeFilter]
+  );
+  const selectedAuditRecord = useMemo(
+    () => filteredAuditRecords.find((row) => Number(row?.id) === Number(selectedAuditId)) ?? filteredAuditRecords[0] ?? null,
+    [filteredAuditRecords, selectedAuditId]
+  );
   const rescueTotal = rescueQueue.length;
   const pendingCount = escalations.filter((row) => String(row?.status ?? "").toLowerCase() === "pending").length;
   const pillLabel = activeTab === "metrics"
     ? `runs ${Number(launchMetrics?.totals?.runs ?? 0)}`
     : activeTab === "rescue"
       ? `open ${rescueTotal}`
+      : activeTab === "audit"
+        ? `events ${filteredAuditRecords.length}`
       : activeTab === "emergency"
         ? `active ${emergencyActiveCount}`
       : `pending ${pendingCount}`;
@@ -1594,6 +1718,8 @@ export default function OperatorDashboard() {
               ? "Action Wallet Launch Metrics"
               : activeTab === "rescue"
                 ? "Rescue Queue"
+                : activeTab === "audit"
+                  ? "Audit Feed"
                 : activeTab === "emergency"
                   ? "Emergency Controls"
                   : "Spend Escalations"}
@@ -1603,6 +1729,8 @@ export default function OperatorDashboard() {
               ? "Track approval, grant, evidence, receipt, dispute, and rescue pressure for the locked buy and cancel/recover launch scope."
               : activeTab === "rescue"
                 ? "Triages blocked approvals, dispute-linked runs, and quarantine-worthy recovery work before launch trust breaks."
+                : activeTab === "audit"
+                  ? "Review the append-only operator action stream with run and dispute filtering before support work escapes into chats and memory."
                 : activeTab === "emergency"
                   ? "View and trigger launch-scoped pause, quarantine, revoke, and kill-switch controls without weakening the signed dual-control model."
                   : "Review blocked autonomous spend and issue signed override decisions."}
@@ -1618,6 +1746,8 @@ export default function OperatorDashboard() {
                   ? loadPhase1Metrics()
                   : activeTab === "rescue"
                     ? loadRescueQueue()
+                    : activeTab === "audit"
+                      ? loadAuditFeed()
                     : activeTab === "emergency"
                       ? loadEmergencyData()
                       : loadEscalations()
@@ -2531,6 +2661,153 @@ export default function OperatorDashboard() {
                   <p>Latest output</p>
                   <pre>{JSON.stringify(rescueMutationOutput, null, 2)}</pre>
                 </section>
+              ) : null}
+            </div>
+          </section>
+        </main>
+      ) : activeTab === "audit" ? (
+        <main className="operator-main-grid">
+          <section className="operator-card operator-queue">
+            <div className="operator-card-head operator-card-head-stack">
+              <div>
+                <h2>Feed</h2>
+                <p className="operator-muted operator-small">
+                  Append-only operator actions across rescue, dispute, emergency, and governance controls. Filter by run or dispute when support needs the full chain.
+                </p>
+              </div>
+              <div className="operator-filter-row">
+                <select value={auditTargetTypeFilter} onChange={(event) => setAuditTargetTypeFilter(event.target.value)}>
+                  {AUDIT_TARGET_FILTER_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={auditTargetIdFilter}
+                  onChange={(event) => setAuditTargetIdFilter(event.target.value)}
+                  placeholder={auditTargetTypeFilter === "run" ? "run_..." : auditTargetTypeFilter === "dispute" ? "disp_..." : "run, dispute, receipt, note"}
+                />
+              </div>
+            </div>
+
+            <div className="operator-queue-summary">
+              <span className="operator-pill operator-pill-normal">total {auditRecords.length}</span>
+              <span className="operator-pill operator-pill-normal">filtered {filteredAuditRecords.length}</span>
+              <span className="operator-pill operator-pill-normal">
+                disputes {auditRecords.filter((row) => buildAuditLinkedRefs(row).disputeId !== "").length}
+              </span>
+              <span className="operator-pill operator-pill-normal">
+                runs {auditRecords.filter((row) => buildAuditLinkedRefs(row).runId !== "").length}
+              </span>
+            </div>
+
+            <div className="operator-queue-body">
+              {loadingAudit ? <p className="operator-muted">Loading audit feed...</p> : null}
+              {auditError ? <div className="operator-error">{auditError}</div> : null}
+              {!loadingAudit && !auditError && filteredAuditRecords.length === 0 ? (
+                <p className="operator-muted">No audit records matched the current filter.</p>
+              ) : null}
+              {!loadingAudit && !auditError && filteredAuditRecords.map((row, index) => {
+                const isSelected = Number(row?.id) === Number(selectedAuditRecord?.id);
+                const refs = buildAuditLinkedRefs(row);
+                return (
+                  <button
+                    key={row?.id ?? `audit_${index}`}
+                    type="button"
+                    onClick={() => setSelectedAuditId(row?.id ?? null)}
+                    className={`operator-queue-item ${isSelected ? "is-selected" : ""}`}
+                  >
+                    <div className="operator-queue-line">
+                      <p>{String(row?.action ?? "audit_event").replaceAll("_", " ")}</p>
+                      <span className="operator-pill operator-pill-normal">{buildAuditActorLabel(row)}</span>
+                    </div>
+                    <p className="operator-muted operator-truncate">
+                      {String(row?.targetType ?? "target")} · {String(row?.targetId ?? "n/a")}
+                    </p>
+                    <div className="operator-queue-tags">
+                      {refs.runId ? <span className="operator-pill operator-pill-high">run {refs.runId}</span> : null}
+                      {refs.disputeId ? <span className="operator-pill operator-pill-high">dispute {refs.disputeId}</span> : null}
+                      {auditNoteValue(row) ? <span className="operator-pill operator-pill-normal">note</span> : null}
+                    </div>
+                    <p className="operator-muted operator-small">{toIso(row?.at)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="operator-card operator-detail">
+            <div className="operator-card-head">
+              <h2>Audit Detail</h2>
+              {loadingAudit ? <span className="operator-muted operator-small">Refreshing...</span> : null}
+            </div>
+
+            <div className="operator-detail-body">
+              {!selectedAuditRecord && !loadingAudit ? <p className="operator-muted">Select an audit event from the feed.</p> : null}
+
+              {selectedAuditRecord ? (
+                <>
+                  <div className="operator-meta-grid">
+                    <article>
+                      <span>Action</span>
+                      <p>{String(selectedAuditRecord?.action ?? "n/a").replaceAll("_", " ")}</p>
+                    </article>
+                    <article>
+                      <span>Actor</span>
+                      <p>{buildAuditActorLabel(selectedAuditRecord)}</p>
+                    </article>
+                    <article>
+                      <span>Target</span>
+                      <p>{String(selectedAuditRecord?.targetType ?? "n/a")} · {String(selectedAuditRecord?.targetId ?? "n/a")}</p>
+                    </article>
+                    <article>
+                      <span>At</span>
+                      <p>{toIso(selectedAuditRecord?.at)}</p>
+                    </article>
+                  </div>
+
+                  <section className="operator-json-block">
+                    <p>Linked refs</p>
+                    <div className="operator-queue-tags">
+                      {Object.entries(buildAuditLinkedRefs(selectedAuditRecord))
+                        .filter(([, value]) => String(value ?? "").trim() !== "")
+                        .map(([key, value]) => (
+                          <span key={key} className="operator-pill operator-pill-normal">
+                            {key} {value}
+                          </span>
+                        ))}
+                    </div>
+                    {Object.values(buildAuditLinkedRefs(selectedAuditRecord)).every((value) => String(value ?? "").trim() === "") ? (
+                      <p className="operator-muted operator-small">No run/dispute-linked refs were attached to this record.</p>
+                    ) : null}
+                  </section>
+
+                  <section className="operator-json-block">
+                    <p>Note metadata</p>
+                    <div className="operator-rescue-action-grid">
+                      <article className="operator-rescue-action-card">
+                        <div className="operator-rescue-action-head">
+                          <strong>Note</strong>
+                          <span className="operator-pill operator-pill-normal">internal</span>
+                        </div>
+                        <span>{auditNoteValue(selectedAuditRecord) || "No note metadata recorded."}</span>
+                      </article>
+                      <article className="operator-rescue-action-card">
+                        <div className="operator-rescue-action-head">
+                          <strong>Details hash</strong>
+                          <span className="operator-pill operator-pill-normal">audit</span>
+                        </div>
+                        <span>{String(selectedAuditRecord?.detailsHash ?? "").trim() || "No details hash exposed."}</span>
+                      </article>
+                    </div>
+                  </section>
+
+                  <section className="operator-json-block">
+                    <p>Raw details</p>
+                    <pre>{JSON.stringify(normalizeAuditDetails(selectedAuditRecord?.details), null, 2)}</pre>
+                  </section>
+                </>
               ) : null}
             </div>
           </section>
