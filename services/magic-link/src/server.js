@@ -123,6 +123,7 @@ import {
 } from "./webhook-retries.js";
 import { buildOnramperHostedUrls } from "../../../src/core/wallet-funding-hosted.js";
 import { buildCoinbaseHostedUrls } from "../../../src/core/wallet-funding-coinbase.js";
+import { applyCorsHeaders } from "../../../src/api/cors.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
@@ -217,6 +218,19 @@ function sendJson(res, statusCode, body) {
   res.setHeader("cache-control", "no-store");
   res.end(data);
 }
+
+const magicLinkCorsAllowOriginsEnv =
+  typeof process !== "undefined"
+    ? String(process.env.MAGIC_LINK_CORS_ALLOW_ORIGINS ?? process.env.PROXY_CORS_ALLOW_ORIGINS ?? "")
+    : "";
+const magicLinkCorsAllowOrigins = new Set([
+  "https://www.nooterra.ai",
+  "https://nooterra.ai",
+  ...magicLinkCorsAllowOriginsEnv
+    .split(",")
+    .map((row) => row.trim())
+    .filter((row) => row !== "")
+]);
 
 function sendText(res, statusCode, text, headers = null) {
   res.statusCode = statusCode;
@@ -18299,6 +18313,12 @@ export async function magicLinkHandler(req, res) {
   const pathname = url.pathname;
 
   try {
+    applyCorsHeaders({ req, res, corsAllowOrigins: magicLinkCorsAllowOrigins });
+    if (method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
     if (method === "GET" && pathname === "/health") return sendJson(res, 200, { ok: true });
     if (method === "GET" && pathname === "/healthz") {
       const sig = await readinessSignals();

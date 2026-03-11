@@ -1522,6 +1522,37 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.match(text, /magic_link_data_dir_writable_gauge/);
   }
 
+  await t.test("public auth mode: allows nooterra website origin via CORS", async () => {
+    const res = await runReq({
+      method: "GET",
+      url: "/v1/public/auth-mode",
+      headers: {
+        origin: "https://www.nooterra.ai"
+      },
+      bodyChunks: []
+    });
+    assert.equal(res.statusCode, 200, res._body().toString("utf8"));
+    assert.equal(res.getHeader("access-control-allow-origin"), "https://www.nooterra.ai");
+    assert.equal(res.getHeader("access-control-allow-credentials"), "true");
+    assert.match(String(res.getHeader("vary") ?? ""), /origin/i);
+  });
+
+  await t.test("public auth mode preflight: returns CORS headers for website origin", async () => {
+    const res = await runReq({
+      method: "OPTIONS",
+      url: "/v1/public/auth-mode",
+      headers: {
+        origin: "https://www.nooterra.ai",
+        "access-control-request-method": "GET"
+      },
+      bodyChunks: []
+    });
+    assert.equal(res.statusCode, 204);
+    assert.equal(res.getHeader("access-control-allow-origin"), "https://www.nooterra.ai");
+    assert.equal(res.getHeader("access-control-allow-credentials"), "true");
+    assert.match(String(res.getHeader("access-control-allow-methods") ?? ""), /GET/);
+  });
+
   await t.test("public pricing page: renders current plan catalog and value-event pricing notes", async () => {
     const page = await runReq({ method: "GET", url: "/pricing", headers: {}, bodyChunks: [] });
     assert.equal(page.statusCode, 200, page._body().toString("utf8"));
