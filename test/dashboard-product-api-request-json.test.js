@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { requestJson } from "../dashboard/src/product/api.js";
+import {
+  requestJson,
+  resolveDefaultApiBaseUrl,
+  resolveDefaultAuthBaseUrl
+} from "../dashboard/src/product/api.js";
 
 test("requestJson fails closed when a control-plane route returns HTML", async () => {
   const originalFetch = globalThis.fetch;
@@ -57,4 +61,20 @@ test("requestJson fails closed when a control-plane route returns non-JSON succe
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("public website defaults route API and auth calls to the managed public base", () => {
+  assert.equal(
+    resolveDefaultApiBaseUrl({ envBaseUrl: "", hostname: "www.nooterra.ai" }),
+    "https://api.nooterra.work"
+  );
+  assert.equal(
+    resolveDefaultAuthBaseUrl({ envBaseUrl: "", hostname: "nooterra.ai" }),
+    "https://api.nooterra.work"
+  );
+});
+
+test("non-public hosts keep local proxy defaults when explicit env base URLs are absent", () => {
+  assert.equal(resolveDefaultApiBaseUrl({ envBaseUrl: "", hostname: "localhost" }), "/__nooterra");
+  assert.equal(resolveDefaultAuthBaseUrl({ envBaseUrl: "", hostname: "127.0.0.1" }), "/__magic");
 });

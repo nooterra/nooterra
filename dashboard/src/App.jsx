@@ -1,21 +1,10 @@
-import { Suspense, lazy, useEffect } from "react";
-
-import { docsLinks } from "./site/config/links.js";
+import { Suspense, lazy } from "react";
 
 const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
 const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
 const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
 const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
-
-function ExternalRedirect({ href }) {
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.location.replace(href);
-    }
-  }, [href]);
-  return null;
-}
 
 function getRouteMode() {
   if (typeof window === "undefined") {
@@ -43,6 +32,14 @@ function getRouteMode() {
   if (path === "/docs/api") return { mode: "docs_api", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/security") return { mode: "docs_security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/ops") return { mode: "docs_ops", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/status") return { mode: "status", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/security") return { mode: "security", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/privacy") return { mode: "privacy", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/terms") return { mode: "terms", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/expired") return { mode: "expired", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/revoked") return { mode: "revoked", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/verification-failed") return { mode: "verification_failed", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/unsupported-host") return { mode: "unsupported_host", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path.startsWith("/launch/")) {
     return {
       mode: "legacy",
@@ -99,7 +96,26 @@ export default function App() {
   const route = getRouteMode();
   const hasManagedRuntime = hasManagedRuntimeSession();
   const wantsManagedOnboarding = route.mode === "onboarding" && prefersManagedOnboardingFlow();
-  const alwaysPublicModes = new Set(["home", "developers", "integrations"]);
+  const alwaysPublicModes = new Set([
+    "home",
+    "developers",
+    "integrations",
+    "docs",
+    "docs_quickstart",
+    "docs_architecture",
+    "docs_integrations",
+    "docs_api",
+    "docs_security",
+    "docs_ops",
+    "status",
+    "security",
+    "privacy",
+    "terms",
+    "expired",
+    "revoked",
+    "verification_failed",
+    "unsupported_host"
+  ]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "onboarding"]);
   if (route.mode === "operator") {
     return (
@@ -118,13 +134,6 @@ export default function App() {
       </Suspense>
     );
   }
-  if (route.mode === "docs") return <ExternalRedirect href={docsLinks.home} />;
-  if (route.mode === "docs_quickstart") return <ExternalRedirect href={docsLinks.quickstart} />;
-  if (route.mode === "docs_architecture") return <ExternalRedirect href={docsLinks.architecture} />;
-  if (route.mode === "docs_integrations") return <ExternalRedirect href={docsLinks.integrations} />;
-  if (route.mode === "docs_api") return <ExternalRedirect href={docsLinks.api} />;
-  if (route.mode === "docs_security") return <ExternalRedirect href={docsLinks.security} />;
-  if (route.mode === "docs_ops") return <ExternalRedirect href={docsLinks.ops} />;
   return (
     <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
       <ProductShell

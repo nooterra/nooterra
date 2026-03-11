@@ -58,6 +58,8 @@ test("action-wallet first-governed-action script: --help prints quickstart usage
   });
   assert.match(stdout, /first-governed-action quickstart/i);
   assert.match(stdout, /NOOTERRA_TENANT_ID/);
+  assert.match(stdout, /NOOTERRA_WEBSITE_BASE_URL/);
+  assert.match(stdout, /NOOTERRA_VERIFY_HOSTED_ROUTES/);
   assert.equal(stderr, "");
 });
 
@@ -206,6 +208,359 @@ test("action-wallet first-governed-action script: emits approval and first paid 
         "GET /v1/tenants/tenant_demo/onboarding/first-paid-call/history"
       ]
     );
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: resolves root-relative hosted links against website base", async () => {
+  const { server } = createJsonServer(async ({ method, url }) => {
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+          bootstrap: { apiKey: { keyId: "ak_demo" } }
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      return { status: 200, body: { ok: true, smoke: { toolsCount: 4 } } };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          attemptId: "apr_attempt_1",
+          approvalUrl: "/approvals?requestId=apr_demo",
+          approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attempts: [
+            { attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }
+          ]
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attemptId: "fpc_attempt_1",
+          verificationStatus: "green",
+          settlementStatus: "released",
+          ids: { runId: "run_demo", receiptId: "rcpt_demo", disputeId: "disp_demo" },
+          links: {
+            runUrl: "/runs/run_demo",
+            receiptUrl: "/receipts/rcpt_demo",
+            disputeUrl: "/disputes/disp_demo"
+          }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call/history") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attempts: [
+            {
+              attemptId: "fpc_attempt_1",
+              status: "passed",
+              verificationStatus: "green",
+              settlementStatus: "released",
+              ids: { runId: "run_demo", receiptId: "rcpt_demo", disputeId: "disp_demo" },
+              links: {
+                runUrl: "/runs/run_demo",
+                receiptUrl: "/receipts/rcpt_demo",
+                disputeUrl: "/disputes/disp_demo"
+              }
+            }
+          ]
+        }
+      };
+    }
+    return { status: 404, body: { ok: false, method, url } };
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_WEBSITE_BASE_URL: "https://www.nooterra.ai",
+        NOOTERRA_HOST_TRACK: "claude"
+      }
+    });
+    const summary = JSON.parse(stdout);
+    assert.equal(summary.approval.approvalUrl, "https://www.nooterra.ai/approvals?requestId=apr_demo");
+    assert.equal(summary.firstPaid.runUrl, "https://www.nooterra.ai/runs/run_demo");
+    assert.equal(summary.firstPaid.receiptUrl, "https://www.nooterra.ai/receipts/rcpt_demo");
+    assert.equal(summary.firstPaid.disputeUrl, "https://www.nooterra.ai/disputes/disp_demo");
+    assert.match(summary.nextSteps[0], /https:\/\/www\.nooterra\.ai\/approvals\?requestId=apr_demo/);
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: fails closed on relative hosted links without website base", async () => {
+  const { server } = createJsonServer(async ({ method, url }) => {
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+          bootstrap: { apiKey: { keyId: "ak_demo" } }
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      return { status: 200, body: { ok: true, smoke: { toolsCount: 4 } } };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          attemptId: "apr_attempt_1",
+          approvalUrl: "/approvals?requestId=apr_demo",
+          approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attempts: [
+            { attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }
+          ]
+        }
+      };
+    }
+    return { status: 404, body: { ok: false, method, url } };
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_SKIP_FIRST_PAID_CALL: "1"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /approvalUrl returned a relative path/i);
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: can verify hosted approval and receipt routes", async () => {
+  const server = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const url = req.url ?? "/";
+    if (req.method === "GET" && (url.startsWith("/approvals") || url.startsWith("/receipts"))) {
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end("<!DOCTYPE html><html><body>Nooterra hosted page</body></html>");
+      return;
+    }
+    const body = Buffer.concat(chunks).toString("utf8");
+    let parsedBody = null;
+    try {
+      parsedBody = body ? JSON.parse(body) : null;
+    } catch {
+      parsedBody = body;
+    }
+    const respondJson = (status, payload) => {
+      res.statusCode = status;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(payload));
+    };
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      respondJson(201, {
+        ok: true,
+        mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+        bootstrap: { apiKey: { keyId: "ak_demo" } }
+      });
+      return;
+    }
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      respondJson(200, { ok: true, smoke: { toolsCount: 4 } });
+      return;
+    }
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      respondJson(201, {
+        ok: true,
+        attemptId: "apr_attempt_1",
+        approvalUrl: "/approvals?requestId=apr_demo",
+        approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+      });
+      return;
+    }
+    if (req.method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      respondJson(200, {
+        ok: true,
+        attempts: [{ attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }]
+      });
+      return;
+    }
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call") {
+      respondJson(200, {
+        ok: true,
+        attemptId: "fpc_attempt_1",
+        verificationStatus: "green",
+        settlementStatus: "released",
+        ids: { runId: "run_demo", receiptId: "rcpt_demo", disputeId: null },
+        links: {
+          runUrl: "/runs/run_demo",
+          receiptUrl: "/receipts/rcpt_demo",
+          disputeUrl: null
+        }
+      });
+      return;
+    }
+    if (req.method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call/history") {
+      respondJson(200, {
+        ok: true,
+        attempts: [
+          {
+            attemptId: "fpc_attempt_1",
+            status: "passed",
+            verificationStatus: "green",
+            settlementStatus: "released",
+            ids: { runId: "run_demo", receiptId: "rcpt_demo", disputeId: null },
+            links: {
+              runUrl: "/runs/run_demo",
+              receiptUrl: "/receipts/rcpt_demo",
+              disputeUrl: null
+            }
+          }
+        ]
+      });
+      return;
+    }
+    respondJson(404, { ok: false, method: req.method, url, body: parsedBody });
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_WEBSITE_BASE_URL: baseUrl,
+        NOOTERRA_VERIFY_HOSTED_ROUTES: "1"
+      }
+    });
+    const summary = JSON.parse(stdout);
+    assert.equal(summary.verifyHostedRoutes, true);
+    assert.equal(summary.hostedRouteChecks.length, 2);
+    assert.deepEqual(
+      summary.hostedRouteChecks.map((entry) => entry.fieldName),
+      ["approvalUrl", "receiptUrl"]
+    );
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: fails closed when hosted routes do not resolve to HTML", async () => {
+  const server = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const url = req.url ?? "/";
+    if (req.method === "GET" && url.startsWith("/approvals")) {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    const body = Buffer.concat(chunks).toString("utf8");
+    let parsedBody = null;
+    try {
+      parsedBody = body ? JSON.parse(body) : null;
+    } catch {
+      parsedBody = body;
+    }
+    const respondJson = (status, payload) => {
+      res.statusCode = status;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(payload));
+    };
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      respondJson(201, {
+        ok: true,
+        mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+        bootstrap: { apiKey: { keyId: "ak_demo" } }
+      });
+      return;
+    }
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      respondJson(200, { ok: true, smoke: { toolsCount: 4 } });
+      return;
+    }
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      respondJson(201, {
+        ok: true,
+        attemptId: "apr_attempt_1",
+        approvalUrl: "/approvals?requestId=apr_demo",
+        approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+      });
+      return;
+    }
+    if (req.method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      respondJson(200, {
+        ok: true,
+        attempts: [{ attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }]
+      });
+      return;
+    }
+    respondJson(404, { ok: false, method: req.method, url, body: parsedBody });
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_WEBSITE_BASE_URL: baseUrl,
+        NOOTERRA_VERIFY_HOSTED_ROUTES: "true",
+        NOOTERRA_SKIP_FIRST_PAID_CALL: "1"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /approvalUrl did not resolve to a hosted HTML page/i);
   } finally {
     await close(server);
   }
