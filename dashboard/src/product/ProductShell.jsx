@@ -5013,8 +5013,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         : hostedApprovalReady
           ? "The shared approvals surface is live, but this attempt has not bound to a specific approval artifact yet."
           : "The host still needs to create a yellow-state action and land it on the hosted approvals page.",
-      href: focusedFirstPaidApprovalId ? focusedApprovalSurfaceHref : hostedApprovalReady ? approvalSurfaceHref : selectedHostTrack.href,
-      cta: focusedFirstPaidApprovalId ? "Open approval" : hostedApprovalReady ? "Open approvals" : `Open ${selectedHostTrack.label} guide`
+      href: focusedFirstPaidApprovalId ? focusedApprovalSurfaceHref : hostedApprovalReady ? approvalSurfaceHref : docsLinks.hostQuickstart,
+      cta: focusedFirstPaidApprovalId ? "Open approval" : hostedApprovalReady ? "Open approvals" : "Open launch host guide"
     },
     {
       id: "run",
@@ -5066,8 +5066,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       detail: hostedApprovalReady
         ? `A hosted approval link was already shared at ${formatDateTime(firstApprovalSharedAt)}. Keep the next live decision in the same approvals surface.`
         : smokeBundle?.smoke?.initialized
-          ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Next exact move: install Claude MCP or OpenClaw and trigger one yellow-state action so /approvals receives a live request.`
-          : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
+          ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Fastest path: use Create hosted approval here, or trigger one yellow-state action from Claude MCP or OpenClaw so /approvals receives a live request.`
+          : "Run the smoke after bootstrap, then use Create hosted approval here or trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
       href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
       cta: hostedApprovalReady ? "Open approvals" : "Open Claude quickstart"
