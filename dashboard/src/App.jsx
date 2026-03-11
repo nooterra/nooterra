@@ -1,4 +1,5 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
+import { setFrontendSentryRoute } from "./sentry.jsx";
 
 const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
@@ -94,6 +95,10 @@ function prefersManagedOnboardingFlow() {
 
 export default function App() {
   const route = getRouteMode();
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setFrontendSentryRoute({ mode: route.mode, path: window.location.pathname });
+  }, [route.mode]);
   const hasManagedRuntime = hasManagedRuntimeSession();
   const wantsManagedOnboarding = route.mode === "onboarding" && prefersManagedOnboardingFlow();
   const alwaysPublicModes = new Set([

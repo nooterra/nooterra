@@ -1,3 +1,5 @@
+import { captureFrontendSentryException } from "../sentry.jsx";
+
 export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
 
 export function isManagedWebsiteHostname(hostname) {
@@ -294,60 +296,69 @@ export async function requestJson({
   credentials
 } = {}) {
   const url = `${String(baseUrl).replace(/\/$/, "")}${pathname}`;
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body === null ? undefined : JSON.stringify(body),
-    ...(credentials ? { credentials } : {})
-  });
-  const text = await response.text();
-  let parsed = null;
   try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = text;
-  }
-  if (response.ok) {
-    const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
-    if (typeof parsed === "string" && parsed.trim()) {
-      if (looksLikeHtmlDocument(parsed)) {
-        throw createRequestContractError({
-          response,
-          code: "CONTROL_PLANE_ROUTE_MISCONFIGURED",
-          message: "control plane returned HTML instead of JSON",
-          details: {
-            baseUrl: String(baseUrl ?? ""),
-            pathname: String(pathname ?? ""),
-            contentType
-          }
-        });
-      }
-      if (!contentType.includes("json")) {
-        throw createRequestContractError({
-          response,
-          code: "CONTROL_PLANE_RESPONSE_NOT_JSON",
-          message: "control plane returned a non-JSON success response",
-          details: {
-            baseUrl: String(baseUrl ?? ""),
-            pathname: String(pathname ?? ""),
-            contentType
-          }
-        });
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body === null ? undefined : JSON.stringify(body),
+      ...(credentials ? { credentials } : {})
+    });
+    const text = await response.text();
+    let parsed = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = text;
+    }
+    if (response.ok) {
+      const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
+      if (typeof parsed === "string" && parsed.trim()) {
+        if (looksLikeHtmlDocument(parsed)) {
+          throw createRequestContractError({
+            response,
+            code: "CONTROL_PLANE_ROUTE_MISCONFIGURED",
+            message: "control plane returned HTML instead of JSON",
+            details: {
+              baseUrl: String(baseUrl ?? ""),
+              pathname: String(pathname ?? ""),
+              contentType
+            }
+          });
+        }
+        if (!contentType.includes("json")) {
+          throw createRequestContractError({
+            response,
+            code: "CONTROL_PLANE_RESPONSE_NOT_JSON",
+            message: "control plane returned a non-JSON success response",
+            details: {
+              baseUrl: String(baseUrl ?? ""),
+              pathname: String(pathname ?? ""),
+              contentType
+            }
+          });
+        }
       }
     }
+    if (!response.ok) {
+      const message =
+        parsed && typeof parsed === "object"
+          ? String(parsed?.message ?? parsed?.error ?? `HTTP ${response.status}`)
+          : String(parsed ?? `HTTP ${response.status}`);
+      const error = new Error(message);
+      error.status = response.status;
+      error.code = parsed && typeof parsed === "object" ? parsed?.code ?? null : null;
+      error.details = parsed && typeof parsed === "object" ? parsed?.details ?? null : null;
+      throw error;
+    }
+    return parsed;
+  } catch (err) {
+    captureFrontendSentryException(err, {
+      routePath: typeof window !== "undefined" ? window.location.pathname : null,
+      requestUrl: url,
+      requestMethod: method
+    });
+    throw err;
   }
-  if (!response.ok) {
-    const message =
-      parsed && typeof parsed === "object"
-        ? String(parsed?.message ?? parsed?.error ?? `HTTP ${response.status}`)
-        : String(parsed ?? `HTTP ${response.status}`);
-    const error = new Error(message);
-    error.status = response.status;
-    error.code = parsed && typeof parsed === "object" ? parsed?.code ?? null : null;
-    error.details = parsed && typeof parsed === "object" ? parsed?.details ?? null : null;
-    throw error;
-  }
-  return parsed;
 }
 
 export async function requestBinaryJson({

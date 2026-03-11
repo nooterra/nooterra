@@ -33,6 +33,9 @@ Use this checklist to launch and verify a real hosted Nooterra environment.
 6. Configure onboarding routing:
    - `PROXY_ONBOARDING_BASE_URL=https://<magic-link-host>` on `nooterra-api`
    - `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` and OTP delivery (`smtp`) on `nooterra-magic-link`
+7. Configure production Sentry DSNs:
+   - `SENTRY_DSN` for `nooterra-api`, `nooterra-magic-link`, and `x402-gateway`
+   - `VITE_SENTRY_DSN` for the website/dashboard deployment
 
 ## Phase 2: Deploy services
 
