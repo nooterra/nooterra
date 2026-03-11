@@ -1601,7 +1601,11 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
   const finalized = await request(api, {
     method: "POST",
     path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
-    headers: { "x-idempotency-key": "v1_action_wallet_finalize_1" },
+    headers: {
+      "x-idempotency-key": "v1_action_wallet_finalize_1",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    },
     body: {
       workOrderId,
       completion: {
@@ -1632,12 +1636,18 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
   });
   assert.equal(finalized.statusCode, 200, finalized.body);
   assert.equal(finalized.json?.actionReceipt?.receiptId, receiptId);
+  assert.equal(finalized.json?.actionReceipt?.hostedReceiptUrl, `https://www.nooterra.ai/receipts?selectedReceiptId=${encodeURIComponent(receiptId)}`);
+  assert.equal(finalized.json?.actionReceipt?.hostedDisputeUrl, null);
   assert.equal(finalized.json?.workOrder?.status, "settled");
 
   const replayedFinalize = await request(api, {
     method: "POST",
     path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
-    headers: { "x-idempotency-key": "v1_action_wallet_finalize_1" },
+    headers: {
+      "x-idempotency-key": "v1_action_wallet_finalize_1",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    },
     body: {
       workOrderId,
       completion: {
@@ -1723,10 +1733,16 @@ test("API e2e: v1 action wallet aliases cover approval, execution grant, finaliz
 
   const receipt = await request(api, {
     method: "GET",
-    path: `/v1/receipts/${encodeURIComponent(receiptId)}`
+    path: `/v1/receipts/${encodeURIComponent(receiptId)}`,
+    headers: {
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    }
   });
   assert.equal(receipt.statusCode, 200, receipt.body);
   assert.equal(receipt.json?.actionReceipt?.receiptId, receiptId);
+  assert.equal(receipt.json?.actionReceipt?.hostedReceiptUrl, `https://www.nooterra.ai/receipts?selectedReceiptId=${encodeURIComponent(receiptId)}`);
+  assert.equal(receipt.json?.actionReceipt?.hostedDisputeUrl, null);
   assert.equal(receipt.json?.actionReceipt?.originatingApproval?.approvalRequestRef?.requestId, approvalRequest.requestId);
   assert.equal(receipt.json?.actionReceipt?.originatingApproval?.approvalDecisionRef?.approved, true);
   assert.equal(receipt.json?.actionReceipt?.executionGrantRef?.executionGrantId, approvalRequest.requestId);
@@ -2594,7 +2610,11 @@ test("API e2e: v1 disputes can open directly from an Action Wallet receipt conte
   const finalized = await request(api, {
     method: "POST",
     path: `/v1/execution-grants/${encodeURIComponent(approvalRequest.requestId)}/finalize`,
-    headers: { "x-idempotency-key": "v1_action_wallet_dispute_receipt_finalize_1" },
+    headers: {
+      "x-idempotency-key": "v1_action_wallet_dispute_receipt_finalize_1",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    },
     body: {
       workOrderId,
       completion: {
@@ -2630,7 +2650,9 @@ test("API e2e: v1 disputes can open directly from an Action Wallet receipt conte
     path: "/v1/disputes",
     headers: {
       "x-idempotency-key": "v1_action_wallet_dispute_receipt_open_1",
-      "x-nooterra-protocol": "1.0"
+      "x-nooterra-protocol": "1.0",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
     },
     body: {
       receiptId,
@@ -2642,14 +2664,26 @@ test("API e2e: v1 disputes can open directly from an Action Wallet receipt conte
   assert.equal(opened.statusCode, 200, opened.body);
   assert.equal(opened.json?.disputeCase?.disputeId, disputeId);
   assert.equal(opened.json?.disputeCase?.status, "opened");
+  assert.equal(
+    opened.json?.disputeCase?.hostedDisputeUrl,
+    `https://www.nooterra.ai/disputes?selectedDisputeId=${encodeURIComponent(disputeId)}`
+  );
 
   const openedReceipt = await request(api, {
     method: "GET",
-    path: `/v1/receipts/${encodeURIComponent(receiptId)}`
+    path: `/v1/receipts/${encodeURIComponent(receiptId)}`,
+    headers: {
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    }
   });
   assert.equal(openedReceipt.statusCode, 200, openedReceipt.body);
   assert.equal(openedReceipt.json?.actionReceipt?.disputeState?.disputeId, disputeId);
   assert.equal(openedReceipt.json?.actionReceipt?.disputeState?.status, "open");
+  assert.equal(
+    openedReceipt.json?.actionReceipt?.hostedDisputeUrl,
+    `https://www.nooterra.ai/disputes?selectedDisputeId=${encodeURIComponent(disputeId)}`
+  );
   assert.equal(openedReceipt.json?.detail?.disputeState?.disputeId, disputeId);
   assert.equal(openedReceipt.json?.detail?.disputeState?.status, "open");
 });

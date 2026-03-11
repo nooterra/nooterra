@@ -71,7 +71,27 @@ From Codex, the shortest install-to-first-approval loop is:
 
 Stop there first. If you have those three values, the launch-scoped activation loop is alive.
 
-## 3) Open receipt
+Concrete API example:
+
+```bash
+curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \
+  -H "Authorization: Bearer $NOOTERRA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actionType": "buy",
+    "summary": "Replacement charger under approval",
+    "risk": "medium",
+    "approvalMode": "required"
+  }'
+```
+
+What good looks like:
+
+- the runtime accepts the tenant-scoped credentials
+- the response includes an approval URL or request reference
+- the action does not skip straight to a silent local success path
+
+## 3) Fetch the approved grant
 
 After opening the hosted approval URL and making a decision:
 
@@ -90,7 +110,21 @@ Recommended hosted surfaces to keep open while using Codex:
 - `/disputes`
 - `/wallet`
 
-## 4) Open dispute
+## 4) Finalize and open receipt
+
+After the host-side action finishes:
+
+1. submit evidence if needed
+2. finalize the governed run
+3. fetch the linked receipt
+
+What good looks like:
+
+- the receipt is issued for the same governed run
+- receipt state shows settlement and recourse metadata
+- the receipt can be opened on the hosted `/receipts` surface
+
+## 5) Open dispute
 
 If the receipt needs follow-up:
 

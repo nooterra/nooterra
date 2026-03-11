@@ -56,7 +56,7 @@ Expected result:
 
 Stop here first. This is the launch proof path.
 
-## 3) Open receipt
+## 3) Fetch the approved grant
 
 After opening the approval URL and making a decision, run:
 
@@ -67,7 +67,7 @@ Expected result:
 - approval state changes from `pending`
 - approved run returns an execution grant Claude can use for the host-side execution step
 
-## 5) Complete the loop
+## 4) Finalize and fetch the receipt
 
 After Claude or the connected adapter completes the external action, run:
 
@@ -77,7 +77,7 @@ Expected result:
 
 - finalization returns a receipt id that can be opened on the hosted receipt page
 
-## 4) Open dispute
+## 5) Open dispute
 
 If the receipt needs follow-up, run:
 

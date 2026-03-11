@@ -231,6 +231,8 @@ test("API: action-wallet alias OpenAPI contracts are published", async () => {
   assert.ok(actionReceiptProperties.settlementState, "missing actionReceipt.settlementState");
   assert.ok(actionReceiptProperties.verifierVerdict, "missing actionReceipt.verifierVerdict");
   assert.ok(actionReceiptProperties.disputeState, "missing actionReceipt.disputeState");
+  assert.equal(actionReceiptProperties.hostedReceiptUrl?.type, "string");
+  assert.equal(actionReceiptProperties.hostedDisputeUrl?.type, "string");
 
   const receiptDetailProperties =
     res.json?.paths?.["/v1/receipts/{receiptId}"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.detail
@@ -251,6 +253,11 @@ test("API: action-wallet alias OpenAPI contracts are published", async () => {
     res.json?.paths?.["/v1/disputes"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.disputeCase?.properties
       ?.status?.enum,
     ["opened", "triaged", "awaiting_evidence", "refunded", "denied", "resolved"]
+  );
+  assert.equal(
+    res.json?.paths?.["/v1/disputes"]?.post?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.disputeCase?.properties
+      ?.hostedDisputeUrl?.type,
+    "string"
   );
   const installRequestProperties =
     res.json?.paths?.["/v1/integrations/install"]?.post?.requestBody?.content?.["application/json"]?.schema?.properties ?? {};

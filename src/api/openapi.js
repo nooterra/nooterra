@@ -2187,6 +2187,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       status: { type: "string", enum: ["success", "failed"] },
       deliveredAt: { type: "string", format: "date-time" },
       traceId: { type: "string", nullable: true },
+      hostedReceiptUrl: { type: "string", nullable: true },
+      hostedDisputeUrl: { type: "string", nullable: true },
       originatingApproval: ActionReceiptOriginatingApprovalV1,
       executionGrantRef: ActionReceiptExecutionGrantRefV1,
       evidenceBundle: ActionReceiptEvidenceBundleV1,
@@ -2210,6 +2212,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       schemaVersion: { type: "string", enum: ["DisputeCase.v1"] },
       disputeId: { type: "string", nullable: true },
       caseId: { type: "string", nullable: true },
+      hostedDisputeUrl: { type: "string", nullable: true },
       status: {
         type: "string",
         enum: ["opened", "triaged", "awaiting_evidence", "refunded", "denied", "resolved"],

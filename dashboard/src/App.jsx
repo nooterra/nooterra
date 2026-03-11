@@ -89,7 +89,7 @@ export default function App() {
   const route = getRouteMode();
   const hasManagedRuntime = hasManagedRuntimeSession();
   const alwaysPublicModes = new Set(["home", "developers", "integrations"]);
-  const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes"]);
+  const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "onboarding"]);
   if (route.mode === "operator") {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
