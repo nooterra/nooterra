@@ -500,6 +500,24 @@ function replaceCurrentSearchParams(updates = {}) {
   if (nextHref !== currentHref) window.history.replaceState({}, "", nextHref);
 }
 
+function jumpToPageAnchor(hash) {
+  if (typeof window === "undefined") return;
+  const normalizedHash = String(hash ?? "").trim().replace(/^#?/, "#");
+  if (!normalizedHash || normalizedHash === "#") return;
+  const nextUrl = new URL(window.location.href);
+  nextUrl.hash = normalizedHash;
+  const nextSearch = nextUrl.searchParams.toString();
+  const nextHref = `${nextUrl.pathname}${nextSearch ? `?${nextSearch}` : ""}${nextUrl.hash}`;
+  const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextHref !== currentHref) window.history.replaceState({}, "", nextHref);
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(normalizedHash);
+    if (target && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
 function validateWorkspaceSignupForm(signupForm) {
   const email = String(signupForm?.email ?? "").trim();
   const company = String(signupForm?.company ?? "").trim();
@@ -4309,6 +4327,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       setStatusMessage(
         `Workspace ${out?.tenantId ?? options?.tenantId ?? "created"} is live. ${principal?.email ?? signupForm.email} can now sign in from this browser with ${label}.`
       );
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Passkey workspace signup failed: ${error.message}`);
     } finally {
@@ -4376,6 +4395,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       });
       const principal = await loadBuyerSession();
       setStatusMessage(`Signed in as ${principal?.email ?? email} with the saved ${bundle.label || "device"} passkey. Runtime bootstrap is unlocked.`);
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Saved passkey sign-in failed: ${error.message}`);
     } finally {
@@ -4430,6 +4450,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       });
       const principal = await loadBuyerSession();
       setStatusMessage(`Signed in as ${principal?.email ?? out?.email ?? loginForm.email}. Runtime bootstrap is unlocked.`);
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Recovery code verification failed: ${error.message}`);
     } finally {
@@ -4487,6 +4508,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         nextMessage = `Runtime bootstrap issued, but the smoke test failed: ${error.message}`;
       }
       setStatusMessage(nextMessage);
+      jumpToPageAnchor("#first-governed-action");
     } catch (error) {
       setStatusMessage(`Runtime bootstrap failed: ${error.message}`);
     } finally {
@@ -4592,6 +4614,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           : `First paid call ${out?.attemptId ?? "completed"}. Verification ${out?.verificationStatus ?? "unknown"}, settlement ${out?.settlementStatus ?? "unknown"}.`
       );
       await refreshOnboardingMetrics().catch(() => {});
+      jumpToPageAnchor("#first-live-paid-call");
     } catch (error) {
       setFirstPaidCallState((previous) => ({
         ...previous,
@@ -4599,6 +4622,89 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         error: error.message
       }));
       setStatusMessage(`First paid call failed: ${error.message}`);
+    } finally {
+      setBusyState("");
+    }
+  }
+
+  async function handleCreateFirstHostedApproval() {
+    if (!buyer?.tenantId) {
+      setStatusMessage("Create or recover the workspace before seeding the first hosted approval.");
+      jumpToPageAnchor("#identity-access");
+      return;
+    }
+    if (!runtime.baseUrl || !runtime.apiKey) {
+      setStatusMessage("Issue Runtime Bootstrap before creating the first hosted approval.");
+      jumpToPageAnchor("#runtime-bootstrap");
+      return;
+    }
+    const hostRuntime =
+      selectedHostTrack.id === "claude"
+        ? "claude-desktop"
+        : selectedHostTrack.id === "openclaw"
+          ? "openclaw"
+          : "codex";
+    const hostChannel =
+      selectedHostTrack.id === "codex"
+        ? "api"
+        : "mcp";
+    const actionIntentId = createClientId(`onboarding_${selectedHostTrack.id}_intent`);
+    const requestId = createClientId(`onboarding_${selectedHostTrack.id}_approval`);
+    const actorAgentId = `agt_onboarding_${selectedHostTrack.id}`;
+    setBusyState("seed_approval");
+    setStatusMessage(`Creating the first hosted approval for ${selectedHostTrack.label}...`);
+    try {
+      const createdIntent = await requestJson({
+        baseUrl: runtime.baseUrl,
+        pathname: "/v1/action-intents",
+        method: "POST",
+        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("onboarding_seed_intent") }),
+        body: {
+          actionIntentId,
+          actorAgentId,
+          principalId: buyer?.buyerId ?? buyer?.email ?? buyer?.tenantId,
+          purpose: selectedHostTrack.id === "openclaw"
+            ? "Cancel an unused subscription after approval"
+            : "Buy a replacement charger after approval",
+          capabilitiesRequested: ["capability://workflow.intake"],
+          spendEnvelope: {
+            currency: "USD",
+            maxPerCallCents: selectedHostTrack.id === "openclaw" ? 0 : 6_000,
+            maxTotalCents: selectedHostTrack.id === "openclaw" ? 0 : 6_000
+          },
+          evidenceRequirements: selectedHostTrack.id === "openclaw"
+            ? ["cancellation_confirmation", "refund_status"]
+            : ["merchant_receipt", "order_confirmation"],
+          host: {
+            runtime: hostRuntime,
+            channel: hostChannel,
+            source: "dashboard-onboarding"
+          }
+        }
+      });
+      const approvalRequested = await requestJson({
+        baseUrl: runtime.baseUrl,
+        pathname: `/v1/action-intents/${encodeURIComponent(createdIntent?.actionIntent?.actionIntentId ?? actionIntentId)}/approval-requests`,
+        method: "POST",
+        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("onboarding_seed_approval") }),
+        body: {
+          requestId,
+          requestedBy: actorAgentId
+        }
+      });
+      await refreshOnboardingMetrics().catch(() => {});
+      const approvalUrl = pickFirstString(
+        approvalRequested?.approvalUrl,
+        approvalRequested?.actionIntent?.approvalUrl,
+        `/approvals?requestId=${encodeURIComponent(approvalRequested?.approvalRequest?.requestId ?? requestId)}`
+      );
+      setStatusMessage(`Hosted approval ${approvalRequested?.approvalRequest?.requestId ?? requestId} is live for ${selectedHostTrack.label}.`);
+      if (typeof window !== "undefined" && approvalUrl) {
+        window.location.assign(approvalUrl);
+        return;
+      }
+    } catch (error) {
+      setStatusMessage(`First hosted approval failed: ${error.message}`);
     } finally {
       setBusyState("");
     }
@@ -4810,6 +4916,52 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     latestFirstPaidAttempt?.settlementReceipt?.disputeId ??
     ""
   ).trim();
+  const selectedFirstPaidAttempt =
+    firstPaidCallState.selectedAttemptId
+      ? firstPaidCallState.history.find((attempt) => String(attempt?.attemptId ?? "").trim() === firstPaidCallState.selectedAttemptId) ?? null
+      : null;
+  const focusedFirstPaidAttempt = selectedFirstPaidAttempt ?? latestFirstPaidAttempt ?? null;
+  const focusedFirstPaidAttemptId = pickFirstString(focusedFirstPaidAttempt?.attemptId);
+  const focusedFirstPaidVerificationLabel = focusedFirstPaidAttempt
+    ? humanizeLabel(focusedFirstPaidAttempt?.verificationStatus, "Pending")
+    : "Pending";
+  const focusedFirstPaidSettlementLabel = focusedFirstPaidAttempt
+    ? humanizeLabel(focusedFirstPaidAttempt?.settlementStatus, "Pending")
+    : "Pending";
+  const focusedFirstPaidRunId = pickFirstString(
+    focusedFirstPaidAttempt?.ids?.runId,
+    focusedFirstPaidAttempt?.runId,
+    focusedFirstPaidAttempt?.run?.runId
+  );
+  const focusedFirstPaidReceiptId = pickFirstString(
+    focusedFirstPaidAttempt?.ids?.receiptId,
+    focusedFirstPaidAttempt?.receiptId,
+    focusedFirstPaidAttempt?.settlementReceipt?.receiptId,
+    focusedFirstPaidAttempt?.receipt?.receiptId
+  );
+  const focusedFirstPaidDisputeId = pickFirstString(
+    focusedFirstPaidAttempt?.ids?.disputeId,
+    focusedFirstPaidAttempt?.disputeId,
+    focusedFirstPaidAttempt?.settlement?.disputeId,
+    focusedFirstPaidAttempt?.settlementReceipt?.disputeId,
+    focusedFirstPaidAttempt?.receipt?.dispute?.disputeId
+  );
+  const focusedFirstPaidApprovalId = pickFirstString(
+    focusedFirstPaidAttempt?.ids?.approvalRequestId,
+    focusedFirstPaidAttempt?.ids?.approvalId,
+    focusedFirstPaidAttempt?.approvalRequestId,
+    focusedFirstPaidAttempt?.approvalId,
+    focusedFirstPaidAttempt?.approval?.approvalRequestId,
+    focusedFirstPaidAttempt?.approval?.approvalId,
+    focusedFirstPaidAttempt?.approvalRequest?.approvalRequestId,
+    focusedFirstPaidAttempt?.approvalRequest?.approvalId
+  );
+  const focusedFirstPaidAttemptTone =
+    focusedFirstPaidAttempt?.verificationStatus === "green" && focusedFirstPaidAttempt?.settlementStatus === "released"
+      ? "good"
+      : focusedFirstPaidAttempt
+        ? "warn"
+        : "neutral";
   const firstPaidTone =
     latestFirstPaidAttempt?.verificationStatus === "green" && latestFirstPaidAttempt?.settlementStatus === "released"
       ? "good"
@@ -4838,6 +4990,65 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       : latestFirstPaidRunId
         ? `/disputes?runId=${encodeURIComponent(latestFirstPaidRunId)}`
         : "/disputes";
+  const focusedApprovalSurfaceHref = focusedFirstPaidApprovalId
+    ? `/approvals?selectedApprovalId=${encodeURIComponent(focusedFirstPaidApprovalId)}`
+    : approvalSurfaceHref;
+  const focusedReceiptSurfaceHref = focusedFirstPaidReceiptId
+    ? `/receipts?selectedReceiptId=${encodeURIComponent(focusedFirstPaidReceiptId)}`
+    : receiptSurfaceHref;
+  const focusedDisputeSurfaceHref = focusedFirstPaidDisputeId
+    ? `/disputes?selectedDisputeId=${encodeURIComponent(focusedFirstPaidDisputeId)}`
+    : focusedFirstPaidReceiptId
+      ? `/receipts?selectedReceiptId=${encodeURIComponent(focusedFirstPaidReceiptId)}`
+      : focusedFirstPaidRunId
+        ? `/disputes?runId=${encodeURIComponent(focusedFirstPaidRunId)}`
+        : disputeSurfaceHref;
+  const focusedProofArtifacts = [
+    {
+      id: "approval",
+      label: "Approval",
+      value: focusedFirstPaidApprovalId || (hostedApprovalReady ? "Shared approvals live" : "Pending"),
+      detail: focusedFirstPaidApprovalId
+        ? "Open the approval artifact that authorized this exact attempt."
+        : hostedApprovalReady
+          ? "The shared approvals surface is live, but this attempt has not bound to a specific approval artifact yet."
+          : "The host still needs to create a yellow-state action and land it on the hosted approvals page.",
+      href: focusedFirstPaidApprovalId ? focusedApprovalSurfaceHref : hostedApprovalReady ? approvalSurfaceHref : docsLinks.hostQuickstart,
+      cta: focusedFirstPaidApprovalId ? "Open approval" : hostedApprovalReady ? "Open approvals" : "Open launch host guide"
+    },
+    {
+      id: "run",
+      label: "Run",
+      value: focusedFirstPaidRunId || "Pending",
+      detail: focusedFirstPaidRunId
+        ? "This run is the canonical execution thread. Keep approval, receipt, and recourse attached to it."
+        : "The selected attempt has not emitted a stable run binding yet.",
+      href: focusedFirstPaidRunId ? `/runs/${encodeURIComponent(focusedFirstPaidRunId)}` : "#first-live-paid-call",
+      cta: focusedFirstPaidRunId ? "Open run" : "Run first paid call"
+    },
+    {
+      id: "receipt",
+      label: "Receipt",
+      value: focusedFirstPaidReceiptId || "Pending",
+      detail: focusedFirstPaidReceiptId
+        ? "Receipt is the canonical proof artifact for this attempt."
+        : "No receipt is linked yet. Replay or rerun until one receipt is issued.",
+      href: focusedReceiptSurfaceHref,
+      cta: focusedFirstPaidReceiptId ? "Open receipt" : "Open receipts"
+    },
+    {
+      id: "recourse",
+      label: "Recourse",
+      value: focusedFirstPaidDisputeId || (focusedFirstPaidReceiptId ? "Validate from receipt" : "Pending"),
+      detail: focusedFirstPaidDisputeId
+        ? "Recourse is already open on this proof loop."
+        : focusedFirstPaidReceiptId
+          ? "Open the receipt and confirm the dispute path resolves for the same record."
+          : "Recourse only matters once one receipt is live for the run.",
+      href: focusedDisputeSurfaceHref,
+      cta: focusedFirstPaidDisputeId ? "Open dispute" : focusedFirstPaidReceiptId ? "Verify recourse" : "Open dispute center"
+    }
+  ];
   const firstGovernedActionSteps = [
     {
       title: "Issue runtime bootstrap",
@@ -4855,8 +5066,8 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       detail: hostedApprovalReady
         ? `A hosted approval link was already shared at ${formatDateTime(firstApprovalSharedAt)}. Keep the next live decision in the same approvals surface.`
         : smokeBundle?.smoke?.initialized
-          ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Next exact move: install Claude MCP or OpenClaw and trigger one yellow-state action so /approvals receives a live request.`
-          : "Run the smoke after bootstrap, then trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
+          ? `Runtime smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools visible. Fastest path: use Create hosted approval here, or trigger one yellow-state action from Claude MCP or OpenClaw so /approvals receives a live request.`
+          : "Run the smoke after bootstrap, then use Create hosted approval here or trigger one yellow-state action from Claude MCP or OpenClaw so the hosted approval page receives a real request.",
       ready: hostedApprovalReady,
       href: hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart,
       cta: hostedApprovalReady ? "Open approvals" : "Open Claude quickstart"
@@ -4904,6 +5115,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const passkeyLoginDisabled = busyState !== "" || !browserPasskeyReady || Boolean(loginIdentityError);
   const requestOtpDisabled = busyState !== "" || Boolean(loginIdentityError);
   const verifyOtpDisabled = busyState !== "" || Boolean(recoveryCodeError);
+  const [selectedHostTrackId, setSelectedHostTrackId] = useState("claude");
   const activationChannels = [
     {
       label: "Claude MCP",
@@ -5007,6 +5219,73 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         : "Target: one API or CLI-created intent hands off to hosted approval instead of a shell-only flow."
     }
   ];
+  const selectedHostTrack = hostShortcutTracks.find((track) => track.id === selectedHostTrackId) ?? hostShortcutTracks[0];
+  const selectedHostTrackCtaHref =
+    !buyer
+      ? "#identity-access"
+      : !bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? "#runtime-bootstrap"
+        : selectedHostTrack.href;
+  const selectedHostTrackCtaLabel =
+    !buyer
+      ? "Create workspace"
+      : !bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? "Issue bootstrap"
+        : selectedHostTrack.guideLabel;
+  const selectedHostTrackSteps = [
+    {
+      title: "Issue the shared runtime",
+      detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? `Runtime ${bootstrapBundle.bootstrap.apiKey.keyId} is already live. Keep ${selectedHostTrack.label} on this exact tenant bundle.`
+        : "Create the workspace and issue Runtime Bootstrap before you touch any host install path.",
+      ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId)
+    },
+    {
+      title: `Trigger approval from ${selectedHostTrack.label}`,
+      detail: hostedApprovalReady
+        ? `Hosted approval is already live. The next ${selectedHostTrack.label} action should reuse the same approvals surface instead of generating a new ad hoc flow.`
+        : selectedHostTrack.id === "claude"
+          ? "Install the Claude MCP config, restart the host, and ask for one yellow-state action so /approvals receives a live request."
+          : selectedHostTrack.id === "openclaw"
+            ? "Package OpenClaw with the current runtime exports and run one approval-required action so the hosted approvals page gets a real request."
+            : "Use the API/CLI snippet to create one medium-risk intent and confirm the response opens hosted approval instead of doing the action inline.",
+      ready: hostedApprovalReady
+    },
+    {
+      title: "Close with receipt and recourse",
+      detail: latestFirstPaidReceiptId
+        ? latestFirstPaidDisputeId
+          ? `Receipt ${latestFirstPaidReceiptId} and dispute ${latestFirstPaidDisputeId} are both attached. The proof loop is complete for this runtime.`
+          : `Receipt ${latestFirstPaidReceiptId} is live. Open it, verify recourse from the same record, and only then call the first-host path done.`
+        : "Run the first paid call from this workspace until it binds to one receipt. The host path is not proven until receipt and recourse both exist.",
+      ready: Boolean(latestFirstPaidReceiptId)
+    }
+  ];
+  const selectedHostTrackProgressCount = selectedHostTrackSteps.filter((step) => step.ready).length;
+  const firstActionPrimaryHref =
+    !buyer
+      ? "#identity-access"
+      : !bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? "#runtime-bootstrap"
+        : !hostedApprovalReady
+          ? selectedHostTrack.href
+          : !latestFirstPaidReceiptId
+            ? "#first-live-paid-call"
+            : latestFirstPaidDisputeId
+              ? disputeSurfaceHref
+              : receiptSurfaceHref;
+  const firstActionPrimaryLabel =
+    !buyer
+      ? "Create workspace"
+      : !bootstrapBundle?.bootstrap?.apiKey?.keyId
+        ? "Issue bootstrap"
+        : !hostedApprovalReady
+          ? `Open ${selectedHostTrack.label} guide`
+          : !latestFirstPaidReceiptId
+            ? "Run first paid call"
+            : latestFirstPaidDisputeId
+              ? "Open dispute"
+              : "Open first receipt";
 
   return (
     <div className="product-page">
@@ -5163,8 +5442,15 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             ))}
           </div>
           <div className="product-actions">
-            <a className="product-button product-button-solid" href={nextGovernedActionStep?.href ?? "/wallet"}>
-              {nextGovernedActionStep?.cta ?? "Open wallet"}
+            <button
+              className="product-button product-button-solid"
+              disabled={busyState !== "" || !buyer?.tenantId || !runtime.baseUrl || !runtime.apiKey}
+              onClick={() => void handleCreateFirstHostedApproval()}
+            >
+              {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
+            </button>
+            <a className="product-button product-button-solid" href={firstActionPrimaryHref}>
+              {firstActionPrimaryLabel}
             </a>
             <a className="product-button product-button-ghost" href={approvalSurfaceHref}>Open approvals</a>
             <a className="product-button product-button-ghost" href={receiptSurfaceHref}>
@@ -5179,6 +5465,96 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             code={builderCliSnippet}
             hint="Every host should point at one runtime, one approval surface, and one receipt trail."
           />
+          <div className="product-section-head compact">
+            <p>Pick one host</p>
+            <h2>Run the first proof loop on a single launch path before widening scope.</h2>
+          </div>
+          <div className="product-option-grid">
+            {hostShortcutTracks.map((track) => {
+              const Icon = track.icon;
+              const isActive = track.id === selectedHostTrack.id;
+              return (
+                <button
+                  key={`host_track_option:${track.id}`}
+                  type="button"
+                  className={`product-option-card${isActive ? " active" : ""}`}
+                  onClick={() => setSelectedHostTrackId(track.id)}
+                >
+                  <div className="product-mini-card-head">
+                    <Icon size={18} />
+                    <span>{track.label}</span>
+                  </div>
+                  <strong>{track.guideLabel}</strong>
+                  <span>{track.summary}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="product-grid-two product-onboarding-host-runbook">
+            <div className="product-card product-card-emphasis">
+              <div className="product-section-head compact">
+                <p>{selectedHostTrack.label}</p>
+                <h2>Current activation track</h2>
+              </div>
+              <div className="product-detail-meta">
+                <div>
+                  <strong>Host</strong>
+                  <span>{selectedHostTrack.label}</span>
+                </div>
+                <div>
+                  <strong>Progress</strong>
+                  <span>{selectedHostTrackProgressCount} / {selectedHostTrackSteps.length}</span>
+                </div>
+                <div>
+                  <strong>Approval</strong>
+                  <span>{hostedApprovalReady ? "Live" : "Pending"}</span>
+                </div>
+                <div>
+                  <strong>Receipt</strong>
+                  <span>{latestFirstPaidReceiptId || "Pending"}</span>
+                </div>
+              </div>
+              <div className="product-step-list">
+                {selectedHostTrackSteps.map((step, index) => (
+                  <div key={`selected_host_track_step:${selectedHostTrack.id}:${step.title}`} className="product-step-item">
+                    <div className="product-step-copy">
+                      <strong>{index + 1}. {step.title}</strong>
+                      <span>{step.detail}</span>
+                    </div>
+                    <StatusPill value={step.ready ? "active" : "pending"} />
+                  </div>
+                ))}
+              </div>
+              <div className="product-inline-note product-inline-note-plain">
+                <strong>Success bar</strong>
+                <span>{selectedHostTrack.success}</span>
+              </div>
+              <div className="product-actions">
+                <button
+                  className="product-button product-button-ghost"
+                  disabled={busyState !== "" || !buyer?.tenantId || !runtime.baseUrl || !runtime.apiKey}
+                  onClick={() => void handleCreateFirstHostedApproval()}
+                >
+                  {busyState === "seed_approval" ? "Creating approval..." : "Seed approval"}
+                </button>
+                <a className="product-button product-button-solid" href={selectedHostTrackCtaHref}>
+                  {selectedHostTrackCtaLabel}
+                </a>
+                <button
+                  className="product-button product-button-ghost"
+                  disabled={!selectedHostTrack.snippet}
+                  onClick={() => void handleCopy(selectedHostTrack.snippet, `${selectedHostTrack.label} first action`)}
+                >
+                  Copy first action
+                </button>
+              </div>
+            </div>
+            <CodeBlock
+              title={`${selectedHostTrack.label} first action`}
+              code={selectedHostTrack.snippet}
+              hint="Do the minimum thing that proves this host can create an intent, open hosted approval, and later bind to one receipt."
+            />
+          </div>
           <div className="product-access-grid">
             {activationChannels.map((channel) => (
               <div key={`activation_channel:${channel.label}`} className="product-access-card">
@@ -5225,6 +5601,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? `Latest attempt ${latestFirstPaidAttempt.attemptId ?? "n/a"} ended with verification ${firstPaidVerificationLabel.toLowerCase()} and settlement ${firstPaidSettlementLabel.toLowerCase()}.`
               : "Use this to prove the first real Action Wallet flow from bootstrap to released settlement without leaving onboarding."}
           </div>
+          <div className={`product-inline-note ${focusedFirstPaidAttemptTone}`}>
+            {focusedFirstPaidAttempt
+              ? `Focused attempt ${focusedFirstPaidAttemptId || "n/a"} is the active proof loop with verification ${focusedFirstPaidVerificationLabel.toLowerCase()} and settlement ${focusedFirstPaidSettlementLabel.toLowerCase()}.`
+              : "Pick or run one attempt, then keep the same approval, run, receipt, and recourse chain visible below."}
+          </div>
           {firstPaidCallState.error ? <div className="product-inline-note bad">{firstPaidCallState.error}</div> : null}
           <div className="product-actions">
             <button className="product-button product-button-solid" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void handleRunFirstPaidCall()}>
@@ -5263,6 +5644,21 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 })}
               </select>
             </label>
+          </div>
+          <div className="product-access-grid product-onboarding-proof-artifacts">
+            {focusedProofArtifacts.map((artifact) => (
+              <div key={`focused_proof_artifact:${artifact.id}`} className="product-access-card product-access-card-activation">
+                <div className="product-mini-card-head">
+                  <ShieldCheck size={18} />
+                  <span>{artifact.label}</span>
+                </div>
+                <strong>{artifact.value}</strong>
+                <p>{artifact.detail}</p>
+                <div className="product-actions">
+                  <a className="product-button product-button-ghost" href={artifact.href}>{artifact.cta}</a>
+                </div>
+              </div>
+            ))}
           </div>
           {(latestFirstPaidRunId || latestFirstPaidReceiptId) ? (
             <div className="product-actions">
@@ -5308,6 +5704,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 ? "Conformance is green for the current onboarding target set."
                 : "Conformance completed but at least one launch-host or runtime check still needs attention."
               : "Run the conformance matrix after bootstrap to verify runtime bootstrap, smoke, and first paid flow together."}
+          </div>
+          <div className="product-inline-note product-inline-note-plain">
+            <strong>Current launch target</strong>
+            <span>Keep conformance green for {selectedHostTrack.label} before widening to additional hosts or surfaces.</span>
           </div>
           {conformanceState.error ? <div className="product-inline-note bad">{conformanceState.error}</div> : null}
           <div className="product-actions">
