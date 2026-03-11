@@ -693,6 +693,225 @@ function IntegrationsPage() {
   );
 }
 
+function OnboardingPage() {
+  const activationSteps = [
+    {
+      title: "Create the runtime identity",
+      body: "Issue the workspace, operator identity, and API key that Action Wallet uses to bind approvals, receipts, and disputes."
+    },
+    {
+      title: "Connect one host",
+      body: "Start with Claude MCP, OpenClaw, Codex, CLI, or API. One host path should feel boring before you widen the surface."
+    },
+    {
+      title: "Complete one governed action",
+      body: "Open a hosted approval, finish the run, and close the loop with a receipt plus recourse instead of a shell-only success state."
+    }
+  ];
+
+  const readinessCards = [
+    {
+      label: "Identity",
+      value: "Workspace + operator",
+      body: "No anonymous runtime. Every governed action starts from an issued identity and a revocable trust boundary."
+    },
+    {
+      label: "Runtime",
+      value: "One host, one loop",
+      body: "The first win is not a big dashboard. It is install to approval to receipt without handholding."
+    },
+    {
+      label: "Proof",
+      value: "Receipt + dispute",
+      body: "The flow is only real when the same action can later be verified, challenged, and unwound."
+    }
+  ];
+
+  const hostTracks = [
+    {
+      title: "Claude MCP",
+      body: "Best first host when you want the cleanest approval handoff and the most direct proof that the runtime contract works.",
+      href: docsLinks.claudeDesktopQuickstart,
+      ctaLabel: "Claude quickstart"
+    },
+    {
+      title: "OpenClaw",
+      body: "Use the same Action Wallet contract inside an agent framework and keep approval, receipt, and recourse on Nooterra surfaces.",
+      href: docsLinks.openClawQuickstart,
+      ctaLabel: "OpenClaw guide"
+    },
+    {
+      title: "Codex / CLI / API",
+      body: "Best engineering path when you want a direct runtime integration, scripted tests, and one explicit first governed action.",
+      href: docsLinks.codexEngineeringQuickstart,
+      ctaLabel: "Engineering guide"
+    }
+  ];
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[72vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Onboarding</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                Issue the wallet.
+                <br />
+                Run the first governed action.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                This is the shortest path from curiosity to a live Action Wallet runtime. Create the workspace, connect one host, and close the first action with approval, receipt, and recourse.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a
+                  href="#identity-access"
+                  className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
+                >
+                  Create workspace <ArrowRight size={16} />
+                </a>
+                <a
+                  href={docsLinks.hostQuickstart}
+                  className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5"
+                >
+                  Launch host guide <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Activation rail</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    What good onboarding does.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  First value only
+                </div>
+              </div>
+              <div className="space-y-3">
+                {activationSteps.map((item, index) => (
+                  <div key={item.title} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-16 px-6 py-24 lg:grid-cols-[1.1fr,0.9fr] lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">First live loop</p>
+            <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              The activation bar is simple.
+            </h2>
+            <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">
+              The onboarding flow should not dump people into a blank app shell. It should issue the runtime, point them at one host, and make the first approval and receipt path obvious.
+            </p>
+          </FadeIn>
+          <div className="grid gap-4">
+            {readinessCards.map((card, index) => (
+              <FadeIn key={card.label} delay={0.1 * index}>
+                <div className="lovable-panel">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{card.label}</p>
+                  <h3 className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {card.value}
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-400">{card.body}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="identity-access" className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+          <FadeIn>
+            <div className="lovable-panel lovable-cta-band">
+              <div className="grid gap-8 lg:grid-cols-[1fr,18rem] lg:items-end">
+                <div>
+                  <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Identity and access</p>
+                  <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    Create the workspace once.
+                  </h2>
+                  <p className="mt-4 max-w-2xl text-stone-400">
+                    Issuing the workspace is the only setup you should feel. It creates the identity, passkey path, and runtime boundary the live Action Wallet depends on.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-[#0d1218] p-5">
+                  <div className="flex items-center gap-3">
+                    <Lock className="h-4 w-4 text-[#d2b06f]" />
+                    <p className="text-sm font-medium text-stone-100">Managed auth plane</p>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-400">
+                    Work email, company, and operator identity. No giant admin setup before the first governed action.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <FadeIn>
+            <div className="mb-12 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Choose one host</p>
+                <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Start narrow. Prove the loop.
+                </h2>
+              </div>
+              <p className="max-w-2xl text-sm leading-relaxed text-stone-400">
+                The launch bar is not broad compatibility. It is one host path that gets from install to hosted approval to receipt without confusion.
+              </p>
+            </div>
+          </FadeIn>
+          <div className="grid gap-5 lg:grid-cols-3">
+            {hostTracks.map((track, index) => (
+              <FadeIn key={track.title} delay={0.08 * index}>
+                <div className="lovable-panel h-full">
+                  <div className="mb-4 flex items-center gap-3">
+                    <Shield className="h-4 w-4 text-[#d2b06f]" />
+                    <h3 className="text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                      {track.title}
+                    </h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-stone-400">{track.body}</p>
+                  <a
+                    href={track.href}
+                    className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]"
+                  >
+                    {track.ctaLabel} <ArrowRight size={14} />
+                  </a>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
 function TrustEntryPage({
   eyebrow,
   title,
@@ -846,6 +1065,7 @@ function TrustEntryPage({
 export default function LovableSite({ mode = "home" }) {
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
+  if (mode === "onboarding") return <OnboardingPage />;
   if (mode === "wallet") {
     return (
       <TrustEntryPage
