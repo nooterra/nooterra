@@ -135,6 +135,51 @@ Nooterra invariants still apply during incidents:
 - Verify worker process uptime and claim/retry logs.
 - Scale worker replicas or reduce downstream failure rate before reprocessing.
 
+### 11) Finalize backlog / receipt issuance lag
+
+**Trigger**
+- `launchEventSummary.totals["finalize.requested"] - launchEventSummary.totals["receipt.issued"] > 0` for 10m
+- `metrics.approvals.approvedPendingResume > 0` while unresolved runs continue to grow
+
+**First actions**
+- Call `GET /ops/network/phase1-metrics?staleRunMinutes=60`.
+- Inspect:
+  - `metrics.launchEventSummary.totals["finalize.requested"]`
+  - `metrics.launchEventSummary.totals["receipt.issued"]`
+  - `metrics.approvals.approvedPendingResume`
+  - `metrics.totals.unresolvedRuns`
+- Open the operator rescue queue and resolve the oldest finalize blockers first.
+- If receipt issuance is lagging behind finalization, keep launch blocked until the trust surface catches up.
+
+### 12) Host runtime spike / rescue surge
+
+**Trigger**
+- `sum(metrics.byChannel[*].rescueOpenRuns + unresolvedRuns + approvalsPending) >= 2` for a launch host
+- repeated rescue growth on `Claude MCP`, `OpenClaw`, or `Codex/API/CLI`
+
+**First actions**
+- Call `GET /ops/network/phase1-metrics?staleRunMinutes=60`.
+- Sort `metrics.byChannel` by `rescueOpenRuns`, `unresolvedRuns`, and `approvalsPending`.
+- If a single host dominates, use emergency controls to pause/quarantine that channel before customer impact spreads.
+- Re-run the exact host quickstart on a clean environment and confirm install-to-first-approval still works.
+
+### 13) Money-rail payment mismatch / reconciliation drift
+
+**Trigger**
+- `summary.criticalMismatchCount > 0`
+- any `terminalFailures`, `missingOperations`, or `destinationMismatches` appear in `/ops/finance/money-rails/reconcile`
+
+**First actions**
+- Call `GET /ops/finance/money-rails/reconcile?period=YYYY-MM`.
+- Inspect:
+  - `summary.criticalMismatchCount`
+  - `mismatches.terminalFailures`
+  - `mismatches.missingOperations`
+  - `mismatches.destinationMismatches`
+  - `triageQueue`
+- Freeze payout/release promotion until the mismatch is understood.
+- If drift involves a payout destination or missing operation, treat it as finance-critical and follow the money-rail reconciliation packet path.
+
 ## Prometheus rule examples
 
 These are examples; tune thresholds for your pilot volume and SLOs.

@@ -86,7 +86,22 @@ Expected report path:
 
 `artifacts/ops/launch-security-review.json`
 
-5. Run OpenClaw operator readiness gate (hosted + self-host):
+5. Run launch alerting report and keep the report in the release packet:
+
+```bash
+npm run ops:launch-alerting:report -- \
+  --base-url https://api.nooterra.work \
+  --tenant-id tenant_default \
+  --ops-token "$NOOTERRA_OPS_TOKEN" \
+  --period "$(date -u +%Y-%m)" \
+  --out ./artifacts/ops/launch-alerting-report.json
+```
+
+Expected report path:
+
+`artifacts/ops/launch-alerting-report.json`
+
+6. Run OpenClaw operator readiness gate (hosted + self-host):
 
 ```bash
 node scripts/ops/openclaw-operator-readiness-gate.mjs \
@@ -219,6 +234,8 @@ Expected report path:
 3. Onboarding host success gate is green (`artifacts/gates/onboarding-host-success-gate.json`).
 4. Hosted baseline evidence is green.
 5. Launch security review report is green (`artifacts/ops/launch-security-review.json`).
+5. Launch abuse controls report is green (`artifacts/ops/launch-abuse-report.json`).
+5. Launch alerting report is green (`artifacts/ops/launch-alerting-report.json`).
 6. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
