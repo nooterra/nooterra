@@ -19132,8 +19132,40 @@ if (process.env.MAGIC_LINK_DISABLE_LISTEN !== "1") {
   }
 }
 
+let shutdownInFlight = false;
+
+async function shutdown(signal) {
+  if (shutdownInFlight) return;
+  shutdownInFlight = true;
+  logger.info("magic_link.shutdown", {
+    eventId: "magic_link_shutdown",
+    reasonCode: "PROCESS_SIGNAL",
+    signal: signal ?? "unknown",
+    transport: socketPath ? "unix" : "tcp"
+  });
+  try {
+    await new Promise((resolve) => {
+      try {
+        magicLinkServer.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+    if (socketPath) {
+      try {
+        await fs.rm(socketPath, { force: true });
+      } catch {
+        // ignore socket cleanup failure
+      }
+    }
+  } finally {
+    await flushNodeSentry();
+    process.exit(0);
+  }
+}
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    void flushNodeSentry();
+    void shutdown(signal);
   });
 }
