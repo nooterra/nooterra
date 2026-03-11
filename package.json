@@ -197,6 +197,7 @@
     "ops:launch-abuse:report": "node scripts/ops/run-launch-abuse-report.mjs",
     "ops:launch-alerting:report": "node scripts/ops/run-launch-alerting-report.mjs",
     "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
+    "ops:launch-structured-logging:review": "node scripts/ops/run-launch-structured-logging-review.mjs",
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
     "release:artifacts": "node scripts/release/build-artifacts.mjs",

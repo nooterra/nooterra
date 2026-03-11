@@ -110,8 +110,6 @@ npm run -s test:ops:release-promotion-guard -- \
 ```
 
 ## DR: backup/restore drill
-
-<<<<<<< HEAD
 Use the deterministic wrapper below to prove restore correctness and archive a machine-readable report:
 
 ```bash
@@ -172,3 +170,19 @@ npm run ops:launch-abuse:report -- \
 ```
 
 The report is fail-closed. `status="fail"` means launch stays blocked until the underlying approval, host, or payment signal is resolved or explicitly understood.
+
+## Launch structured logging review
+
+Run:
+
+```sh
+npm run ops:launch-structured-logging:review -- --out artifacts/ops/launch-structured-logging-review.json
+```
+
+This emits `LaunchStructuredLoggingReviewReport.v1` and fails closed if launch logging evidence is missing for:
+
+- structured logger core JSON/redaction support
+- API runtime Action Wallet / verifier / payment event logging
+- magic-link startup and durability warnings
+- x402 gateway startup metadata
+- MCP host-pack stderr events with stable `eventId` and `reasonCode`

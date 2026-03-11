@@ -16,6 +16,7 @@ import { readToolCommitBestEffort, readToolVersionBestEffort } from "../../../pa
 import { buildInvoiceSummaryPdf, buildInvoiceSummaryPdfFromClaim } from "./pdf.js";
 import { buildDeterministicZipStore } from "../../../src/core/deterministic-zip.js";
 import { createMetrics } from "../../../src/core/metrics.js";
+import { logger } from "../../../src/core/log.js";
 import { signHashHexEd25519 } from "../../../src/core/crypto.js";
 import { SLA_POLICY_TEMPLATE_CATALOG_VERSION, listSlaPolicyTemplates, renderSlaPolicyTemplate } from "../../../src/core/sla-policy-templates.js";
 import {
@@ -1173,10 +1174,12 @@ await fs.mkdir(dataDir, { recursive: true });
 const dataDirFormat = await checkAndMigrateDataDir({ dataDir, migrateOnStartup });
 if (!dataDirFormat.ok) throw new Error(`magic-link data dir check failed: ${dataDirFormat.code ?? "UNKNOWN"}`);
 if (dataDirLikelyEphemeral) {
-  // eslint-disable-next-line no-console
-  console.warn(
-    `magic-link warning: MAGIC_LINK_DATA_DIR (${dataDir}) is likely ephemeral; use a persistent volume and set MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1 in production`
-  );
+  logger.warn("magic_link.data_dir_ephemeral", {
+    eventId: "magic_link_data_dir_ephemeral",
+    reasonCode: "DATA_DIR_LIKELY_EPHEMERAL",
+    dataDir,
+    requireDurableDataDir: process.env.MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR ?? null
+  });
 }
 
 function recordVerifyDurationMs(ms) {
@@ -19086,16 +19089,27 @@ if (process.env.MAGIC_LINK_DISABLE_LISTEN !== "1") {
       if (err?.code !== "ENOENT") throw err;
     }
     magicLinkServer.listen(socketPath, () => {
-      // eslint-disable-next-line no-console
-      console.log(`magic-link listening on unix:${socketPath} dataDir=${dataDir}`);
+      logger.info("magic_link.listen", {
+        eventId: "magic_link_listen",
+        reasonCode: "SERVICE_READY",
+        transport: "unix",
+        socketPath,
+        dataDir
+      });
       startArchiveExportScheduler();
     });
   } else {
     magicLinkServer.listen(port, host, () => {
       const addr = magicLinkServer.address();
       const actualPort = typeof addr === "object" && addr && typeof addr.port === "number" ? addr.port : port;
-      // eslint-disable-next-line no-console
-      console.log(`magic-link listening on ${host}:${actualPort} dataDir=${dataDir}`);
+      logger.info("magic_link.listen", {
+        eventId: "magic_link_listen",
+        reasonCode: "SERVICE_READY",
+        transport: "tcp",
+        host,
+        port: actualPort,
+        dataDir
+      });
       startArchiveExportScheduler();
     });
   }
