@@ -65,6 +65,33 @@ If you only need the public runtime path, the important part is that the same te
 
 From Codex, the shortest install-to-first-approval loop is:
 
+```bash
+NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
+```
+
+Or, if you want the script to create the workspace for you:
+
+```bash
+NOOTERRA_SIGNUP_EMAIL=founder@example.com \
+NOOTERRA_SIGNUP_COMPANY="Nooterra" \
+NOOTERRA_SIGNUP_NAME="Founding User" \
+npm run quickstart:action-wallet:first-approval
+```
+
+The script prints only the launch artifacts you need next:
+
+- `tenantId`
+- `approval.requestId`
+- `approval.approvalUrl`
+- `smoke.toolsCount`
+- `firstPaid.runId`
+- `firstPaid.receiptId`
+- `firstPaid.receiptUrl`
+- `firstPaid.verificationStatus`
+- `firstPaid.settlementStatus`
+
+Set `NOOTERRA_SKIP_FIRST_PAID_CALL=1` if you only want to stop after seeding the first hosted approval.
+
 1. create an action intent
 2. request approval
 3. print or return only `approvalUrl`, `actionIntentId`, and `requestId`

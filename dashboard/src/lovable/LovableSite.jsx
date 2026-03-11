@@ -415,29 +415,38 @@ const result = await claw.execute({
     {
       id: "cli",
       label: "CLI",
-      desc: "Manage policies, inspect receipts, and configure wallets from your terminal.",
+      desc: "Run the managed onboarding loop from your terminal and keep approvals, receipts, and disputes on the hosted Nooterra surfaces.",
       docsHref: docsLinks.codexEngineeringQuickstart,
       docsLabel: "CLI / Codex guide",
-      code: `npm install -g @nooterra/cli
-nooterra auth login
-nooterra wallet create --name "production-agent"
-nooterra receipts list --wallet prod-agent --last 24h`
+      code: `# Reuse an existing workspace
+NOOTERRA_TENANT_ID=tenant_example \\
+npm run quickstart:action-wallet:first-approval
+
+# Or create one on the fly
+NOOTERRA_SIGNUP_EMAIL=founder@example.com \\
+NOOTERRA_SIGNUP_COMPANY="Nooterra" \\
+NOOTERRA_SIGNUP_NAME="Founding User" \\
+npm run quickstart:action-wallet:first-approval`
     },
     {
       id: "api",
       label: "REST API",
-      desc: "Direct HTTP integration for approvals, grants, receipts, and dispute resolution.",
+      desc: "Direct HTTP integration for the same runtime contract used by Claude MCP, OpenClaw, Codex, and CLI.",
       docsHref: docsLinks.api,
       docsLabel: "API reference",
-      code: `curl -X POST https://api.nooterra.com/v1/approve \\
-  -H "Authorization: Bearer nt_live_..." \\
+      code: `# Open one hosted approval through the onboarding path
+curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/seed-hosted-approval \\
+  -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "wallet_id": "wal_abc123",
-    "action": "purchase",
-    "amount": 49.99,
-    "currency": "USD"
-  }'`
+    "hostTrack": "codex"
+  }'
+
+# Then close the same governed loop with one receipt
+curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/first-paid-call \\
+  -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{}'`
     }
   ];
   const [activeTab, setActiveTab] = useState("mcp");
@@ -455,13 +464,13 @@ nooterra receipts list --wallet prod-agent --last 24h`
     },
     cli: {
       title: "First governed action",
-      body: "Export the runtime values, create one intent from the terminal, and hand the user into hosted approval instead of building local approval UX.",
-      success: "What good looks like: the terminal creates the intent, but the proof record lives in the hosted receipt trail."
+      body: "Bootstrap one workspace, seed one hosted approval, and let the terminal print the exact approval URL, run id, and receipt URL instead of improvising shell-only UX.",
+      success: "What good looks like: the terminal proves the same approval and receipt contract as the hosted product, with no local-only success path."
     },
     api: {
       title: "First governed action",
-      body: "Create one medium-risk intent over HTTP, require approval, and then verify the finished run later issues a receipt against the same intent.",
-      success: "What good looks like: one API call opens approval, one governed run closes with a receipt, and recourse stays available."
+      body: "Use the managed onboarding endpoints first, not a bespoke action prototype. Open approval from the API, then close the same run with a receipt and dispute trail.",
+      success: "What good looks like: one API path reaches hosted approval, one managed call issues the receipt, and recourse stays linked to the same tenant."
     }
   };
   const activeTrack = firstActionTracks[active.id] ?? firstActionTracks.mcp;

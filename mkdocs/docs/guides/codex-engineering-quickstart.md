@@ -19,7 +19,7 @@ npx -y nooterra@latest setup
 Or export tenant-scoped runtime values directly:
 
 ```bash
-export NOOTERRA_BASE_URL="https://api.nooterra.ai"
+export NOOTERRA_BASE_URL="https://api.nooterra.work"
 export NOOTERRA_TENANT_ID="tenant_example"
 export NOOTERRA_API_KEY="sk_example.secret"
 ```

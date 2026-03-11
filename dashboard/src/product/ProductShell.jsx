@@ -2054,7 +2054,7 @@ function RuntimeBar({ config, setConfig, onboardingState }) {
           <input
             value={config.baseUrl}
             onChange={(event) => setConfig((previous) => ({ ...previous, baseUrl: event.target.value }))}
-            placeholder="/__nooterra or https://api.nooterra.ai"
+            placeholder="/__nooterra or https://api.nooterra.work"
           />
         </label>
         <label>
