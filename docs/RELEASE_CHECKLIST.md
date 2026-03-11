@@ -23,6 +23,15 @@ This checklist is the “no surprises” gate for shipping Nooterra as a product
 - Staging billing smoke secrets are configured for `.github/workflows/release.yml`:
   - `NOOTERRA_STAGING_BASE_URL`
   - `NOOTERRA_STAGING_OPS_TOKEN`
+- Launch synthetic smoke secrets are configured for `.github/workflows/launch-synthetic-smokes.yml`:
+  - `NOOTERRA_STAGING_BASE_URL`
+  - `NOOTERRA_STAGING_TENANT_ID` (optional; defaults to `tenant_default`)
+  - `NOOTERRA_STAGING_API_KEY`
+  - `NOOTERRA_STAGING_ONBOARDING_PROBE_EMAIL` (optional)
+  - `NOOTERRA_PRODUCTION_BASE_URL`
+  - `NOOTERRA_PRODUCTION_TENANT_ID` (optional; defaults to `tenant_default`)
+  - `NOOTERRA_PRODUCTION_API_KEY`
+  - `NOOTERRA_PRODUCTION_ONBOARDING_PROBE_EMAIL` (optional)
 - npm publish secret is configured for `.github/workflows/release.yml` if you want direct registry distribution:
   - `NPM_TOKEN`
 - Optional launch cutover packet signing inputs are configured for `.github/workflows/go-live-gate.yml` if signed packets are required:
