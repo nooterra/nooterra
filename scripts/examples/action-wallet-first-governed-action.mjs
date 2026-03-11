@@ -14,6 +14,8 @@ function printHelp() {
       "",
       "Environment:",
       "  NOOTERRA_BASE_URL        API base URL (default: https://api.nooterra.work)",
+      "  NOOTERRA_WEBSITE_BASE_URL  Website base URL for hosted approval/receipt/dispute links",
+      "  NOOTERRA_VERIFY_HOSTED_ROUTES  Set to 1/true/yes to verify hosted approval/receipt/dispute pages resolve",
       "  NOOTERRA_TENANT_ID       Existing tenant to reuse",
       "  NOOTERRA_SIGNUP_EMAIL    Signup email when creating a tenant",
       "  NOOTERRA_SIGNUP_COMPANY  Signup company when creating a tenant",
@@ -81,6 +83,80 @@ async function requestJson({ baseUrl, pathname, method = "GET", body = null }) {
   return json;
 }
 
+async function requestHtml(url) {
+  const res = await fetch(url, {
+    headers: {
+      accept: "text/html,application/xhtml+xml"
+    }
+  });
+  const body = await res.text();
+  return {
+    ok: res.ok,
+    statusCode: res.status,
+    contentType: String(res.headers.get("content-type") ?? "").toLowerCase(),
+    body
+  };
+}
+
+function looksLikeHtmlDocument(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+async function verifyHostedRoute(url, fieldName) {
+  const page = await requestHtml(url);
+  if (!page.ok || !page.contentType.includes("text/html") || !looksLikeHtmlDocument(page.body)) {
+    throw new Error(`${fieldName} did not resolve to a hosted HTML page`);
+  }
+  return {
+    fieldName,
+    url,
+    statusCode: page.statusCode,
+    contentType: page.contentType,
+    ok: true
+  };
+}
+
+function resolveHostedUrl(candidate, { websiteBaseUrl, fieldName, fallbackPath = "" } = {}) {
+  const raw = typeof candidate === "string" ? candidate.trim() : "";
+  if (raw) {
+    try {
+      return new URL(raw).toString();
+    } catch {
+      if (raw.startsWith("/")) {
+        if (!websiteBaseUrl) {
+          throw new Error(`${fieldName} returned a relative path but NOOTERRA_WEBSITE_BASE_URL is not configured`);
+        }
+        return new URL(raw, `${websiteBaseUrl}/`).toString();
+      }
+      throw new Error(`${fieldName} must be an absolute URL or root-relative path`);
+    }
+  }
+  if (fallbackPath) {
+    if (!websiteBaseUrl) {
+      throw new Error(`${fieldName} is missing and NOOTERRA_WEBSITE_BASE_URL is not configured for fallback resolution`);
+    }
+    return new URL(fallbackPath, `${websiteBaseUrl}/`).toString();
+  }
+  throw new Error(`${fieldName} is required`);
+}
+
+function buildNextSteps({ hostTrack, approvalUrl, receiptUrl, disputeUrl }) {
+  const hostGuidance = {
+    claude: "Approve the request in your browser, then return to Claude and continue the task from the same conversation.",
+    openclaw: "Approve the request in your browser, then return to OpenClaw and rerun the pending governed action.",
+    codex: "Approve the request in your browser, then return to Codex and resume the same governed workflow."
+  };
+  const steps = [
+    `Open the hosted approval page: ${approvalUrl}`,
+    hostGuidance[hostTrack] ?? hostGuidance.codex,
+    `Open the hosted receipt after execution: ${receiptUrl}`
+  ];
+  if (disputeUrl) {
+    steps.push(`If the action looks wrong, open recourse directly: ${disputeUrl}`);
+  }
+  return steps;
+}
 async function resolveTenantId(baseUrl) {
   const existingTenantId = typeof process.env.NOOTERRA_TENANT_ID === "string" ? process.env.NOOTERRA_TENANT_ID.trim() : "";
   if (existingTenantId !== "") return { tenantId: existingTenantId, created: false };
@@ -111,6 +187,7 @@ async function main() {
   const baseUrl = baseUrlFromEnv();
   const hostTrack = normalizeHostTrack(process.env.NOOTERRA_HOST_TRACK);
   const skipFirstPaidCall = envFlagEnabled("NOOTERRA_SKIP_FIRST_PAID_CALL");
+  const verifyHostedRoutes = envFlagEnabled("NOOTERRA_VERIFY_HOSTED_ROUTES");
   const tenant = await resolveTenantId(baseUrl);
 
   const bootstrap = await requestJson({
@@ -171,6 +248,11 @@ async function main() {
   const summary = {
     schemaVersion: "ActionWalletFirstGovernedAction.v1",
     baseUrl,
+<<<<<<< HEAD
+=======
+    websiteBaseUrl: websiteBaseUrl || null,
+    verifyHostedRoutes,
+>>>>>>> 106bfa1 (Verify hosted routes in first governed action flow)
     tenantId: tenant.tenantId,
     tenantCreated: tenant.created,
     hostTrack,
@@ -201,8 +283,29 @@ async function main() {
     runtime: {
       tenantId: runtimeEnv?.NOOTERRA_TENANT_ID ?? null,
       apiKeyIssued: typeof runtimeEnv?.NOOTERRA_API_KEY === "string" && runtimeEnv.NOOTERRA_API_KEY.trim() !== ""
+<<<<<<< HEAD
     }
+=======
+    },
+    nextSteps: buildNextSteps({
+      hostTrack,
+      approvalUrl,
+      receiptUrl: resolvedReceiptUrl ?? approvalUrl,
+      disputeUrl: resolvedDisputeUrl
+    }),
+    hostedRouteChecks: []
+>>>>>>> 106bfa1 (Verify hosted routes in first governed action flow)
   };
+
+  if (verifyHostedRoutes) {
+    summary.hostedRouteChecks.push(await verifyHostedRoute(approvalUrl, "approvalUrl"));
+    if (resolvedReceiptUrl) {
+      summary.hostedRouteChecks.push(await verifyHostedRoute(resolvedReceiptUrl, "receiptUrl"));
+    }
+    if (resolvedDisputeUrl) {
+      summary.hostedRouteChecks.push(await verifyHostedRoute(resolvedDisputeUrl, "disputeUrl"));
+    }
+  }
 
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
