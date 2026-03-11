@@ -4627,6 +4627,89 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     }
   }
 
+  async function handleCreateFirstHostedApproval() {
+    if (!buyer?.tenantId) {
+      setStatusMessage("Create or recover the workspace before seeding the first hosted approval.");
+      jumpToPageAnchor("#identity-access");
+      return;
+    }
+    if (!runtime.baseUrl || !runtime.apiKey) {
+      setStatusMessage("Issue Runtime Bootstrap before creating the first hosted approval.");
+      jumpToPageAnchor("#runtime-bootstrap");
+      return;
+    }
+    const hostRuntime =
+      selectedHostTrack.id === "claude"
+        ? "claude-desktop"
+        : selectedHostTrack.id === "openclaw"
+          ? "openclaw"
+          : "codex";
+    const hostChannel =
+      selectedHostTrack.id === "codex"
+        ? "api"
+        : "mcp";
+    const actionIntentId = createClientId(`onboarding_${selectedHostTrack.id}_intent`);
+    const requestId = createClientId(`onboarding_${selectedHostTrack.id}_approval`);
+    const actorAgentId = `agt_onboarding_${selectedHostTrack.id}`;
+    setBusyState("seed_approval");
+    setStatusMessage(`Creating the first hosted approval for ${selectedHostTrack.label}...`);
+    try {
+      const createdIntent = await requestJson({
+        baseUrl: runtime.baseUrl,
+        pathname: "/v1/action-intents",
+        method: "POST",
+        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("onboarding_seed_intent") }),
+        body: {
+          actionIntentId,
+          actorAgentId,
+          principalId: buyer?.buyerId ?? buyer?.email ?? buyer?.tenantId,
+          purpose: selectedHostTrack.id === "openclaw"
+            ? "Cancel an unused subscription after approval"
+            : "Buy a replacement charger after approval",
+          capabilitiesRequested: ["capability://workflow.intake"],
+          spendEnvelope: {
+            currency: "USD",
+            maxPerCallCents: selectedHostTrack.id === "openclaw" ? 0 : 6_000,
+            maxTotalCents: selectedHostTrack.id === "openclaw" ? 0 : 6_000
+          },
+          evidenceRequirements: selectedHostTrack.id === "openclaw"
+            ? ["cancellation_confirmation", "refund_status"]
+            : ["merchant_receipt", "order_confirmation"],
+          host: {
+            runtime: hostRuntime,
+            channel: hostChannel,
+            source: "dashboard-onboarding"
+          }
+        }
+      });
+      const approvalRequested = await requestJson({
+        baseUrl: runtime.baseUrl,
+        pathname: `/v1/action-intents/${encodeURIComponent(createdIntent?.actionIntent?.actionIntentId ?? actionIntentId)}/approval-requests`,
+        method: "POST",
+        headers: buildHeaders({ ...runtime, write: true, idempotencyKey: createClientId("onboarding_seed_approval") }),
+        body: {
+          requestId,
+          requestedBy: actorAgentId
+        }
+      });
+      await refreshOnboardingMetrics().catch(() => {});
+      const approvalUrl = pickFirstString(
+        approvalRequested?.approvalUrl,
+        approvalRequested?.actionIntent?.approvalUrl,
+        `/approvals?requestId=${encodeURIComponent(approvalRequested?.approvalRequest?.requestId ?? requestId)}`
+      );
+      setStatusMessage(`Hosted approval ${approvalRequested?.approvalRequest?.requestId ?? requestId} is live for ${selectedHostTrack.label}.`);
+      if (typeof window !== "undefined" && approvalUrl) {
+        window.location.assign(approvalUrl);
+        return;
+      }
+    } catch (error) {
+      setStatusMessage(`First hosted approval failed: ${error.message}`);
+    } finally {
+      setBusyState("");
+    }
+  }
+
   async function handleRunConformanceMatrix() {
     const tenantId = buyer?.tenantId;
     if (!tenantId) {
@@ -5359,6 +5442,13 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             ))}
           </div>
           <div className="product-actions">
+            <button
+              className="product-button product-button-solid"
+              disabled={busyState !== "" || !buyer?.tenantId || !runtime.baseUrl || !runtime.apiKey}
+              onClick={() => void handleCreateFirstHostedApproval()}
+            >
+              {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
+            </button>
             <a className="product-button product-button-solid" href={firstActionPrimaryHref}>
               {firstActionPrimaryLabel}
             </a>
@@ -5440,6 +5530,13 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 <span>{selectedHostTrack.success}</span>
               </div>
               <div className="product-actions">
+                <button
+                  className="product-button product-button-ghost"
+                  disabled={busyState !== "" || !buyer?.tenantId || !runtime.baseUrl || !runtime.apiKey}
+                  onClick={() => void handleCreateFirstHostedApproval()}
+                >
+                  {busyState === "seed_approval" ? "Creating approval..." : "Seed approval"}
+                </button>
                 <a className="product-button product-button-solid" href={selectedHostTrackCtaHref}>
                   {selectedHostTrackCtaLabel}
                 </a>
