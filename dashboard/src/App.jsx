@@ -85,9 +85,20 @@ function hasManagedRuntimeSession() {
   }
 }
 
+function prefersManagedOnboardingFlow() {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("experience") === "app";
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const route = getRouteMode();
   const hasManagedRuntime = hasManagedRuntimeSession();
+  const wantsManagedOnboarding = route.mode === "onboarding" && prefersManagedOnboardingFlow();
   const alwaysPublicModes = new Set(["home", "developers", "integrations"]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "onboarding"]);
   if (route.mode === "operator") {
@@ -97,7 +108,10 @@ export default function App() {
       </Suspense>
     );
   }
-  if (alwaysPublicModes.has(route.mode) || (trustEntryModes.has(route.mode) && !hasManagedRuntime)) {
+  if (
+    alwaysPublicModes.has(route.mode) ||
+    (trustEntryModes.has(route.mode) && !hasManagedRuntime && !wantsManagedOnboarding)
+  ) {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
         <LovableSite mode={route.mode} />
