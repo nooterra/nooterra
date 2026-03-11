@@ -500,6 +500,24 @@ function replaceCurrentSearchParams(updates = {}) {
   if (nextHref !== currentHref) window.history.replaceState({}, "", nextHref);
 }
 
+function jumpToPageAnchor(hash) {
+  if (typeof window === "undefined") return;
+  const normalizedHash = String(hash ?? "").trim().replace(/^#?/, "#");
+  if (!normalizedHash || normalizedHash === "#") return;
+  const nextUrl = new URL(window.location.href);
+  nextUrl.hash = normalizedHash;
+  const nextSearch = nextUrl.searchParams.toString();
+  const nextHref = `${nextUrl.pathname}${nextSearch ? `?${nextSearch}` : ""}${nextUrl.hash}`;
+  const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextHref !== currentHref) window.history.replaceState({}, "", nextHref);
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(normalizedHash);
+    if (target && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
 function validateWorkspaceSignupForm(signupForm) {
   const email = String(signupForm?.email ?? "").trim();
   const company = String(signupForm?.company ?? "").trim();
@@ -4309,6 +4327,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       setStatusMessage(
         `Workspace ${out?.tenantId ?? options?.tenantId ?? "created"} is live. ${principal?.email ?? signupForm.email} can now sign in from this browser with ${label}.`
       );
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Passkey workspace signup failed: ${error.message}`);
     } finally {
@@ -4376,6 +4395,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       });
       const principal = await loadBuyerSession();
       setStatusMessage(`Signed in as ${principal?.email ?? email} with the saved ${bundle.label || "device"} passkey. Runtime bootstrap is unlocked.`);
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Saved passkey sign-in failed: ${error.message}`);
     } finally {
@@ -4430,6 +4450,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       });
       const principal = await loadBuyerSession();
       setStatusMessage(`Signed in as ${principal?.email ?? out?.email ?? loginForm.email}. Runtime bootstrap is unlocked.`);
+      jumpToPageAnchor("#runtime-bootstrap");
     } catch (error) {
       setStatusMessage(`Recovery code verification failed: ${error.message}`);
     } finally {
@@ -4487,6 +4508,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         nextMessage = `Runtime bootstrap issued, but the smoke test failed: ${error.message}`;
       }
       setStatusMessage(nextMessage);
+      jumpToPageAnchor("#first-governed-action");
     } catch (error) {
       setStatusMessage(`Runtime bootstrap failed: ${error.message}`);
     } finally {
@@ -4592,6 +4614,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           : `First paid call ${out?.attemptId ?? "completed"}. Verification ${out?.verificationStatus ?? "unknown"}, settlement ${out?.settlementStatus ?? "unknown"}.`
       );
       await refreshOnboardingMetrics().catch(() => {});
+      jumpToPageAnchor("#first-live-paid-call");
     } catch (error) {
       setFirstPaidCallState((previous) => ({
         ...previous,
