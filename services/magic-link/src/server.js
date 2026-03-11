@@ -7088,6 +7088,7 @@ function normalizeFirstPaidCallAttemptRow(input) {
   };
   const startedAt = normalizeIso(input.startedAt) ?? nowIso();
   const completedAt = normalizeIso(input.completedAt);
+  const lastCheckedAt = normalizeIso(input.lastCheckedAt);
   const status = (() => {
     const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
     if (raw === "passed" || raw === "completed" || raw === "degraded" || raw === "failed") return raw;
@@ -7098,7 +7099,9 @@ function normalizeFirstPaidCallAttemptRow(input) {
     bidderAgentId: typeof input.ids.bidderAgentId === "string" ? input.ids.bidderAgentId : null,
     rfqId: typeof input.ids.rfqId === "string" ? input.ids.rfqId : null,
     bidId: typeof input.ids.bidId === "string" ? input.ids.bidId : null,
-    runId: typeof input.ids.runId === "string" ? input.ids.runId : null
+    runId: typeof input.ids.runId === "string" ? input.ids.runId : null,
+    receiptId: typeof input.ids.receiptId === "string" ? input.ids.receiptId : null,
+    disputeId: typeof input.ids.disputeId === "string" ? input.ids.disputeId : null
   } : null;
   const verificationStatus =
     typeof input.verificationStatus === "string" && input.verificationStatus.trim()
@@ -7139,6 +7142,7 @@ function normalizeFirstPaidCallAttemptRow(input) {
     attemptId,
     startedAt,
     completedAt,
+    lastCheckedAt,
     status,
     ids,
     verificationStatus,
@@ -7471,6 +7475,83 @@ function firstPaidCallExtractSettlementStatus(payload) {
   return null;
 }
 
+function firstPaidCallExtractReceiptId(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.receiptId === "string" && payload.receiptId.trim()) return payload.receiptId.trim();
+  if (
+    payload.settlementReceipt &&
+    typeof payload.settlementReceipt === "object" &&
+    !Array.isArray(payload.settlementReceipt) &&
+    typeof payload.settlementReceipt.receiptId === "string" &&
+    payload.settlementReceipt.receiptId.trim()
+  ) {
+    return payload.settlementReceipt.receiptId.trim();
+  }
+  if (
+    payload.settlement &&
+    typeof payload.settlement === "object" &&
+    !Array.isArray(payload.settlement) &&
+    typeof payload.settlement.receiptId === "string" &&
+    payload.settlement.receiptId.trim()
+  ) {
+    return payload.settlement.receiptId.trim();
+  }
+  return null;
+}
+
+function firstPaidCallExtractDisputeId(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.disputeId === "string" && payload.disputeId.trim()) return payload.disputeId.trim();
+  if (
+    payload.settlement &&
+    typeof payload.settlement === "object" &&
+    !Array.isArray(payload.settlement) &&
+    typeof payload.settlement.disputeId === "string" &&
+    payload.settlement.disputeId.trim()
+  ) {
+    return payload.settlement.disputeId.trim();
+  }
+  if (
+    payload.settlementReceipt &&
+    typeof payload.settlementReceipt === "object" &&
+    !Array.isArray(payload.settlementReceipt) &&
+    typeof payload.settlementReceipt.disputeId === "string" &&
+    payload.settlementReceipt.disputeId.trim()
+  ) {
+    return payload.settlementReceipt.disputeId.trim();
+  }
+  return null;
+}
+
+function firstPaidCallExtractRunDetailRefresh(detail) {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return {
+      verificationStatus: null,
+      settlementStatus: null,
+      receiptId: null,
+      disputeId: null
+    };
+  }
+  const settlementPacket =
+    detail.settlement && typeof detail.settlement === "object" && !Array.isArray(detail.settlement) ? detail.settlement : null;
+  const settlement =
+    settlementPacket?.settlement && typeof settlementPacket.settlement === "object" && !Array.isArray(settlementPacket.settlement)
+      ? settlementPacket.settlement
+      : settlementPacket;
+  const settlementReceipt =
+    settlementPacket?.settlementReceipt &&
+    typeof settlementPacket.settlementReceipt === "object" &&
+    !Array.isArray(settlementPacket.settlementReceipt)
+      ? settlementPacket.settlementReceipt
+      : null;
+  return {
+    verificationStatus: firstPaidCallExtractVerificationStatus(detail.verification ?? detail),
+    settlementStatus: firstPaidCallExtractSettlementStatus(settlement ?? settlementPacket),
+    receiptId: firstPaidCallExtractReceiptId(settlementReceipt ?? settlement ?? settlementPacket),
+    disputeId: firstPaidCallExtractDisputeId(settlement ?? settlementReceipt ?? settlementPacket)
+  };
+}
+
 async function runTenantFirstPaidCallFlow({
   tenantId,
   runtimeApiKey,
@@ -7664,6 +7745,8 @@ async function runTenantFirstPaidCallFlow({
 
   const verificationStatus = firstPaidCallExtractVerificationStatus(verification.response);
   const settlementStatus = firstPaidCallExtractSettlementStatus(settlement.response);
+  const receiptId = firstPaidCallExtractReceiptId(settlement.response);
+  const disputeId = firstPaidCallExtractDisputeId(settlement.response);
 
   return {
     ok: true,
@@ -7672,7 +7755,9 @@ async function runTenantFirstPaidCallFlow({
       bidderAgentId,
       rfqId,
       bidId,
-      runId
+      runId,
+      receiptId,
+      disputeId
     },
     verificationStatus,
     settlementStatus,
@@ -7681,11 +7766,127 @@ async function runTenantFirstPaidCallFlow({
   };
 }
 
+async function refreshTenantFirstPaidCallHistory({ tenantId } = {}) {
+  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
+  const candidates = history.attempts.filter(
+    (attempt) =>
+      String(attempt?.ids?.runId ?? "").trim() !== "" &&
+      String(attempt?.status ?? "").trim().toLowerCase() !== "failed"
+  );
+  if (candidates.length === 0) {
+    return { history, refreshed: false };
+  }
+
+  const bootstrap = await callNooterraTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        keyId: "ak_ml_first_paid_history",
+        description: "magic-link first paid history refresh runtime key"
+      }
+    }
+  });
+  if (!bootstrap.ok) {
+    return { history, refreshed: false, refreshError: { code: bootstrap.code ?? null, message: bootstrap.message ?? null } };
+  }
+
+  const runtimeApiKey =
+    typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
+  if (!runtimeApiKey) {
+    return {
+      history,
+      refreshed: false,
+      refreshError: {
+        code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+        message: "Nooterra bootstrap response missing runtime API key token"
+      }
+    };
+  }
+
+  const checkedAt = nowIso();
+  let changed = false;
+  const attempts = [];
+  for (const attempt of history.attempts) {
+    const runId = String(attempt?.ids?.runId ?? "").trim();
+    if (!runId || String(attempt?.status ?? "").trim().toLowerCase() === "failed") {
+      attempts.push(attempt);
+      continue;
+    }
+    const runLookup = await callNooterraTenantApi({
+      tenantId,
+      apiKey: runtimeApiKey,
+      method: "GET",
+      pathname: `/runs/${encodeURIComponent(runId)}`
+    });
+    if (!runLookup.ok) {
+      attempts.push(attempt);
+      continue;
+    }
+    const refreshed = firstPaidCallExtractRunDetailRefresh(runLookup.response?.detail ?? null);
+    const nextIds = {
+      ...(attempt.ids && typeof attempt.ids === "object" && !Array.isArray(attempt.ids) ? attempt.ids : {}),
+      runId,
+      receiptId:
+        refreshed.receiptId ??
+        (typeof attempt?.ids?.receiptId === "string" && attempt.ids.receiptId.trim() ? attempt.ids.receiptId.trim() : null),
+      disputeId:
+        refreshed.disputeId ??
+        (typeof attempt?.ids?.disputeId === "string" && attempt.ids.disputeId.trim() ? attempt.ids.disputeId.trim() : null)
+    };
+    const nextVerificationStatus = refreshed.verificationStatus ?? attempt.verificationStatus ?? null;
+    const nextSettlementStatus = refreshed.settlementStatus ?? attempt.settlementStatus ?? null;
+    const nextStatus =
+      String(attempt?.status ?? "").trim().toLowerCase() === "failed"
+        ? "failed"
+        : nextVerificationStatus === "green" && nextSettlementStatus === "released"
+          ? "passed"
+          : nextVerificationStatus || nextSettlementStatus || nextIds.receiptId || nextIds.disputeId
+            ? "degraded"
+            : attempt.status ?? "completed";
+    const nextCompletedAt =
+      attempt.completedAt ??
+      (nextIds.receiptId || nextIds.disputeId || nextSettlementStatus === "released" || nextSettlementStatus === "refunded"
+        ? checkedAt
+        : null);
+    const nextAttempt = normalizeFirstPaidCallAttemptRow({
+      ...attempt,
+      completedAt: nextCompletedAt,
+      lastCheckedAt: checkedAt,
+      status: nextStatus,
+      ids: nextIds,
+      verificationStatus: nextVerificationStatus,
+      settlementStatus: nextSettlementStatus
+    });
+    if (JSON.stringify(nextAttempt) !== JSON.stringify(attempt)) changed = true;
+    attempts.push(nextAttempt ?? attempt);
+  }
+
+  if (!changed) {
+    return {
+      history: {
+        ...history,
+        attempts
+      },
+      refreshed: true
+    };
+  }
+
+  const nextHistory = {
+    schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
+    tenantId,
+    updatedAt: checkedAt,
+    attempts
+  };
+  await saveTenantFirstPaidCallHistory({ tenantId, history: nextHistory });
+  return { history: nextHistory, refreshed: true };
+}
+
 async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
-  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
-  return sendJson(res, 200, { ok: true, ...history });
+  const out = await refreshTenantFirstPaidCallHistory({ tenantId });
+  return sendJson(res, 200, { ok: true, ...out.history, refreshed: Boolean(out.refreshed), refreshError: out.refreshError ?? null });
 }
 
 async function handleTenantHostedApprovalHistory(req, res, tenantId) {
