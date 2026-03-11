@@ -1109,25 +1109,25 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <TrustEntryPage
         eyebrow="Approvals"
-        title="The moment trust becomes explicit."
-        summary="An agent asks. Nooterra evaluates policy. If the action crosses the line, approval becomes the controlled handoff between autonomy and authority."
-        proofTitle="Approval should feel calm, not bureaucratic."
-        proofBody="The approval surface exists to answer four questions fast: what the agent wants to do, why it is allowed, why it needs review, and what happens after you approve or deny."
+        title="Know exactly what you are approving."
+        summary="An agent asks to do something real. Nooterra shows the consequence, the limit, and the reason review is required before any authority is granted."
+        proofTitle="Approval should answer the important questions fast."
+        proofBody="Before someone clicks approve, they should understand what will happen, what it may cost, what proof is expected afterward, and whether the permission applies once or can be remembered later."
         rail={[
-          { title: "Inspect the action", state: "clear", body: "Users see the exact vendor, amount, scope, and host before committing authority." },
-          { title: "Approve or deny", state: "durable", body: "The decision becomes a bounded grant, not a vague yes hidden in conversation history." },
-          { title: "Resume safely", state: "gated", body: "The host only resumes if approval, evidence requirements, and expiry rules still line up." }
+          { title: "See the consequence", state: "clear", body: "The page should show the exact action, vendor or domain, amount, and host before any authority is granted." },
+          { title: "Grant only this scope", state: "durable", body: "Approve once, deny, or save a bounded rule. The result is a grant with real limits, not a vague yes." },
+          { title: "Resume only if state still matches", state: "gated", body: "The host resumes only when approval, expiry, and evidence requirements still line up." }
         ]}
         bullets={[
-          { title: "Scoped, not vague", body: "Every approval is tied to a bounded action, not a fuzzy prompt or broad future permission." },
-          { title: "Host-native by default", body: "The host stays in control until human approval is required, then Nooterra takes over the trust-critical moment." },
+          { title: "Plain language first", body: "People should not need operator jargon to understand what the agent wants permission to do." },
+          { title: "One-time before durable", body: "Users can approve a single action first, then turn repeated decisions into remembered rules later." },
           { title: "Fail closed", body: "Missing context, missing evidence, or mismatched scope means the action does not proceed." }
         ]}
-        artifactTitle="Approvals are the handoff between autonomy and authority."
-        artifactBody="This page should behave like a financial sign-off sheet, not a toy confirmation modal. It explains the consequence, the reason it needs review, the authority window, and the next state after approval."
+        artifactTitle="Approval is the handoff between autonomy and authority."
+        artifactBody="This page should behave like a serious sign-off surface. It explains the action, the cost or consequence, whether the decision is one-time or repeatable, and what the user will be able to challenge later if the outcome looks wrong."
         artifactStats={[
-          { label: "Decisioning", value: "Green, yellow, red", body: "Auto-approve, require review, or block outright based on explicit policy." },
-          { label: "Binding", value: "Grant + expiry + proof", body: "Approval creates a scoped grant with a real window and downstream evidence requirements." },
+          { label: "Decisioning", value: "Approve, ask, block", body: "The user sees whether this action can proceed now, needs review, or is stopped outright." },
+          { label: "Binding", value: "Scope + expiry + proof", body: "Approval creates a scoped grant with a real time window and explicit evidence expectations." },
           { label: "Posture", value: "Fail closed", body: "If state drifts or proof is missing, the action stops instead of silently succeeding." }
         ]}
         ctaLabel="Open approval flow"
@@ -1138,25 +1138,25 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <TrustEntryPage
         eyebrow="Receipts"
-        title="Every action should end in proof."
-        summary="Receipts are the durable record of what was requested, what was approved, what executed, and what evidence came back."
-        proofTitle="The receipt is the product."
-        proofBody="If an agent buys, cancels, or recovers something real, the most valuable artifact is not the model output. It is the receipt that binds intent, authority, evidence, and outcome together."
+        title="Every action should end in a readable record."
+        summary="Receipts show what the agent asked to do, what was approved, what actually happened, and what proof came back."
+        proofTitle="A receipt is where trust becomes durable."
+        proofBody="If an agent buys, cancels, or recovers something real, users need one place to confirm the final amount, the evidence returned, the verifier outcome, and whether recourse is still available."
         rail={[
-          { title: "Bind the run", state: "canonical", body: "Intent, approval, grant, and execution all resolve to the same artifact chain." },
-          { title: "Verify evidence", state: "deterministic", body: "The verifier decides pass, fail, insufficient, or operator review before final state is trusted." },
-          { title: "Open recourse", state: "actionable", body: "The same receipt can trigger a dispute, reversal, or operator intervention when something is wrong." }
+          { title: "Show what happened", state: "canonical", body: "Intent, approval, grant, execution, and amount all resolve to the same record." },
+          { title: "Show why it is trusted", state: "deterministic", body: "The verifier outcome and evidence trail should be visible without opening raw payloads." },
+          { title: "Keep recourse close", state: "actionable", body: "If something looks wrong, the user should be one click away from the dispute path." }
         ]}
         bullets={[
-          { title: "Bound to the action", body: "Approval, grant, evidence, and final state remain attached to the same run." },
-          { title: "Readable by humans", body: "Operators and users can understand what happened without reverse engineering logs." },
-          { title: "Actionable after the fact", body: "Receipts are not dead history. They are the entry point for disputes, refunds, and reversal." }
+          { title: "Bound to the action", body: "Approval, grant, evidence, amount, and final state remain attached to the same run." },
+          { title: "Readable by humans", body: "Users should understand the outcome in seconds, not by reverse engineering logs." },
+          { title: "Actionable after the fact", body: "Receipts are not dead history. They are where disputes, refunds, and reversal begin." }
         ]}
-        artifactTitle="Receipts are where AI actions become auditable."
-        artifactBody="The live receipt vault should make it obvious what happened, why it was allowed, what proof came back, and whether the action is still inside its recourse window. That is the trust surface users come back to."
+        artifactTitle="Receipts are where AI actions become understandable."
+        artifactBody="The live receipt vault should make it obvious what happened, why the runtime trusted it, what proof came back, and whether the recourse window is still open. That is the trust surface users come back to later."
         artifactStats={[
           { label: "Artifact chain", value: "Intent -> grant -> evidence", body: "Each completed action can be reconstructed without chasing logs across systems." },
-          { label: "Human legibility", value: "Proof without parsing", body: "Users should understand the action outcome in seconds, not by reading raw event payloads." },
+          { label: "Human legibility", value: "Outcome, proof, amount", body: "The receipt should answer the questions users actually have after an action completes." },
           { label: "Recourse", value: "Refunds, disputes, reversals", body: "Receipts are live records with follow-on rights, not inert history." }
         ]}
         ctaLabel="Issue first receipt"
@@ -1167,22 +1167,22 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <TrustEntryPage
         eyebrow="Disputes"
-        title="Recourse is not a support feature."
-        summary="If an AI action goes wrong, users need a path back. Disputes turn receipts into live recourse instead of dead evidence."
-        proofTitle="Trust requires a path backward."
-        proofBody="People will not trust agents with consequential actions unless they know how to challenge a result, unwind a bad outcome, or escalate to an operator without losing the evidence chain."
+        title="If something goes wrong, there has to be a path back."
+        summary="Disputes turn a receipt into a live challenge path with timing, evidence, and operator follow-through."
+        proofTitle="Trust requires recourse, not just proof."
+        proofBody="People will not trust agents with consequential actions unless they know how to challenge a bad result, when that challenge window closes, and what happens after they open it."
         rail={[
-          { title: "Open from proof", state: "bound", body: "Every dispute starts from the exact receipt that proves the action occurred." },
-          { title: "Route operator action", state: "recoverable", body: "Refund, revoke, retry finalize, and quarantine sit behind the same rescue path." },
-          { title: "Close with evidence", state: "audited", body: "Resolutions become part of the record instead of disappearing into support tickets." }
+          { title: "Start from the receipt", state: "bound", body: "Every dispute begins from the exact record that shows the action happened." },
+          { title: "State the issue clearly", state: "recoverable", body: "Users should know what to submit, what evidence helps, and what kind of review to expect." },
+          { title: "Resolve without losing the trail", state: "audited", body: "Refunds, reversals, and operator interventions stay attached to the same record." }
         ]}
         bullets={[
-          { title: "Open from the receipt", body: "Disputes begin from the exact artifact that proves the action happened." },
+          { title: "Clear timing", body: "The product should say whether the dispute window is open, closed, or already in progress." },
           { title: "Operator-backed", body: "Refund, resolve, revoke, and quarantine all sit behind the same rescue path." },
           { title: "Designed for consequence", body: "The product assumes some actions will go wrong and treats recourse as first-class infrastructure." }
         ]}
         artifactTitle="A dispute should preserve the evidence chain, not break it."
-        artifactBody="Users need a visible route from receipt to challenge to resolution. Operators need enough state to unwind a bad action without losing the underlying artifacts, verifier verdicts, or host context."
+        artifactBody="Users need a visible route from receipt to challenge to resolution, including timing expectations and likely next steps. Operators need enough state to unwind a bad action without losing the underlying artifacts, verifier verdicts, or host context."
         artifactStats={[
           { label: "Entry point", value: "Receipt-linked", body: "The challenge begins from the same artifact chain that authorized and finalized the action." },
           { label: "Operator tools", value: "Refund, revoke, quarantine", body: "Real recourse requires real interventions, not just a support form." },
