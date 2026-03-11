@@ -17,6 +17,13 @@ Recommended path:
 npx nooterra setup
 ```
 
+Stable docs paths:
+
+- [Launch host channels](../guides/launch-host-channels.md)
+- [Claude Desktop quickstart](../guides/claude-desktop-quickstart.md)
+- [OpenClaw quickstart](../guides/openclaw-quickstart.md)
+- [Codex engineering quickstart](../guides/codex-engineering-quickstart.md)
+
 For scripted install:
 
 ```bash
