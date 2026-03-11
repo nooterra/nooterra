@@ -4072,6 +4072,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
         setFirstPaidCallState((previous) => ({
           ...previous,
+          latest: attempts[attempts.length - 1] ?? null,
           history: attempts,
           selectedAttemptId:
             previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
@@ -4643,6 +4644,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       const attempts = Array.isArray(out?.attempts) ? out.attempts : [];
       setFirstPaidCallState((previous) => ({
         ...previous,
+        latest: attempts[attempts.length - 1] ?? null,
         history: attempts,
         selectedAttemptId:
           previous.selectedAttemptId && attempts.some((row) => String(row?.attemptId ?? "") === previous.selectedAttemptId)
@@ -5809,9 +5811,13 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   const startedAt = attempt?.startedAt ? formatDateTime(attempt.startedAt) : "time unavailable";
                   const status = humanizeLabel(attempt?.status, "unknown");
                   const runId = String(attempt?.ids?.runId ?? "n/a");
+                  const receiptId = pickFirstString(attempt?.ids?.receiptId, attempt?.receiptId);
+                  const disputeId = pickFirstString(attempt?.ids?.disputeId, attempt?.disputeId);
+                  const verification = humanizeLabel(attempt?.verificationStatus, "pending");
+                  const settlement = humanizeLabel(attempt?.settlementStatus, "pending");
                   return (
                     <option key={`first_paid_attempt:${attemptId}`} value={attemptId}>
-                      {startedAt} · {status} · {runId}
+                      {startedAt} · {status} · {verification} / {settlement} · {runId} · {receiptId ? `Receipt ${receiptId}` : "Receipt pending"} · {disputeId ? `Dispute ${disputeId}` : "Recourse pending"}
                     </option>
                   );
                 })}
