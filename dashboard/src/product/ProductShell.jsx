@@ -4691,9 +4691,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         credentials: "include"
       }).catch(() => null);
       const attempts = Array.isArray(historyOut?.attempts) ? historyOut.attempts : [];
+      const refreshedAttempt =
+        attempts.find((attempt) => String(attempt?.attemptId ?? "").trim() === String(out?.attemptId ?? replayAttemptId ?? "").trim()) ??
+        attempts[attempts.length - 1] ??
+        out;
       setFirstPaidCallState((previous) => ({
         ...previous,
-        latest: out,
+        latest: refreshedAttempt,
         history: attempts.length ? attempts : previous.history,
         selectedAttemptId: String(out?.attemptId ?? replayAttemptId ?? previous.selectedAttemptId ?? ""),
         loading: false,
