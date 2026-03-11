@@ -19,3 +19,5 @@ See also:
 - `docs/QUICKSTART_VERIFY.md`
 - `docs/ADOPTION_CHECKLIST.md`
 - `docs/QUICKSTART_MCP_HOSTS.md`
+- `examples/claude-mcp-action-wallet/README.md`
+- `examples/openclaw-action-wallet/README.md`
