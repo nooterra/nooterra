@@ -7,14 +7,16 @@ function usage() {
     "usage: node scripts/ci/run-public-onboarding-gate.mjs [options]",
     "",
     "options:",
-    "  --base-url <url>   API base URL (required; no production default)",
-    "  --tenant-id <id>   Tenant id (default: tenant_default)",
-    "  --email <address>  OTP probe email (default: probe@nooterra.work)",
-    "  --out <file>       Output report path (default: artifacts/gates/public-onboarding-gate.json)",
-    "  --help             Show help",
+    "  --base-url <url>           API base URL (required; no production default)",
+    "  --website-base-url <url>   Website base URL to probe for same-origin auth routing",
+    "  --tenant-id <id>           Tenant id (default: tenant_default)",
+    "  --email <address>          OTP probe email (default: probe@nooterra.work)",
+    "  --out <file>               Output report path (default: artifacts/gates/public-onboarding-gate.json)",
+    "  --help                     Show help",
     "",
     "env fallbacks:",
     "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_WEBSITE_BASE_URL",
     "  NOOTERRA_TENANT_ID",
     "  NOOTERRA_ONBOARDING_PROBE_EMAIL"
   ].join("\n");
@@ -24,6 +26,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
     help: false,
     baseUrl: env.NOOTERRA_BASE_URL ?? null,
+    websiteBaseUrl: env.NOOTERRA_WEBSITE_BASE_URL ?? null,
     tenantId: env.NOOTERRA_TENANT_ID ?? "tenant_default",
     email: env.NOOTERRA_ONBOARDING_PROBE_EMAIL ?? "probe@nooterra.work",
     out: path.resolve(cwd, "artifacts/gates/public-onboarding-gate.json")
@@ -38,6 +41,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     if (arg === "--help" || arg === "-h") out.help = true;
     else if (arg === "--base-url") out.baseUrl = next();
     else if (arg.startsWith("--base-url=")) out.baseUrl = arg.slice("--base-url=".length);
+    else if (arg === "--website-base-url") out.websiteBaseUrl = next();
+    else if (arg.startsWith("--website-base-url=")) out.websiteBaseUrl = arg.slice("--website-base-url=".length);
     else if (arg === "--tenant-id") out.tenantId = next();
     else if (arg.startsWith("--tenant-id=")) out.tenantId = arg.slice("--tenant-id=".length);
     else if (arg === "--email") out.email = next();
@@ -47,6 +52,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else throw new Error(`unknown argument: ${arg}`);
   }
   out.baseUrl = String(out.baseUrl ?? "").trim().replace(/\/+$/, "");
+  out.websiteBaseUrl = String(out.websiteBaseUrl ?? "").trim().replace(/\/+$/, "");
   out.tenantId = String(out.tenantId ?? "").trim();
   out.email = String(out.email ?? "").trim().toLowerCase();
   out.out = String(out.out ?? "").trim();
@@ -57,6 +63,11 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     if (!out.out) throw new Error("--out is required");
   }
   return out;
+}
+
+function looksLikeHtmlDocument(text) {
+  const sample = String(text ?? "").trim().slice(0, 512).toLowerCase();
+  return sample.startsWith("<!doctype html") || sample.includes("<html");
 }
 
 async function requestJson(url, { method = "GET", body = null, headers = {} } = {}) {
@@ -133,12 +144,33 @@ export async function runPublicOnboardingGate(args, { requestJsonFn = requestJso
     });
   }
 
+  if (args.websiteBaseUrl) {
+    const websiteAuthMode = await requestJsonFn(`${args.websiteBaseUrl}/__magic/v1/public/auth-mode`);
+    steps.push({
+      step: "website_auth_proxy",
+      statusCode: websiteAuthMode.statusCode,
+      body: summarizeBody(websiteAuthMode)
+    });
+    if (looksLikeHtmlDocument(websiteAuthMode.text)) {
+      errors.push({
+        code: "WEBSITE_AUTH_PROXY_ROUTE_MISCONFIGURED",
+        message: "website auth proxy returned HTML instead of JSON, indicating SPA rewrite drift"
+      });
+    } else if (websiteAuthMode.statusCode !== 200 || typeof websiteAuthMode.json?.authMode !== "string") {
+      errors.push({
+        code: "WEBSITE_AUTH_PROXY_UNAVAILABLE",
+        message: `expected GET /__magic/v1/public/auth-mode on website to return 200 with authMode; got ${websiteAuthMode.statusCode}`
+      });
+    }
+  }
+
   const report = {
     schemaVersion: "PublicOnboardingGate.v1",
     ok: errors.length === 0,
     startedAt,
     completedAt: new Date().toISOString(),
     baseUrl: args.baseUrl,
+    websiteBaseUrl: args.websiteBaseUrl || null,
     tenantId: args.tenantId,
     steps,
     errors

@@ -20,6 +20,7 @@ function usage() {
     "options:",
     "  --environment <name>               Environment label (default: staging)",
     "  --base-url <url>                   API base URL (required)",
+    "  --website-base-url <url>           Website base URL for same-origin auth proxy checks",
     "  --tenant-id <id>                   Tenant ID (default: tenant_default)",
     "  --probe-email <email>              Public onboarding probe email (default: probe@nooterra.work)",
     "  --api-key <key>                    Tenant API key for host-success gate",
@@ -42,6 +43,7 @@ function usage() {
     "  LAUNCH_SYNTHETIC_SMOKE_HOST_SUCCESS_REPORT_PATH",
     "  LAUNCH_SYNTHETIC_SMOKE_METRICS_DIR",
     "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_WEBSITE_BASE_URL",
     "  NOOTERRA_TENANT_ID",
     "  NOOTERRA_API_KEY",
     "  NOOTERRA_ONBOARDING_PROBE_EMAIL"
@@ -162,6 +164,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     help: false,
     environment,
     baseUrl: normalizeOptionalString(env.NOOTERRA_BASE_URL),
+    websiteBaseUrl: normalizeOptionalString(env.NOOTERRA_WEBSITE_BASE_URL),
     tenantId: normalizeOptionalString(env.NOOTERRA_TENANT_ID) ?? "tenant_default",
     probeEmail: normalizeOptionalString(env.NOOTERRA_ONBOARDING_PROBE_EMAIL) ?? DEFAULT_PROBE_EMAIL,
     apiKey: normalizeOptionalString(env.NOOTERRA_API_KEY),
@@ -190,6 +193,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else if (arg.startsWith("--environment=")) out.environment = normalizeEnvironment(arg.slice("--environment=".length));
     else if (arg === "--base-url") out.baseUrl = next();
     else if (arg.startsWith("--base-url=")) out.baseUrl = arg.slice("--base-url=".length).trim();
+    else if (arg === "--website-base-url") out.websiteBaseUrl = next();
+    else if (arg.startsWith("--website-base-url=")) out.websiteBaseUrl = arg.slice("--website-base-url=".length).trim();
     else if (arg === "--tenant-id") out.tenantId = next();
     else if (arg.startsWith("--tenant-id=")) out.tenantId = arg.slice("--tenant-id=".length).trim();
     else if (arg === "--probe-email") out.probeEmail = next();
@@ -224,6 +229,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       [
         "--base-url",
         out.baseUrl ?? "",
+        ...(normalizeOptionalString(out.websiteBaseUrl) ? ["--website-base-url", out.websiteBaseUrl] : []),
         "--tenant-id",
         out.tenantId,
         "--email",
@@ -233,6 +239,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       ],
       {
         NOOTERRA_BASE_URL: out.baseUrl ?? "",
+        NOOTERRA_WEBSITE_BASE_URL: out.websiteBaseUrl ?? "",
         NOOTERRA_TENANT_ID: out.tenantId,
         NOOTERRA_ONBOARDING_PROBE_EMAIL: out.probeEmail
       },
@@ -262,6 +269,7 @@ export async function runLaunchSyntheticSmokes(args, deps = {}) {
       [
         "--base-url",
         args.baseUrl,
+        ...(normalizeOptionalString(args.websiteBaseUrl) ? ["--website-base-url", args.websiteBaseUrl] : []),
         "--tenant-id",
         args.tenantId,
         "--email",
@@ -271,6 +279,7 @@ export async function runLaunchSyntheticSmokes(args, deps = {}) {
       ],
       {
         NOOTERRA_BASE_URL: args.baseUrl,
+        NOOTERRA_WEBSITE_BASE_URL: args.websiteBaseUrl ?? "",
         NOOTERRA_TENANT_ID: args.tenantId,
         NOOTERRA_ONBOARDING_PROBE_EMAIL: args.probeEmail
       },
@@ -340,6 +349,7 @@ export async function runLaunchSyntheticSmokes(args, deps = {}) {
     environment: args.environment,
     context: {
       baseUrl: args.baseUrl,
+      websiteBaseUrl: args.websiteBaseUrl || null,
       tenantId: args.tenantId,
       probeEmail: args.probeEmail,
       skipPublicOnboarding: args.skipPublicOnboarding,

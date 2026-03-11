@@ -13,9 +13,18 @@ import {
 test("launch synthetic smokes parser: uses env defaults and supports overrides", () => {
   const cwd = "/tmp/nooterra";
   const args = parseArgs(
-    ["--environment", "production", "--report", "artifacts/custom/launch-smoke.json", "--skip-host-success"],
+    [
+      "--environment",
+      "production",
+      "--website-base-url",
+      "https://www.nooterra.ai",
+      "--report",
+      "artifacts/custom/launch-smoke.json",
+      "--skip-host-success"
+    ],
     {
       NOOTERRA_BASE_URL: "https://api.nooterra.work/",
+      NOOTERRA_WEBSITE_BASE_URL: "https://www.nooterra.ai/",
       NOOTERRA_TENANT_ID: "tenant_default",
       NOOTERRA_ONBOARDING_PROBE_EMAIL: "probe@nooterra.work",
       NOOTERRA_API_KEY: "sk_live_test",
@@ -26,6 +35,7 @@ test("launch synthetic smokes parser: uses env defaults and supports overrides",
 
   assert.equal(args.environment, "production");
   assert.equal(args.baseUrl, "https://api.nooterra.work");
+  assert.equal(args.websiteBaseUrl, "https://www.nooterra.ai");
   assert.equal(args.tenantId, "tenant_default");
   assert.equal(args.probeEmail, "probe@nooterra.work");
   assert.equal(args.apiKey, "sk_live_test");
@@ -46,6 +56,8 @@ test("launch synthetic smokes runner: emits combined deterministic report", asyn
       "staging",
       "--base-url",
       "https://api.nooterra.staging",
+      "--website-base-url",
+      "https://staging.nooterra.ai",
       "--tenant-id",
       "tenant_stage",
       "--probe-email",
@@ -90,6 +102,7 @@ test("launch synthetic smokes runner: emits combined deterministic report", asyn
   assert.equal(report.verdict.ok, true);
   assert.equal(report.blockingIssues.length, 0);
   assert.equal(report.artifactHash, computeLaunchSyntheticSmokeArtifactHash(report));
+  assert.equal(report.context.websiteBaseUrl, "https://staging.nooterra.ai");
 });
 
 test("launch synthetic smokes runner: fails closed when host success gate is required without an API key", async () => {
