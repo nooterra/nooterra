@@ -249,6 +249,19 @@ function buildLaunchSafeRescueDetails(details) {
   return sanitized;
 }
 
+function looksLikeHtmlDocument(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function createRequestContractError({ response, code, message, details = null } = {}) {
+  const error = new Error(message);
+  error.status = response?.status ?? null;
+  error.code = code;
+  error.details = details;
+  return error;
+}
+
 async function requestJson({ baseUrl, pathname, method = "GET", headers, body = null }) {
   const url = `${String(baseUrl).replace(/\/$/, "")}${pathname}`;
   const res = await fetch(url, {
@@ -262,6 +275,35 @@ async function requestJson({ baseUrl, pathname, method = "GET", headers, body = 
     parsed = text ? JSON.parse(text) : null;
   } catch {
     parsed = text;
+  }
+  if (res.ok) {
+    const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
+    if (typeof parsed === "string" && parsed.trim()) {
+      if (looksLikeHtmlDocument(parsed)) {
+        throw createRequestContractError({
+          response: res,
+          code: "CONTROL_PLANE_ROUTE_MISCONFIGURED",
+          message: "control plane returned HTML instead of JSON",
+          details: {
+            baseUrl: String(baseUrl ?? ""),
+            pathname: String(pathname ?? ""),
+            contentType
+          }
+        });
+      }
+      if (!contentType.includes("json")) {
+        throw createRequestContractError({
+          response: res,
+          code: "CONTROL_PLANE_RESPONSE_NOT_JSON",
+          message: "control plane returned a non-JSON success response",
+          details: {
+            baseUrl: String(baseUrl ?? ""),
+            pathname: String(pathname ?? ""),
+            contentType
+          }
+        });
+      }
+    }
   }
   if (!res.ok) {
     const message = typeof parsed === "object" && parsed !== null
