@@ -20,6 +20,7 @@ const repoBlobUrl = `${ossLinks.repo}/blob/main`;
 export const docsLinks = {
   home: `${docsBaseUrl}/`,
   quickstart: `${docsBaseUrl}/guides/quickstart/`,
+  designPartnerKit: `${docsBaseUrl}/guides/design-partner-onboarding-kit/`,
   hostQuickstart: `${docsBaseUrl}/guides/launch-host-channels/`,
   claudeDesktopQuickstart: `${docsBaseUrl}/guides/claude-desktop-quickstart/`,
   openClawQuickstart: `${docsBaseUrl}/guides/openclaw-quickstart/`,
@@ -30,6 +31,7 @@ export const docsLinks = {
   integrations: `${docsBaseUrl}/reference/integrations/`,
   security: `${docsBaseUrl}/reference/security-model/`,
   ops: `${docsBaseUrl}/runbooks/operations/`,
+  launchChecklist: `${docsBaseUrl}/runbooks/launch-checklist/`,
   incidents: `${docsBaseUrl}/runbooks/incidents/`,
   roadmap: `${docsBaseUrl}/roadmap/`,
   faq: `${docsBaseUrl}/faq/`
