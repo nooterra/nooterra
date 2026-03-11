@@ -272,6 +272,50 @@ test("api onboarding proxy: preserves auth-mode payload contract across supporte
   }
 });
 
+test("api onboarding proxy: applies public website CORS headers and answers preflight without upstream fetch", async () => {
+  const restore = withEnv("PROXY_ONBOARDING_BASE_URL", "https://onboarding.nooterra.test");
+  try {
+    let fetchCallCount = 0;
+    const api = createApi({
+      fetchFn: async () => {
+        fetchCallCount += 1;
+        return new Response(JSON.stringify({ ok: true, schemaVersion: "MagicLinkAuthMode.v1", authMode: "hybrid" }), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" }
+        });
+      }
+    });
+
+    const preflight = await request(api, {
+      method: "OPTIONS",
+      path: "/v1/public/auth-mode",
+      headers: {
+        origin: "https://www.nooterra.ai",
+        "access-control-request-method": "GET"
+      },
+      auth: "none"
+    });
+    assert.equal(preflight.statusCode, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "https://www.nooterra.ai");
+    assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+    assert.match(String(preflight.headers.get("access-control-allow-methods") ?? ""), /\bGET\b/);
+    assert.equal(fetchCallCount, 0);
+
+    const authModeRes = await request(api, {
+      method: "GET",
+      path: "/v1/public/auth-mode",
+      headers: { origin: "https://www.nooterra.ai" },
+      auth: "none"
+    });
+    assert.equal(authModeRes.statusCode, 200, authModeRes.body);
+    assert.equal(authModeRes.headers.get("access-control-allow-origin"), "https://www.nooterra.ai");
+    assert.equal(authModeRes.headers.get("access-control-allow-credentials"), "true");
+    assert.equal(fetchCallCount, 1);
+  } finally {
+    restore();
+  }
+});
+
 test("api onboarding proxy: preserves stable disabled-mode reason codes for signup/login endpoints", async () => {
   const restore = withEnv("PROXY_ONBOARDING_BASE_URL", "https://onboarding.nooterra.test");
   try {
