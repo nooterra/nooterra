@@ -6987,12 +6987,74 @@ function tenantFirstPaidCallHistoryPath({ tenantId }) {
   return path.join(dataDir, "tenants", tenantId, "onboarding_first_paid_calls.json");
 }
 
+function tenantHostedApprovalHistoryPath({ tenantId }) {
+  return path.join(dataDir, "tenants", tenantId, "onboarding_hosted_approvals.json");
+}
+
 function defaultTenantFirstPaidCallHistory({ tenantId }) {
   return {
     schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
     tenantId,
     updatedAt: null,
     attempts: []
+  };
+}
+
+function defaultTenantHostedApprovalHistory({ tenantId }) {
+  return {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: null,
+    attempts: []
+  };
+}
+
+function normalizeHostedApprovalAttemptRow(input) {
+  if (!isPlainObject(input)) return null;
+  const attemptId = typeof input.attemptId === "string" && input.attemptId.trim() ? safeTruncate(input.attemptId.trim(), { max: 120 }) : null;
+  if (!attemptId) return null;
+  const normalizeIso = (value) => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  };
+  const createdAt = normalizeIso(input.createdAt) ?? nowIso();
+  const completedAt = normalizeIso(input.completedAt);
+  const status = (() => {
+    const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
+    if (raw === "opened" || raw === "failed") return raw;
+    return "opened";
+  })();
+  const hostTrack = (() => {
+    const raw = typeof input.hostTrack === "string" ? input.hostTrack.trim().toLowerCase() : "";
+    if (raw === "claude" || raw === "openclaw" || raw === "codex") return raw;
+    return "claude";
+  })();
+  const actionIntentId = typeof input.actionIntentId === "string" && input.actionIntentId.trim() ? safeTruncate(input.actionIntentId.trim(), { max: 140 }) : null;
+  const approvalRequestId = typeof input.approvalRequestId === "string" && input.approvalRequestId.trim() ? safeTruncate(input.approvalRequestId.trim(), { max: 140 }) : null;
+  const approvalUrl = typeof input.approvalUrl === "string" && input.approvalUrl.trim() ? safeTruncate(input.approvalUrl.trim(), { max: 2000 }) : null;
+  const actorAgentId = typeof input.actorAgentId === "string" && input.actorAgentId.trim() ? safeTruncate(input.actorAgentId.trim(), { max: 140 }) : null;
+  const principalId = typeof input.principalId === "string" && input.principalId.trim() ? safeTruncate(input.principalId.trim(), { max: 320 }) : null;
+  const error = isPlainObject(input.error)
+    ? {
+        code: typeof input.error.code === "string" ? safeTruncate(input.error.code, { max: 80 }) : null,
+        message: typeof input.error.message === "string" ? safeTruncate(input.error.message, { max: 500 }) : null
+      }
+    : null;
+  return {
+    schemaVersion: "MagicLinkHostedApprovalAttempt.v1",
+    attemptId,
+    createdAt,
+    completedAt,
+    status,
+    hostTrack,
+    actionIntentId,
+    approvalRequestId,
+    approvalUrl,
+    actorAgentId,
+    principalId,
+    error
   };
 }
 
@@ -7087,8 +7149,33 @@ async function loadTenantFirstPaidCallHistoryBestEffort({ tenantId }) {
   }
 }
 
+async function loadTenantHostedApprovalHistoryBestEffort({ tenantId }) {
+  const fp = tenantHostedApprovalHistoryPath({ tenantId });
+  try {
+    const raw = JSON.parse(await fs.readFile(fp, "utf8"));
+    if (!isPlainObject(raw)) return defaultTenantHostedApprovalHistory({ tenantId });
+    const rows = Array.isArray(raw.attempts) ? raw.attempts : [];
+    const attempts = rows.map((row) => normalizeHostedApprovalAttemptRow(row)).filter(Boolean).slice(-100);
+    const updatedAt = typeof raw.updatedAt === "string" && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : null;
+    return {
+      schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+      tenantId,
+      updatedAt,
+      attempts
+    };
+  } catch {
+    return defaultTenantHostedApprovalHistory({ tenantId });
+  }
+}
+
 async function saveTenantFirstPaidCallHistory({ tenantId, history }) {
   const fp = tenantFirstPaidCallHistoryPath({ tenantId });
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  await fs.writeFile(fp, JSON.stringify(history, null, 2) + "\n", "utf8");
+}
+
+async function saveTenantHostedApprovalHistory({ tenantId, history }) {
+  const fp = tenantHostedApprovalHistoryPath({ tenantId });
   await fs.mkdir(path.dirname(fp), { recursive: true });
   await fs.writeFile(fp, JSON.stringify(history, null, 2) + "\n", "utf8");
 }
@@ -7105,6 +7192,21 @@ async function appendTenantFirstPaidCallAttempt({ tenantId, attempt }) {
     attempts
   };
   await saveTenantFirstPaidCallHistory({ tenantId, history: next });
+  return next;
+}
+
+async function appendTenantHostedApprovalAttempt({ tenantId, attempt }) {
+  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
+  const normalized = normalizeHostedApprovalAttemptRow(attempt);
+  if (!normalized) return history;
+  const attempts = [...history.attempts, normalized].slice(-100);
+  const next = {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: nowIso(),
+    attempts
+  };
+  await saveTenantHostedApprovalHistory({ tenantId, history: next });
   return next;
 }
 
@@ -7467,6 +7569,13 @@ async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
   return sendJson(res, 200, { ok: true, ...history });
 }
 
+async function handleTenantHostedApprovalHistory(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
+  return sendJson(res, 200, { ok: true, ...history });
+}
+
 async function handleTenantSeedHostedApproval(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
@@ -7491,6 +7600,8 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
   }
 
   const requestIdPrefix = `ml_onboarding_${hostTrack}_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const attemptId = requestIdPrefix;
+  const startedAt = nowIso();
   const actorAgentId = `agt_onboarding_${hostTrack}`;
   const hostRuntime = hostTrack === "claude" ? "claude-desktop" : hostTrack;
   const hostChannel = hostTrack === "codex" ? "api" : "mcp";
@@ -7506,6 +7617,21 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_bootstrap`
   });
   if (!bootstrap.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        error: {
+          code: bootstrap.code ?? "RUNTIME_BOOTSTRAP_FAILED",
+          message: bootstrap.message ?? "runtime bootstrap failed"
+        }
+      }
+    });
     return sendJson(res, bootstrap.statusCode ?? 502, {
       ok: false,
       code: bootstrap.code,
@@ -7517,6 +7643,21 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     ? bootstrap.response.bootstrap.apiKey.token.trim()
     : "";
   if (!runtimeApiKey) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        error: {
+          code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+          message: "Nooterra bootstrap response missing runtime API key token"
+        }
+      }
+    });
     return sendJson(res, 502, {
       ok: false,
       code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
@@ -7567,6 +7708,23 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_intent`
   });
   if (!createdIntent.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        principalId,
+        actionIntentId,
+        error: {
+          code: createdIntent.code ?? "NOOTERRA_API_CALL_FAILED",
+          message: createdIntent.message ?? "action intent creation failed"
+        }
+      }
+    });
     return sendJson(res, createdIntent.statusCode ?? 502, {
       ok: false,
       code: createdIntent.code,
@@ -7586,6 +7744,24 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     idempotencyKey: `${requestIdPrefix}_approval`
   });
   if (!approvalRequested.ok) {
+    await appendTenantHostedApprovalAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        createdAt: startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        hostTrack,
+        actorAgentId,
+        principalId,
+        actionIntentId,
+        approvalRequestId: requestId,
+        error: {
+          code: approvalRequested.code ?? "NOOTERRA_API_CALL_FAILED",
+          message: approvalRequested.message ?? "approval request creation failed"
+        }
+      }
+    });
     return sendJson(res, approvalRequested.statusCode ?? 502, {
       ok: false,
       code: approvalRequested.code,
@@ -7604,6 +7780,22 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     : base
       ? new URL(upstreamApprovalUrl, `${base}/`).toString()
       : upstreamApprovalUrl;
+
+  const history = await appendTenantHostedApprovalAttempt({
+    tenantId,
+    attempt: {
+      attemptId,
+      createdAt: startedAt,
+      completedAt: nowIso(),
+      status: "opened",
+      hostTrack,
+      actionIntentId,
+      approvalRequestId: requestId,
+      approvalUrl,
+      actorAgentId,
+      principalId
+    }
+  });
 
   try {
     await appendAuditRecord({
@@ -7631,10 +7823,15 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
     ok: true,
     schemaVersion: "MagicLinkSeedHostedApproval.v1",
     tenantId,
+    attemptId,
     hostTrack,
     actionIntent: createdIntent.response?.actionIntent ?? null,
     approvalRequest: approvalRequested.response?.approvalRequest ?? null,
-    approvalUrl
+    approvalUrl,
+    history: {
+      updatedAt: history.updatedAt,
+      count: Array.isArray(history.attempts) ? history.attempts.length : 0
+    }
   });
 }
 
@@ -17917,6 +18114,13 @@ export async function magicLinkHandler(req, res) {
     if (tenantSeedHostedApprovalMatch) {
       const tenantId = tenantSeedHostedApprovalMatch[1];
       if (method === "POST") return await handleTenantSeedHostedApproval(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantSeedHostedApprovalHistoryMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/seed-hosted-approval\/history$/.exec(pathname);
+    if (tenantSeedHostedApprovalHistoryMatch) {
+      const tenantId = tenantSeedHostedApprovalHistoryMatch[1];
+      if (method === "GET") return await handleTenantHostedApprovalHistory(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 
