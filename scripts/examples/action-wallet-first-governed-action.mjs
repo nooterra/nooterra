@@ -14,6 +14,7 @@ function printHelp() {
       "",
       "Environment:",
       "  NOOTERRA_BASE_URL        API base URL (default: https://api.nooterra.work)",
+      "  NOOTERRA_WEBSITE_BASE_URL  Website base URL for hosted approval/receipt/dispute links",
       "  NOOTERRA_TENANT_ID       Existing tenant to reuse",
       "  NOOTERRA_SIGNUP_EMAIL    Signup email when creating a tenant",
       "  NOOTERRA_SIGNUP_COMPANY  Signup company when creating a tenant",
@@ -42,6 +43,13 @@ function normalizeHostTrack(value) {
 function baseUrlFromEnv() {
   const raw = typeof process.env.NOOTERRA_BASE_URL === "string" ? process.env.NOOTERRA_BASE_URL.trim() : "";
   return raw !== "" ? raw.replace(/\/+$/, "") : "https://api.nooterra.work";
+}
+
+function websiteBaseUrlFromEnv(baseUrl) {
+  const raw = typeof process.env.NOOTERRA_WEBSITE_BASE_URL === "string" ? process.env.NOOTERRA_WEBSITE_BASE_URL.trim() : "";
+  if (raw) return raw.replace(/\/+$/, "");
+  if (baseUrl === "https://api.nooterra.work") return "https://www.nooterra.ai";
+  return "";
 }
 
 function requireSignupFields() {
@@ -81,6 +89,47 @@ async function requestJson({ baseUrl, pathname, method = "GET", body = null }) {
   return json;
 }
 
+function resolveHostedUrl(candidate, { websiteBaseUrl, fieldName, fallbackPath = "" } = {}) {
+  const raw = typeof candidate === "string" ? candidate.trim() : "";
+  if (raw) {
+    try {
+      return new URL(raw).toString();
+    } catch {
+      if (raw.startsWith("/")) {
+        if (!websiteBaseUrl) {
+          throw new Error(`${fieldName} returned a relative path but NOOTERRA_WEBSITE_BASE_URL is not configured`);
+        }
+        return new URL(raw, `${websiteBaseUrl}/`).toString();
+      }
+      throw new Error(`${fieldName} must be an absolute URL or root-relative path`);
+    }
+  }
+  if (fallbackPath) {
+    if (!websiteBaseUrl) {
+      throw new Error(`${fieldName} is missing and NOOTERRA_WEBSITE_BASE_URL is not configured for fallback resolution`);
+    }
+    return new URL(fallbackPath, `${websiteBaseUrl}/`).toString();
+  }
+  throw new Error(`${fieldName} is required`);
+}
+
+function buildNextSteps({ hostTrack, approvalUrl, receiptUrl, disputeUrl }) {
+  const hostGuidance = {
+    claude: "Approve the request in your browser, then return to Claude and continue the task from the same conversation.",
+    openclaw: "Approve the request in your browser, then return to OpenClaw and rerun the pending governed action.",
+    codex: "Approve the request in your browser, then return to Codex and resume the same governed workflow."
+  };
+  const steps = [
+    `Open the hosted approval page: ${approvalUrl}`,
+    hostGuidance[hostTrack] ?? hostGuidance.codex,
+    `Open the hosted receipt after execution: ${receiptUrl}`
+  ];
+  if (disputeUrl) {
+    steps.push(`If the action looks wrong, open recourse directly: ${disputeUrl}`);
+  }
+  return steps;
+}
+
 async function resolveTenantId(baseUrl) {
   const existingTenantId = typeof process.env.NOOTERRA_TENANT_ID === "string" ? process.env.NOOTERRA_TENANT_ID.trim() : "";
   if (existingTenantId !== "") return { tenantId: existingTenantId, created: false };
@@ -109,6 +158,7 @@ async function main() {
   }
 
   const baseUrl = baseUrlFromEnv();
+  const websiteBaseUrl = websiteBaseUrlFromEnv(baseUrl);
   const hostTrack = normalizeHostTrack(process.env.NOOTERRA_HOST_TRACK);
   const skipFirstPaidCall = envFlagEnabled("NOOTERRA_SKIP_FIRST_PAID_CALL");
   const tenant = await resolveTenantId(baseUrl);
@@ -146,6 +196,10 @@ async function main() {
     Array.isArray(approvalHistory?.attempts) && attemptId
       ? approvalHistory.attempts.find((row) => String(row?.attemptId ?? "").trim() === attemptId) ?? null
       : null;
+  const approvalUrl = resolveHostedUrl(seededApproval?.approvalUrl, {
+    websiteBaseUrl,
+    fieldName: "approvalUrl"
+  });
 
   let firstPaidCall = null;
   let firstPaidHistory = null;
@@ -168,9 +222,35 @@ async function main() {
         : null;
   }
 
+  const resolvedRunId = firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId ?? null;
+  const resolvedReceiptId = firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId ?? null;
+  const resolvedDisputeId = firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId ?? null;
+  const resolvedRunUrl = !skipFirstPaidCall
+    ? resolveHostedUrl(firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl, {
+        websiteBaseUrl,
+        fieldName: "runUrl",
+        fallbackPath: resolvedRunId ? `/runs/${encodeURIComponent(resolvedRunId)}` : ""
+      })
+    : null;
+  const resolvedReceiptUrl = !skipFirstPaidCall
+    ? resolveHostedUrl(firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl, {
+        websiteBaseUrl,
+        fieldName: "receiptUrl",
+        fallbackPath: resolvedReceiptId ? `/receipts/${encodeURIComponent(resolvedReceiptId)}` : ""
+      })
+    : null;
+  const resolvedDisputeUrl = !skipFirstPaidCall && resolvedDisputeId
+    ? resolveHostedUrl(firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl, {
+        websiteBaseUrl,
+        fieldName: "disputeUrl",
+        fallbackPath: `/disputes/${encodeURIComponent(resolvedDisputeId)}`
+      })
+    : null;
+
   const summary = {
     schemaVersion: "ActionWalletFirstGovernedAction.v1",
     baseUrl,
+    websiteBaseUrl: websiteBaseUrl || null,
     tenantId: tenant.tenantId,
     tenantCreated: tenant.created,
     hostTrack,
@@ -181,27 +261,33 @@ async function main() {
     approval: {
       attemptId,
       requestId: seededApproval?.approvalRequest?.requestId ?? null,
-      approvalUrl: seededApproval?.approvalUrl ?? null,
+      approvalUrl,
       approvalStatus: seededAttempt?.approvalStatus ?? seededApproval?.approvalRequest?.approvalStatus ?? null,
       status: seededAttempt?.status ?? null
     },
     firstPaid: {
       attempted: !skipFirstPaidCall,
       attemptId: firstPaidCall?.attemptId ?? null,
-      runId: firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId ?? null,
-      receiptId: firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId ?? null,
-      disputeId: firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId ?? null,
+      runId: resolvedRunId,
+      receiptId: resolvedReceiptId,
+      disputeId: resolvedDisputeId,
       verificationStatus: firstPaidAttempt?.verificationStatus ?? firstPaidCall?.verificationStatus ?? null,
       settlementStatus: firstPaidAttempt?.settlementStatus ?? firstPaidCall?.settlementStatus ?? null,
       status: firstPaidAttempt?.status ?? null,
-      runUrl: firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl ?? null,
-      receiptUrl: firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl ?? null,
-      disputeUrl: firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl ?? null
+      runUrl: resolvedRunUrl,
+      receiptUrl: resolvedReceiptUrl,
+      disputeUrl: resolvedDisputeUrl
     },
     runtime: {
       tenantId: runtimeEnv?.NOOTERRA_TENANT_ID ?? null,
       apiKeyIssued: typeof runtimeEnv?.NOOTERRA_API_KEY === "string" && runtimeEnv.NOOTERRA_API_KEY.trim() !== ""
-    }
+    },
+    nextSteps: buildNextSteps({
+      hostTrack,
+      approvalUrl,
+      receiptUrl: resolvedReceiptUrl ?? approvalUrl,
+      disputeUrl: resolvedDisputeUrl
+    })
   };
 
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);

@@ -65,7 +65,9 @@ If you are validating from Codex, keep the same runtime values and follow the AP
 The fastest Codex/API/CLI proof is:
 
 ```bash
-NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_WEBSITE_BASE_URL=https://www.nooterra.ai \
+npm run quickstart:action-wallet:first-approval
 ```
 
 That script bootstraps the runtime, runs the smoke test, seeds the first hosted approval, runs the managed first paid call, and prints the exact approval URL, request id, run id, and receipt URL you need next.

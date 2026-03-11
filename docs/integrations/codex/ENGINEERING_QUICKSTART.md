@@ -66,7 +66,9 @@ If you only need the public runtime path, the important part is that the same te
 From Codex, the shortest install-to-first-approval loop is:
 
 ```bash
-NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_WEBSITE_BASE_URL=https://www.nooterra.ai \
+npm run quickstart:action-wallet:first-approval
 ```
 
 Or, if you want the script to create the workspace for you:
@@ -75,6 +77,7 @@ Or, if you want the script to create the workspace for you:
 NOOTERRA_SIGNUP_EMAIL=founder@example.com \
 NOOTERRA_SIGNUP_COMPANY="Nooterra" \
 NOOTERRA_SIGNUP_NAME="Founding User" \
+NOOTERRA_WEBSITE_BASE_URL=https://www.nooterra.ai \
 npm run quickstart:action-wallet:first-approval
 ```
 
@@ -91,6 +94,7 @@ The script prints only the launch artifacts you need next:
 - `firstPaid.settlementStatus`
 
 Set `NOOTERRA_SKIP_FIRST_PAID_CALL=1` if you only want to stop after seeding the first hosted approval.
+Set `NOOTERRA_WEBSITE_BASE_URL` whenever the API returns root-relative hosted links and you want canonical approval, receipt, and dispute URLs in the quickstart output.
 
 1. create an action intent
 2. request approval
