@@ -56,6 +56,7 @@ nav:
       - Launch Checklist: runbooks/launch-checklist.md
       - Onboarding Loop: runbooks/onboarding-runtime.md
       - Incident Response: runbooks/incidents.md
+      - Support Macros: runbooks/support-macros.md
       - Key Management: runbooks/key-management.md
   - Roadmap: roadmap.md
   - FAQ: faq.md
