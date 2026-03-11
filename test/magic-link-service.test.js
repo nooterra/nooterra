@@ -431,6 +431,48 @@ const nooterraOpsMockServer = http.createServer((req, res) => {
       return;
     }
 
+    if (req.method === "POST" && pathname === "/v1/action-intents") {
+      const actionIntentId =
+        typeof body?.actionIntentId === "string" && body.actionIntentId.trim()
+          ? body.actionIntentId.trim()
+          : `act_${crypto.randomBytes(4).toString("hex")}`;
+      sendJson(201, {
+        ok: true,
+        actionIntent: {
+          actionIntentId,
+          actorAgentId: typeof body?.actorAgentId === "string" ? body.actorAgentId : null,
+          principalId: typeof body?.principalId === "string" ? body.principalId : null,
+          purpose: typeof body?.purpose === "string" ? body.purpose : null,
+          host: body?.host && typeof body.host === "object" && !Array.isArray(body.host) ? body.host : null
+        }
+      });
+      return;
+    }
+
+    const actionIntentApprovalMatch = /^\/v1\/action-intents\/([^/]+)\/approval-requests$/.exec(pathname);
+    if (req.method === "POST" && actionIntentApprovalMatch) {
+      const actionIntentId = decodeURIComponent(actionIntentApprovalMatch[1]);
+      const requestId =
+        typeof body?.requestId === "string" && body.requestId.trim()
+          ? body.requestId.trim()
+          : `apr_${crypto.randomBytes(4).toString("hex")}`;
+      sendJson(201, {
+        ok: true,
+        approvalUrl: `/approvals?requestId=${encodeURIComponent(requestId)}`,
+        approvalRequest: {
+          requestId,
+          actionIntentId,
+          requestedBy: typeof body?.requestedBy === "string" ? body.requestedBy : null,
+          status: "pending"
+        },
+        actionIntent: {
+          actionIntentId,
+          approvalUrl: `/approvals?requestId=${encodeURIComponent(requestId)}`
+        }
+      });
+      return;
+    }
+
     const walletCreditMatch = /^\/agents\/([^/]+)\/wallet\/credit$/.exec(pathname);
     if (req.method === "POST" && walletCreditMatch) {
       const agentId = decodeURIComponent(walletCreditMatch[1]);
@@ -939,6 +981,26 @@ async function postTenantRuntimeConformanceMatrix({ tenantId, body = {}, headers
   const res = await runReq({
     method: "POST",
     url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
+async function postTenantSeedHostedApproval({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval`,
     headers: mergedHeaders,
     bodyChunks: [buf]
   });
@@ -2054,6 +2116,46 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
     const auditRaw = await fs.readFile(auditFp, "utf8");
     assert.match(auditRaw, /TENANT_RUNTIME_FIRST_PAID_CALL_COMPLETED/);
+  });
+
+  await t.test("tenant onboarding seeded hosted approval: mints a managed first approval for the selected host track", async () => {
+    const tenantId = "tenant_seeded_hosted_approval";
+    await createTenant({
+      tenantId,
+      name: "Seeded Hosted Approval Tenant",
+      contactEmail: "ops+seeded-approval@example.com",
+      billingEmail: "billing+seeded-approval@example.com"
+    });
+
+    const out = await postTenantSeedHostedApproval({
+      tenantId,
+      body: { hostTrack: "codex" },
+      headers: { host: "www.nooterra.ai", "x-forwarded-proto": "https", "x-forwarded-host": "www.nooterra.ai" }
+    });
+    assert.equal(out.statusCode, 201, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+    assert.equal(out.json?.schemaVersion, "MagicLinkSeedHostedApproval.v1");
+    assert.equal(out.json?.tenantId, tenantId);
+    assert.equal(out.json?.hostTrack, "codex");
+    assert.match(String(out.json?.actionIntent?.actionIntentId ?? ""), /^act_ml_onboarding_codex_/);
+    assert.match(String(out.json?.approvalRequest?.requestId ?? ""), /^apr_ml_onboarding_codex_/);
+    assert.equal(out.json?.actionIntent?.host?.runtime, "codex");
+    assert.equal(out.json?.actionIntent?.host?.channel, "api");
+    assert.match(String(out.json?.approvalUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/approvals\?/);
+
+    const intentReq = nooterraOpsApiRequests.find((row) => row.pathname === "/v1/action-intents" && row.tenantId === tenantId);
+    assert.ok(intentReq, "expected seeded action-intent request");
+    assert.equal(intentReq?.body?.host?.runtime, "codex");
+    assert.equal(intentReq?.body?.host?.channel, "api");
+
+    const approvalReq = nooterraOpsApiRequests.find(
+      (row) => /^\/v1\/action-intents\/act_ml_onboarding_codex_.*\/approval-requests$/.test(row.pathname) && row.tenantId === tenantId
+    );
+    assert.ok(approvalReq, "expected seeded approval request");
+
+    const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
+    const auditRaw = await fs.readFile(auditFp, "utf8");
+    assert.match(auditRaw, /TENANT_ONBOARDING_HOSTED_APPROVAL_SEEDED/);
   });
 
   await t.test("tenant runtime conformance matrix: bootstrap + smoke + first paid flow for runtime targets", async () => {

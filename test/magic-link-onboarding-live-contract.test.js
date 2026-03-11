@@ -194,6 +194,19 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(smoke.json?.ok, true, smoke.text);
     assert.ok(Number.isInteger(smoke.json?.smoke?.toolsCount), "smoke test must include toolsCount");
 
+    const seededApproval = await httpJson({
+      baseUrl: magicBase,
+      method: "POST",
+      route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/seed-hosted-approval`,
+      body: { hostTrack: "claude" }
+    });
+    assert.equal(seededApproval.status, 201, seededApproval.text);
+    assert.equal(seededApproval.json?.ok, true, seededApproval.text);
+    assert.equal(seededApproval.json?.schemaVersion, "MagicLinkSeedHostedApproval.v1", seededApproval.text);
+    assert.equal(seededApproval.json?.hostTrack, "claude", seededApproval.text);
+    assert.ok(typeof seededApproval.json?.approvalRequest?.requestId === "string" && seededApproval.json.approvalRequest.requestId.length > 0, seededApproval.text);
+    assert.match(String(seededApproval.json?.approvalUrl ?? ""), /\/approvals\?requestId=/, seededApproval.text);
+
     const firstPaidCall = await httpJson({
       baseUrl: magicBase,
       method: "POST",
