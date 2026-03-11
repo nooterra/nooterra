@@ -7244,6 +7244,7 @@ async function refreshTenantHostedApprovalHistory({ tenantId } = {}) {
     payload: {
       apiKey: {
         create: true,
+        keyId: "ak_ml_hosted_approval_history",
         description: "magic-link hosted approval history refresh runtime key"
       }
     }
