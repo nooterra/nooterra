@@ -11,6 +11,13 @@ import { normalizeReasonCodes as normalizePolicyDecisionReasonCodes } from "../.
 import { buildToolProviderQuotePayloadV1, verifyToolProviderQuoteSignatureV1 } from "../../../src/core/provider-quote-signature.js";
 import { computeNooterraPayRequestBindingSha256V1 } from "../../../src/core/nooterra-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../../src/core/tool-provider-signature.js";
+import {
+  captureNodeSentryException,
+  flushNodeSentry,
+  initNodeSentry,
+  installNodeSentryProcessHandlers,
+  withNodeSentryRequestScope
+} from "../../../src/core/sentry-node.js";
 
 function readRequiredEnv(name) {
   const raw = process.env[name];
@@ -1033,7 +1040,17 @@ async function handleProxy(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  handleProxy(req, res).catch((err) => {
+  withNodeSentryRequestScope({ service: "x402-gateway", req }, async () => {
+    await handleProxy(req, res);
+  }).catch((err) => {
+    captureNodeSentryException(err, { service: "x402-gateway", req });
+    logger.error("x402_gateway.request_failed", {
+      eventId: "x402_gateway_request_failed",
+      reasonCode: "REQUEST_HANDLER_FAILED",
+      method: req.method ?? null,
+      path: req.url ?? "/",
+      err
+    });
     res.statusCode = 502;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ ok: false, error: "gateway_error", message: err?.message ?? String(err ?? "") }));
@@ -1055,3 +1072,36 @@ const listenCb = () => {
 };
 if (BIND_HOST) server.listen(PORT, BIND_HOST, listenCb);
 else server.listen(PORT, listenCb);
+
+let shutdownInFlight = false;
+
+async function shutdown(signal) {
+  if (shutdownInFlight) return;
+  shutdownInFlight = true;
+  logger.info("x402_gateway.shutdown", {
+    eventId: "x402_gateway_shutdown",
+    reasonCode: "PROCESS_SIGNAL",
+    service: "x402-gateway",
+    signal: signal ?? "unknown"
+  });
+  try {
+    await new Promise((resolve) => {
+      try {
+        server.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+  } finally {
+    await flushNodeSentry();
+    process.exit(0);
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    void shutdown(signal);
+  });
+}
+initNodeSentry({ service: "x402-gateway", logger });
+installNodeSentryProcessHandlers({ service: "x402-gateway", logger });

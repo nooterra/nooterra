@@ -81,6 +81,7 @@ Release-gate evidence should also include:
 - `artifacts/ops/launch-alerting-report.json` (`LaunchAlertingReport.v1`, pass)
 - `artifacts/ops/launch-abuse-report.json` (`LaunchAbuseControlsReport.v1`, pass)
 - `artifacts/ops/launch-structured-logging-review.json`
+- production Sentry DSNs configured for API, magic-link, x402 gateway, and dashboard
 - `artifacts/gates/release-promotion-guard.json` (NOO-65)
 - `artifacts/ops/backup-restore-drill.json` (`BackupRestoreDrillReport.v1`, pass)
 

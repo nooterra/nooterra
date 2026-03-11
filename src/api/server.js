@@ -5,9 +5,18 @@ import { createPgStore } from "../db/store-pg.js";
 import { applyCorsHeaders } from "./cors.js";
 import { logger } from "../core/log.js";
 import { configForLog, loadConfig } from "../core/config.js";
+import {
+  captureNodeSentryException,
+  flushNodeSentry,
+  initNodeSentry,
+  installNodeSentryProcessHandlers,
+  withNodeSentryRequestScope
+} from "../core/sentry-node.js";
 
 const cfg = loadConfig({ mode: "api" });
 logger.info("config.effective", { config: configForLog(cfg) });
+initNodeSentry({ service: "api", logger });
+installNodeSentryProcessHandlers({ service: "api", logger });
 if (cfg.federation?.enabled) {
   logger.info("federation.coordinator", {
     coordinatorDid: cfg.federation.coordinatorDid,
@@ -44,13 +53,33 @@ const { handle } = api;
 
 const port = cfg.api.port;
 const server = http.createServer((req, res) => {
-  applyCorsHeaders({ req, res, corsAllowOrigins });
-  if (req.method === "OPTIONS") {
-    res.statusCode = 204;
-    res.end();
-    return;
-  }
-  return handle(req, res);
+  withNodeSentryRequestScope({ service: "api", req }, async () => {
+    applyCorsHeaders({ req, res, corsAllowOrigins });
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    await handle(req, res);
+  }).catch((err) => {
+    captureNodeSentryException(err, { service: "api", req });
+    logger.error("api.request_failed", {
+      eventId: "api_request_failed",
+      reasonCode: "REQUEST_HANDLER_FAILED",
+      method: req.method ?? null,
+      path: req.url ?? "/",
+      err
+    });
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, code: "INTERNAL", message: err?.message ?? String(err ?? "error") }));
+      return;
+    }
+    try {
+      res.destroy(err);
+    } catch {}
+  });
 });
 const bindHostRaw = typeof process !== "undefined" ? (process.env.PROXY_BIND_HOST ?? process.env.BIND_HOST ?? "") : "";
 const bindHost = typeof bindHostRaw === "string" && bindHostRaw.trim() !== "" ? bindHostRaw.trim() : null;
@@ -137,6 +166,7 @@ async function shutdown() {
     autotickTimer = null;
   }
   try {
+    await flushNodeSentry();
     await new Promise((resolve) => {
       try {
         server.close(() => resolve());

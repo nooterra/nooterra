@@ -125,6 +125,13 @@ import {
 import { buildOnramperHostedUrls } from "../../../src/core/wallet-funding-hosted.js";
 import { buildCoinbaseHostedUrls } from "../../../src/core/wallet-funding-coinbase.js";
 import { applyCorsHeaders } from "../../../src/api/cors.js";
+import { logger } from "../../../src/core/log.js";
+import {
+  captureNodeSentryException,
+  flushNodeSentry,
+  initNodeSentry,
+  installNodeSentryProcessHandlers
+} from "../../../src/core/sentry-node.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
@@ -19047,11 +19054,21 @@ export async function magicLinkHandler(req, res) {
 
     return sendText(res, 404, "not found\n");
   } catch (err) {
+    captureNodeSentryException(err, { service: "magic-link", req });
+    logger.error("magic_link.request_failed", {
+      eventId: "magic_link_request_failed",
+      reasonCode: "REQUEST_HANDLER_FAILED",
+      method: req.method ?? null,
+      path: req.url ?? "/",
+      err
+    });
     return sendJson(res, 500, { ok: false, code: "INTERNAL", message: err?.message ?? String(err ?? "error") });
   }
 }
 
 export const magicLinkServer = http.createServer(magicLinkHandler);
+initNodeSentry({ service: "magic-link", logger });
+installNodeSentryProcessHandlers({ service: "magic-link", logger });
 
 const archiveExportEnabled = String(process.env.MAGIC_LINK_ARCHIVE_EXPORT_ENABLED ?? "1").trim() !== "0";
 const archiveExportIntervalSeconds = Number.parseInt(String(process.env.MAGIC_LINK_ARCHIVE_EXPORT_INTERVAL_SECONDS ?? "86400"), 10);
@@ -19113,4 +19130,42 @@ if (process.env.MAGIC_LINK_DISABLE_LISTEN !== "1") {
       startArchiveExportScheduler();
     });
   }
+}
+
+let shutdownInFlight = false;
+
+async function shutdown(signal) {
+  if (shutdownInFlight) return;
+  shutdownInFlight = true;
+  logger.info("magic_link.shutdown", {
+    eventId: "magic_link_shutdown",
+    reasonCode: "PROCESS_SIGNAL",
+    signal: signal ?? "unknown",
+    transport: socketPath ? "unix" : "tcp"
+  });
+  try {
+    await new Promise((resolve) => {
+      try {
+        magicLinkServer.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+    if (socketPath) {
+      try {
+        await fs.rm(socketPath, { force: true });
+      } catch {
+        // ignore socket cleanup failure
+      }
+    }
+  } finally {
+    await flushNodeSentry();
+    process.exit(0);
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    void shutdown(signal);
+  });
 }
