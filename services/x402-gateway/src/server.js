@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { parseX402PaymentRequired } from "../../../src/core/x402-gate.js";
 import { canonicalJsonStringify } from "../../../src/core/canonical-json.js";
 import { keyIdFromPublicKeyPem } from "../../../src/core/crypto.js";
+import { logger } from "../../../src/core/log.js";
 import { normalizeReasonCodes as normalizePolicyDecisionReasonCodes } from "../../../src/core/policy-decision.js";
 import { buildToolProviderQuotePayloadV1, verifyToolProviderQuoteSignatureV1 } from "../../../src/core/provider-quote-signature.js";
 import { computeNooterraPayRequestBindingSha256V1 } from "../../../src/core/nooterra-pay-token.js";
@@ -1040,19 +1041,17 @@ const server = http.createServer((req, res) => {
 });
 
 const listenCb = () => {
-  // eslint-disable-next-line no-console
-  console.log(
-    JSON.stringify({
-      ok: true,
-      service: "x402-gateway",
-      ...(BIND_HOST ? { host: BIND_HOST } : {}),
-      port: PORT,
-      upstreamUrl: UPSTREAM_URL.toString(),
-      nooterraApiUrl: NOOTERRA_API_URL.toString(),
-      holdbackBps: HOLDBACK_BPS,
-      disputeWindowMs: DISPUTE_WINDOW_MS
-    })
-  );
+  logger.info("x402_gateway.listen", {
+    eventId: "x402_gateway_listen",
+    reasonCode: "SERVICE_READY",
+    service: "x402-gateway",
+    host: BIND_HOST || null,
+    port: PORT,
+    upstreamUrl: UPSTREAM_URL.toString(),
+    nooterraApiUrl: NOOTERRA_API_URL.toString(),
+    holdbackBps: HOLDBACK_BPS,
+    disputeWindowMs: DISPUTE_WINDOW_MS
+  });
 };
 if (BIND_HOST) server.listen(PORT, BIND_HOST, listenCb);
 else server.listen(PORT, listenCb);

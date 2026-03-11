@@ -80,12 +80,14 @@ Expected artifact:
 ```bash
 npm run ops:launch-security:review -- \
   --out ./artifacts/ops/launch-security-review.json
+
+npm run ops:launch-structured-logging:review -- \
+  --out ./artifacts/ops/launch-structured-logging-review.json
 ```
 
 Expected report path:
 
 `artifacts/ops/launch-security-review.json`
-
 5. Run launch alerting report and keep the report in the release packet:
 
 ```bash
@@ -100,8 +102,20 @@ npm run ops:launch-alerting:report -- \
 Expected report path:
 
 `artifacts/ops/launch-alerting-report.json`
+`artifacts/ops/launch-structured-logging-review.json`
 
-6. Run OpenClaw operator readiness gate (hosted + self-host):
+6. Run launch structured logging review and keep the report in the release packet:
+
+```bash
+npm run ops:launch-structured-logging:review -- \
+  --out ./artifacts/ops/launch-structured-logging-review.json
+```
+
+Expected report path:
+
+`artifacts/ops/launch-structured-logging-review.json`
+
+7. Run OpenClaw operator readiness gate (hosted + self-host):
 
 ```bash
 node scripts/ops/openclaw-operator-readiness-gate.mjs \
@@ -236,20 +250,21 @@ Expected report path:
 5. Launch security review report is green (`artifacts/ops/launch-security-review.json`).
 5. Launch abuse controls report is green (`artifacts/ops/launch-abuse-report.json`).
 5. Launch alerting report is green (`artifacts/ops/launch-alerting-report.json`).
-6. Go-live gate and launch cutover packet reports are present:
+6. Launch structured logging review report is green (`artifacts/ops/launch-structured-logging-review.json`).
+7. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
    - `artifacts/gates/nooterra-verified-collaboration-gate.json`
    - generated from a successful `go-live-gate` workflow run for the release commit
-7. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
-8. MCP compatibility matrix is green for supported hosts.
-9. Paid MCP run artifacts verify cleanly.
-10. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
-11. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
-12. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
-13. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
-14. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
-15. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
+8. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
+9. MCP compatibility matrix is green for supported hosts.
+10. Paid MCP run artifacts verify cleanly.
+11. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
+12. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
+13. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
+14. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
+15. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
+16. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 

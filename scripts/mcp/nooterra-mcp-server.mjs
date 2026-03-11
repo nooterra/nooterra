@@ -17,6 +17,10 @@ function nowMs() {
   return Date.now();
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -98,6 +102,36 @@ function safeJsonParse(text) {
     return { ok: true, value: JSON.parse(text) };
   } catch (err) {
     return { ok: false, error: err };
+  }
+}
+
+function serializeStderrError(err) {
+  if (!err) return null;
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: err.message,
+      stack: err.stack
+    };
+  }
+  if (typeof err === "object" && !Array.isArray(err)) return redactSecrets(err);
+  return { message: String(err) };
+}
+
+function writeStderrEvent(level, msg, fields = {}) {
+  const payload = {
+    ts: nowIso(),
+    level: typeof level === "string" && level.trim() !== "" ? level.trim().toLowerCase() : "info",
+    msg: String(msg ?? "").trim() || "mcp.event",
+    ...fields
+  };
+  if (payload.err !== undefined) payload.err = serializeStderrError(payload.err);
+  try {
+    process.stderr.write(`${JSON.stringify(redactSecrets(payload))}\n`);
+  } catch {
+    process.stderr.write(
+      `{"ts":"${nowIso()}","level":"error","msg":"mcp.stderr_log_failed","eventId":"mcp_stderr_log_failed","reasonCode":"STDERR_LOG_FAILURE"}\n`
+    );
   }
 }
 
@@ -3014,7 +3048,11 @@ async function main() {
 
   // Operational hint: this server speaks JSON-RPC over stdin/stdout (MCP stdio transport).
   // Keep stdout strictly for JSON-RPC messages; print hints to stderr only.
-  process.stderr.write("[mcp] ready (stdio). Use `npm run mcp:probe` or an MCP client; do not paste shell prompts.\n");
+  writeStderrEvent("info", "mcp.ready", {
+    eventId: "mcp_ready",
+    reasonCode: "SERVICE_READY",
+    transport: "stdio"
+  });
 
   const client = makeNooterraClient({ baseUrl, tenantId, apiKey, protocol });
   const paidToolsClient = makePaidToolsClient({ baseUrl: paidToolsBaseUrl, tenantId, agentPassport: paidToolsAgentPassport });
@@ -3025,8 +3063,11 @@ async function main() {
 
   const stream = new StdioJsonRpcStream({ input: process.stdin, output: process.stdout });
   stream.onError((err) => {
-    // Never write logs to stdout (reserved for JSON-RPC). stderr only.
-    process.stderr.write(`[mcp] stream error: ${err?.message ?? err}\n`);
+    writeStderrEvent("error", "mcp.stream_error", {
+      eventId: "mcp_stream_error",
+      reasonCode: "STREAM_ERROR",
+      err
+    });
   });
 
   let negotiatedProtocolVersion = null;
@@ -3034,8 +3075,11 @@ async function main() {
   stream.onMessage(async (text) => {
     const parsed = safeJsonParse(text);
     if (!parsed.ok) {
-      // Invalid JSON from client: ignore (spike) but report on stderr.
-      process.stderr.write(`[mcp] invalid json: ${String(parsed.error?.message ?? parsed.error)}\n`);
+      writeStderrEvent("warn", "mcp.invalid_json", {
+        eventId: "mcp_invalid_json",
+        reasonCode: "INVALID_JSON",
+        err: parsed.error
+      });
       return;
     }
     const msg = parsed.value;
@@ -5617,6 +5661,19 @@ async function main() {
             err?.details && typeof err.details === "object"
               ? err.details
               : null;
+          writeStderrEvent("warn", "mcp.tool_failed", {
+            eventId: "mcp_tool_failed",
+            tool: name,
+            durationMs,
+            reasonCode:
+              (details && typeof details.code === "string" && details.code.trim() !== ""
+                ? details.code.trim()
+                : typeof err?.code === "string" && err.code.trim() !== ""
+                  ? err.code.trim()
+                  : "TOOL_FAILURE"),
+            statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
+            err
+          });
           const toolResult = {
             ...asErrorResult(err),
             content: [
@@ -5659,6 +5716,10 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`[mcp] fatal: ${err?.stack || err?.message || String(err)}\n`);
+  writeStderrEvent("error", "mcp.fatal", {
+    eventId: "mcp_fatal",
+    reasonCode: "PROCESS_FATAL",
+    err
+  });
   process.exitCode = 1;
 });
