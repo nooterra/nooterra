@@ -4677,7 +4677,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     additionalProperties: false,
     required: ["type"],
     properties: {
-      type: { type: "string", enum: ["tenant", "agent", "adapter"] },
+      type: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"] },
       id: { type: "string", nullable: true }
     }
   };
@@ -4737,7 +4737,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     properties: {
       schemaVersion: { type: "string", enum: ["OpsEmergencyControlState.v1"] },
       tenantId: { type: "string" },
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"] },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"] },
       scopeId: { type: "string", nullable: true },
       controlType: OpsEmergencyControlType,
       active: { type: "boolean" },
@@ -4759,7 +4759,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["operatorAction"],
     properties: {
       scope: OpsEmergencyScope,
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"], nullable: true },
       scopeId: { type: "string", nullable: true },
       agentId: { type: "string", nullable: true },
       adapterId: { type: "string", nullable: true },
@@ -4778,7 +4778,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["operatorAction"],
     properties: {
       scope: OpsEmergencyScope,
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"], nullable: true },
       scopeId: { type: "string", nullable: true },
       agentId: { type: "string", nullable: true },
       adapterId: { type: "string", nullable: true },
@@ -4797,7 +4797,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["operatorAction"],
     properties: {
       scope: OpsEmergencyScope,
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"], nullable: true },
       scopeId: { type: "string", nullable: true },
       agentId: { type: "string", nullable: true },
       adapterId: { type: "string", nullable: true },
@@ -4816,7 +4816,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["operatorAction"],
     properties: {
       scope: OpsEmergencyScope,
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"], nullable: true },
       scopeId: { type: "string", nullable: true },
       agentId: { type: "string", nullable: true },
       adapterId: { type: "string", nullable: true },
@@ -4835,7 +4835,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["operatorAction"],
     properties: {
       scope: OpsEmergencyScope,
-      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter", "channel", "action_type"], nullable: true },
       scopeId: { type: "string", nullable: true },
       agentId: { type: "string", nullable: true },
       adapterId: { type: "string", nullable: true },

@@ -26,7 +26,9 @@ function normalizeMarketplaceDirectionForReplay({ fromType, toType }) {
 const EMERGENCY_SCOPE_TYPE = Object.freeze({
   TENANT: "tenant",
   AGENT: "agent",
-  ADAPTER: "adapter"
+  ADAPTER: "adapter",
+  CHANNEL: "channel",
+  ACTION_TYPE: "action_type"
 });
 const EMERGENCY_SCOPE_TYPES = new Set(Object.values(EMERGENCY_SCOPE_TYPE));
 const EMERGENCY_CONTROL_TYPE = Object.freeze({

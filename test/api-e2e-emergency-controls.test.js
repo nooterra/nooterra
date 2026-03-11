@@ -115,6 +115,39 @@ async function authorizeX402Gate(api, { gateId, idempotencyKey }) {
   });
 }
 
+async function createLaunchScopedActionIntent(
+  api,
+  { actionIntentId, actorAgentId, principalId = "usr_launch_scope", purpose, actionType = "buy", launchChannel = "Claude MCP" }
+) {
+  return await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: { "x-idempotency-key": `idem_${actionIntentId}` },
+    body: {
+      actionIntentId,
+      actorAgentId,
+      principalId,
+      purpose,
+      capabilitiesRequested: ["capability://workflow.intake"],
+      spendEnvelope: {
+        currency: "USD",
+        maxPerCallCents: 5_000,
+        maxTotalCents: 5_000
+      },
+      metadata: {
+        actionWallet: { actionType },
+        phase1Launch: {
+          categoryId: actionType === "buy" ? "purchases_under_cap" : "subscriptions_cancellations",
+          launchChannel
+        },
+        actionWalletHost: {
+          channel: launchChannel
+        }
+      }
+    }
+  });
+}
+
 test("API e2e: /ops/emergency endpoints enforce auth + invalid payload cases", async () => {
   const api = createEmergencyApi();
   const operatorSigner = await registerSignerKey(api, { purpose: "operator", description: "NOO-57 emergency operator signer" });
@@ -733,4 +766,174 @@ test("API e2e: emergency kill-switch blocks authorize path immediately; resume u
     idempotencyKey: "noo57_kill_switch_authorize_after"
   });
   assert.equal(authorizeAfterResume.statusCode, 200, authorizeAfterResume.body);
+});
+
+test("API e2e: action-type kill-switch blocks Action Wallet buy intents until resumed", async () => {
+  const api = createEmergencyApi();
+  const operatorSigner = await registerSignerKey(api, { purpose: "operator", description: "NOO-ACT128 action-type kill signer" });
+  const secondarySigner = await registerSignerKey(api, { purpose: "operator", description: "NOO-ACT128 action-type kill secondary" });
+
+  const enableKillSwitch = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/kill-switch",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      scope: { type: "action_type", id: "buy" },
+      reasonCode: "OPS_EMERGENCY_KILL_SWITCH",
+      reason: "block buy while containment is active",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        operatorId: "op_act128_buy_primary",
+        role: "ops_admin",
+        caseIdPrefix: "act128_buy_kill_switch",
+        justificationCode: "OPS_EMERGENCY_KILL_SWITCH"
+      }),
+      secondOperatorAction: buildSignedOperatorAction({
+        signer: secondarySigner,
+        operatorId: "op_act128_buy_secondary",
+        role: "incident_commander",
+        caseIdPrefix: "act128_buy_kill_switch_secondary",
+        justificationCode: "OPS_EMERGENCY_KILL_SWITCH"
+      })
+    }
+  });
+  assertCreatedOrOk(enableKillSwitch);
+  assert.equal(enableKillSwitch.json?.scope?.type, "action_type");
+  assert.equal(enableKillSwitch.json?.scope?.id, "buy");
+
+  const blockedBuyIntent = await createLaunchScopedActionIntent(api, {
+    actionIntentId: "aint_noo_act128_buy_blocked",
+    actorAgentId: "agt_noo_act128_buy",
+    purpose: "Buy a charger under $40",
+    actionType: "buy",
+    launchChannel: "Claude MCP"
+  });
+  assert.equal(blockedBuyIntent.statusCode, 409, blockedBuyIntent.body);
+  assert.equal(blockedBuyIntent.json?.code, "EMERGENCY_KILL_SWITCH_ACTIVE");
+
+  const allowedCancelIntent = await createLaunchScopedActionIntent(api, {
+    actionIntentId: "aint_noo_act128_cancel_allowed",
+    actorAgentId: "agt_noo_act128_cancel",
+    purpose: "Cancel an unused subscription",
+    actionType: "cancel/recover",
+    launchChannel: "Claude MCP"
+  });
+  assert.equal(allowedCancelIntent.statusCode, 201, allowedCancelIntent.body);
+
+  const resume = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/resume",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      scope: { type: "action_type", id: "buy" },
+      controlType: "kill-switch",
+      reasonCode: "OPS_EMERGENCY_RESUME",
+      reason: "buy containment cleared",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        operatorId: "op_act128_buy_resume_primary",
+        role: "ops_admin",
+        action: "OVERRIDE_ALLOW",
+        caseIdPrefix: "act128_buy_resume",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      }),
+      secondOperatorAction: buildSignedOperatorAction({
+        signer: secondarySigner,
+        operatorId: "op_act128_buy_resume_secondary",
+        role: "incident_commander",
+        action: "OVERRIDE_ALLOW",
+        caseIdPrefix: "act128_buy_resume_secondary",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      })
+    }
+  });
+  assert.equal(resume.statusCode, 200, resume.body);
+
+  const buyIntentAfterResume = await createLaunchScopedActionIntent(api, {
+    actionIntentId: "aint_noo_act128_buy_after_resume",
+    actorAgentId: "agt_noo_act128_buy_after",
+    purpose: "Buy a charger after resume",
+    actionType: "buy",
+    launchChannel: "Claude MCP"
+  });
+  assert.equal(buyIntentAfterResume.statusCode, 201, buyIntentAfterResume.body);
+});
+
+test("API e2e: channel pause blocks Action Wallet approval requests until resumed", async () => {
+  const api = createEmergencyApi();
+  const operatorSigner = await registerSignerKey(api, { purpose: "operator", description: "NOO-ACT128 channel pause signer" });
+
+  const createdIntent = await createLaunchScopedActionIntent(api, {
+    actionIntentId: "aint_noo_act128_channel_pause",
+    actorAgentId: "agt_noo_act128_channel",
+    purpose: "Buy a charger on Claude MCP",
+    actionType: "buy",
+    launchChannel: "Claude MCP"
+  });
+  assert.equal(createdIntent.statusCode, 201, createdIntent.body);
+
+  const pause = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/pause",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      scope: { type: "channel", id: "Claude MCP" },
+      reasonCode: "OPS_EMERGENCY_PAUSE",
+      reason: "pause Claude MCP launches during containment",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        operatorId: "op_act128_channel_pause",
+        role: "oncall",
+        caseIdPrefix: "act128_channel_pause",
+        justificationCode: "OPS_EMERGENCY_PAUSE"
+      })
+    }
+  });
+  assertCreatedOrOk(pause);
+  assert.equal(pause.json?.scope?.type, "channel");
+  assert.equal(pause.json?.scope?.id, "claude mcp");
+
+  const blockedApprovalRequest = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents/aint_noo_act128_channel_pause/approval-requests",
+    headers: { "x-idempotency-key": "idem_noo_act128_channel_pause_approval_1" },
+    body: {
+      requestId: "apr_noo_act128_channel_pause_1",
+      requestedBy: "agt_noo_act128_channel"
+    }
+  });
+  assert.equal(blockedApprovalRequest.statusCode, 409, blockedApprovalRequest.body);
+  assert.equal(blockedApprovalRequest.json?.code, "EMERGENCY_PAUSE_ACTIVE");
+
+  const resume = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/resume",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      scope: { type: "channel", id: "Claude MCP" },
+      controlType: "pause",
+      reasonCode: "OPS_EMERGENCY_RESUME",
+      reason: "Claude MCP launches restored",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        operatorId: "op_act128_channel_resume",
+        role: "oncall",
+        action: "OVERRIDE_ALLOW",
+        caseIdPrefix: "act128_channel_resume",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      })
+    }
+  });
+  assert.equal(resume.statusCode, 200, resume.body);
+
+  const approvalRequestAfterResume = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents/aint_noo_act128_channel_pause/approval-requests",
+    headers: { "x-idempotency-key": "idem_noo_act128_channel_pause_approval_2" },
+    body: {
+      requestId: "apr_noo_act128_channel_pause_2",
+      requestedBy: "agt_noo_act128_channel"
+    }
+  });
+  assert.equal(approvalRequestAfterResume.statusCode, 201, approvalRequestAfterResume.body);
 });

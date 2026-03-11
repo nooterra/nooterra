@@ -1169,6 +1169,7 @@ body {
 }
 
 .operator-config-grid input:focus,
+.operator-textarea-wrap input:focus,
 .operator-textarea-wrap textarea:focus {
   border-color: rgba(203, 122, 95, 0.8);
 }
@@ -1478,6 +1479,16 @@ body {
   outline: none;
 }
 
+.operator-textarea-wrap input {
+  width: 100%;
+  border-radius: 11px;
+  border: 1px solid rgba(120, 155, 181, 0.26);
+  background: rgba(13, 22, 31, 0.88);
+  color: #eff5fa;
+  padding: 0.58rem 0.62rem;
+  outline: none;
+}
+
 .operator-decision-actions {
   display: flex;
   gap: 0.55rem;
@@ -1523,6 +1534,13 @@ body {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
+}
+
+.operator-emergency-inline-head {
+  border-bottom: 0;
+  border-radius: 11px;
+  padding: 0;
+  background: transparent;
 }
 
 .operator-json-block pre {
