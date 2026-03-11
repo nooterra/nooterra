@@ -37,7 +37,9 @@ const NOOTERRA_PAY_KEYSET_STORE_FILENAME = "nooterra-pay-keyset-store.json";
 const EMERGENCY_SCOPE_TYPE = Object.freeze({
   TENANT: "tenant",
   AGENT: "agent",
-  ADAPTER: "adapter"
+  ADAPTER: "adapter",
+  CHANNEL: "channel",
+  ACTION_TYPE: "action_type"
 });
 const EMERGENCY_SCOPE_TYPES = new Set(Object.values(EMERGENCY_SCOPE_TYPE));
 const EMERGENCY_CONTROL_TYPE = Object.freeze({
@@ -162,14 +164,16 @@ function loadOrCreateServerSigner({ persistenceDir }) {
 
 function normalizeEmergencyScopeType(value) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!EMERGENCY_SCOPE_TYPES.has(normalized)) throw new TypeError("scope.type must be tenant|agent|adapter");
+  if (!EMERGENCY_SCOPE_TYPES.has(normalized)) throw new TypeError("scope.type must be tenant|agent|adapter|channel|action_type");
   return normalized;
 }
 
 function normalizeEmergencyScopeId(scopeType, value) {
   if (scopeType === EMERGENCY_SCOPE_TYPE.TENANT) return null;
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (!normalized) throw new TypeError("scope.id is required for scope.type agent|adapter");
+  const raw = typeof value === "string" ? value.trim() : "";
+  const normalized =
+    scopeType === EMERGENCY_SCOPE_TYPE.CHANNEL || scopeType === EMERGENCY_SCOPE_TYPE.ACTION_TYPE ? raw.toLowerCase() : raw;
+  if (!normalized) throw new TypeError("scope.id is required for scope.type agent|adapter|channel|action_type");
   return normalized;
 }
 
@@ -5442,12 +5446,20 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     tenantId = DEFAULT_TENANT_ID,
     controlTypes = null,
     agentIds = [],
-    adapterIds = []
+    adapterIds = [],
+    channelIds = [],
+    actionTypeIds = []
   } = {}) {
     tenantId = normalizeTenantId(tenantId);
     const allowedControlTypes = controlTypes === null ? null : new Set(normalizeEmergencyResumeControlTypes(controlTypes));
     const normalizedAgentIds = new Set((Array.isArray(agentIds) ? agentIds : []).map((value) => String(value ?? "").trim()).filter(Boolean));
     const normalizedAdapterIds = new Set((Array.isArray(adapterIds) ? adapterIds : []).map((value) => String(value ?? "").trim()).filter(Boolean));
+    const normalizedChannelIds = new Set(
+      (Array.isArray(channelIds) ? channelIds : []).map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean)
+    );
+    const normalizedActionTypeIds = new Set(
+      (Array.isArray(actionTypeIds) ? actionTypeIds : []).map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean)
+    );
     const controlPriority = new Map([
       [EMERGENCY_CONTROL_TYPE.KILL_SWITCH, 0],
       [EMERGENCY_CONTROL_TYPE.REVOKE, 1],
@@ -5455,9 +5467,11 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       [EMERGENCY_CONTROL_TYPE.PAUSE, 3]
     ]);
     const scopePriority = new Map([
-      [EMERGENCY_SCOPE_TYPE.AGENT, 0],
-      [EMERGENCY_SCOPE_TYPE.ADAPTER, 1],
-      [EMERGENCY_SCOPE_TYPE.TENANT, 2]
+      [EMERGENCY_SCOPE_TYPE.ACTION_TYPE, 0],
+      [EMERGENCY_SCOPE_TYPE.CHANNEL, 1],
+      [EMERGENCY_SCOPE_TYPE.AGENT, 2],
+      [EMERGENCY_SCOPE_TYPE.ADAPTER, 3],
+      [EMERGENCY_SCOPE_TYPE.TENANT, 4]
     ]);
 
     const matches = [];
@@ -5468,9 +5482,16 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       const rowControlType = normalizeEmergencyControlType(row.controlType ?? null, { allowNull: false });
       if (allowedControlTypes && !allowedControlTypes.has(rowControlType)) continue;
       const rowScopeType = normalizeEmergencyScopeType(row.scopeType ?? null);
-      const rowScopeId = row.scopeId === null || row.scopeId === undefined ? null : String(row.scopeId);
+      const rowScopeId =
+        row.scopeId === null || row.scopeId === undefined
+          ? null
+          : rowScopeType === EMERGENCY_SCOPE_TYPE.CHANNEL || rowScopeType === EMERGENCY_SCOPE_TYPE.ACTION_TYPE
+            ? String(row.scopeId).toLowerCase()
+            : String(row.scopeId);
       if (rowScopeType === EMERGENCY_SCOPE_TYPE.AGENT && !normalizedAgentIds.has(String(rowScopeId ?? ""))) continue;
       if (rowScopeType === EMERGENCY_SCOPE_TYPE.ADAPTER && !normalizedAdapterIds.has(String(rowScopeId ?? ""))) continue;
+      if (rowScopeType === EMERGENCY_SCOPE_TYPE.CHANNEL && !normalizedChannelIds.has(String(rowScopeId ?? ""))) continue;
+      if (rowScopeType === EMERGENCY_SCOPE_TYPE.ACTION_TYPE && !normalizedActionTypeIds.has(String(rowScopeId ?? ""))) continue;
       matches.push({
         ...row,
         controlType: rowControlType,
