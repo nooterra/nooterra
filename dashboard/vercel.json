@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/((?!(?:__magic|__nooterra|v1)(?:/|$))(?!.*\\.).*)",
       "destination": "/index.html"
     }
   ]
