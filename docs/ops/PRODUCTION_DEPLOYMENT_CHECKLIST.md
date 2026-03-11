@@ -75,7 +75,18 @@ npm run ops:backup-restore:drill -- \
 Expected artifact:
 
 `artifacts/ops/backup-restore-drill.json` with `schemaVersion="BackupRestoreDrillReport.v1"` and `status="pass"`.
-4. Run OpenClaw operator readiness gate (hosted + self-host):
+4. Run launch security review and keep the report in the release packet:
+
+```bash
+npm run ops:launch-security:review -- \
+  --out ./artifacts/ops/launch-security-review.json
+```
+
+Expected report path:
+
+`artifacts/ops/launch-security-review.json`
+
+5. Run OpenClaw operator readiness gate (hosted + self-host):
 
 ```bash
 node scripts/ops/openclaw-operator-readiness-gate.mjs \
@@ -86,7 +97,7 @@ node scripts/ops/openclaw-operator-readiness-gate.mjs \
 ```
 
 Fail-closed behavior: this gate blocks if hosted evidence is missing/invalid/non-pass or if required self-host runtime keys are unresolved (`NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`).
-5. Run the self-host topology bundle gate path from `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md`:
+6. Run the self-host topology bundle gate path from `docs/ops/SELF_HOST_TOPOLOGY_BUNDLE.md`:
 
 ```bash
 npm run -s test:ops:self-host-topology-bundle-gate
@@ -96,7 +107,7 @@ Expected report path:
 
 `artifacts/gates/self-host-topology-bundle-gate.json`
 
-6. Run the ACS self-host upgrade/migration gate path from `docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`:
+7. Run the ACS self-host upgrade/migration gate path from `docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`:
 
 ```bash
 npm run -s test:ops:self-host-upgrade-migration-gate
@@ -106,7 +117,7 @@ Expected report path:
 
 `artifacts/gates/self-host-upgrade-migration-gate.json`
 
-7. Run serving mode boundary gate path from `docs/ops/SERVING_MODES_BOUNDARY.md`:
+8. Run serving mode boundary gate path from `docs/ops/SERVING_MODES_BOUNDARY.md`:
 
 ```bash
 npm run -s test:ops:serving-mode-boundary-gate
@@ -193,20 +204,21 @@ Expected report path:
 2. Onboarding/policy SLO gate is green (`artifacts/gates/onboarding-policy-slo-gate.json`).
 3. Onboarding host success gate is green (`artifacts/gates/onboarding-host-success-gate.json`).
 4. Hosted baseline evidence is green.
-5. Go-live gate and launch cutover packet reports are present:
+5. Launch security review report is green (`artifacts/ops/launch-security-review.json`).
+6. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
    - `artifacts/gates/nooterra-verified-collaboration-gate.json`
    - generated from a successful `go-live-gate` workflow run for the release commit
-6. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
-7. MCP compatibility matrix is green for supported hosts.
-8. Paid MCP run artifacts verify cleanly.
-9. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
-10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
-11. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
-12. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
-13. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
-14. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
+7. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
+8. MCP compatibility matrix is green for supported hosts.
+9. Paid MCP run artifacts verify cleanly.
+10. Rollback runbook has been rehearsed (`docs/ops/SELF_HOST_UPGRADE_MIGRATION_PLAYBOOK.md`).
+11. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
+12. ACS-E10 readiness gate is green (`artifacts/gates/acs-e10-readiness-gate.json`).
+13. Self-host topology bundle gate is green (`artifacts/gates/self-host-topology-bundle-gate.json`).
+14. Self-host upgrade/migration gate is green (`artifacts/gates/self-host-upgrade-migration-gate.json`).
+15. Serving mode boundary gate is green (`artifacts/gates/serving-mode-boundary-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 

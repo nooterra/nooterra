@@ -136,3 +136,19 @@ The report records:
 - blocking issues when a step or the drill exits non-zero
 
 If you need the raw shell path directly, `scripts/backup-restore-test.sh` remains the underlying PG-mode drill.
+
+## Launch security review
+
+Run:
+
+```sh
+npm run ops:launch-security:review -- --out artifacts/ops/launch-security-review.json
+```
+
+This emits `LaunchSecurityReviewReport.v1` and fails closed if launch review evidence is missing for:
+
+- managed public auth CORS allowlisting on `www.nooterra.ai` / `nooterra.ai`
+- approval-link session binding, expiry, and replay rejection
+- approval scope binding against canonical action/envelope hashes
+- same-origin proxy routing for `__magic`, `__nooterra`, and `/v1`
+- fail-closed dashboard handling when a control-plane route returns HTML instead of JSON
