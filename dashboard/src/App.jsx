@@ -33,10 +33,15 @@ function getRouteMode() {
   if (path === "/docs/api") return { mode: "docs_api", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/security") return { mode: "docs_security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/ops") return { mode: "docs_ops", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/launch-hosts") return { mode: "docs_launch_hosts", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/partner-kit") return { mode: "docs_partner_kit", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/launch-checklist") return { mode: "docs_launch_checklist", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/incidents") return { mode: "docs_incidents", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/status") return { mode: "status", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/security") return { mode: "security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/privacy") return { mode: "privacy", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/terms") return { mode: "terms", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/support") return { mode: "support", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/expired") return { mode: "expired", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/revoked") return { mode: "revoked", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/verification-failed") return { mode: "verification_failed", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -112,10 +117,15 @@ export default function App() {
     "docs_api",
     "docs_security",
     "docs_ops",
+    "docs_launch_hosts",
+    "docs_partner_kit",
+    "docs_launch_checklist",
+    "docs_incidents",
     "status",
     "security",
     "privacy",
     "terms",
+    "support",
     "expired",
     "revoked",
     "verification_failed",
