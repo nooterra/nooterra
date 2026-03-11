@@ -111,6 +111,7 @@ npm run -s test:ops:release-promotion-guard -- \
 
 ## DR: backup/restore drill
 
+<<<<<<< HEAD
 Use the deterministic wrapper below to prove restore correctness and archive a machine-readable report:
 
 ```bash
@@ -152,3 +153,22 @@ This emits `LaunchSecurityReviewReport.v1` and fails closed if launch review evi
 - approval scope binding against canonical action/envelope hashes
 - same-origin proxy routing for `__magic`, `__nooterra`, and `/v1`
 - fail-closed dashboard handling when a control-plane route returns HTML instead of JSON
+
+## Launch abuse controls report
+
+Use the launch abuse report before opening traffic to detect:
+
+- repeated failed approvals
+- suspicious host rescue/emergency patterns
+- suspicious payment mismatches from money-rail reconciliation
+
+```bash
+npm run ops:launch-abuse:report -- \
+  --base-url https://api.nooterra.work \
+  --tenant-id tenant_default \
+  --ops-token "$NOOTERRA_OPS_TOKEN" \
+  --period "$(date -u +%Y-%m)" \
+  --out artifacts/ops/launch-abuse-report.json
+```
+
+The report is fail-closed. `status="fail"` means launch stays blocked until the underlying approval, host, or payment signal is resolved or explicitly understood.

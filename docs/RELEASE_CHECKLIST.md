@@ -78,6 +78,9 @@ Release-gate evidence should also include:
 - `artifacts/gates/onboarding-host-success-gate.json`
 - `artifacts/gates/public-website-route-smoke.json`
 - `artifacts/ops/launch-security-review.json`
+- `artifacts/ops/launch-abuse-report.json` (`LaunchAbuseControlsReport.v1`, pass)
+- `artifacts/ops/launch-security-review.json` (`LaunchSecurityReviewReport.v1`, pass)
+- `artifacts/ops/launch-abuse-report.json` (`LaunchAbuseControlsReport.v1`, pass)
 - `artifacts/gates/release-promotion-guard.json` (NOO-65)
 - `artifacts/ops/backup-restore-drill.json` (`BackupRestoreDrillReport.v1`, pass)
 

@@ -193,6 +193,8 @@
     "ops:x402:receipt:sample-check": "node scripts/ops/check-x402-receipt-sample.mjs",
     "ops:audit:lineage:verify": "node scripts/ops/verify-audit-lineage.mjs",
     "ops:backup-restore:drill": "node scripts/ops/run-backup-restore-drill.mjs",
+    "ops:launch-security:review": "node scripts/ops/run-launch-security-review.mjs",
+    "ops:launch-abuse:report": "node scripts/ops/run-launch-abuse-report.mjs",
     "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
     "ops:launch-security:review": "node scripts/ops/run-launch-security-review.mjs",
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
