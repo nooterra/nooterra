@@ -45,7 +45,10 @@ Use this checklist to launch and verify a real hosted Nooterra environment.
 ```bash
 curl -fsS https://api.nooterra.work/healthz
 curl -fsS https://gateway.nooterra.work/healthz
-npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.work --tenant-id tenant_default
+npm run test:ops:public-onboarding-gate -- \
+  --base-url https://api.nooterra.work \
+  --website-base-url https://www.nooterra.ai \
+  --tenant-id tenant_default
 ```
 
 ## Phase 3: Baseline ops verification
