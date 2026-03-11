@@ -10,6 +10,7 @@ function printHelp() {
       "2. bootstrap the runtime",
       "3. run the smoke test",
       "4. seed the first hosted approval",
+      "5. run the managed first paid call unless skipped",
       "",
       "Environment:",
       "  NOOTERRA_BASE_URL        API base URL (default: https://api.nooterra.ai)",
@@ -18,12 +19,18 @@ function printHelp() {
       "  NOOTERRA_SIGNUP_COMPANY  Signup company when creating a tenant",
       "  NOOTERRA_SIGNUP_NAME     Signup full name when creating a tenant",
       "  NOOTERRA_HOST_TRACK      claude | openclaw | codex (default: codex)",
+      "  NOOTERRA_SKIP_FIRST_PAID_CALL  Set to 1/true/yes to stop after seeding approval",
       "",
       "Examples:",
       "  NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval",
       "  NOOTERRA_SIGNUP_EMAIL=founder@example.com NOOTERRA_SIGNUP_COMPANY=Nooterra NOOTERRA_SIGNUP_NAME='Aiden Lippert' npm run quickstart:action-wallet:first-approval"
     ].join("\n") + "\n"
   );
+}
+
+function envFlagEnabled(name) {
+  const raw = typeof process.env[name] === "string" ? process.env[name].trim().toLowerCase() : "";
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 function normalizeHostTrack(value) {
@@ -103,6 +110,7 @@ async function main() {
 
   const baseUrl = baseUrlFromEnv();
   const hostTrack = normalizeHostTrack(process.env.NOOTERRA_HOST_TRACK);
+  const skipFirstPaidCall = envFlagEnabled("NOOTERRA_SKIP_FIRST_PAID_CALL");
   const tenant = await resolveTenantId(baseUrl);
 
   const bootstrap = await requestJson({
@@ -139,6 +147,27 @@ async function main() {
       ? approvalHistory.attempts.find((row) => String(row?.attemptId ?? "").trim() === attemptId) ?? null
       : null;
 
+  let firstPaidCall = null;
+  let firstPaidHistory = null;
+  let firstPaidAttempt = null;
+  if (!skipFirstPaidCall) {
+    firstPaidCall = await requestJson({
+      baseUrl,
+      pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/first-paid-call`,
+      method: "POST",
+      body: {}
+    });
+    firstPaidHistory = await requestJson({
+      baseUrl,
+      pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/first-paid-call/history`
+    });
+    const firstPaidAttemptId = typeof firstPaidCall?.attemptId === "string" ? firstPaidCall.attemptId.trim() : "";
+    firstPaidAttempt =
+      Array.isArray(firstPaidHistory?.attempts) && firstPaidAttemptId
+        ? firstPaidHistory.attempts.find((row) => String(row?.attemptId ?? "").trim() === firstPaidAttemptId) ?? null
+        : null;
+  }
+
   const summary = {
     schemaVersion: "ActionWalletFirstGovernedAction.v1",
     baseUrl,
@@ -155,6 +184,19 @@ async function main() {
       approvalUrl: seededApproval?.approvalUrl ?? null,
       approvalStatus: seededAttempt?.approvalStatus ?? seededApproval?.approvalRequest?.approvalStatus ?? null,
       status: seededAttempt?.status ?? null
+    },
+    firstPaid: {
+      attempted: !skipFirstPaidCall,
+      attemptId: firstPaidCall?.attemptId ?? null,
+      runId: firstPaidAttempt?.ids?.runId ?? firstPaidCall?.ids?.runId ?? null,
+      receiptId: firstPaidAttempt?.ids?.receiptId ?? firstPaidCall?.ids?.receiptId ?? null,
+      disputeId: firstPaidAttempt?.ids?.disputeId ?? firstPaidCall?.ids?.disputeId ?? null,
+      verificationStatus: firstPaidAttempt?.verificationStatus ?? firstPaidCall?.verificationStatus ?? null,
+      settlementStatus: firstPaidAttempt?.settlementStatus ?? firstPaidCall?.settlementStatus ?? null,
+      status: firstPaidAttempt?.status ?? null,
+      runUrl: firstPaidAttempt?.links?.runUrl ?? firstPaidCall?.links?.runUrl ?? null,
+      receiptUrl: firstPaidAttempt?.links?.receiptUrl ?? firstPaidCall?.links?.receiptUrl ?? null,
+      disputeUrl: firstPaidAttempt?.links?.disputeUrl ?? firstPaidCall?.links?.disputeUrl ?? null
     },
     runtime: {
       tenantId: runtimeEnv?.NOOTERRA_TENANT_ID ?? null,

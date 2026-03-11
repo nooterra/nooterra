@@ -68,7 +68,7 @@ The fastest Codex/API/CLI proof is:
 NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
 ```
 
-That script bootstraps the runtime, runs the smoke test, seeds the first hosted approval, and prints the exact approval URL + request id you need next.
+That script bootstraps the runtime, runs the smoke test, seeds the first hosted approval, runs the managed first paid call, and prints the exact approval URL, request id, run id, and receipt URL you need next.
 
 Channel-specific bootstrap:
 

@@ -84,6 +84,13 @@ The script prints only the launch artifacts you need next:
 - `approval.requestId`
 - `approval.approvalUrl`
 - `smoke.toolsCount`
+- `firstPaid.runId`
+- `firstPaid.receiptId`
+- `firstPaid.receiptUrl`
+- `firstPaid.verificationStatus`
+- `firstPaid.settlementStatus`
+
+Set `NOOTERRA_SKIP_FIRST_PAID_CALL=1` if you only want to stop after seeding the first hosted approval.
 
 1. create an action intent
 2. request approval
