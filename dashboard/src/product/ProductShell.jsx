@@ -4624,6 +4624,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     setStatusMessage(ok ? `${label} copied to the clipboard.` : `${label} copy failed.`);
   }
 
+  function openExternalProductSurface(url) {
+    if (typeof window === "undefined") return false;
+    const normalizedUrl = String(url ?? "").trim();
+    if (!normalizedUrl) return false;
+    const opened = window.open(normalizedUrl, "_blank", "noopener,noreferrer");
+    return Boolean(opened);
+  }
+
   async function refreshFirstPaidHistory() {
     const tenantId = buyer?.tenantId;
     if (!tenantId) {
@@ -4766,11 +4774,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         approvalRequested?.actionIntent?.approvalUrl,
         `/approvals?requestId=${encodeURIComponent(approvalRequested?.approvalRequest?.requestId ?? "")}`
       );
-      setStatusMessage(`Hosted approval ${approvalRequested?.approvalRequest?.requestId ?? "created"} is live for ${selectedHostTrack.label}.`);
-      if (typeof window !== "undefined" && approvalUrl) {
-        window.location.assign(approvalUrl);
-        return;
-      }
+      const approvalRequestId = approvalRequested?.approvalRequest?.requestId ?? "created";
+      const opened = approvalUrl ? openExternalProductSurface(approvalUrl) : false;
+      setStatusMessage(
+        opened
+          ? `Hosted approval ${approvalRequestId} is live for ${selectedHostTrack.label}. It opened in a new tab so onboarding stays on the proof loop.`
+          : `Hosted approval ${approvalRequestId} is live for ${selectedHostTrack.label}. Reopen it from this page if the browser blocked the new tab.`
+      );
+      jumpToPageAnchor("#first-governed-action");
     } catch (error) {
       setHostedApprovalState((previous) => ({
         ...previous,
@@ -5588,6 +5599,15 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
               {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
             </a>
+            {focusedHostedApprovalUrl ? (
+              <button
+                className="product-button product-button-ghost"
+                disabled={busyState !== ""}
+                onClick={() => void handleCopy(focusedHostedApprovalUrl, "Approval link")}
+              >
+                Copy approval link
+              </button>
+            ) : null}
           </div>
           <div className="product-detail-meta">
             <div>
@@ -5617,9 +5637,22 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <button className="product-button product-button-ghost" disabled={busyState !== "" || !buyer?.tenantId} onClick={() => void refreshHostedApprovalHistory()}>
               {hostedApprovalState.loading && busyState === "" ? "Refreshing..." : "Refresh approval history"}
             </button>
-            <a className="product-button product-button-ghost" href={focusedHostedApprovalUrl || approvalSurfaceHref}>
+            <a
+              className="product-button product-button-ghost"
+              href={focusedHostedApprovalUrl || approvalSurfaceHref}
+              {...(focusedHostedApprovalUrl ? { target: "_blank", rel: "noreferrer" } : {})}
+            >
               {focusedHostedApprovalId ? "Reopen hosted approval" : "Open approvals"}
             </a>
+            {focusedHostedApprovalUrl ? (
+              <button
+                className="product-button product-button-ghost"
+                disabled={busyState !== ""}
+                onClick={() => void handleCopy(focusedHostedApprovalUrl, "Approval link")}
+              >
+                Copy approval link
+              </button>
+            ) : null}
           </div>
           <div className="product-form-grid">
             <label className="wide">
