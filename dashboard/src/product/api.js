@@ -1,12 +1,30 @@
-export const DEFAULT_BASE_URL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_NOOTERRA_API_BASE_URL
-    ? String(import.meta.env.VITE_NOOTERRA_API_BASE_URL)
-    : "/__nooterra";
-export const DEFAULT_AUTH_BASE_URL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_NOOTERRA_AUTH_BASE_URL
-    ? String(import.meta.env.VITE_NOOTERRA_AUTH_BASE_URL)
-    : "/__magic";
 export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
+
+export function isManagedWebsiteHostname(hostname) {
+  const normalized = String(hostname ?? "").trim().toLowerCase();
+  return normalized === "www.nooterra.ai" || normalized === "nooterra.ai";
+}
+
+export function resolveDefaultApiBaseUrl({
+  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_API_BASE_URL : "",
+  hostname = typeof window !== "undefined" ? window.location.hostname : ""
+} = {}) {
+  const normalizedEnvBaseUrl = String(envBaseUrl ?? "").trim();
+  if (normalizedEnvBaseUrl) return normalizedEnvBaseUrl;
+  return isManagedWebsiteHostname(hostname) ? DEFAULT_PUBLIC_API_BASE_URL : "/__nooterra";
+}
+
+export function resolveDefaultAuthBaseUrl({
+  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_AUTH_BASE_URL : "",
+  hostname = typeof window !== "undefined" ? window.location.hostname : ""
+} = {}) {
+  const normalizedEnvBaseUrl = String(envBaseUrl ?? "").trim();
+  if (normalizedEnvBaseUrl) return normalizedEnvBaseUrl;
+  return isManagedWebsiteHostname(hostname) ? DEFAULT_PUBLIC_API_BASE_URL : "/__magic";
+}
+
+export const DEFAULT_BASE_URL = resolveDefaultApiBaseUrl();
+export const DEFAULT_AUTH_BASE_URL = resolveDefaultAuthBaseUrl();
 
 export const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v2";
 export const PRODUCT_BUYER_PASSKEY_STORAGE_KEY = "nooterra_product_buyer_passkeys_v1";
