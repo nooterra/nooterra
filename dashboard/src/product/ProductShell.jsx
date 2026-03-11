@@ -511,6 +511,24 @@ function validateWorkspaceSignupForm(signupForm) {
   return null;
 }
 
+function validateWorkspaceLoginIdentity(loginForm) {
+  const tenantId = String(loginForm?.tenantId ?? "").trim();
+  const email = String(loginForm?.email ?? "").trim();
+  if (!tenantId) return "Existing tenant is required.";
+  if (!email) return "Sign-in email is required.";
+  if (!email.includes("@")) return "Enter a valid sign-in email.";
+  return null;
+}
+
+function validateWorkspaceRecoveryCode(loginForm) {
+  const identityError = validateWorkspaceLoginIdentity(loginForm);
+  if (identityError) return identityError;
+  const code = String(loginForm?.code ?? "").trim();
+  if (!code) return "Recovery code is required.";
+  if (!/^\d{6}$/.test(code)) return "Enter the six-digit recovery code.";
+  return null;
+}
+
 async function resumeRouterLaunchFromApproval({ runtime, continuation, approvalDecision }) {
   const resume = asPlainObject(continuation?.resume);
   const taskId = typeof resume?.taskId === "string" && resume.taskId.trim() !== "" ? resume.taskId.trim() : null;
@@ -4869,6 +4887,17 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const nextGovernedActionInstruction = nextGovernedActionStep
     ? nextGovernedActionStep.detail
     : "Bootstrap, hosted approval, receipt, and dispute are all linked in this workspace. Keep the same runtime and host contract during burn-in.";
+  const signupValidationError = validateWorkspaceSignupForm(signupForm);
+  const loginIdentityError = validateWorkspaceLoginIdentity(loginForm);
+  const recoveryCodeError = validateWorkspaceRecoveryCode(loginForm);
+  const passkeySignupDisabled =
+    busyState !== "" ||
+    !browserPasskeyReady ||
+    authMode?.publicSignupEnabled === false ||
+    Boolean(signupValidationError);
+  const passkeyLoginDisabled = busyState !== "" || !browserPasskeyReady || Boolean(loginIdentityError);
+  const requestOtpDisabled = busyState !== "" || Boolean(loginIdentityError);
+  const verifyOtpDisabled = busyState !== "" || Boolean(recoveryCodeError);
   const activationChannels = [
     {
       label: "Claude MCP",
@@ -5321,14 +5350,18 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           </div>
           <div className="product-actions">
             {authMode?.publicSignupEnabled !== false ? (
-              <button className="product-button product-button-ghost" disabled={busyState !== "" || !browserPasskeyReady} onClick={() => void handlePasskeySignup()}>
+              <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
                 {busyState === "passkey_signup" ? "Creating..." : "Create Workspace + Save Passkey"}
               </button>
             ) : null}
-            <button className="product-button product-button-solid" disabled={busyState !== "" || !browserPasskeyReady} onClick={() => void handlePasskeyLogin()}>
+            <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
               {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
             </button>
           </div>
+          {authMode?.publicSignupEnabled !== false && signupValidationError ? (
+            <div className="product-inline-note warn">{signupValidationError}</div>
+          ) : null}
+          {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
           <details className="product-details">
             <summary>Recovery by email</summary>
             <div className="product-inline-note warn">
@@ -5346,13 +5379,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
               </label>
             </div>
             <div className="product-actions">
-              <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleRequestOtp()}>
+              <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                 {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
               </button>
-              <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleVerifyOtp()}>
+              <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                 {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
               </button>
             </div>
+            {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
           </details>
           <div className="product-inline-note">{statusMessage}</div>
         </article>
