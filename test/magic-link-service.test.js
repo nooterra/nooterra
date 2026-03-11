@@ -2167,10 +2167,12 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(history.json?.ok, true);
     assert.equal(history.json?.schemaVersion, "MagicLinkHostedApprovalHistory.v1");
     assert.equal(history.json?.tenantId, tenantId);
+    assert.equal(history.json?.refreshed, true);
     assert.ok(Array.isArray(history.json?.attempts));
     assert.equal(history.json.attempts.length, 1);
     assert.equal(history.json.attempts[0]?.attemptId, out.json?.attemptId);
-    assert.equal(history.json.attempts[0]?.status, "opened");
+    assert.equal(history.json.attempts[0]?.status, "pending");
+    assert.equal(history.json.attempts[0]?.approvalStatus, "pending");
     assert.equal(history.json.attempts[0]?.hostTrack, "codex");
     assert.equal(history.json.attempts[0]?.approvalRequestId, out.json?.approvalRequest?.requestId);
 

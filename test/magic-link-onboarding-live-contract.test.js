@@ -216,8 +216,12 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(seededApprovalHistory.status, 200, seededApprovalHistory.text);
     assert.equal(seededApprovalHistory.json?.ok, true, seededApprovalHistory.text);
     assert.equal(seededApprovalHistory.json?.schemaVersion, "MagicLinkHostedApprovalHistory.v1", seededApprovalHistory.text);
+    assert.equal(seededApprovalHistory.json?.refreshed, true, seededApprovalHistory.text);
     assert.ok(Array.isArray(seededApprovalHistory.json?.attempts), seededApprovalHistory.text);
-    assert.ok(seededApprovalHistory.json.attempts.some((row) => row?.attemptId === seededApproval.json?.attemptId), seededApprovalHistory.text);
+    const seededAttempt = seededApprovalHistory.json.attempts.find((row) => row?.attemptId === seededApproval.json?.attemptId) ?? null;
+    assert.ok(seededAttempt, seededApprovalHistory.text);
+    assert.equal(seededAttempt?.status, "pending", seededApprovalHistory.text);
+    assert.equal(seededAttempt?.approvalStatus, "pending", seededApprovalHistory.text);
 
     const firstPaidCall = await httpJson({
       baseUrl: magicBase,

@@ -7023,14 +7023,30 @@ function normalizeHostedApprovalAttemptRow(input) {
   const completedAt = normalizeIso(input.completedAt);
   const status = (() => {
     const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
-    if (raw === "opened" || raw === "failed") return raw;
-    return "opened";
+    if (
+      raw === "opened" ||
+      raw === "pending" ||
+      raw === "approved" ||
+      raw === "denied" ||
+      raw === "expired" ||
+      raw === "revoked" ||
+      raw === "failed"
+    ) {
+      return raw;
+    }
+    return "pending";
   })();
   const hostTrack = (() => {
     const raw = typeof input.hostTrack === "string" ? input.hostTrack.trim().toLowerCase() : "";
     if (raw === "claude" || raw === "openclaw" || raw === "codex") return raw;
     return "claude";
   })();
+  const approvalStatus = (() => {
+    const raw = typeof input.approvalStatus === "string" ? input.approvalStatus.trim().toLowerCase() : "";
+    if (raw === "pending" || raw === "approved" || raw === "denied" || raw === "expired" || raw === "revoked") return raw;
+    return null;
+  })();
+  const lastCheckedAt = normalizeIso(input.lastCheckedAt);
   const actionIntentId = typeof input.actionIntentId === "string" && input.actionIntentId.trim() ? safeTruncate(input.actionIntentId.trim(), { max: 140 }) : null;
   const approvalRequestId = typeof input.approvalRequestId === "string" && input.approvalRequestId.trim() ? safeTruncate(input.approvalRequestId.trim(), { max: 140 }) : null;
   const approvalUrl = typeof input.approvalUrl === "string" && input.approvalUrl.trim() ? safeTruncate(input.approvalUrl.trim(), { max: 2000 }) : null;
@@ -7048,6 +7064,8 @@ function normalizeHostedApprovalAttemptRow(input) {
     createdAt,
     completedAt,
     status,
+    approvalStatus,
+    lastCheckedAt,
     hostTrack,
     actionIntentId,
     approvalRequestId,
@@ -7208,6 +7226,106 @@ async function appendTenantHostedApprovalAttempt({ tenantId, attempt }) {
   };
   await saveTenantHostedApprovalHistory({ tenantId, history: next });
   return next;
+}
+
+async function refreshTenantHostedApprovalHistory({ tenantId } = {}) {
+  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
+  const candidates = history.attempts.filter(
+    (attempt) =>
+      String(attempt?.approvalRequestId ?? "").trim() !== "" &&
+      String(attempt?.status ?? "").trim().toLowerCase() !== "failed"
+  );
+  if (candidates.length === 0) {
+    return { history, refreshed: false };
+  }
+
+  const bootstrap = await callNooterraTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        description: "magic-link hosted approval history refresh runtime key"
+      }
+    }
+  });
+  if (!bootstrap.ok) {
+    return { history, refreshed: false, refreshError: { code: bootstrap.code ?? null, message: bootstrap.message ?? null } };
+  }
+
+  const runtimeApiKey =
+    typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
+  if (!runtimeApiKey) {
+    return {
+      history,
+      refreshed: false,
+      refreshError: {
+        code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+        message: "Nooterra bootstrap response missing runtime API key token"
+      }
+    };
+  }
+
+  const checkedAt = nowIso();
+  let changed = false;
+  const attempts = [];
+  for (const attempt of history.attempts) {
+    const approvalRequestId = String(attempt?.approvalRequestId ?? "").trim();
+    if (!approvalRequestId || String(attempt?.status ?? "").trim().toLowerCase() === "failed") {
+      attempts.push(attempt);
+      continue;
+    }
+    const approvalLookup = await callNooterraTenantApi({
+      tenantId,
+      apiKey: runtimeApiKey,
+      method: "GET",
+      pathname: `/v1/approval-requests/${encodeURIComponent(approvalRequestId)}`
+    });
+    if (!approvalLookup.ok) {
+      attempts.push(attempt);
+      continue;
+    }
+    const approvalStatus =
+      typeof approvalLookup.response?.approvalStatus === "string" && approvalLookup.response.approvalStatus.trim()
+        ? approvalLookup.response.approvalStatus.trim().toLowerCase()
+        : null;
+    const nextApprovalUrl =
+      typeof approvalLookup.response?.approvalUrl === "string" && approvalLookup.response.approvalUrl.trim()
+        ? approvalLookup.response.approvalUrl.trim()
+        : attempt.approvalUrl;
+    const nextStatus = approvalStatus ?? attempt.status ?? "pending";
+    const nextCompletedAt =
+      attempt.completedAt ??
+      (nextStatus === "approved" || nextStatus === "denied" || nextStatus === "expired" || nextStatus === "revoked" ? checkedAt : null);
+    const nextAttempt = normalizeHostedApprovalAttemptRow({
+      ...attempt,
+      status: nextStatus,
+      approvalStatus,
+      approvalUrl: nextApprovalUrl,
+      completedAt: nextCompletedAt,
+      lastCheckedAt: checkedAt
+    });
+    if (JSON.stringify(nextAttempt) !== JSON.stringify(attempt)) changed = true;
+    attempts.push(nextAttempt ?? attempt);
+  }
+
+  if (!changed) {
+    return {
+      history: {
+        ...history,
+        attempts
+      },
+      refreshed: true
+    };
+  }
+
+  const nextHistory = {
+    schemaVersion: "MagicLinkHostedApprovalHistory.v1",
+    tenantId,
+    updatedAt: checkedAt,
+    attempts
+  };
+  await saveTenantHostedApprovalHistory({ tenantId, history: nextHistory });
+  return { history: nextHistory, refreshed: true };
 }
 
 function parseRequestIdempotencyKey({ req, body } = {}) {
@@ -7572,8 +7690,8 @@ async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
 async function handleTenantHostedApprovalHistory(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
-  const history = await loadTenantHostedApprovalHistoryBestEffort({ tenantId });
-  return sendJson(res, 200, { ok: true, ...history });
+  const out = await refreshTenantHostedApprovalHistory({ tenantId });
+  return sendJson(res, 200, { ok: true, ...out.history, refreshed: Boolean(out.refreshed), refreshError: out.refreshError ?? null });
 }
 
 async function handleTenantSeedHostedApproval(req, res, tenantId) {
@@ -7787,7 +7905,8 @@ async function handleTenantSeedHostedApproval(req, res, tenantId) {
       attemptId,
       createdAt: startedAt,
       completedAt: nowIso(),
-      status: "opened",
+      status: "pending",
+      approvalStatus: "pending",
       hostTrack,
       actionIntentId,
       approvalRequestId: requestId,

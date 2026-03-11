@@ -4982,8 +4982,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     focusedHostedApprovalAttempt?.approvalRequest?.requestId
   );
   const focusedHostedApprovalUrl = pickFirstString(focusedHostedApprovalAttempt?.approvalUrl);
+  const focusedHostedApprovalState = pickFirstString(
+    focusedHostedApprovalAttempt?.approvalStatus,
+    focusedHostedApprovalAttempt?.status
+  );
   const focusedHostedApprovalTone =
-    focusedHostedApprovalAttempt?.status === "opened"
+    focusedHostedApprovalState === "approved"
+      ? "good"
+      : focusedHostedApprovalState === "pending" || focusedHostedApprovalState === "opened"
       ? "good"
       : focusedHostedApprovalAttempt
         ? "warn"
@@ -5581,7 +5587,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
             <div>
               <strong>Status</strong>
-              <span>{humanizeLabel(focusedHostedApprovalAttempt?.status, "Pending")}</span>
+              <span>{humanizeLabel(focusedHostedApprovalState, "Pending")}</span>
             </div>
           </div>
           <div className={`product-inline-note ${focusedHostedApprovalTone}`}>
@@ -5612,9 +5618,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   const createdAt = attempt?.createdAt ? formatDateTime(attempt.createdAt) : "time unavailable";
                   const approvalId = String(attempt?.approvalRequestId ?? "n/a");
                   const hostTrack = humanizeLabel(attempt?.hostTrack, "unknown");
+                  const approvalState = humanizeLabel(attempt?.approvalStatus ?? attempt?.status, "pending");
                   return (
                     <option key={`hosted_approval_attempt:${attemptId}`} value={attemptId}>
-                      {createdAt} · {hostTrack} · {approvalId}
+                      {createdAt} · {hostTrack} · {approvalId} · {approvalState}
                     </option>
                   );
                 })}
