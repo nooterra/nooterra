@@ -77,6 +77,7 @@ import {
   createTenantAccountSession,
   createTenantBrowserState,
   createTenantConsumerConnector,
+  DEFAULT_PUBLIC_API_BASE_URL,
   disconnectTenantIntegration,
   runMarketplaceProviderConformance,
   requestJson,
@@ -3867,15 +3868,24 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const resolvedWorkspaceTenantId = runtimeBootstrapTenantId || buyerTenantId;
   const workspaceTenantLabel = resolvedWorkspaceTenantId || "Issue workspace first";
 
+  function shouldUseManagedPublicApiFallback(baseUrl) {
+    if (typeof baseUrl !== "string" || !baseUrl.trim().startsWith("/")) return false;
+    if (typeof window === "undefined") return false;
+    const hostname = String(window.location.hostname ?? "").trim().toLowerCase();
+    return hostname === "www.nooterra.ai" || hostname === "nooterra.ai";
+  }
+
   async function requestAuthJson(request) {
     const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
     const normalizedPathname = typeof request?.pathname === "string" ? request.pathname.trim() : "";
     const preferManagedPublicAuthMode = normalizedPathname === "/v1/public/auth-mode";
+    const runtimeApiBaseUrl = String(runtime.baseUrl ?? "").trim();
+    const publicFallbackBaseUrl = shouldUseManagedPublicApiFallback(configuredBaseUrl) ? DEFAULT_PUBLIC_API_BASE_URL : "";
     const baseUrlCandidates = Array.from(
       new Set(
         (preferManagedPublicAuthMode
-          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl]
-          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL]
+          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, runtimeApiBaseUrl, publicFallbackBaseUrl]
+          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, runtimeApiBaseUrl, publicFallbackBaseUrl]
         ).filter((value) => typeof value === "string" && value.trim() !== "")
       )
     );
@@ -3898,8 +3908,11 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         lastError = error;
         const message = String(error?.message ?? "");
         const shouldFallback =
-          (!Number.isInteger(error?.status) || error.status >= 500) &&
-          /failed to fetch|networkerror|load failed|fetch/i.test(message);
+          error?.code === "CONTROL_PLANE_ROUTE_MISCONFIGURED" ||
+          error?.code === "CONTROL_PLANE_RESPONSE_NOT_JSON" ||
+          (error?.status === 404 && typeof baseUrl === "string" && baseUrl.trim().startsWith("/")) ||
+          (((!Number.isInteger(error?.status) || error.status >= 500) &&
+            /failed to fetch|networkerror|load failed|fetch/i.test(message)));
         if (!shouldFallback || baseUrl === DEFAULT_AUTH_BASE_URL) break;
       }
     }

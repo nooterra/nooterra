@@ -6,6 +6,7 @@ export const DEFAULT_AUTH_BASE_URL =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_NOOTERRA_AUTH_BASE_URL
     ? String(import.meta.env.VITE_NOOTERRA_AUTH_BASE_URL)
     : "/__magic";
+export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
 
 export const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v2";
 export const PRODUCT_BUYER_PASSKEY_STORAGE_KEY = "nooterra_product_buyer_passkeys_v1";
@@ -253,6 +254,19 @@ export function buildHeaders({ tenantId, protocol, apiKey, write = false, idempo
   return headers;
 }
 
+function looksLikeHtmlDocument(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function createRequestContractError({ response, code, message, details = null } = {}) {
+  const error = new Error(message);
+  error.status = response?.status ?? null;
+  error.code = code;
+  error.details = details;
+  return error;
+}
+
 export async function requestJson({
   baseUrl,
   pathname,
@@ -274,6 +288,35 @@ export async function requestJson({
     parsed = text ? JSON.parse(text) : null;
   } catch {
     parsed = text;
+  }
+  if (response.ok) {
+    const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
+    if (typeof parsed === "string" && parsed.trim()) {
+      if (looksLikeHtmlDocument(parsed)) {
+        throw createRequestContractError({
+          response,
+          code: "CONTROL_PLANE_ROUTE_MISCONFIGURED",
+          message: "control plane returned HTML instead of JSON",
+          details: {
+            baseUrl: String(baseUrl ?? ""),
+            pathname: String(pathname ?? ""),
+            contentType
+          }
+        });
+      }
+      if (!contentType.includes("json")) {
+        throw createRequestContractError({
+          response,
+          code: "CONTROL_PLANE_RESPONSE_NOT_JSON",
+          message: "control plane returned a non-JSON success response",
+          details: {
+            baseUrl: String(baseUrl ?? ""),
+            pathname: String(pathname ?? ""),
+            contentType
+          }
+        });
+      }
+    }
   }
   if (!response.ok) {
     const message =
