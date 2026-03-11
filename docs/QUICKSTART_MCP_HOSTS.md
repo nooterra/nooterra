@@ -62,6 +62,13 @@ Launch v1 assumes hosted approvals and host-executed actions under a Nooterra-is
 Do not use unsupported hosts or BYO payment-rail setup for the launch train.
 
 If you are validating from Codex, keep the same runtime values and follow the API or CLI install path instead of trying to register Codex as a separate MCP host.
+The fastest Codex/API/CLI proof is:
+
+```bash
+NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
+```
+
+That script bootstraps the runtime, runs the smoke test, seeds the first hosted approval, and prints the exact approval URL + request id you need next.
 
 Channel-specific bootstrap:
 

@@ -85,6 +85,7 @@
     "demo:mcp-paid-exa": "node scripts/demo/mcp-paid-exa.mjs",
     "demo:mcp-paid-weather": "node scripts/demo/mcp-paid-exa.mjs --workload=weather",
     "demo:mcp-paid-llm": "node scripts/demo/mcp-paid-exa.mjs --workload=llm",
+    "quickstart:action-wallet:first-approval": "node scripts/examples/action-wallet-first-governed-action.mjs",
     "demo:compositional-settlement": "node scripts/demo/compositional-settlement-3hop.mjs",
     "demo:ui:prep": "node scripts/demo/delivery-robot/export-ui-fixture.mjs",
     "demo:ui": "cd dashboard && npm run dev",
