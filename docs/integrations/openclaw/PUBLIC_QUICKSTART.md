@@ -80,7 +80,7 @@ openclaw tui --session main
 
 Stop here first. This is the launch proof path.
 
-## 3) Open receipt
+## 3) Fetch the approved grant
 
 After opening the approval URL and making a decision, continue with:
 
@@ -91,7 +91,7 @@ Expected result:
 - approval state changes from `pending`
 - approved run returns an execution grant OpenClaw can use for the host-side execution step
 
-## 5) Complete the loop
+## 4) Finalize and fetch the receipt
 
 After OpenClaw or the connected adapter completes the external action, run:
 
@@ -101,7 +101,7 @@ Expected result:
 
 - finalization returns a hosted receipt path and a dispute path
 
-## 4) Open dispute
+## 5) Open dispute
 
 If the receipt needs follow-up, continue with:
 
