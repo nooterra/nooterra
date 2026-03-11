@@ -198,6 +198,12 @@ function HomePage() {
               Nooterra sits between agent intent and external action. Approve before it happens. Prove after it does.
             </p>
           </FadeIn>
+          <FadeIn delay={0.24}>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Launch actions: buy + cancel/recover</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Launch hosts: Claude MCP + OpenClaw</span>
+            </div>
+          </FadeIn>
           <FadeIn delay={0.3}>
             <div className="mt-12 flex flex-wrap gap-4">
               <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
@@ -472,6 +478,9 @@ nooterra receipts list --wallet prod-agent --last 24h`
             <p className="mt-6 max-w-xl text-lg text-stone-400">
               Four integration paths. Same governance primitives. Choose your entry point.
             </p>
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-stone-500">
+              Launch certification is narrower than the docs surface. Claude MCP and OpenClaw are the certified launch hosts; Codex, CLI, and direct API reuse the same runtime contract as engineering shells.
+            </p>
           </FadeIn>
         </div>
       </section>
@@ -646,6 +655,12 @@ function IntegrationsPage() {
                   <p className="mt-3 text-sm leading-relaxed text-stone-400">{item.body}</p>
                 </div>
               ))}
+            </div>
+            <div className="mb-10 rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">What launch means right now</p>
+              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-300">
+                The production launch surface is intentionally narrow. Ship the two working actions, the two working hosts, and the same approval, receipt, and dispute loop everywhere else.
+              </p>
             </div>
           </FadeIn>
           <div className="overflow-hidden rounded-lg bg-white/10 lg:grid lg:grid-cols-3 lg:gap-px">
