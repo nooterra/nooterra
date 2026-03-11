@@ -435,7 +435,7 @@ npm run quickstart:action-wallet:first-approval`
       docsHref: docsLinks.api,
       docsLabel: "API reference",
       code: `# Open one hosted approval through the onboarding path
-curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/seed-hosted-approval \\
+curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/seed-hosted-approval \\
   -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -443,7 +443,7 @@ curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/s
   }'
 
 # Then close the same governed loop with one receipt
-curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/first-paid-call \\
+curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/first-paid-call \\
   -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{}'`
