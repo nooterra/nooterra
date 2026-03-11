@@ -1182,6 +1182,84 @@ function ResourcePage({
   );
 }
 
+function FailStatePage({
+  eyebrow,
+  title,
+  summary,
+  proofTitle,
+  proofBody,
+  primaryCta,
+  secondaryCta,
+  reasonCode,
+  steps
+}) {
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[72vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                {title}
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href={primaryCta.href} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  {primaryCta.label} <ArrowRight size={16} />
+                </a>
+                <a href={secondaryCta.href} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  {secondaryCta.label} <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Trust state</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {proofTitle}
+                  </h2>
+                </div>
+                <div className="rounded-full border border-[#d2b06f]/25 bg-[#d2b06f]/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  {reasonCode}
+                </div>
+              </div>
+              <p className="text-sm leading-relaxed text-stone-400">{proofBody}</p>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-5 px-6 py-24 lg:grid-cols-3 lg:px-8 lg:py-32">
+          {steps.map((step, index) => (
+            <FadeIn key={step.title} delay={0.08 * index}>
+              <div className="lovable-panel h-full">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{step.eyebrow}</p>
+                <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  {step.title}
+                </h3>
+                <p className="mt-4 text-sm leading-relaxed text-stone-400">{step.body}</p>
+                <a href={step.href} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                  {step.ctaLabel} <ArrowUpRight size={14} />
+                </a>
+              </div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
 export default function LovableSite({ mode = "home" }) {
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
@@ -1413,6 +1491,82 @@ export default function LovableSite({ mode = "home" }) {
           { eyebrow: "Scope", title: "Developers", body: "See the actual launch channels and runtime entry points.", href: "/developers", ctaLabel: "View developers" },
           { eyebrow: "Surfaces", title: "Trust pages", body: "Approvals, receipts, disputes, and wallet are the public trust layer.", href: "/wallet", ctaLabel: "View trust pages" },
           { eyebrow: "Reference", title: "Docs", body: "Full reference, launch checklist, and architecture beyond the marketing layer.", href: "/docs", ctaLabel: "Open docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "expired") {
+    return (
+      <FailStatePage
+        eyebrow="Approval expired"
+        title="The approval window closed before the action could continue."
+        summary="This link no longer carries live authority. The safe next move is to reopen the request from the host or issue a fresh approval from onboarding."
+        proofTitle="Expired means no stale permission survives."
+        proofBody="Approval links should fail closed when the time window is over. The host must ask again so the user can re-confirm consequence, amount, and current context."
+        reasonCode="EXPIRED_LINK"
+        primaryCta={{ label: "Issue a fresh approval", href: MANAGED_ONBOARDING_HREF }}
+        secondaryCta={{ label: "Launch host guide", href: docsLinks.hostQuickstart }}
+        steps={[
+          { eyebrow: "Reopen", title: "Request again", body: "Seed a new hosted approval from onboarding or the initiating host instead of retrying the expired link.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Open onboarding" },
+          { eyebrow: "Resume", title: "Return to the host", body: "Claude, OpenClaw, or Codex should create a fresh approval request when the user resumes the task.", href: "/integrations", ctaLabel: "View integrations" },
+          { eyebrow: "Understand", title: "Read the trust model", body: "Why expired links exist and how the approval window is enforced.", href: "/docs/security", ctaLabel: "Security docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "revoked") {
+    return (
+      <FailStatePage
+        eyebrow="Grant revoked"
+        title="This authority was revoked before execution could continue."
+        summary="The grant that allowed this action is no longer valid. The host should stop acting and the user should decide whether to request a new bounded approval."
+        proofTitle="Revoked means the system no longer trusts the grant."
+        proofBody="A revoked grant should immediately remove the host’s right to continue. That keeps the system deterministic when a user changes their mind or an operator intervenes."
+        reasonCode="GRANT_REVOKED"
+        primaryCta={{ label: "Return to wallet", href: "/wallet" }}
+        secondaryCta={{ label: "Open dispute guidance", href: "/disputes" }}
+        steps={[
+          { eyebrow: "Inspect", title: "Check authority state", body: "Open the wallet and confirm which host, rule, or one-time grant was revoked.", href: "/wallet", ctaLabel: "Open wallet" },
+          { eyebrow: "Recover", title: "Create a new bounded grant", body: "If the action is still needed, reopen the approval flow rather than trying to reuse the revoked authority.", href: "/approvals", ctaLabel: "Open approvals" },
+          { eyebrow: "Escalate", title: "Use recourse when needed", body: "If a revoked grant still led to a bad outcome, move directly into receipt and dispute handling.", href: "/disputes", ctaLabel: "Open disputes" }
+        ]}
+      />
+    );
+  }
+  if (mode === "verification_failed") {
+    return (
+      <FailStatePage
+        eyebrow="Verification failed"
+        title="The action completed, but the proof did not verify."
+        summary="Nooterra stopped short of trusting the result. The next step is to inspect the receipt or dispute path, not to silently accept the outcome."
+        proofTitle="Proof has to match the action before money or trust can settle."
+        proofBody="Verification failure means evidence, settlement state, or runtime bindings did not line up. The system should show the failure clearly and route the user into receipt and recourse."
+        reasonCode="VERIFICATION_FAILED"
+        primaryCta={{ label: "Open receipts", href: "/receipts" }}
+        secondaryCta={{ label: "Challenge the result", href: "/disputes" }}
+        steps={[
+          { eyebrow: "Inspect", title: "Read the receipt", body: "Look at the final amount, verifier result, and proof chain before deciding what to do next.", href: "/receipts", ctaLabel: "Open receipts" },
+          { eyebrow: "Challenge", title: "Move into recourse", body: "If the evidence is wrong or missing, open the dispute path from the receipt-linked flow.", href: "/disputes", ctaLabel: "Open disputes" },
+          { eyebrow: "Runbook", title: "Understand the operator path", body: "See how verification failures are supposed to be handled at launch.", href: "/docs/ops", ctaLabel: "Ops docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "unsupported_host") {
+    return (
+      <FailStatePage
+        eyebrow="Unsupported host"
+        title="This host is outside the launch support envelope."
+        summary="Nooterra Action Wallet launches with a narrow host matrix. If this action came from a different shell, use a supported channel or the direct API/CLI path."
+        proofTitle="Launch support is intentionally narrow."
+        proofBody="The runtime should be boring before it gets broad. Unsupported-host messaging should make the current boundary explicit and give the user a supported path forward."
+        reasonCode="UNSUPPORTED_HOST"
+        primaryCta={{ label: "Choose a supported host", href: "/integrations" }}
+        secondaryCta={{ label: "Engineering quickstart", href: docsLinks.codexEngineeringQuickstart }}
+        steps={[
+          { eyebrow: "Supported now", title: "Use launch hosts", body: "Claude MCP and OpenClaw are the first-class launch hosts for the guided approval loop.", href: "/integrations", ctaLabel: "View host matrix" },
+          { eyebrow: "Builders", title: "Fallback to API or CLI", body: "Codex, CLI, and direct HTTP all use the same runtime contract even if the shell is not a launch-native host.", href: "/developers", ctaLabel: "Developer routes" },
+          { eyebrow: "Scope", title: "Read the launch boundary", body: "Understand which channels are live now and which are coming later.", href: "/docs/integrations", ctaLabel: "Integration docs" }
         ]}
       />
     );

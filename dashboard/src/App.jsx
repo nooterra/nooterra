@@ -36,6 +36,10 @@ function getRouteMode() {
   if (path === "/security") return { mode: "security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/privacy") return { mode: "privacy", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/terms") return { mode: "terms", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/expired") return { mode: "expired", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/revoked") return { mode: "revoked", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/verification-failed") return { mode: "verification_failed", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/unsupported-host") return { mode: "unsupported_host", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path.startsWith("/launch/")) {
     return {
       mode: "legacy",
@@ -106,7 +110,11 @@ export default function App() {
     "status",
     "security",
     "privacy",
-    "terms"
+    "terms",
+    "expired",
+    "revoked",
+    "verification_failed",
+    "unsupported_host"
   ]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "onboarding"]);
   if (route.mode === "operator") {

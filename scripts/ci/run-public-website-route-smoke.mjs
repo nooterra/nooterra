@@ -21,7 +21,11 @@ const DEFAULT_ROUTE_CHECKS = [
   { path: "/status", needle: "Current posture for the launch surface" },
   { path: "/security", needle: "Security for Nooterra means bounded authority" },
   { path: "/privacy", needle: "Nooterra minimizes what it needs" },
-  { path: "/terms", needle: "host-first Action Wallet" }
+  { path: "/terms", needle: "host-first Action Wallet" },
+  { path: "/expired", needle: "The approval window closed before the action could continue" },
+  { path: "/revoked", needle: "This authority was revoked before execution could continue" },
+  { path: "/verification-failed", needle: "The action completed, but the proof did not verify" },
+  { path: "/unsupported-host", needle: "This host is outside the launch support envelope" }
 ];
 
 function usage() {
