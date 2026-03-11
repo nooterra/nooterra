@@ -3843,10 +3843,16 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
 
   async function requestAuthJson(request) {
     const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
-    const baseUrlCandidates = [configuredBaseUrl];
-    if (DEFAULT_AUTH_BASE_URL && DEFAULT_AUTH_BASE_URL !== configuredBaseUrl) {
-      baseUrlCandidates.push(DEFAULT_AUTH_BASE_URL);
-    }
+    const normalizedPathname = typeof request?.pathname === "string" ? request.pathname.trim() : "";
+    const preferManagedPublicAuthMode = normalizedPathname === "/v1/public/auth-mode";
+    const baseUrlCandidates = Array.from(
+      new Set(
+        (preferManagedPublicAuthMode
+          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl]
+          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL]
+        ).filter((value) => typeof value === "string" && value.trim() !== "")
+      )
+    );
     let lastError = null;
     for (const baseUrl of baseUrlCandidates) {
       try {
