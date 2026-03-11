@@ -4765,13 +4765,6 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     if (hours > 0) return `${hours}h`;
     return `${minutes}m`;
   })();
-  const conformanceReadyLabel = conformanceMatrix?.ready === true
-    ? "Yes"
-    : conformanceMatrix
-      ? "Not yet"
-      : buyer?.tenantId
-        ? "Pending"
-        : "Awaiting workspace";
   const latestFirstPaidAttempt = firstPaidCallState.latest;
   const firstPaidVerificationLabel = latestFirstPaidAttempt
     ? humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "Pending")
@@ -4802,6 +4795,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const firstApprovalSharedAt = String(onboardingMetrics?.firstBuyerLinkSharedAt ?? "").trim();
   const hostedApprovalReady = Boolean(firstApprovalSharedAt);
   const conformanceMatrix = conformanceState.matrix?.matrix ?? null;
+  const conformanceReadyLabel = conformanceMatrix?.ready === true
+    ? "Yes"
+    : conformanceMatrix
+      ? "Not yet"
+      : buyer?.tenantId
+        ? "Pending"
+        : "Awaiting workspace";
   const conformanceChecks = Array.isArray(conformanceMatrix?.checks) ? conformanceMatrix.checks : [];
   const approvalSurfaceHref = hostedApprovalReady ? "/approvals" : docsLinks.claudeDesktopQuickstart;
   const receiptSurfaceHref = latestFirstPaidReceiptId
