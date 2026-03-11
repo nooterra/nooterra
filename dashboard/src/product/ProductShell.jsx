@@ -4765,12 +4765,6 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     if (hours > 0) return `${hours}h`;
     return `${minutes}m`;
   })();
-  const firstPaidVerificationLabel = latestFirstPaidAttempt
-    ? humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "Pending")
-    : "Pending";
-  const firstPaidSettlementLabel = latestFirstPaidAttempt
-    ? humanizeLabel(latestFirstPaidAttempt?.settlementStatus, "Pending")
-    : "Pending";
   const conformanceReadyLabel = conformanceMatrix?.ready === true
     ? "Yes"
     : conformanceMatrix
@@ -4779,6 +4773,12 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         ? "Pending"
         : "Awaiting workspace";
   const latestFirstPaidAttempt = firstPaidCallState.latest;
+  const firstPaidVerificationLabel = latestFirstPaidAttempt
+    ? humanizeLabel(latestFirstPaidAttempt?.verificationStatus, "Pending")
+    : "Pending";
+  const firstPaidSettlementLabel = latestFirstPaidAttempt
+    ? humanizeLabel(latestFirstPaidAttempt?.settlementStatus, "Pending")
+    : "Pending";
   const latestFirstPaidRunId = String(latestFirstPaidAttempt?.ids?.runId ?? "").trim();
   const latestFirstPaidReceiptId = String(
     latestFirstPaidAttempt?.ids?.receiptId ??
