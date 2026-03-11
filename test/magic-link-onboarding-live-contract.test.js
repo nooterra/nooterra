@@ -132,6 +132,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       MAGIC_LINK_DATA_DIR: dataDir,
       MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
       MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0",
+      MAGIC_LINK_PUBLIC_BASE_URL: "https://www.nooterra.ai",
       MAGIC_LINK_NOOTERRA_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
       MAGIC_LINK_NOOTERRA_OPS_TOKEN: opsToken
     }
@@ -233,6 +234,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(firstPaidCall.json?.ok, true, firstPaidCall.text);
     assert.equal(firstPaidCall.json?.verificationStatus, "green", firstPaidCall.text);
     assert.equal(firstPaidCall.json?.settlementStatus, "released", firstPaidCall.text);
+    assert.match(String(firstPaidCall.json?.links?.runUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/runs\//, firstPaidCall.text);
     const attemptId = String(firstPaidCall.json?.attemptId ?? "");
     assert.ok(attemptId.length > 0, "first-paid-call must return attemptId");
 
@@ -250,6 +252,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(historyAttempt?.ids?.runId, firstPaidCall.json?.ids?.runId, history.text);
     assert.equal(historyAttempt?.settlementStatus, "released", history.text);
     assert.equal(historyAttempt?.verificationStatus, "green", history.text);
+    assert.equal(historyAttempt?.links?.runUrl, firstPaidCall.json?.links?.runUrl, history.text);
 
     const idemKey = `idem_${crypto.randomBytes(6).toString("hex")}`;
     const conformance = await httpJson({

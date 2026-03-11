@@ -5060,6 +5060,9 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     focusedFirstPaidAttempt?.approvalRequest?.approvalRequestId,
     focusedFirstPaidAttempt?.approvalRequest?.approvalId
   );
+  const focusedFirstPaidRunUrl = pickFirstString(focusedFirstPaidAttempt?.links?.runUrl);
+  const focusedFirstPaidReceiptUrl = pickFirstString(focusedFirstPaidAttempt?.links?.receiptUrl);
+  const focusedFirstPaidDisputeUrl = pickFirstString(focusedFirstPaidAttempt?.links?.disputeUrl);
   const focusedFirstPaidAttemptTone =
     focusedFirstPaidAttempt?.verificationStatus === "green" && focusedFirstPaidAttempt?.settlementStatus === "released"
       ? "good"
@@ -5111,6 +5114,9 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       : focusedFirstPaidRunId
         ? `/disputes?runId=${encodeURIComponent(focusedFirstPaidRunId)}`
         : disputeSurfaceHref;
+  const focusedRunSurfaceHref = focusedFirstPaidRunUrl || (focusedFirstPaidRunId ? `/runs/${encodeURIComponent(focusedFirstPaidRunId)}` : "#first-live-paid-call");
+  const focusedReceiptSurfaceHrefResolved = focusedFirstPaidReceiptUrl || focusedReceiptSurfaceHref;
+  const focusedDisputeSurfaceHrefResolved = focusedFirstPaidDisputeUrl || focusedDisputeSurfaceHref;
   const focusedFirstPaidRecourseLabel = focusedFirstPaidDisputeId
     ? focusedFirstPaidDisputeId
     : focusedFirstPaidReceiptId
@@ -5144,7 +5150,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       detail: focusedFirstPaidRunId
         ? "This run is the canonical execution thread. Keep approval, receipt, and recourse attached to it."
         : "The selected attempt has not emitted a stable run binding yet.",
-      href: focusedFirstPaidRunId ? `/runs/${encodeURIComponent(focusedFirstPaidRunId)}` : "#first-live-paid-call",
+      href: focusedRunSurfaceHref,
       cta: focusedFirstPaidRunId ? "Open run" : "Run first paid call"
     },
     {
@@ -5154,7 +5160,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       detail: focusedFirstPaidReceiptId
         ? "Receipt is the canonical proof artifact for this attempt."
         : "No receipt is linked yet. Replay or rerun until one receipt is issued.",
-      href: focusedReceiptSurfaceHref,
+      href: focusedReceiptSurfaceHrefResolved,
       cta: focusedFirstPaidReceiptId ? "Open receipt" : "Open receipts"
     },
     {
@@ -5166,7 +5172,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         : focusedFirstPaidReceiptId
           ? "Open the receipt and confirm the dispute path resolves for the same record."
           : "Recourse only matters once one receipt is live for the run.",
-      href: focusedDisputeSurfaceHref,
+      href: focusedDisputeSurfaceHrefResolved,
       cta: focusedFirstPaidDisputeId ? "Open dispute" : focusedFirstPaidReceiptId ? "Verify recourse" : "Open dispute center"
     }
   ];
@@ -5203,7 +5209,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ? `Focused first paid call ${focusedFirstPaidAttempt.attemptId ?? "attempt"} ended with verification ${humanizeLabel(focusedFirstPaidAttempt.verificationStatus, "unknown")} and settlement ${humanizeLabel(focusedFirstPaidAttempt.settlementStatus, "unknown")}, but no receipt is linked yet. Replay or rerun it until one receipt is issued.`
           : "Run the first paid call below to push one governed action from approval through verified receipt.",
       ready: Boolean(focusedFirstPaidReceiptId),
-      href: focusedFirstPaidReceiptId ? focusedReceiptSurfaceHref : "#first-live-paid-call",
+      href: focusedFirstPaidReceiptId ? focusedReceiptSurfaceHrefResolved : "#first-live-paid-call",
       cta: focusedFirstPaidReceiptId ? "Open receipt" : "Run first paid call"
     },
     {
@@ -5214,7 +5220,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           ? `Receipt ${focusedFirstPaidReceiptId} is live. Next exact move: open that receipt and confirm the dispute / recourse link resolves for the same run before launch.`
           : "Dispute validation starts from a real receipt. Reach the first receipt first, then confirm recourse from that record.",
       ready: Boolean(focusedFirstPaidDisputeId),
-      href: focusedDisputeSurfaceHref,
+      href: focusedDisputeSurfaceHrefResolved,
       cta: focusedFirstPaidDisputeId
         ? "Open dispute"
         : focusedFirstPaidReceiptId
@@ -5395,8 +5401,8 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           : !focusedFirstPaidReceiptId
             ? "#first-live-paid-call"
             : focusedFirstPaidDisputeId
-              ? focusedDisputeSurfaceHref
-              : focusedReceiptSurfaceHref;
+              ? focusedDisputeSurfaceHrefResolved
+              : focusedReceiptSurfaceHrefResolved;
   const firstActionPrimaryLabel =
     !buyer
       ? "Create workspace"
@@ -5576,10 +5582,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               {firstActionPrimaryLabel}
             </a>
             <a className="product-button product-button-ghost" href={approvalSurfaceHref}>Open approvals</a>
-            <a className="product-button product-button-ghost" href={focusedReceiptSurfaceHref}>
+            <a className="product-button product-button-ghost" href={focusedReceiptSurfaceHrefResolved}>
               {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
             </a>
-            <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHref}>
+            <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
               {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
             </a>
           </div>

@@ -2219,6 +2219,34 @@ function requestBaseUrl(req) {
   return normalizeBaseUrl(`${proto}://${hostValue}`);
 }
 
+function buildHostedProductUrl(pathname, { baseUrl = null } = {}) {
+  const normalizedBase = normalizeBaseUrl(baseUrl ?? publicBaseUrl);
+  if (!normalizedBase || typeof pathname !== "string" || !pathname.trim()) return null;
+  const pathValue = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  try {
+    return new URL(pathValue, `${normalizedBase}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildFirstPaidCallLinks({ runId = null, receiptId = null, disputeId = null, baseUrl = null } = {}) {
+  const normalizedRunId = typeof runId === "string" && runId.trim() ? runId.trim() : null;
+  const normalizedReceiptId = typeof receiptId === "string" && receiptId.trim() ? receiptId.trim() : null;
+  const normalizedDisputeId = typeof disputeId === "string" && disputeId.trim() ? disputeId.trim() : null;
+  return {
+    runUrl: normalizedRunId ? buildHostedProductUrl(`/runs/${encodeURIComponent(normalizedRunId)}`, { baseUrl }) : null,
+    receiptUrl: normalizedReceiptId ? buildHostedProductUrl(`/receipts?selectedReceiptId=${encodeURIComponent(normalizedReceiptId)}`, { baseUrl }) : null,
+    disputeUrl: normalizedDisputeId
+      ? buildHostedProductUrl(`/disputes?selectedDisputeId=${encodeURIComponent(normalizedDisputeId)}`, { baseUrl })
+      : normalizedReceiptId
+        ? buildHostedProductUrl(`/receipts?selectedReceiptId=${encodeURIComponent(normalizedReceiptId)}`, { baseUrl })
+        : normalizedRunId
+          ? buildHostedProductUrl(`/disputes?runId=${encodeURIComponent(normalizedRunId)}`, { baseUrl })
+          : null
+  };
+}
+
 function integrationOauthCallbackPath(provider) {
   return `/v1/integrations/${provider}/oauth/callback`;
 }
@@ -7103,6 +7131,13 @@ function normalizeFirstPaidCallAttemptRow(input) {
     receiptId: typeof input.ids.receiptId === "string" ? input.ids.receiptId : null,
     disputeId: typeof input.ids.disputeId === "string" ? input.ids.disputeId : null
   } : null;
+  const links = isPlainObject(input.links)
+    ? {
+        runUrl: typeof input.links.runUrl === "string" ? safeTruncate(input.links.runUrl, { max: 2000 }) : null,
+        receiptUrl: typeof input.links.receiptUrl === "string" ? safeTruncate(input.links.receiptUrl, { max: 2000 }) : null,
+        disputeUrl: typeof input.links.disputeUrl === "string" ? safeTruncate(input.links.disputeUrl, { max: 2000 }) : null
+      }
+    : null;
   const verificationStatus =
     typeof input.verificationStatus === "string" && input.verificationStatus.trim()
       ? input.verificationStatus.trim().toLowerCase()
@@ -7145,6 +7180,7 @@ function normalizeFirstPaidCallAttemptRow(input) {
     lastCheckedAt,
     status,
     ids,
+    links,
     verificationStatus,
     settlementStatus,
     config,
@@ -7805,6 +7841,7 @@ async function refreshTenantFirstPaidCallHistory({ tenantId } = {}) {
   }
 
   const checkedAt = nowIso();
+  const hostedBaseUrl = normalizeBaseUrl(publicBaseUrl);
   let changed = false;
   const attempts = [];
   for (const attempt of history.attempts) {
@@ -7834,6 +7871,15 @@ async function refreshTenantFirstPaidCallHistory({ tenantId } = {}) {
         refreshed.disputeId ??
         (typeof attempt?.ids?.disputeId === "string" && attempt.ids.disputeId.trim() ? attempt.ids.disputeId.trim() : null)
     };
+    const previousLinks = isPlainObject(attempt?.links) ? attempt.links : null;
+    const nextLinks = hostedBaseUrl
+      ? buildFirstPaidCallLinks({
+          runId,
+          receiptId: nextIds.receiptId,
+          disputeId: nextIds.disputeId,
+          baseUrl: hostedBaseUrl
+        })
+      : previousLinks;
     const nextVerificationStatus = refreshed.verificationStatus ?? attempt.verificationStatus ?? null;
     const nextSettlementStatus = refreshed.settlementStatus ?? attempt.settlementStatus ?? null;
     const nextStatus =
@@ -7855,6 +7901,7 @@ async function refreshTenantFirstPaidCallHistory({ tenantId } = {}) {
       lastCheckedAt: checkedAt,
       status: nextStatus,
       ids: nextIds,
+      links: nextLinks,
       verificationStatus: nextVerificationStatus,
       settlementStatus: nextSettlementStatus
     });
@@ -8314,6 +8361,12 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
   }
 
   const verificationPassed = flow.verificationStatus === "green";
+  const links = buildFirstPaidCallLinks({
+    runId: flow.ids?.runId ?? null,
+    receiptId: flow.ids?.receiptId ?? null,
+    disputeId: flow.ids?.disputeId ?? null,
+    baseUrl: requestBaseUrl(req)
+  });
   await markTenantOnboardingProgress({
     dataDir,
     tenantId,
@@ -8330,6 +8383,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
       completedAt: nowIso(),
       status,
       ids: flow.ids,
+      links,
       verificationStatus: flow.verificationStatus,
       settlementStatus: flow.settlementStatus,
       config,
@@ -8369,6 +8423,7 @@ async function handleTenantFirstPaidCall(req, res, tenantId) {
     replayed: false,
     attemptId,
     ids: flow.ids,
+    links,
     verificationStatus: flow.verificationStatus,
     settlementStatus: flow.settlementStatus,
     verification: flow.verification,
@@ -8449,6 +8504,7 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   let mcpEnv = null;
   let runtimeApiKey = null;
   let paidFlow = null;
+  const hostedBaseUrl = requestBaseUrl(req);
 
   const bootstrap = await callNooterraTenantBootstrap({
     tenantId,
@@ -8540,6 +8596,12 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
           completedAt: nowIso(),
           status: verificationPassed && settlementReleased ? "passed" : "degraded",
           ids: flow.ids,
+          links: buildFirstPaidCallLinks({
+            runId: flow.ids?.runId ?? null,
+            receiptId: flow.ids?.receiptId ?? null,
+            disputeId: flow.ids?.disputeId ?? null,
+            baseUrl: hostedBaseUrl
+          }),
           verificationStatus: flow.verificationStatus,
           settlementStatus: flow.settlementStatus,
           config: {

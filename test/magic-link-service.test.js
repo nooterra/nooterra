@@ -2073,7 +2073,10 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       billingEmail: "billing+runtime-first-paid@example.com"
     });
 
-    const out = await postTenantFirstPaidCall({ tenantId });
+    const out = await postTenantFirstPaidCall({
+      tenantId,
+      headers: { host: "www.nooterra.ai", "x-forwarded-proto": "https", "x-forwarded-host": "www.nooterra.ai" }
+    });
     assert.equal(out.statusCode, 200, JSON.stringify(out.json));
     assert.equal(out.json?.ok, true);
     assert.equal(out.json?.schemaVersion, "MagicLinkFirstPaidCall.v1");
@@ -2086,6 +2089,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.ok(typeof out.json?.attemptId === "string" && out.json.attemptId.length > 0);
     assert.equal(out.json?.verificationStatus, "green");
     assert.equal(out.json?.settlementStatus, "released");
+    assert.match(String(out.json?.links?.runUrl ?? ""), /^https:\/\/www\.nooterra\.ai\/runs\//);
 
     const history = await getTenantFirstPaidCallHistory({ tenantId });
     assert.equal(history.statusCode, 200, JSON.stringify(history.json));
@@ -2101,6 +2105,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(latestAttempt?.verificationStatus, "green");
     assert.equal(latestAttempt?.settlementStatus, "released");
     assert.equal(latestAttempt?.ids?.runId, out.json?.ids?.runId);
+    assert.equal(latestAttempt?.links?.runUrl, out.json?.links?.runUrl);
 
     const replay = await postTenantFirstPaidCall({
       tenantId,
