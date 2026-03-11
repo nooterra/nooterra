@@ -11,7 +11,6 @@ import { normalizeReasonCodes as normalizePolicyDecisionReasonCodes } from "../.
 import { buildToolProviderQuotePayloadV1, verifyToolProviderQuoteSignatureV1 } from "../../../src/core/provider-quote-signature.js";
 import { computeNooterraPayRequestBindingSha256V1 } from "../../../src/core/nooterra-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../../src/core/tool-provider-signature.js";
-import { logger } from "../../../src/core/log.js";
 import {
   captureNodeSentryException,
   flushNodeSentry,
