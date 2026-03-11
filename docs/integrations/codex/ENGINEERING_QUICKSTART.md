@@ -137,6 +137,39 @@ Recommended hosted surfaces to keep open while using Codex:
 - `/disputes`
 - `/wallet`
 
+## 3.5) Continuation polling and webhook handoff
+
+The clean Codex continuation path is now explicit:
+
+```bash
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_API_KEY=sk_live_example.secret \
+NOOTERRA_REQUEST_ID=apr_example \
+NOOTERRA_EXECUTION_GRANT_ID=agrant_example \
+NOOTERRA_RECEIPT_ID=rcpt_example \
+npm run quickstart:action-wallet:continuation
+```
+
+That helper polls the approval alias, optional execution grant, and optional receipt until the continuation reaches a terminal state or times out fail-closed.
+
+If you want webhook-based continuation updates for the hosted trust surfaces, use the managed auth-plane helper:
+
+```bash
+NOOTERRA_AUTH_BASE_URL=https://auth.nooterra.work \
+NOOTERRA_MAGIC_LINK_API_KEY=ml_live_example \
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/continuations \
+npm run quickstart:action-wallet:subscribe-webhook
+```
+
+Launch webhook events:
+
+- `approval.required`
+- `information.required`
+- `receipt.ready`
+- `run.update`
+- `dispute.update`
+
 ## 4) Finalize and open receipt
 
 After the host-side action finishes:

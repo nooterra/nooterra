@@ -86,6 +86,8 @@
     "demo:mcp-paid-weather": "node scripts/demo/mcp-paid-exa.mjs --workload=weather",
     "demo:mcp-paid-llm": "node scripts/demo/mcp-paid-exa.mjs --workload=llm",
     "quickstart:action-wallet:first-approval": "node scripts/examples/action-wallet-first-governed-action.mjs",
+    "quickstart:action-wallet:continuation": "node scripts/examples/action-wallet-continuation.mjs poll",
+    "quickstart:action-wallet:subscribe-webhook": "node scripts/examples/action-wallet-continuation.mjs subscribe-webhook",
     "example:claude-action-wallet": "node examples/claude-mcp-action-wallet/run.mjs",
     "example:openclaw-action-wallet": "node examples/openclaw-action-wallet/run.mjs",
     "demo:compositional-settlement": "node scripts/demo/compositional-settlement-3hop.mjs",
