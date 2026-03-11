@@ -392,6 +392,77 @@ test("API e2e: v1 action wallet logs draft and approval-required transitions for
   );
 });
 
+test("API e2e: v1 action-intent approvalUrl becomes absolute when forwarded public host is present", async () => {
+  const api = createApi({ now: () => "2026-03-08T15:35:00.000Z", opsToken: "tok_ops" });
+  const actionIntentId = "aint_action_wallet_absolute_approval_url_1";
+
+  const createdIntent = await request(api, {
+    method: "POST",
+    path: "/v1/action-intents",
+    headers: {
+      "x-idempotency-key": "v1_action_intent_create_absolute_approval_url_1",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    },
+    body: {
+      actionIntentId,
+      actorAgentId: "agt_action_wallet_host_absolute_approval_url",
+      principalId: "usr_action_wallet_absolute_approval_url",
+      purpose: "Buy a replacement charger under approval",
+      capabilitiesRequested: ["capability://workflow.intake"],
+      spendEnvelope: {
+        currency: "USD",
+        maxPerCallCents: 6_000,
+        maxTotalCents: 6_000
+      },
+      evidenceRequirements: ["merchant_receipt"],
+      host: {
+        runtime: "claude-desktop",
+        channel: "mcp",
+        source: "test"
+      }
+    }
+  });
+  assert.equal(createdIntent.statusCode, 201, createdIntent.body);
+
+  const approvalRequested = await request(api, {
+    method: "POST",
+    path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}/approval-requests`,
+    headers: {
+      "x-idempotency-key": "v1_action_intent_request_absolute_approval_url_1",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    },
+    body: {
+      requestId: "apr_action_wallet_absolute_approval_url_1",
+      requestedBy: "agt_action_wallet_host_absolute_approval_url"
+    }
+  });
+  assert.equal(approvalRequested.statusCode, 201, approvalRequested.body);
+  assert.equal(
+    approvalRequested.json?.approvalUrl,
+    "https://www.nooterra.ai/approvals?requestId=apr_action_wallet_absolute_approval_url_1"
+  );
+
+  const fetchedApprovalRequired = await request(api, {
+    method: "GET",
+    path: `/v1/action-intents/${encodeURIComponent(actionIntentId)}`,
+    headers: {
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "www.nooterra.ai"
+    }
+  });
+  assert.equal(fetchedApprovalRequired.statusCode, 200, fetchedApprovalRequired.body);
+  assert.equal(
+    fetchedApprovalRequired.json?.approvalUrl,
+    "https://www.nooterra.ai/approvals?requestId=apr_action_wallet_absolute_approval_url_1"
+  );
+  assert.equal(
+    fetchedApprovalRequired.json?.actionIntent?.approvalUrl,
+    "https://www.nooterra.ai/approvals?requestId=apr_action_wallet_absolute_approval_url_1"
+  );
+});
+
 test("API e2e: v1 action-intent create and integration install replay identical writes and fail closed on conflicts", async () => {
   const api = createApi({ now: () => "2026-03-08T15:40:00.000Z", opsToken: "tok_ops" });
   const createBody = {
