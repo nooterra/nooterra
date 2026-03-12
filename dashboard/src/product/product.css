@@ -1314,6 +1314,67 @@ textarea {
   margin: 0;
 }
 
+.product-onboarding-auth-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.product-onboarding-auth-stat {
+  display: grid;
+  gap: 0.34rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--product-radius-md);
+  border: 1px solid rgba(31, 104, 92, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 241, 234, 0.86)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 11rem);
+}
+
+.product-onboarding-auth-stat span,
+.product-onboarding-auth-stat small {
+  color: var(--product-ink);
+}
+
+.product-onboarding-auth-stat strong {
+  color: var(--product-accent-strong);
+  font-size: 1.02rem;
+  line-height: 1.15;
+}
+
+.product-onboarding-auth-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.product-onboarding-auth-panel {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  padding: 1.1rem;
+  border-radius: var(--product-radius-lg);
+  border: 1px solid rgba(31, 104, 92, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(246, 241, 234, 0.87)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 12rem);
+}
+
+.product-onboarding-auth-panel-primary {
+  border-color: rgba(31, 104, 92, 0.18);
+  background:
+    linear-gradient(180deg, rgba(244, 248, 245, 0.96), rgba(255, 252, 248, 0.96)),
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.12), transparent 13rem);
+}
+
+.product-onboarding-auth-panel .product-card-body-copy {
+  margin: 0;
+}
+
+.product-onboarding-auth-panels.account-first .product-actions {
+  align-items: center;
+}
+
 .product-onboarding-host-runbook {
   align-items: start;
 }
@@ -2010,6 +2071,8 @@ textarea {
   .product-capability-list,
   .product-option-grid,
   .product-onboarding-proof-artifacts,
+  .product-onboarding-auth-summary,
+  .product-onboarding-auth-panels,
   .product-home-command-stage,
   .product-home-proofband,
   .product-home-sequence,
