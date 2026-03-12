@@ -161,6 +161,10 @@ Useful commands:
 ```bash
 node scripts/ci/run-public-onboarding-gate.mjs --website-base-url https://www.nooterra.ai
 npm run test:ops:onboarding-policy-slo-gate
+npm run -s ops:railway:public-api-readiness -- \
+  --base-url https://api.nooterra.ai \
+  --expected-project nooterra \
+  --expected-service nooterra-api
 ```
 
 ### Containment
@@ -172,9 +176,10 @@ npm run test:ops:onboarding-policy-slo-gate
 ### Recovery
 
 1. Restore the auth mode and passkey flow first.
-2. Confirm onboarding no longer falls back into browser or route drift failure.
-3. Re-run workspace issuance and hosted approval seeding on production.
-4. Confirm first-governed-action links are stable again before reopening issuance broadly.
+2. If the public auth route returns `Application not found`, treat it as an undeployed or misbound Railway service, not a frontend-only outage. Confirm the expected Railway project/service exists and the deploy account can see it before touching website routing.
+3. Confirm onboarding no longer falls back into browser or route drift failure.
+4. Re-run workspace issuance and hosted approval seeding on production.
+5. Confirm first-governed-action links are stable again before reopening issuance broadly.
 
 ### Exit criteria
 

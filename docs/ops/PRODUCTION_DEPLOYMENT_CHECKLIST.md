@@ -68,6 +68,21 @@ npm run test:ops:public-onboarding-gate -- \
   --tenant-id tenant_default
 ```
 
+Run the Railway public API readiness gate before opening customer traffic:
+
+```bash
+npm run -s ops:railway:public-api-readiness -- \
+  --base-url https://api.nooterra.ai \
+  --expected-project nooterra \
+  --expected-service nooterra-api \
+  --out artifacts/ops/railway-public-api-readiness.json
+```
+
+Fail-closed interpretation:
+- `APPLICATION_NOT_FOUND` means the public domain is reaching Railway, but the expected service is undeployed, misbound, or not visible to the deploy account.
+- `DNS_HOSTNAME_NOT_FOUND` means the public auth/API hostname cannot resolve upstream.
+- Do not keep debugging website rewrites if this report is red for Railway availability.
+
 ## Phase 3: Baseline ops verification
 
 1. Run hosted baseline evidence command:
