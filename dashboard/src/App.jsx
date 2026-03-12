@@ -25,7 +25,9 @@ function getRouteMode() {
   if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
-  if (path === "/onboarding" || path === "/login" || path === "/signup") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/onboarding") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/studio") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/developers") return { mode: "developers", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs") return { mode: "docs", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -97,8 +99,6 @@ function hasManagedRuntimeSession() {
 function prefersManagedOnboardingFlow() {
   if (typeof window === "undefined") return false;
   try {
-    const pathname = String(window.location.pathname ?? "").trim();
-    if (pathname === "/signup" || pathname === "/login") return true;
     const params = new URLSearchParams(window.location.search);
     return params.get("experience") === "app";
   } catch {
@@ -120,6 +120,8 @@ export default function App() {
     "pricing",
     "developers",
     "integrations",
+    "signup",
+    "login",
     "docs",
     "docs_quickstart",
     "docs_architecture",
