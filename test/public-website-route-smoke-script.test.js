@@ -34,7 +34,7 @@ test("public website route smoke: reports success when all routes return branded
   assert.equal(report.schemaVersion, "PublicWebsiteRouteSmoke.v1");
   assert.equal(report.ok, true);
   assert.equal(report.blockingIssues.length, 0);
-  assert.equal(report.checks.length, 30);
+  assert.equal(report.checks.length, 32);
   assert.equal(seenUrls[0], "https://www.nooterra.ai/");
 });
 

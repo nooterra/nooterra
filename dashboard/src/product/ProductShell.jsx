@@ -77,8 +77,6 @@ import {
   createTenantAccountSession,
   createTenantBrowserState,
   createTenantConsumerConnector,
-  DEFAULT_PUBLIC_API_BASE_URL,
-  DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES,
   disconnectTenantIntegration,
   runMarketplaceProviderConformance,
   requestJson,
@@ -3865,6 +3863,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const [authPlaneError, setAuthPlaneError] = useState("");
   const [statusMessage, setStatusMessage] = useState("Create or unlock a workspace with a saved browser passkey. Email OTP stays available as the recovery path.");
   const browserPasskeyReady = typeof window !== "undefined" && Boolean(globalThis.crypto?.subtle);
+  const authPlaneUnavailable = Boolean(authPlaneError);
   const buyerTenantId = String(buyer?.tenantId ?? "").trim();
   const runtimeBootstrapTenantId = String(bootstrapBundle?.tenantId ?? "").trim();
   const resolvedWorkspaceTenantId = runtimeBootstrapTenantId || buyerTenantId;
@@ -3893,15 +3892,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
     const normalizedPathname = typeof request?.pathname === "string" ? request.pathname.trim() : "";
     const preferManagedPublicAuthMode = normalizedPathname === "/v1/public/auth-mode";
-    const runtimeApiBaseUrl = String(runtime.baseUrl ?? "").trim();
     const managedWebsiteFallbacks = shouldUseManagedPublicApiFallback(DEFAULT_AUTH_BASE_URL)
-      ? ["/__magic", "/__nooterra", ...DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES]
+      ? ["/__magic"]
       : [];
     const baseUrlCandidates = Array.from(
       new Set(
         (preferManagedPublicAuthMode
-          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
-          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
+          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, ...managedWebsiteFallbacks]
+          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, ...managedWebsiteFallbacks]
         ).filter((value) => typeof value === "string" && value.trim() !== "")
       )
     );
@@ -6133,129 +6131,159 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Passkey is the primary path. This browser can hold a device key for same-device Action Wallet sign-in; email OTP stays available as recovery when the device key is missing."
               : "Passkey is the primary path, but this browser cannot create or prove the saved device key. Use recovery OTP or switch to a browser with Web Crypto support."}
           </div>
-          {authPlaneError ? (
+          {authPlaneUnavailable ? (
             <>
               <div className="product-inline-note bad">
                 <strong>Hosted onboarding is paused.</strong>
                 <span>{authPlaneError}</span>
               </div>
+              <p className="product-card-body-copy">
+                The public site can still show product, pricing, docs, and the launch status board, but workspace creation and sign-in stay fail-closed until the auth plane answers again.
+              </p>
+              <div className="product-step-list">
+                <div className="product-step-item">
+                  <div className="product-step-copy">
+                    <strong>1. Check the live status board</strong>
+                    <span>Confirm whether the outage is Railway fallback, upstream DNS drift, or a broader control-plane incident.</span>
+                  </div>
+                </div>
+                <div className="product-step-item">
+                  <div className="product-step-copy">
+                    <strong>2. Keep the same workspace details ready</strong>
+                    <span>Once the auth plane comes back, return to this same onboarding path and finish passkey signup, runtime bootstrap, and the first approval loop without changing hosts.</span>
+                  </div>
+                </div>
+                <div className="product-step-item">
+                  <div className="product-step-copy">
+                    <strong>3. Use support only if the status board stays red</strong>
+                    <span>Support should only be needed when the public status page says recovery is not already underway.</span>
+                  </div>
+                </div>
+              </div>
               <div className="product-actions">
-                <a className="product-button product-button-ghost" href="/status">
-                  View status
+                <a className="product-button product-button-solid" href="/status">
+                  View Live Status
                 </a>
                 <a className="product-button product-button-ghost" href="/support">
-                  Contact support
+                  Contact Support
+                </a>
+                <a className="product-button product-button-ghost" href="/docs/quickstart">
+                  Read Quickstart
                 </a>
               </div>
+              <div className="product-inline-note bad">{statusMessage}</div>
             </>
-          ) : null}
-          <div className="product-form-grid">
-            {authMode?.publicSignupEnabled !== false ? (
-              <>
+          ) : (
+            <>
+              <div className="product-form-grid">
+                {authMode?.publicSignupEnabled !== false ? (
+                  <>
+                    <label>
+                      <span>Work email</span>
+                      <input
+                        value={signupForm.email}
+                        onChange={(event) => setSignupForm((previous) => ({ ...previous, email: event.target.value }))}
+                        placeholder="founder@company.com"
+                      />
+                    </label>
+                    <label>
+                      <span>Company</span>
+                      <input
+                        value={signupForm.company}
+                        onChange={(event) => setSignupForm((previous) => ({ ...previous, company: event.target.value }))}
+                        placeholder="Acme AI"
+                      />
+                    </label>
+                    <label>
+                      <span>Full name</span>
+                      <input
+                        value={signupForm.fullName}
+                        onChange={(event) => setSignupForm((previous) => ({ ...previous, fullName: event.target.value }))}
+                        placeholder="Founder Name"
+                      />
+                    </label>
+                    <label>
+                      <span>Tenant slug (optional)</span>
+                      <input
+                        value={signupForm.tenantId}
+                        onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                        placeholder="acme_ai"
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <div className="product-inline-note bad">
+                    Public signup is disabled on this control plane. Use an existing tenant with a saved device passkey or the recovery path below.
+                  </div>
+                )}
                 <label>
-                  <span>Work email</span>
+                  <span>Existing tenant</span>
                   <input
-                    value={signupForm.email}
-                    onChange={(event) => setSignupForm((previous) => ({ ...previous, email: event.target.value }))}
+                    value={loginForm.tenantId}
+                    onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                    placeholder="tenant_acme"
+                  />
+                </label>
+                <label>
+                  <span>Sign-in email</span>
+                  <input
+                    value={loginForm.email}
+                    onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
                     placeholder="founder@company.com"
                   />
                 </label>
                 <label>
-                  <span>Company</span>
+                  <span>Device label</span>
                   <input
-                    value={signupForm.company}
-                    onChange={(event) => setSignupForm((previous) => ({ ...previous, company: event.target.value }))}
-                    placeholder="Acme AI"
+                    value={passkeyForm.label}
+                    onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
+                    placeholder="Founder laptop"
                   />
                 </label>
-                <label>
-                  <span>Full name</span>
-                  <input
-                    value={signupForm.fullName}
-                    onChange={(event) => setSignupForm((previous) => ({ ...previous, fullName: event.target.value }))}
-                    placeholder="Founder Name"
-                  />
-                </label>
-                <label>
-                  <span>Tenant slug (optional)</span>
-                  <input
-                    value={signupForm.tenantId}
-                    onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
-                    placeholder="acme_ai"
-                  />
-                </label>
-              </>
-            ) : (
-              <div className="product-inline-note bad">
-                Public signup is disabled on this control plane. Use an existing tenant with a saved device passkey or the recovery path below.
               </div>
-            )}
-            <label>
-              <span>Existing tenant</span>
-              <input
-                value={loginForm.tenantId}
-                onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
-                placeholder="tenant_acme"
-              />
-            </label>
-            <label>
-              <span>Sign-in email</span>
-              <input
-                value={loginForm.email}
-                onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
-                placeholder="founder@company.com"
-              />
-            </label>
-            <label>
-              <span>Device label</span>
-              <input
-                value={passkeyForm.label}
-                onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
-                placeholder="Founder laptop"
-              />
-            </label>
-          </div>
-          <div className="product-actions">
-            {authMode?.publicSignupEnabled !== false ? (
-              <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
-                {busyState === "passkey_signup" ? "Creating..." : "Create Workspace + Save Passkey"}
-              </button>
-            ) : null}
-            <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
-              {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
-            </button>
-          </div>
-          {authMode?.publicSignupEnabled !== false && signupValidationError ? (
-            <div className="product-inline-note warn">{signupValidationError}</div>
-          ) : null}
-          {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
-          <details className="product-details">
-            <summary>Recovery by email</summary>
-            <div className="product-inline-note warn">
-              Recovery is for a new browser, lost device key, or registry mismatch. Use the same tenant and sign-in email above, then request and verify a six-digit code.
-            </div>
-            <div className="product-form-grid">
-              <label className="wide">
-                <span>Recovery code</span>
-                <input
-                  value={loginForm.code}
-                  onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
-                  inputMode="numeric"
-                  placeholder="123456"
-                />
-              </label>
-            </div>
-            <div className="product-actions">
-              <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
-                {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
-              </button>
-              <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
-                {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
-              </button>
-            </div>
-            {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
-          </details>
-          <div className={`product-inline-note ${authPlaneError ? "bad" : ""}`}>{statusMessage}</div>
+              <div className="product-actions">
+                {authMode?.publicSignupEnabled !== false ? (
+                  <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                    {busyState === "passkey_signup" ? "Creating..." : "Create Workspace + Save Passkey"}
+                  </button>
+                ) : null}
+                <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                  {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
+                </button>
+              </div>
+              {authMode?.publicSignupEnabled !== false && signupValidationError ? (
+                <div className="product-inline-note warn">{signupValidationError}</div>
+              ) : null}
+              {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
+              <details className="product-details">
+                <summary>Recovery by email</summary>
+                <div className="product-inline-note warn">
+                  Recovery is for a new browser, lost device key, or registry mismatch. Use the same tenant and sign-in email above, then request and verify a six-digit code.
+                </div>
+                <div className="product-form-grid">
+                  <label className="wide">
+                    <span>Recovery code</span>
+                    <input
+                      value={loginForm.code}
+                      onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
+                      inputMode="numeric"
+                      placeholder="123456"
+                    />
+                  </label>
+                </div>
+                <div className="product-actions">
+                  <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                    {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
+                  </button>
+                  <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                    {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
+                  </button>
+                </div>
+                {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
+              </details>
+              <div className="product-inline-note">{statusMessage}</div>
+            </>
+          )}
         </article>
 
         <article className="product-card product-card-emphasis" id="runtime-bootstrap">
