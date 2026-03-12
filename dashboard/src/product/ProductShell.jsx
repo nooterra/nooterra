@@ -2789,7 +2789,7 @@ function AgentsPage({ runtime }) {
   const results = Array.isArray(discovery?.results) ? discovery.results : [];
 
   return (
-    <div className="product-page">
+    <div className={`product-page${accountFirstMode ? " product-page-onboarding-app" : ""}`}>
       <section className="product-page-top">
         <div>
           <p className="product-kicker">Public Directory</p>
