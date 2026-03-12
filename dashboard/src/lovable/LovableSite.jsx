@@ -15,9 +15,11 @@ import {
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
 const PUBLIC_ONBOARDING_HREF = "/onboarding";
+const PUBLIC_SIGNUP_HREF = "/signup";
+const PUBLIC_LOGIN_HREF = "/login";
 const MANAGED_ONBOARDING_HREF = "/onboarding?experience=app#identity-access";
-const PRODUCT_ONBOARDING_HREF = "/onboarding?experience=app&source=product#identity-access";
-const PRICING_ONBOARDING_HREF = "/onboarding?experience=app&source=pricing#identity-access";
+const PRODUCT_ONBOARDING_HREF = "/signup?source=product";
+const PRICING_ONBOARDING_HREF = "/signup?source=pricing";
 const SITE_DOC_ROUTES = {
   home: "/docs",
   quickstart: "/docs/quickstart",
@@ -90,8 +92,8 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
 function buildManagedOnboardingHref(source) {
   const normalizedSource = String(source ?? "").trim();
   return normalizedSource
-    ? `/onboarding?experience=app&source=${encodeURIComponent(normalizedSource)}#identity-access`
-    : MANAGED_ONBOARDING_HREF;
+    ? `/signup?source=${encodeURIComponent(normalizedSource)}`
+    : PUBLIC_SIGNUP_HREF;
 }
 
 function FadeIn({ children, delay = 0, className = "" }) {
@@ -127,7 +129,7 @@ function SiteNav() {
       ? PRODUCT_ONBOARDING_HREF
       : pathname === "/pricing"
         ? PRICING_ONBOARDING_HREF
-        : PUBLIC_ONBOARDING_HREF;
+        : PUBLIC_SIGNUP_HREF;
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#080b10]/80 backdrop-blur-xl">
@@ -1932,7 +1934,7 @@ function OnboardingPage() {
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
                 <a
-                  href={MANAGED_ONBOARDING_HREF}
+                  href={PUBLIC_SIGNUP_HREF}
                   className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
                 >
                   Create workspace <ArrowRight size={16} />
@@ -2068,6 +2070,105 @@ function OnboardingPage() {
               </FadeIn>
             ))}
           </div>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function AccountEntryPage({
+  eyebrow,
+  title,
+  summary,
+  primaryLabel,
+  primaryHref,
+  secondaryLabel,
+  secondaryHref,
+  steps,
+  noteTitle,
+  noteBody
+}) {
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[72vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">{eyebrow}</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                {title}
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">{summary}</p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a
+                  href={primaryHref}
+                  className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
+                >
+                  {primaryLabel} <ArrowRight size={16} />
+                </a>
+                <a
+                  href={secondaryHref}
+                  className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5"
+                >
+                  {secondaryLabel} <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Account flow</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    What happens next.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Secure handoff
+                </div>
+              </div>
+              <div className="space-y-3">
+                {steps.map((item, index) => (
+                  <div key={item.title} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-16 px-6 py-24 lg:grid-cols-[1.1fr,0.9fr] lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why accounts exist</p>
+            <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              {noteTitle}
+            </h2>
+            <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">{noteBody}</p>
+          </FadeIn>
+          <FadeIn delay={0.1}>
+            <div className="lovable-panel">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">What you get</p>
+              <ul className="mt-4 space-y-3 text-sm leading-relaxed text-stone-300">
+                <li>Workspace identity tied to every approval, receipt, and dispute.</li>
+                <li>One runtime boundary for Claude, OpenClaw, Codex, CLI, and API.</li>
+                <li>Hosted trust surfaces that can be revoked, audited, and reopened later.</li>
+              </ul>
+            </div>
+          </FadeIn>
         </div>
       </section>
     </SiteLayout>
@@ -2395,6 +2496,46 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
   if (mode === "onboarding") return <OnboardingPage />;
+  if (mode === "signup") {
+    return (
+      <AccountEntryPage
+        eyebrow="Sign up"
+        title="Create the workspace before the agent gets to act."
+        summary="The public site should explain the account step clearly, then hand off into the secure runtime setup without dropping people straight into an older internal shell."
+        primaryLabel="Continue to secure account setup"
+        primaryHref={MANAGED_ONBOARDING_HREF}
+        secondaryLabel="Why this account exists"
+        secondaryHref={PUBLIC_ONBOARDING_HREF}
+        steps={[
+          { title: "Create the workspace identity", body: "Start with work email, company, and operator identity so approvals, receipts, and disputes already have a real owner." },
+          { title: "Issue the runtime", body: "Bootstrap one Action Wallet runtime boundary instead of scattering keys and permissions across hosts." },
+          { title: "Prove one live action", body: "Seed one approval, finish one run, and end with one real receipt before broadening scope." }
+        ]}
+        noteTitle="A real Action Wallet needs a real workspace."
+        noteBody="Browsing docs and product pages should stay anonymous. The moment the system starts issuing approvals, receipts, and revocable authority, it needs an account boundary that can be audited and controlled."
+      />
+    );
+  }
+  if (mode === "login") {
+    return (
+      <AccountEntryPage
+        eyebrow="Sign in"
+        title="Return to the same workspace, approvals, and receipts."
+        summary="Login should feel like a clean continuation of the branded site, then hand off into the secure account flow only when it is time to authenticate."
+        primaryLabel="Continue to secure sign-in"
+        primaryHref={MANAGED_ONBOARDING_HREF}
+        secondaryLabel="Open support"
+        secondaryHref={SITE_DOC_ROUTES.support}
+        steps={[
+          { title: "Open the managed auth plane", body: "Use the secure auth flow for the workspace instead of trying to sign in from a dead-end public form." },
+          { title: "Return to your runtime", body: "Resume the same Action Wallet account, host bindings, and trust surfaces you used before." },
+          { title: "Pick up the loop", body: "Go back to approval, receipt, dispute, or runtime bootstrap without losing the current artifact chain." }
+        ]}
+        noteTitle="Accounts are for real actions, not for reading the site."
+        noteBody="People should be able to learn the product without signing in. They only need an account when the system starts binding authority, runtime state, and receipts to a real operator and workspace."
+      />
+    );
+  }
   if (mode === "docs") {
     return (
       <ResourcePage
