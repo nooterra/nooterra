@@ -271,6 +271,46 @@ function looksLikeHtmlDocument(value) {
   return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
 }
 
+function classifyPublicJsonFailure(response, body, contentType) {
+  const trimmed = String(body ?? "").trim();
+  let parsed = null;
+  if (contentType.includes("application/json")) {
+    try {
+      parsed = trimmed ? JSON.parse(trimmed) : null;
+    } catch {
+      parsed = null;
+    }
+  }
+  const message =
+    typeof parsed?.message === "string"
+      ? parsed.message
+      : typeof parsed?.error === "string"
+        ? parsed.error
+        : trimmed;
+  if (response.status === 404 && /application not found/i.test(message)) {
+    return {
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      detail: "Railway fallback is answering instead of the Nooterra auth plane.",
+      contentType
+    };
+  }
+  if (response.status === 502 && /dns_hostname_not_found/i.test(message)) {
+    return {
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      detail: "The public auth proxy cannot resolve the upstream host.",
+      contentType
+    };
+  }
+  return {
+    status: "unavailable",
+    statusLabel: "Unavailable",
+    detail: `Returned ${response.status}`,
+    contentType
+  };
+}
+
 function derivePublicStatusVerdict(results) {
   if (!Array.isArray(results) || results.length === 0) {
     return {
@@ -311,10 +351,7 @@ async function runPublicStatusCheck(check) {
       if (!response.ok) {
         return {
           ...check,
-          status: "unavailable",
-          statusLabel: "Unavailable",
-          detail: `Returned ${response.status}`,
-          contentType
+          ...classifyPublicJsonFailure(response, body, contentType)
         };
       }
       if (!contentType.includes("application/json")) {
