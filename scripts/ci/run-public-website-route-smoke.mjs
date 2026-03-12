@@ -24,7 +24,7 @@ const DEFAULT_ROUTE_CHECKS = [
   { path: "/docs/partner-kit", needle: "Design partners should get one disciplined onboarding pack" },
   { path: "/docs/launch-checklist", needle: "A production claim should map to a concrete release bar" },
   { path: "/docs/incidents", needle: "When something goes wrong, the support path should already exist" },
-  { path: "/status", needle: "Production posture should be visible." },
+  { path: "/status", needle: "Live route health should be visible." },
   { path: "/support", needle: "Support should route users into the right trust surface fast" },
   { path: "/security", needle: "Security for Nooterra means bounded authority" },
   { path: "/privacy", needle: "The public site should explain the data boundary before people enter the product." },

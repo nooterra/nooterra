@@ -32,6 +32,56 @@ const SITE_DOC_ROUTES = {
   support: "/support"
 };
 
+const PUBLIC_STATUS_CHECKS = Object.freeze([
+  {
+    id: "home",
+    label: "Homepage",
+    description: "Main entry point and first Action Wallet CTA.",
+    path: "/",
+    type: "html",
+    needle: "Give agents wallets, not unchecked permissions."
+  },
+  {
+    id: "product",
+    label: "Product",
+    description: "Public product narrative and wallet overview.",
+    path: "/product",
+    type: "html",
+    needle: "Action Wallet is the operating account for AI agents."
+  },
+  {
+    id: "pricing",
+    label: "Pricing",
+    description: "Builder, usage, and enterprise path.",
+    path: "/pricing",
+    type: "html",
+    needle: "Free to build."
+  },
+  {
+    id: "onboarding",
+    label: "Onboarding app",
+    description: "Account creation and first wallet issuance entry point.",
+    path: "/onboarding?experience=app",
+    type: "html",
+    needle: "Create the account."
+  },
+  {
+    id: "support",
+    label: "Support route",
+    description: "Public escalation path into the right trust surface.",
+    path: "/support",
+    type: "html",
+    needle: "Support should route users into the right trust surface fast"
+  },
+  {
+    id: "auth_proxy",
+    label: "Managed auth proxy",
+    description: "Same-origin auth mode handshake used by hosted onboarding.",
+    path: "/__magic/v1/public/auth-mode",
+    type: "json"
+  }
+]);
+
 function buildManagedOnboardingHref(source) {
   const normalizedSource = String(source ?? "").trim();
   return normalizedSource
@@ -213,6 +263,656 @@ function SiteLayout({ children }) {
       <main className="flex-1 pt-16">{children}</main>
       <SiteFooter />
     </div>
+  );
+}
+
+function looksLikeHtmlDocument(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function derivePublicStatusVerdict(results) {
+  if (!Array.isArray(results) || results.length === 0) {
+    return {
+      label: "Checking",
+      tone: "text-stone-400 border-white/10 bg-white/5"
+    };
+  }
+  const unavailableCount = results.filter((item) => item.status === "unavailable").length;
+  const degradedCount = results.filter((item) => item.status === "degraded").length;
+  if (unavailableCount > 0) {
+    return {
+      label: "Degraded",
+      tone: "text-rose-300 border-rose-500/20 bg-rose-500/10"
+    };
+  }
+  if (degradedCount > 0) {
+    return {
+      label: "Watching",
+      tone: "text-amber-300 border-amber-500/20 bg-amber-500/10"
+    };
+  }
+  return {
+    label: "Operational",
+    tone: "text-emerald-300 border-emerald-500/20 bg-emerald-500/10"
+  };
+}
+
+async function runPublicStatusCheck(check) {
+  try {
+    const response = await fetch(check.path, {
+      headers: {
+        accept: check.type === "json" ? "application/json" : "text/html,application/xhtml+xml"
+      }
+    });
+    const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
+    const body = await response.text();
+    if (check.type === "json") {
+      if (!response.ok) {
+        return {
+          ...check,
+          status: "unavailable",
+          statusLabel: "Unavailable",
+          detail: `Returned ${response.status}`,
+          contentType
+        };
+      }
+      if (!contentType.includes("application/json")) {
+        return {
+          ...check,
+          status: "degraded",
+          statusLabel: "Degraded",
+          detail: "Returned non-JSON success response",
+          contentType
+        };
+      }
+      try {
+        const parsed = JSON.parse(body);
+        const mode = typeof parsed?.mode === "string" && parsed.mode.trim() ? parsed.mode.trim() : "reachable";
+        return {
+          ...check,
+          status: "ok",
+          statusLabel: "Operational",
+          detail: `Mode: ${mode}`,
+          contentType
+        };
+      } catch {
+        return {
+          ...check,
+          status: "degraded",
+          statusLabel: "Degraded",
+          detail: "Returned invalid JSON",
+          contentType
+        };
+      }
+    }
+    if (!response.ok) {
+      return {
+        ...check,
+        status: "unavailable",
+        statusLabel: "Unavailable",
+        detail: `Returned ${response.status}`,
+        contentType
+      };
+    }
+    if (!contentType.includes("text/html") || !looksLikeHtmlDocument(body)) {
+      return {
+        ...check,
+        status: "degraded",
+        statusLabel: "Degraded",
+        detail: "Returned non-HTML content",
+        contentType
+      };
+    }
+    if (check.needle && !body.includes(check.needle)) {
+      return {
+        ...check,
+        status: "degraded",
+        statusLabel: "Degraded",
+        detail: "Rendered unexpected page content",
+        contentType
+      };
+    }
+    return {
+      ...check,
+      status: "ok",
+      statusLabel: "Operational",
+      detail: "Rendered branded route correctly",
+      contentType
+    };
+  } catch (error) {
+    return {
+      ...check,
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      detail: String(error?.message ?? "Request failed")
+    };
+  }
+}
+
+function StatusPage() {
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [statusState, setStatusState] = useState({
+    loading: true,
+    checks: [],
+    checkedAt: ""
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setStatusState((previous) => ({
+        ...previous,
+        loading: true
+      }));
+      const checks = await Promise.all(PUBLIC_STATUS_CHECKS.map((check) => runPublicStatusCheck(check)));
+      if (cancelled) return;
+      setStatusState({
+        loading: false,
+        checks,
+        checkedAt: new Date().toISOString()
+      });
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNonce]);
+
+  const verdict = derivePublicStatusVerdict(statusState.checks);
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[68vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Status</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                Live route health should be visible.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                This page checks the managed website the same way a real user does: public pages, onboarding entry, and the same-origin auth proxy that powers hosted signup.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  onClick={() => setRefreshNonce((value) => value + 1)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
+                >
+                  Refresh checks <RotateCcw size={16} />
+                </button>
+                <a href={SITE_DOC_ROUTES.launchChecklist} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Launch checklist <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Current posture</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    Public launch routes
+                  </h2>
+                </div>
+                <div className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${verdict.tone}`}>
+                  {statusState.loading ? "Checking" : verdict.label}
+                </div>
+              </div>
+              <p className="text-sm leading-relaxed text-stone-400">
+                {statusState.loading
+                  ? "Running browser-level checks against the public site."
+                  : statusState.checkedAt
+                    ? `Last checked ${new Date(statusState.checkedAt).toLocaleString()}.`
+                    : "Checks have not run yet."}
+              </p>
+              <div className="mt-6 space-y-3">
+                {statusState.checks.map((item, index) => (
+                  <div key={item.id} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-stone-100">{item.label}</p>
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] ${
+                            item.status === "ok"
+                              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                              : item.status === "degraded"
+                                ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                                : "border-rose-500/20 bg-rose-500/10 text-rose-300"
+                          }`}
+                        >
+                          {item.statusLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.description}</p>
+                      <p className="mt-2 text-xs leading-relaxed text-stone-500">{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-5 px-6 py-24 lg:grid-cols-3 lg:px-8 lg:py-32">
+          <FadeIn>
+            <div className="lovable-panel h-full">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Health</p>
+              <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                What “good” looks like
+              </h3>
+              <p className="mt-4 text-sm leading-relaxed text-stone-400">
+                Homepage, product, pricing, onboarding, support, and the same-origin auth proxy should all answer with the branded shell or the expected JSON handshake.
+              </p>
+              <a href={docsLinks.ops} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                Open operations docs <ArrowUpRight size={14} />
+              </a>
+            </div>
+          </FadeIn>
+          <FadeIn delay={0.08}>
+            <div className="lovable-panel h-full">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Incidents</p>
+              <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                What fails closed
+              </h3>
+              <p className="mt-4 text-sm leading-relaxed text-stone-400">
+                If the auth plane is unreachable, onboarding should pause cleanly, point users to support, and never pretend account creation is still live.
+              </p>
+              <a href={SITE_DOC_ROUTES.incidents} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                Incident path <ArrowUpRight size={14} />
+              </a>
+            </div>
+          </FadeIn>
+          <FadeIn delay={0.16}>
+            <div className="lovable-panel h-full">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Support</p>
+              <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                One visible escalation path
+              </h3>
+              <p className="mt-4 text-sm leading-relaxed text-stone-400">
+                Users should not need to guess whether the problem is the website, onboarding, approvals, or a live receipt. Support should be the visible next step.
+              </p>
+              <a href="/support" className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                Open support <ArrowUpRight size={14} />
+              </a>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function SupportPage() {
+  const supportTracks = [
+    {
+      eyebrow: "Activation",
+      title: "Account creation or first wallet issue",
+      body: "If signup, passkey setup, or first wallet issuance fails, start with the app onboarding flow instead of guessing which internal service broke.",
+      href: MANAGED_ONBOARDING_HREF,
+      ctaLabel: "Open onboarding"
+    },
+    {
+      eyebrow: "Action flow",
+      title: "Approval, receipt, or dispute problem",
+      body: "If a real action was requested or completed, the linked approval, receipt, or dispute surface is the right first stop. Those pages are the system of record.",
+      href: "/receipts",
+      ctaLabel: "Open receipts"
+    },
+    {
+      eyebrow: "Platform",
+      title: "Website or auth route drift",
+      body: "If the website feels wrong, check live route health first. The status page is where we surface onboarding drift, broken support paths, and same-origin auth failures.",
+      href: "/status",
+      ctaLabel: "Open status"
+    }
+  ];
+
+  const incidentPaths = [
+    {
+      label: "Approval link expired",
+      description: "Reissue a fresh hosted approval instead of retrying stale authority.",
+      href: "/expired"
+    },
+    {
+      label: "Authority was revoked",
+      description: "Move into the revoked path to understand why execution stopped and how to restart safely.",
+      href: "/revoked"
+    },
+    {
+      label: "Verification failed",
+      description: "Use the verification-failed path when execution happened but the proof did not verify cleanly.",
+      href: "/verification-failed"
+    },
+    {
+      label: "Unsupported host",
+      description: "If the initiating host is outside the launch envelope, use the supported host guide first.",
+      href: "/unsupported-host"
+    }
+  ];
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[68vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Support</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                Support should route users into the right trust surface fast.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                Nooterra support is not a generic inbox. If something breaks, the right move depends on whether the problem is activation, live authority, proof, or platform routing.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href="/status" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Check live status <ArrowRight size={16} />
+                </a>
+                <a href={SITE_DOC_ROUTES.incidents} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Incident docs <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Fastest route</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    Start from the artifact, not the symptom.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Triage first
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="lovable-rail-row">
+                  <div className="lovable-rail-index">01</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-stone-100">If a real action already happened, go to the receipt.</p>
+                    <p className="mt-1 text-sm leading-relaxed text-stone-400">Receipts and disputes carry the canonical evidence, outcome, and recourse path.</p>
+                  </div>
+                </div>
+                <div className="lovable-rail-row">
+                  <div className="lovable-rail-index">02</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-stone-100">If onboarding is broken, use the app onboarding route.</p>
+                    <p className="mt-1 text-sm leading-relaxed text-stone-400">That path is where account creation, passkeys, and first wallet issuance should recover or fail closed.</p>
+                  </div>
+                </div>
+                <div className="lovable-rail-row">
+                  <div className="lovable-rail-index">03</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-stone-100">If the website shell feels wrong, check status before filing a ticket.</p>
+                    <p className="mt-1 text-sm leading-relaxed text-stone-400">Route drift and same-origin auth failures should already be visible there.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-5 px-6 py-24 lg:grid-cols-3 lg:px-8 lg:py-32">
+          {supportTracks.map((section, index) => (
+            <FadeIn key={section.title} delay={0.08 * index}>
+              <div className="lovable-panel h-full">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{section.eyebrow}</p>
+                <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  {section.title}
+                </h3>
+                <p className="mt-4 text-sm leading-relaxed text-stone-400">{section.body}</p>
+                <a href={section.href} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                  {section.ctaLabel} <ArrowUpRight size={14} />
+                </a>
+              </div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <FadeIn>
+            <div className="mb-8 max-w-3xl">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Known failure paths</p>
+              <h2 className="mt-3 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                Common support routes already have pages.
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-stone-400">
+                Expired links, revoked authority, failed verification, and unsupported hosts should each land on a dedicated page instead of dropping people into a generic shell.
+              </p>
+            </div>
+          </FadeIn>
+          <div className="grid gap-4 md:grid-cols-2">
+            {incidentPaths.map((item, index) => (
+              <FadeIn key={item.label} delay={0.06 * index}>
+                <a href={item.href} className="lovable-panel block transition-transform duration-200 hover:-translate-y-1">
+                  <p className="text-sm font-medium text-stone-100">{item.label}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-400">{item.description}</p>
+                  <span className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f]">
+                    Open route <ArrowUpRight size={14} />
+                  </span>
+                </a>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function SecurityPage() {
+  const securityPillars = [
+    {
+      label: "Deterministic controls",
+      body: "High-risk actions resolve through explicit policy checks, bounded grants, and fail-closed behavior when required artifacts are missing."
+    },
+    {
+      label: "Causal records",
+      body: "Approvals, evidence, receipts, disputes, and operator actions stay attached to the same action lineage instead of scattering across disconnected tools."
+    },
+    {
+      label: "Emergency response",
+      body: "Operators can freeze channels, action types, or launch traffic with emergency controls instead of waiting for an agent or workflow to self-correct."
+    }
+  ];
+
+  const routeBoundaries = [
+    {
+      eyebrow: "Website",
+      title: "Public routes are branded and smoke-tested",
+      body: "Homepage, product, pricing, docs, status, and support are checked continuously so route drift does not hide behind a successful deploy.",
+      href: "/status",
+      ctaLabel: "View status"
+    },
+    {
+      eyebrow: "Auth plane",
+      title: "Hosted onboarding fails closed",
+      body: "If the auth plane or same-origin proxy is unavailable, onboarding should stop cleanly and point people to status and support instead of pretending signup still works.",
+      href: "/onboarding",
+      ctaLabel: "Open onboarding"
+    },
+    {
+      eyebrow: "Runtime",
+      title: "Live actions leave receipts and disputes",
+      body: "The system of record is the action artifact chain, not a best-effort log line or payment event living somewhere else.",
+      href: "/receipts",
+      ctaLabel: "View receipts"
+    }
+  ];
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[68vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Security</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                Security for Nooterra means bounded authority.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                The product is secure when machine action is scoped, approvals are inspectable, route drift is visible, and every consequential action leaves a deterministic record with recourse.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href={docsLinks.security} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Open security model <ArrowRight size={16} />
+                </a>
+                <a href="/status" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Live status <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Core posture</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    The system should fail closed before it fails silently.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Launch bar
+                </div>
+              </div>
+              <div className="space-y-3">
+                {securityPillars.map((item, index) => (
+                  <div key={item.label} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-100">{item.label}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-5 px-6 py-24 lg:grid-cols-3 lg:px-8 lg:py-32">
+          {routeBoundaries.map((section, index) => (
+            <FadeIn key={section.title} delay={0.08 * index}>
+              <div className="lovable-panel h-full">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{section.eyebrow}</p>
+                <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  {section.title}
+                </h3>
+                <p className="mt-4 text-sm leading-relaxed text-stone-400">{section.body}</p>
+                <a href={section.href} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                  {section.ctaLabel} <ArrowUpRight size={14} />
+                </a>
+              </div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function PrivacyPage() {
+  const dataZones = [
+    {
+      label: "Identity and onboarding",
+      body: "The public app flow needs enough identity to issue a workspace, establish the trust boundary, and return the user to the right managed surface."
+    },
+    {
+      label: "Action artifacts",
+      body: "Receipts, disputes, and operator history exist because consequential machine action needs durable proof, not because we want generic analytics exhaust."
+    },
+    {
+      label: "Public route boundary",
+      body: "The website should explain the data boundary before people sign in, so users know which pages are marketing, which are docs, and which are live trust surfaces."
+    }
+  ];
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[68vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Privacy</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                The public site should explain the data boundary before people enter the product.
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                Nooterra stores identity and action artifacts because an Action Wallet needs authority, proof, and recourse. This route exists so that boundary is visible before any sign-in flow starts.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  View onboarding <ArrowRight size={16} />
+                </a>
+                <a href="/support" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  Support path <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </div>
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Data boundary</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    Keep the reason for every artifact obvious.
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Explained
+                </div>
+              </div>
+              <div className="space-y-3">
+                {dataZones.map((item, index) => (
+                  <div key={item.label} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-stone-100">{item.label}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+    </SiteLayout>
   );
 }
 
@@ -1895,67 +2595,13 @@ export default function LovableSite({ mode = "home" }) {
     );
   }
   if (mode === "status") {
-    return (
-      <ResourcePage
-        eyebrow="Status"
-        title="Production posture should be visible."
-        summary="Use this route as the public index for launch health, known issues, and operational trust posture instead of burying that information in internal dashboards."
-        primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
-        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
-        proofPoints={[
-          { title: "Health is a product feature", body: "Customers should know where to look when onboarding or approvals feel wrong." },
-          { title: "Known issues should be explicit", body: "If there is route drift, degraded auth, or host instability, that should not be hidden." },
-          { title: "Ops links should be direct", body: "The status route should be a clear handoff into real runbooks and support channels." }
-        ]}
-        sections={[
-          { eyebrow: "Health", title: "Operations runbook", body: "Current best source for live readiness posture and operational drill-down.", href: docsLinks.ops, ctaLabel: "Open operations" },
-          { eyebrow: "Support", title: "Support path", body: "Public issue tracker, operator docs, and launch guidance for sharp edges and regressions.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support" },
-          { eyebrow: "Launch", title: "Go-live checklist", body: "The concrete release bar we hold the system to.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" }
-        ]}
-      />
-    );
+    return <StatusPage />;
   }
   if (mode === "security") {
-    return (
-      <ResourcePage
-        eyebrow="Security"
-        title="The product should say how it fails, not just how it succeeds."
-        summary="Security for Nooterra means bounded authority, deterministic evidence, operator kill switches, and route-level fail-closed behavior when the web shell drifts from the control plane."
-        primaryCta={{ label: "Open security model", href: docsLinks.security }}
-        secondaryCta={{ label: "View docs hub", href: "/docs" }}
-        proofPoints={[
-          { title: "Authority is scoped", body: "The system grants only bounded permission to act and keeps that scope inspectable." },
-          { title: "Artifacts are canonical", body: "Receipts, disputes, and verification stay attached to the same run lineage." },
-          { title: "Route drift is treated as failure", body: "If the website serves HTML where control-plane JSON belongs, launch gates now block." }
-        ]}
-        sections={[
-          { eyebrow: "Reference", title: "Security model", body: "Read the formal runtime boundaries and protections.", href: docsLinks.security, ctaLabel: "Open model" },
-          { eyebrow: "Ops", title: "Incident response", body: "See how the operator side handles drift, abuse, and failures.", href: SITE_DOC_ROUTES.incidents, ctaLabel: "Incident docs" },
-          { eyebrow: "Product", title: "Disputes", body: "Recourse is part of the trust model, not separate from it.", href: "/disputes", ctaLabel: "View disputes" }
-        ]}
-      />
-    );
+    return <SecurityPage />;
   }
   if (mode === "privacy") {
-    return (
-      <ResourcePage
-        eyebrow="Privacy"
-        title="The public site should explain the data boundary before people enter the product."
-        summary="This route gives users a clear starting point for how onboarding identities, hosted approvals, receipts, and disputes relate to the broader Nooterra trust model."
-        primaryCta={{ label: "Open security model", href: docsLinks.security }}
-        secondaryCta={{ label: "Contact support", href: SITE_DOC_ROUTES.support }}
-        proofPoints={[
-          { title: "Identity is explicit", body: "Work email, company, and runtime issuance are part of the trust boundary." },
-          { title: "Artifacts outlive the host", body: "Approval, receipt, and dispute records persist beyond the initiating conversation." },
-          { title: "Data should be explainable", body: "Every stored artifact should have a product reason, not just a logging reason." }
-        ]}
-        sections={[
-          { eyebrow: "Identity", title: "Onboarding", body: "See the public onboarding path and what the product asks for first.", href: "/onboarding", ctaLabel: "Open onboarding" },
-          { eyebrow: "Artifacts", title: "Receipts", body: "Understand the durable records the system keeps after actions complete.", href: "/receipts", ctaLabel: "View receipts" },
-          { eyebrow: "Support", title: "Questions", body: "Route unusual privacy or data handling questions into support and operator channels.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support" }
-        ]}
-      />
-    );
+    return <PrivacyPage />;
   }
   if (mode === "terms") {
     return (
@@ -1979,25 +2625,7 @@ export default function LovableSite({ mode = "home" }) {
     );
   }
   if (mode === "support") {
-    return (
-      <ResourcePage
-        eyebrow="Support"
-        title="Support should route users into the right trust surface fast."
-        summary="This route exists so users do not have to guess whether they should open a dispute, check status, return to onboarding, or file a public issue."
-        primaryCta={{ label: "Open GitHub support", href: ossLinks.issues }}
-        secondaryCta={{ label: "Status", href: "/status" }}
-        proofPoints={[
-          { title: "Action problems go to receipts or disputes", body: "If a real action happened, the right first stop is the linked trust artifact, not a generic support inbox." },
-          { title: "Install problems go to onboarding and host guides", body: "Host setup should fall back to the shortest doc path, not a maze." },
-          { title: "Platform problems go to status and ops", body: "Known issues and launch blockers should already be visible before a user files a report." }
-        ]}
-        sections={[
-          { eyebrow: "Activation", title: "Onboarding", body: "If you cannot create the runtime or complete the first real action, start here.", href: "/onboarding", ctaLabel: "Open onboarding" },
-          { eyebrow: "Artifacts", title: "Receipts and disputes", body: "If the action happened but looks wrong, move into the artifact and recourse surfaces.", href: "/receipts", ctaLabel: "Open receipts" },
-          { eyebrow: "Platform", title: "Status and incidents", body: "If the product itself feels off, check live status and incident paths first.", href: "/status", ctaLabel: "Open status" }
-        ]}
-      />
-    );
+    return <SupportPage />;
   }
   if (mode === "expired") {
     return (

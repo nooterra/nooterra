@@ -129,6 +129,10 @@ test("public onboarding gate runner: fails closed when auth mode or otp probe en
   assert.equal(report.ok, false);
   assert.equal(report.errors.some((row) => row?.code === "PUBLIC_AUTH_MODE_UNAVAILABLE"), true);
   assert.equal(report.errors.some((row) => row?.code === "BUYER_LOGIN_OTP_UNAVAILABLE"), true);
+  assert.equal(
+    report.errors.find((row) => row?.code === "PUBLIC_AUTH_MODE_UNAVAILABLE")?.reasonCode,
+    "UNEXPECTED_RESPONSE"
+  );
 });
 
 test("public onboarding gate runner: fails closed when website onboarding pages or same-origin auth proxy are unavailable", async () => {
@@ -188,4 +192,59 @@ test("public onboarding gate runner: fails closed when website onboarding pages 
   assert.equal(report.ok, false);
   assert.equal(report.errors.some((row) => row?.code === "WEBSITE_ONBOARDING_PAGE_UNAVAILABLE"), true);
   assert.equal(report.errors.some((row) => row?.code === "WEBSITE_AUTH_PROXY_UNAVAILABLE"), true);
+  assert.equal(
+    report.errors.find((row) => row?.code === "WEBSITE_AUTH_PROXY_UNAVAILABLE")?.reasonCode,
+    "HTML_SUCCESS_RESPONSE"
+  );
+});
+
+test("public onboarding gate runner: classifies same-origin auth proxy application-not-found drift explicitly", async () => {
+  const requestJsonFn = async (url) => {
+    if (url.includes("/__magic/")) {
+      return {
+        ok: false,
+        statusCode: 404,
+        text: "{\"status\":\"error\",\"message\":\"Application not found\"}",
+        json: { status: "error", message: "Application not found" }
+      };
+    }
+    if (url.endsWith("/v1/public/auth-mode")) {
+      return {
+        ok: true,
+        statusCode: 200,
+        text: "{\"authMode\":\"hybrid\"}",
+        json: { authMode: "hybrid" }
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 400,
+      text: "{\"code\":\"BUYER_AUTH_DISABLED\"}",
+      json: { code: "BUYER_AUTH_DISABLED", message: "buyer OTP login is not enabled for this tenant" }
+    };
+  };
+  const requestPageFn = async () => ({
+    ok: true,
+    statusCode: 200,
+    contentType: "text/html; charset=utf-8",
+    text: "<!DOCTYPE html><html><body>app</body></html>"
+  });
+
+  const { report } = await runPublicOnboardingGate(
+    {
+      help: false,
+      baseUrl: "https://api.nooterra.ai",
+      websiteBaseUrl: "https://www.nooterra.ai",
+      tenantId: "tenant_default",
+      email: "probe@nooterra.work",
+      out: "/tmp/public-onboarding-gate.json"
+    },
+    { requestJsonFn, requestPageFn }
+  );
+
+  assert.equal(report.ok, false);
+  assert.equal(
+    report.errors.find((row) => row?.code === "WEBSITE_AUTH_PROXY_UNAVAILABLE")?.reasonCode,
+    "APPLICATION_NOT_FOUND"
+  );
 });
