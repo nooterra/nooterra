@@ -17,7 +17,7 @@ import { docsLinks, ossLinks } from "../site/config/links.js";
 const PUBLIC_ONBOARDING_HREF = "/onboarding";
 const PUBLIC_SIGNUP_HREF = "/signup";
 const PUBLIC_LOGIN_HREF = "/login";
-const MANAGED_ONBOARDING_HREF = "/onboarding?experience=app#identity-access";
+const MANAGED_ONBOARDING_HREF = "/workspace?experience=app#identity-access";
 const PRODUCT_ONBOARDING_HREF = "/signup?source=product";
 const PRICING_ONBOARDING_HREF = "/signup?source=pricing";
 const SITE_DOC_ROUTES = {

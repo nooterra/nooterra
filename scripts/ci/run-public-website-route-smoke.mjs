@@ -3,11 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_ROUTE_CHECKS = [
-  { path: "/", needles: ["Give agents wallets, not unchecked permissions.", "/onboarding?experience=app&source=home#identity-access"] },
-  { path: "/product", needles: ["for every consequential agent action.", "/onboarding?experience=app&source=product#identity-access"] },
-  { path: "/pricing", needles: ["Free to build.", "/onboarding?experience=app&source=pricing#identity-access"] },
-  { path: "/developers", needles: ["Add an Action Wallet in minutes.", "/onboarding?experience=app&source=developers#identity-access"] },
-  { path: "/integrations", needles: ["Connect where agents already run.", "/onboarding?experience=app&source=integrations#identity-access"] },
+  { path: "/", needles: ["Give agents wallets, not unchecked permissions.", "/signup?source=home"] },
+  { path: "/product", needles: ["for every consequential agent action.", "/signup?source=product"] },
+  { path: "/pricing", needles: ["Free to build.", "/signup?source=pricing"] },
+  { path: "/developers", needles: ["Add an Action Wallet in minutes.", "/signup?source=developers"] },
+  { path: "/integrations", needles: ["Connect where agents already run.", "/signup?source=integrations"] },
   { path: "/wallet", needle: "One wallet for every consequential AI action." },
   { path: "/approvals", needle: "Know exactly what you are approving." },
   { path: "/receipts", needle: "Every action should end in a readable record." },
