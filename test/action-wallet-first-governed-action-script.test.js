@@ -661,3 +661,38 @@ test("action-wallet first-governed-action script: fails closed when hosted route
     await close(server);
   }
 });
+
+test("action-wallet first-governed-action script: classifies upstream 502 HTML from runtime bootstrap", async () => {
+  const server = http.createServer(async (req, res) => {
+    const url = req.url ?? "/";
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      res.statusCode = 502;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end("<!DOCTYPE html><html><body><h1>Bad gateway</h1></body></html>");
+      return;
+    }
+    res.statusCode = 404;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: false, method: req.method, url }));
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_SKIP_FIRST_PAID_CALL: "1"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /upstream gateway returned 502 HTML/i);
+  } finally {
+    await close(server);
+  }
+});

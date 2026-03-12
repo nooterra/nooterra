@@ -69,6 +69,7 @@ async function requestJson({ baseUrl, pathname, method = "GET", body = null }) {
     body: body === null ? undefined : JSON.stringify(body)
   });
   const text = await res.text();
+  const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
   let json = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -76,9 +77,22 @@ async function requestJson({ baseUrl, pathname, method = "GET", body = null }) {
     json = null;
   }
   if (!res.ok) {
+    if (!json && contentType.includes("text/html")) {
+      const normalized = text.toLowerCase();
+      if (res.status === 502 && normalized.includes("bad gateway")) {
+        throw new Error(`${method} ${pathname} failed: upstream gateway returned 502 HTML (Cloudflare/host edge)`);
+      }
+      throw new Error(`${method} ${pathname} failed: upstream returned HTML instead of JSON`);
+    }
     const message =
       (json && typeof json === "object" && (json.message || json.code)) ? `${json.message ?? "request failed"} (${json.code ?? "UNKNOWN"})` : text || `HTTP ${res.status}`;
     throw new Error(`${method} ${pathname} failed: ${message}`);
+  }
+  if (!json) {
+    if (contentType.includes("text/html")) {
+      throw new Error(`${method} ${pathname} failed: expected JSON but received HTML`);
+    }
+    throw new Error(`${method} ${pathname} failed: expected JSON response`);
   }
   return json;
 }
