@@ -1,6 +1,11 @@
 import { captureFrontendSentryException } from "../sentry.jsx";
 
 export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
+export const LEGACY_PUBLIC_API_BASE_URL = "https://api.nooterra.ai";
+export const DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES = Object.freeze([
+  DEFAULT_PUBLIC_API_BASE_URL,
+  LEGACY_PUBLIC_API_BASE_URL
+]);
 
 export function isManagedWebsiteHostname(hostname) {
   const normalized = String(hostname ?? "").trim().toLowerCase();
@@ -8,21 +13,19 @@ export function isManagedWebsiteHostname(hostname) {
 }
 
 export function resolveDefaultApiBaseUrl({
-  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_API_BASE_URL : "",
-  hostname = typeof window !== "undefined" ? window.location.hostname : ""
+  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_API_BASE_URL : ""
 } = {}) {
   const normalizedEnvBaseUrl = String(envBaseUrl ?? "").trim();
   if (normalizedEnvBaseUrl) return normalizedEnvBaseUrl;
-  return isManagedWebsiteHostname(hostname) ? DEFAULT_PUBLIC_API_BASE_URL : "/__nooterra";
+  return "/__nooterra";
 }
 
 export function resolveDefaultAuthBaseUrl({
-  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_AUTH_BASE_URL : "",
-  hostname = typeof window !== "undefined" ? window.location.hostname : ""
+  envBaseUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_NOOTERRA_AUTH_BASE_URL : ""
 } = {}) {
   const normalizedEnvBaseUrl = String(envBaseUrl ?? "").trim();
   if (normalizedEnvBaseUrl) return normalizedEnvBaseUrl;
-  return isManagedWebsiteHostname(hostname) ? DEFAULT_PUBLIC_API_BASE_URL : "/__magic";
+  return "/__magic";
 }
 
 export const DEFAULT_BASE_URL = resolveDefaultApiBaseUrl();

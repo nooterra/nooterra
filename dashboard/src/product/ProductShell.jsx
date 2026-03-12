@@ -78,6 +78,7 @@ import {
   createTenantBrowserState,
   createTenantConsumerConnector,
   DEFAULT_PUBLIC_API_BASE_URL,
+  DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES,
   disconnectTenantIntegration,
   runMarketplaceProviderConformance,
   requestJson,
@@ -3880,12 +3881,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const normalizedPathname = typeof request?.pathname === "string" ? request.pathname.trim() : "";
     const preferManagedPublicAuthMode = normalizedPathname === "/v1/public/auth-mode";
     const runtimeApiBaseUrl = String(runtime.baseUrl ?? "").trim();
-    const publicFallbackBaseUrl = shouldUseManagedPublicApiFallback(configuredBaseUrl) ? DEFAULT_PUBLIC_API_BASE_URL : "";
+    const managedWebsiteFallbacks = shouldUseManagedPublicApiFallback(DEFAULT_AUTH_BASE_URL)
+      ? ["/__magic", "/__nooterra", ...DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES]
+      : [];
     const baseUrlCandidates = Array.from(
       new Set(
         (preferManagedPublicAuthMode
-          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, runtimeApiBaseUrl, publicFallbackBaseUrl]
-          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, runtimeApiBaseUrl, publicFallbackBaseUrl]
+          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
+          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
         ).filter((value) => typeof value === "string" && value.trim() !== "")
       )
     );
@@ -3907,13 +3910,17 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       } catch (error) {
         lastError = error;
         const message = String(error?.message ?? "");
+        const isManagedFallbackCandidate = managedWebsiteFallbacks.includes(baseUrl);
         const shouldFallback =
           error?.code === "CONTROL_PLANE_ROUTE_MISCONFIGURED" ||
           error?.code === "CONTROL_PLANE_RESPONSE_NOT_JSON" ||
-          (error?.status === 404 && typeof baseUrl === "string" && baseUrl.trim().startsWith("/")) ||
+          (error?.status === 404 &&
+            (preferManagedPublicAuthMode ||
+              (typeof baseUrl === "string" && baseUrl.trim().startsWith("/")) ||
+              isManagedFallbackCandidate)) ||
           (((!Number.isInteger(error?.status) || error.status >= 500) &&
             /failed to fetch|networkerror|load failed|fetch/i.test(message)));
-        if (!shouldFallback || baseUrl === DEFAULT_AUTH_BASE_URL) break;
+        if (!shouldFallback) break;
       }
     }
     throw lastError;
