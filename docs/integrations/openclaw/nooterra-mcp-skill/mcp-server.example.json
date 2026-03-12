@@ -3,7 +3,7 @@
   "command": "npx",
   "args": ["-y", "--package", "nooterra@latest", "nooterra-mcp"],
   "env": {
-    "NOOTERRA_BASE_URL": "https://api.nooterra.work",
+    "NOOTERRA_BASE_URL": "https://api.nooterra.ai",
     "NOOTERRA_TENANT_ID": "tenant_xxx",
     "NOOTERRA_API_KEY": "sk_live_xxx.yyy"
   }

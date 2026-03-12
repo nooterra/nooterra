@@ -40,7 +40,7 @@ nooterra setup
 Then use the runtime bootstrap values from onboarding, or export them directly:
 
 ```bash
-export NOOTERRA_BASE_URL="https://api.nooterra.work"
+export NOOTERRA_BASE_URL="https://api.nooterra.ai"
 export NOOTERRA_TENANT_ID="tenant_example"
 export NOOTERRA_API_KEY="sk_example.secret"
 ```
@@ -155,7 +155,7 @@ That helper polls the approval alias, optional execution grant, and optional rec
 If you want webhook-based continuation updates for the hosted trust surfaces, use the managed auth-plane helper:
 
 ```bash
-NOOTERRA_AUTH_BASE_URL=https://auth.nooterra.work \
+NOOTERRA_AUTH_BASE_URL=https://api.nooterra.ai \
 NOOTERRA_MAGIC_LINK_API_KEY=ml_live_example \
 NOOTERRA_TENANT_ID=tenant_example \
 NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/continuations \

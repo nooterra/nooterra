@@ -57,7 +57,7 @@ test("createLaunchAlertingReport fails closed when multiple alert classes breach
   const report = createLaunchAlertingReport({
     capturedAt: "2026-03-11T23:55:00.000Z",
     args: {
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_default",
       period: "2026-03",
       webhookFailureThreshold: 1,

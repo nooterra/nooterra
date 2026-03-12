@@ -121,7 +121,7 @@ test("wallet cli: status uses session cookie auth and requests balances without 
     argv: ["status", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_demo",
       cookie: "nooterra_session=abc123"
     }),
@@ -162,7 +162,7 @@ test("wallet cli: fund transfer returns spend address via wallet-funding backend
     argv: ["fund", "--method", "transfer", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_demo",
       cookie: "nooterra_session=abc123"
     }),
@@ -198,7 +198,7 @@ test("wallet cli: fund card with --open uses backend-provided hosted URL", async
     argv: ["fund", "--method", "card", "--open", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_demo",
       cookie: "nooterra_session=abc123"
     }),
@@ -242,7 +242,7 @@ test("wallet cli: fund without method chooses recommended method in non-interact
     argv: ["fund", "--non-interactive", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_demo",
       cookie: "nooterra_session=abc123"
     }),
@@ -271,7 +271,7 @@ test("wallet cli: balance watch waits until threshold is reached", async () => {
     argv: ["balance", "--watch", "--min-usdc", "1", "--interval-seconds", "0", "--timeout-seconds", "2", "--format", "json"],
     fetchImpl,
     readSavedSessionImpl: async () => ({
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_demo",
       cookie: "nooterra_session=abc123"
     }),

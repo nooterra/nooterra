@@ -59,7 +59,7 @@ test("createLaunchAbuseControlsReport fails closed when signals exceed threshold
   const report = createLaunchAbuseControlsReport({
     capturedAt: "2026-03-11T21:40:00.000Z",
     args: {
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_default",
       period: "2026-03",
       approvalFailureThreshold: 3,

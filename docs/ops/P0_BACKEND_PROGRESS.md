@@ -104,7 +104,7 @@ Executed and passing:
 
 ## Current hosted evidence snapshot (2026-02-13)
 
-- [x] `ops:hosted-baseline:evidence` passes against `https://api.nooterra.work` for:
+- [x] `ops:hosted-baseline:evidence` passes against `https://api.nooterra.ai` for:
   - health/status
   - required metrics presence
   - billing catalog/quotas validation

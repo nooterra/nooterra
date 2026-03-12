@@ -150,7 +150,7 @@ npm run mcp:server
 Manual fallback (if you skip setup):
 
 ```bash
-export NOOTERRA_BASE_URL='https://api.nooterra.work'   # or http://127.0.0.1:3000
+export NOOTERRA_BASE_URL='https://api.nooterra.ai'   # or http://127.0.0.1:3000
 export NOOTERRA_TENANT_ID='tenant_default'
 export NOOTERRA_API_KEY='sk_live_xxx.yyy'            # keyId.secret (do not commit)
 export NOOTERRA_PROTOCOL='1.0'                       # optional; server will try to auto-discover

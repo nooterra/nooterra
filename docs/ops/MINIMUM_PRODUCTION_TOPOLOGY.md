@@ -66,7 +66,7 @@ Primary config source: `docs/CONFIG.md`.
 
 ### `x402-gateway`
 
-- `NOOTERRA_API_URL` (usually `https://api.nooterra.work`)
+- `NOOTERRA_API_URL` (usually `https://api.nooterra.ai`)
 - `NOOTERRA_API_KEY` (`keyId.secret`)
 - `UPSTREAM_URL` (provider tool base URL)
 - `HOLDBACK_BPS`

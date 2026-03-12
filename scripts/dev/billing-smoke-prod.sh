@@ -29,7 +29,7 @@ if [[ "$NOOTERRA_BASE_URL" == "http://127.0.0.1:3000" || "$NOOTERRA_BASE_URL" ==
   cat <<EOF
 This is the production smoke script, but NOOTERRA_BASE_URL is still local ($NOOTERRA_BASE_URL).
 Set your deployed API URL once:
-  echo 'NOOTERRA_BASE_URL=https://api.nooterra.work' >> .env.dev.runtime
+  echo 'NOOTERRA_BASE_URL=https://api.nooterra.ai' >> .env.dev.runtime
 EOF
   exit 1
 fi

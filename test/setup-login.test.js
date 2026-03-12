@@ -32,7 +32,7 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
     argv: [
       "--non-interactive",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--email",
@@ -87,7 +87,7 @@ test("login: non-interactive public signup forbidden returns actionable guidance
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.nooterra.work",
+          "https://api.nooterra.ai",
           "--email",
           "founder@example.com",
           "--company",
@@ -121,7 +121,7 @@ test("login: enterprise_preprovisioned mode requires tenant-id before signup att
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.nooterra.work",
+          "https://api.nooterra.ai",
           "--email",
           "founder@example.com",
           "--company",
@@ -161,7 +161,7 @@ test("login: non-interactive otp forbidden returns actionable guidance", async (
         argv: [
           "--non-interactive",
           "--base-url",
-          "https://api.nooterra.work",
+          "https://api.nooterra.ai",
           "--tenant-id",
           "tenant_default",
           "--email",

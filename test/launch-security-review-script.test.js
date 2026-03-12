@@ -67,7 +67,7 @@ const PASS_FIXTURES = {
     ]}
   `,
   "dashboard/src/product/api.js": `
-    export const DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES = ["https://api.nooterra.work", "https://api.nooterra.ai"];
+    export const DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES = ["https://api.nooterra.ai", "https://api.nooterra.work"];
     const a = "/__nooterra";
     const b = "/__magic";
     throw new Error("control plane returned HTML instead of JSON");

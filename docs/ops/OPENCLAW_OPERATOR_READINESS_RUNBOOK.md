@@ -23,7 +23,7 @@ The gate is fail-closed: missing/invalid required evidence or missing required r
 
 ```bash
 node scripts/ops/hosted-baseline-evidence.mjs \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --environment production \

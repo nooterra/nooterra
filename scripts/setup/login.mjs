@@ -20,7 +20,7 @@ function usage() {
     "  node scripts/setup/login.mjs [flags]",
     "",
     "flags:",
-    "  --base-url <url>                Nooterra onboarding base URL (default: https://api.nooterra.work)",
+    "  --base-url <url>                Nooterra onboarding base URL (default: https://api.nooterra.ai)",
     "  --tenant-id <id>                Existing tenant ID (omit to create via public signup)",
     "  --email <email>                 Login email",
     "  --company <name>                Company name (required when --tenant-id omitted)",
@@ -42,7 +42,7 @@ function readArgValue(argv, index, rawArg) {
 
 function parseArgs(argv) {
   const out = {
-    baseUrl: "https://api.nooterra.work",
+    baseUrl: "https://api.nooterra.ai",
     baseUrlProvided: false,
     tenantId: "",
     email: "",
@@ -257,7 +257,7 @@ export async function runLogin({
   try {
     if (interactive) {
       if (!args.baseUrlProvided) {
-        state.baseUrl = await promptLine(rl, "Nooterra base URL", { defaultValue: state.baseUrl || "https://api.nooterra.work" });
+        state.baseUrl = await promptLine(rl, "Nooterra base URL", { defaultValue: state.baseUrl || "https://api.nooterra.ai" });
       }
       state.tenantId = await promptLine(rl, "Tenant ID (optional, leave blank to create new)", {
         defaultValue: state.tenantId,

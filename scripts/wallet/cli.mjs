@@ -310,7 +310,7 @@ async function resolveRuntimeConfig({
   readSavedSessionImpl = readSavedSession
 } = {}) {
   const saved = await readSavedSessionImpl({ sessionPath: args.sessionFile });
-  const baseUrl = normalizeHttpUrl(args.baseUrl ?? env.NOOTERRA_BASE_URL ?? saved?.baseUrl ?? "https://api.nooterra.work");
+  const baseUrl = normalizeHttpUrl(args.baseUrl ?? env.NOOTERRA_BASE_URL ?? saved?.baseUrl ?? "https://api.nooterra.ai");
   if (!baseUrl) fail("base URL must be a valid http(s) URL");
 
   const tenantId = safeTrim(args.tenantId ?? env.NOOTERRA_TENANT_ID ?? saved?.tenantId ?? "");

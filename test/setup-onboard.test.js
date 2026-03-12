@@ -14,7 +14,7 @@ test("onboard: rejects unsupported wallet mode", async () => {
         "--host",
         "openclaw",
         "--base-url",
-        "https://api.nooterra.work",
+        "https://api.nooterra.ai",
         "--tenant-id",
         "tenant_default",
         "--nooterra-api-key",
@@ -61,7 +61,7 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
     return {
       ok: true,
       env: {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_live_x.y",
         ...extraEnv
@@ -78,7 +78,7 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
       "managed",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -100,7 +100,7 @@ test("onboard: managed wallet auto uses remote bootstrap when circle key is not 
 
   const remoteCall = calls.find((row) => row.step === "remote");
   assert.ok(remoteCall);
-  assert.equal(remoteCall.baseUrl, "https://api.nooterra.work");
+  assert.equal(remoteCall.baseUrl, "https://api.nooterra.ai");
   assert.equal(remoteCall.tenantId, "tenant_default");
   assert.equal(remoteCall.nooterraApiKey, "sk_live_x.y");
   assert.equal(remoteCall.walletProvider, "circle");
@@ -142,7 +142,7 @@ test("onboard: managed wallet local uses provider bootstrap", async () => {
   const wizardStub = async ({ extraEnv }) => ({
     ok: true,
     env: {
-      NOOTERRA_BASE_URL: "https://api.nooterra.work",
+      NOOTERRA_BASE_URL: "https://api.nooterra.ai",
       NOOTERRA_TENANT_ID: "tenant_default",
       NOOTERRA_API_KEY: "sk_live_x.y",
       ...extraEnv
@@ -160,7 +160,7 @@ test("onboard: managed wallet local uses provider bootstrap", async () => {
       "local",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -197,7 +197,7 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
       "remote",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--bootstrap-api-key",
@@ -207,7 +207,7 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
     ],
     runtimeEnv: {},
     requestRuntimeBootstrapMcpEnvImpl: async () => ({
-      NOOTERRA_BASE_URL: "https://api.nooterra.work",
+      NOOTERRA_BASE_URL: "https://api.nooterra.ai",
       NOOTERRA_TENANT_ID: "tenant_default",
       NOOTERRA_API_KEY: "sk_runtime_limited"
     }),
@@ -255,7 +255,7 @@ test("onboard: managed remote wallet retries bootstrap auth when runtime key is 
     runWizardImpl: async ({ extraEnv }) => ({
       ok: true,
       env: {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_runtime_limited",
         ...extraEnv
@@ -285,7 +285,7 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--bootstrap-api-key",
@@ -301,7 +301,7 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
     requestRuntimeBootstrapMcpEnvImpl: async (input) => {
       bootstrapCalls.push(input);
       return {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_bootstrap.generated",
         NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.tools.nooterra.work"
@@ -314,7 +314,7 @@ test("onboard: non-interactive can mint tenant API key via bootstrap key", async
       return {
         ok: true,
         env: {
-          NOOTERRA_BASE_URL: "https://api.nooterra.work",
+          NOOTERRA_BASE_URL: "https://api.nooterra.ai",
           NOOTERRA_TENANT_ID: "tenant_default",
           NOOTERRA_API_KEY: generatedApiKey,
           ...extraEnv
@@ -346,7 +346,7 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
       {
         schemaVersion: "NooterraCliSession.v1",
         savedAt: "2026-02-22T00:00:00.000Z",
-        baseUrl: "https://api.nooterra.work",
+        baseUrl: "https://api.nooterra.ai",
         tenantId: "tenant_session",
         cookie: "ml_buyer_session=session_cookie_abc",
         email: "founder@example.com"
@@ -377,7 +377,7 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
       requestRuntimeBootstrapMcpEnvImpl: async (input) => {
         bootstrapCalls.push(input);
         return {
-          NOOTERRA_BASE_URL: "https://api.nooterra.work",
+          NOOTERRA_BASE_URL: "https://api.nooterra.ai",
           NOOTERRA_TENANT_ID: "tenant_session",
           NOOTERRA_API_KEY: "sk_session.generated"
         };
@@ -389,7 +389,7 @@ test("onboard: non-interactive can mint tenant API key via saved login session",
         return {
           ok: true,
           env: {
-            NOOTERRA_BASE_URL: "https://api.nooterra.work",
+            NOOTERRA_BASE_URL: "https://api.nooterra.ai",
             NOOTERRA_TENANT_ID: "tenant_session",
             NOOTERRA_API_KEY: generatedApiKey,
             ...extraEnv
@@ -418,7 +418,7 @@ test("onboard: non-interactive defaults host from detected installations", async
     return {
       ok: true,
       env: {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_live_x.y"
       }
@@ -432,7 +432,7 @@ test("onboard: non-interactive defaults host from detected installations", async
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -465,7 +465,7 @@ test("onboard: runs preflight by default", async () => {
       "--wallet-mode",
       "none",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -481,7 +481,7 @@ test("onboard: runs preflight by default", async () => {
     runWizardImpl: async () => ({
       ok: true,
       env: {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_live_x.y"
       }
@@ -492,7 +492,7 @@ test("onboard: runs preflight by default", async () => {
   assert.equal(out.ok, true);
   assert.equal(out.preflight?.ok, true);
   assert.equal(preflightCalls.length, 1);
-  assert.equal(preflightCalls[0].normalizedBaseUrl, "https://api.nooterra.work");
+  assert.equal(preflightCalls[0].normalizedBaseUrl, "https://api.nooterra.ai");
 });
 
 test("onboard: preflight-only skips wizard and returns preflight payload", async () => {
@@ -506,7 +506,7 @@ test("onboard: preflight-only skips wizard and returns preflight payload", async
       "none",
       "--preflight-only",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -541,7 +541,7 @@ test("onboard: report-path writes payload json", async () => {
       "none",
       "--no-preflight",
       "--base-url",
-      "https://api.nooterra.work",
+      "https://api.nooterra.ai",
       "--tenant-id",
       "tenant_default",
       "--nooterra-api-key",
@@ -555,7 +555,7 @@ test("onboard: report-path writes payload json", async () => {
     runWizardImpl: async () => ({
       ok: true,
       env: {
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_default",
         NOOTERRA_API_KEY: "sk_live_x.y"
       }
@@ -582,7 +582,7 @@ test("onboard: BYO mode error references required key docs", async () => {
         "byo",
         "--no-preflight",
         "--base-url",
-        "https://api.nooterra.work",
+        "https://api.nooterra.ai",
         "--tenant-id",
         "tenant_default",
         "--nooterra-api-key",

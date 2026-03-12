@@ -92,7 +92,7 @@ async function main() {
         "--host",
         "openclaw",
         "--base-url",
-        "https://api.nooterra.work",
+        "https://api.nooterra.ai",
         "--tenant-id",
         "tenant_public_smoke",
         "--nooterra-api-key",
@@ -127,7 +127,7 @@ async function main() {
       env: {
         ...npmEnv,
         HOME: fakeHomeDir,
-        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_BASE_URL: "https://api.nooterra.ai",
         NOOTERRA_TENANT_ID: "tenant_public_smoke",
         NOOTERRA_API_KEY: "sk_public_smoke.x"
       }

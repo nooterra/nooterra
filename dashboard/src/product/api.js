@@ -1,7 +1,7 @@
 import { captureFrontendSentryException } from "../sentry.jsx";
 
-export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
-export const LEGACY_PUBLIC_API_BASE_URL = "https://api.nooterra.ai";
+export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.ai";
+export const LEGACY_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
 export const DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES = Object.freeze([
   DEFAULT_PUBLIC_API_BASE_URL,
   LEGACY_PUBLIC_API_BASE_URL

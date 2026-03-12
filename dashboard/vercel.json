@@ -6,15 +6,15 @@
   "rewrites": [
     {
       "source": "/__magic/:match*",
-      "destination": "https://api.nooterra.work/:match*"
+      "destination": "https://api.nooterra.ai/:match*"
     },
     {
       "source": "/__nooterra/:match*",
-      "destination": "https://api.nooterra.work/:match*"
+      "destination": "https://api.nooterra.ai/:match*"
     },
     {
       "source": "/v1/:match*",
-      "destination": "https://api.nooterra.work/v1/:match*"
+      "destination": "https://api.nooterra.ai/v1/:match*"
     },
     {
       "source": "/((?!(?:__magic|__nooterra|v1)(?:/|$))(?!.*\\.).*)",

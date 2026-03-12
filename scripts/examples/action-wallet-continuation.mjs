@@ -12,7 +12,7 @@ function printHelp() {
       "  subscribe-webhook  Configure buyer-notification webhook delivery for continuation events",
       "",
       "Polling environment:",
-      "  NOOTERRA_BASE_URL            Runtime API base URL (default: https://api.nooterra.work)",
+      "  NOOTERRA_BASE_URL            Runtime API base URL (default: https://api.nooterra.ai)",
       "  NOOTERRA_TENANT_ID           Tenant/workspace id",
       "  NOOTERRA_API_KEY             Tenant runtime API key",
       "  NOOTERRA_REQUEST_ID          Hosted approval request id to poll",
@@ -30,7 +30,7 @@ function printHelp() {
       "",
       "Examples:",
       "  NOOTERRA_TENANT_ID=tenant_example NOOTERRA_API_KEY=sk_live... NOOTERRA_REQUEST_ID=apr_123 node scripts/examples/action-wallet-continuation.mjs poll",
-      "  NOOTERRA_AUTH_BASE_URL=https://auth.nooterra.work NOOTERRA_MAGIC_LINK_API_KEY=ml_live... NOOTERRA_TENANT_ID=tenant_example NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/hooks node scripts/examples/action-wallet-continuation.mjs subscribe-webhook"
+      "  NOOTERRA_AUTH_BASE_URL=https://api.nooterra.ai NOOTERRA_MAGIC_LINK_API_KEY=ml_live... NOOTERRA_TENANT_ID=tenant_example NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/hooks node scripts/examples/action-wallet-continuation.mjs subscribe-webhook"
     ].join("\n") + "\n"
   );
 }
@@ -134,7 +134,7 @@ function summarizeReceipt(row) {
 }
 
 async function runPoll() {
-  const baseUrl = envString("NOOTERRA_BASE_URL", "https://api.nooterra.work");
+  const baseUrl = envString("NOOTERRA_BASE_URL", "https://api.nooterra.ai");
   const requestId = requireEnv("NOOTERRA_REQUEST_ID", "NOOTERRA_REQUEST_ID");
   const executionGrantId = envString("NOOTERRA_EXECUTION_GRANT_ID", "");
   const receiptId = envString("NOOTERRA_RECEIPT_ID", "");
