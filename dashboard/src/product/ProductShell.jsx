@@ -3881,6 +3881,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const message = String(error?.message ?? "").trim();
     if (
       error?.status === 502 ||
+      (error?.status === 404 && /application not found/i.test(message)) ||
       /dns_hostname_not_found|failed to fetch|networkerror|load failed|fetch|temporarily unavailable/i.test(message)
     ) {
       return "Hosted onboarding is temporarily unavailable. Account creation and sign-in are paused until the control plane reconnects.";
@@ -3926,6 +3927,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         const shouldFallback =
           error?.code === "CONTROL_PLANE_ROUTE_MISCONFIGURED" ||
           error?.code === "CONTROL_PLANE_RESPONSE_NOT_JSON" ||
+          (error?.status === 404 && /application not found/i.test(message)) ||
           (error?.status === 404 &&
             (preferManagedPublicAuthMode ||
               (typeof baseUrl === "string" && baseUrl.trim().startsWith("/")) ||
