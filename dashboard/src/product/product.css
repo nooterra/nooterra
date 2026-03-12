@@ -565,6 +565,65 @@ textarea {
   pointer-events: none;
 }
 
+.product-page-onboarding-app {
+  gap: 1.9rem;
+}
+
+.product-page-onboarding-app .product-onboarding-top {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.16), transparent 18rem),
+    radial-gradient(circle at bottom right, rgba(31, 104, 92, 0.18), transparent 18rem),
+    linear-gradient(180deg, rgba(11, 15, 20, 0.96), rgba(14, 19, 26, 0.94));
+  box-shadow: 0 34px 84px rgba(0, 0, 0, 0.34);
+}
+
+.product-page-onboarding-app .product-onboarding-top::after {
+  inset: auto -4rem -4rem auto;
+  width: 18rem;
+  height: 18rem;
+  background: radial-gradient(circle, rgba(210, 176, 111, 0.18), rgba(210, 176, 111, 0));
+  filter: blur(24px);
+}
+
+.product-page-onboarding-app .product-kicker,
+.product-page-onboarding-app .product-section-head p,
+.product-page-onboarding-app .product-page-top p,
+.product-page-onboarding-app .product-form-grid span,
+.product-page-onboarding-app .product-runtime-grid span {
+  color: rgba(210, 176, 111, 0.78);
+}
+
+.product-page-onboarding-app .product-page-top h1,
+.product-page-onboarding-app .product-section-head h2,
+.product-page-onboarding-app .product-section-head h3,
+.product-page-onboarding-app .product-onboarding-account-rail-card strong,
+.product-page-onboarding-app .product-onboarding-auth-stat strong,
+.product-page-onboarding-app .product-step-copy strong {
+  color: #f4efe6;
+}
+
+.product-page-onboarding-app .product-lead,
+.product-page-onboarding-app .product-card p,
+.product-page-onboarding-app .product-card-body-copy,
+.product-page-onboarding-app .product-inline-note,
+.product-page-onboarding-app .product-onboarding-account-rail-card p,
+.product-page-onboarding-app .product-step-copy span,
+.product-page-onboarding-app .product-onboarding-auth-stat small,
+.product-page-onboarding-app .product-onboarding-auth-stat span {
+  color: rgba(230, 236, 244, 0.78);
+}
+
+.product-page-onboarding-app .product-button-ghost {
+  color: #eef3f8;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.product-page-onboarding-app .product-button-ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .product-hero {
   display: grid;
   gap: 1.3rem;
@@ -1313,6 +1372,14 @@ textarea {
   box-shadow: 0 18px 32px rgba(9, 14, 22, 0.22);
 }
 
+.product-page-onboarding-app .product-onboarding-account-rail-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)),
+    #11161e;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+
 .product-onboarding-account-rail-card span {
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.72rem;
@@ -1359,6 +1426,10 @@ textarea {
   gap: 0.9rem;
 }
 
+.product-page-onboarding-app .product-onboarding-auth-summary {
+  gap: 0.85rem;
+}
+
 .product-onboarding-auth-stat {
   display: grid;
   gap: 0.34rem;
@@ -1368,6 +1439,13 @@ textarea {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 241, 234, 0.86)),
     radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 11rem);
+}
+
+.product-page-onboarding-app .product-onboarding-auth-stat {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)),
+    #11161e;
 }
 
 .product-onboarding-auth-stat span,
@@ -1397,6 +1475,14 @@ textarea {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(246, 241, 234, 0.87)),
     radial-gradient(circle at top right, rgba(31, 104, 92, 0.08), transparent 12rem);
+}
+
+.product-page-onboarding-app .product-onboarding-auth-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)),
+    #11161e;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24);
 }
 
 .product-onboarding-auth-panel-primary {
@@ -1437,6 +1523,13 @@ textarea {
     radial-gradient(circle at top right, rgba(138, 91, 63, 0.08), transparent 12rem);
 }
 
+.product-page-onboarding-app .product-onboarding-auth-panel-secondary {
+  background:
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.14), transparent 12rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02)),
+    #10151c;
+}
+
 .product-onboarding-auth-panel .product-card-body-copy {
   margin: 0;
 }
@@ -1456,12 +1549,75 @@ textarea {
     inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.product-page-onboarding-app .product-onboarding-account-card,
+.product-page-onboarding-app .product-onboarding-account-handoff {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.12), transparent 13rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02)),
+    #10151c;
+  box-shadow: 0 24px 68px rgba(0, 0, 0, 0.24);
+}
+
 .product-onboarding-account-copy {
   max-width: 46rem;
 }
 
 .product-onboarding-account-handoff {
   border-style: dashed;
+}
+
+.product-page-onboarding-app .product-onboarding-account-card .product-inline-note,
+.product-page-onboarding-app .product-onboarding-account-handoff .product-inline-note,
+.product-page-onboarding-app .product-inline-note {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.product-page-onboarding-app .product-inline-note.accent {
+  background: rgba(210, 176, 111, 0.12);
+  color: #f2e1b6;
+}
+
+.product-page-onboarding-app .product-inline-note.warn {
+  background: rgba(168, 112, 44, 0.16);
+  color: #f0d8ad;
+}
+
+.product-page-onboarding-app .product-inline-note.bad {
+  background: rgba(161, 83, 71, 0.18);
+  color: #f4d5d0;
+}
+
+.product-page-onboarding-app .product-form-grid input,
+.product-page-onboarding-app .product-form-grid textarea,
+.product-page-onboarding-app .product-form-grid select {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(7, 9, 13, 0.72);
+  color: #f4efe6;
+}
+
+.product-page-onboarding-app .product-form-grid input::placeholder,
+.product-page-onboarding-app .product-form-grid textarea::placeholder {
+  color: rgba(226, 231, 240, 0.42);
+}
+
+.product-page-onboarding-app .product-form-grid input:focus,
+.product-page-onboarding-app .product-form-grid textarea:focus,
+.product-page-onboarding-app .product-form-grid select:focus {
+  border-color: rgba(210, 176, 111, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(210, 176, 111, 0.25),
+    0 0 0 6px rgba(210, 176, 111, 0.08);
+}
+
+.product-page-onboarding-app details.product-details {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.product-page-onboarding-app details.product-details summary {
+  color: rgba(210, 176, 111, 0.78);
 }
 
 .product-onboarding-host-runbook {

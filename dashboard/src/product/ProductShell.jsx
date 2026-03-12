@@ -2186,7 +2186,7 @@ function HomePage({ lastAgentId, onboardingState }) {
   const secondaryHref = buyer ? "/approvals" : "/developers";
   const secondaryLabel = buyer ? "Review approvals" : "Open developer toolkit";
   return (
-    <div className="product-page">
+    <div className={`product-page${accountFirstMode ? " product-page-onboarding-app" : ""}`}>
       <section className="product-home-hero-shell">
         <div className="product-home-command">
           <div className="product-home-command-lines" aria-hidden="true">
