@@ -93,6 +93,8 @@ function hasManagedRuntimeSession() {
 function prefersManagedOnboardingFlow() {
   if (typeof window === "undefined") return false;
   try {
+    const pathname = String(window.location.pathname ?? "").trim();
+    if (pathname === "/signup" || pathname === "/login") return true;
     const params = new URLSearchParams(window.location.search);
     return params.get("experience") === "app";
   } catch {

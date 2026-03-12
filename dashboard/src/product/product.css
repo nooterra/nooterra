@@ -136,6 +136,21 @@ textarea {
   background: linear-gradient(180deg, rgba(20, 29, 44, 0.92), rgba(20, 29, 44, 0.72) 72%, transparent);
 }
 
+.product-root-onboarding-app .product-nav-shell {
+  background: linear-gradient(180deg, rgba(8, 11, 16, 0.94), rgba(8, 11, 16, 0.76) 72%, transparent);
+}
+
+.product-root-onboarding-app .product-nav {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(8, 11, 16, 0.9), rgba(8, 11, 16, 0.76)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.12), transparent 12rem);
+}
+
+.product-root-onboarding-app .product-main {
+  padding-top: 1.8rem;
+}
+
 .product-nav {
   max-width: var(--product-max);
   margin: 0 auto;
@@ -1274,6 +1289,10 @@ textarea {
 .product-onboarding-proof-grid,
 .product-onboarding-setup-grid {
   align-items: start;
+}
+
+.product-onboarding-entry-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .product-onboarding-host-shortcuts {

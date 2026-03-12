@@ -5492,6 +5492,15 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Open dispute"
               : "Open focused receipt";
   const onboardingSource = getQueryParam("source");
+  const onboardingStarted = Boolean(
+    buyer ||
+    bootstrapBundle ||
+    smokeBundle ||
+    onboardingMetricsState.metrics ||
+    conformanceState.matrix ||
+    hostedApprovalState.history.length ||
+    firstPaidCallState.history.length
+  );
   const onboardingSourceMessages = {
     home: {
       label: "From home",
@@ -5556,9 +5565,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
       <section className="product-page-top product-onboarding-top">
         <div>
           <p className="product-kicker">Workspace Onboarding</p>
-          <h1>Turn a new account into a live Action Wallet workspace.</h1>
+          <h1>Create the account. Run the first action.</h1>
           <p className="product-lead">
-            Signup, recovery, runtime bootstrap, hosted approval setup, and launch-channel config all happen from one page. This is the activation path for host-first Action Wallet installs.
+            Start with one workspace, one host, and one approval loop. The first job of onboarding is simple: issue the account, prove one governed action, and end with a receipt plus recourse.
           </p>
           {onboardingSourceMessage ? (
             <div className="product-inline-note accent">
@@ -5579,11 +5588,85 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </button>
           ) : null}
           <a className="product-button product-button-solid" href={buyer ? "/wallet" : "#identity-access"}>
-            {buyer ? "Continue To Wallet" : "Create workspace"}
+            {buyer ? "Continue To Wallet" : "Go to account setup"}
           </a>
         </div>
       </section>
 
+      <section className="product-access-grid product-onboarding-entry-grid">
+        <article className="product-access-card product-access-card-activation">
+          <div className="product-mini-card-head">
+            <ShieldCheck size={18} />
+            <span>1. Identity</span>
+          </div>
+          <strong>Create the workspace once.</strong>
+          <p>Issue the operator identity, sign-in path, and trust boundary before anything else shows up on this page.</p>
+          <div className="product-actions">
+            <a className="product-button product-button-solid" href="#identity-access">Create workspace</a>
+          </div>
+        </article>
+        <article className="product-access-card product-access-card-activation">
+          <div className="product-mini-card-head">
+            <ShieldCheck size={18} />
+            <span>2. Runtime</span>
+          </div>
+          <strong>Issue one runtime bundle.</strong>
+          <p>Bootstrap the shared Action Wallet runtime once, then reuse it across Claude MCP, OpenClaw, Codex, CLI, and API.</p>
+          <div className="product-actions">
+            <a className="product-button product-button-ghost" href="#runtime-bootstrap">Issue runtime</a>
+          </div>
+        </article>
+        <article className="product-access-card product-access-card-activation">
+          <div className="product-mini-card-head">
+            <ShieldCheck size={18} />
+            <span>3. Proof loop</span>
+          </div>
+          <strong>Finish one governed action.</strong>
+          <p>Reach a hosted approval, close one receipt, and keep recourse visible before you widen into more hosts or workflows.</p>
+          <div className="product-actions">
+            <a className="product-button product-button-ghost" href={buyer ? "#first-governed-action" : "#host-shortcuts"}>
+              See the first loop
+            </a>
+          </div>
+        </article>
+      </section>
+
+      {!onboardingStarted ? (
+        <section className="product-card product-card-emphasis">
+          <div className="product-section-head compact">
+            <p>Start narrow</p>
+            <h2>Don’t think about the whole dashboard yet.</h2>
+          </div>
+          <p className="product-card-body-copy">
+            New users should feel one setup step, not an operations console. Create the workspace below, issue the runtime once, then come back up the page to run the first approval and receipt loop.
+          </p>
+          <div className="product-step-list">
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>Create the account</strong>
+                <span>Passkey is the primary path. Recovery email stays available if the same browser key is missing later.</span>
+              </div>
+              <StatusPill value="pending" />
+            </div>
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>Issue runtime bootstrap</strong>
+                <span>One tenant-scoped runtime bundle powers the live approval, receipt, and dispute surfaces.</span>
+              </div>
+              <StatusPill value="pending" />
+            </div>
+            <div className="product-step-item">
+              <div className="product-step-copy">
+                <strong>Pick one host</strong>
+                <span>Claude MCP, OpenClaw, and Codex all prove the same Action Wallet contract. You only need one to feel boring first.</span>
+              </div>
+              <StatusPill value="pending" />
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {onboardingStarted ? (
       <section className="product-metric-grid product-onboarding-metric-grid">
         <article className="product-metric-card">
           <span>Readiness</span>
@@ -5606,7 +5689,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <small>Codex, CLI, and API all reuse the same Action Wallet runtime contract.</small>
         </article>
       </section>
+      ) : null}
 
+      {onboardingStarted ? (
       <section className="product-grid-two product-onboarding-activation-grid">
         <article className="product-card product-card-emphasis">
           <div className="product-section-head compact">
@@ -5919,7 +6004,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           </div>
         </article>
       </section>
+      ) : null}
 
+      {onboardingStarted ? (
       <section className="product-grid-two product-onboarding-proof-grid">
         <article className="product-card product-card-emphasis" id="first-live-paid-call">
           <div className="product-section-head compact">
@@ -6088,6 +6175,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           ) : null}
         </article>
       </section>
+      ) : null}
 
       <section className="product-grid-two product-onboarding-setup-grid">
         <article className="product-card product-card-emphasis" id="identity-access">
@@ -15249,6 +15337,7 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("debug") === "1";
   const hasManagedRuntime = Boolean(onboardingState?.buyer) || Boolean(String(runtime?.apiKey ?? "").trim());
+  const isStandaloneOnboarding = mode === "onboarding" && !hasManagedRuntime;
   const showRuntimeBar =
     (
       mode === "inbox" ||
@@ -15297,7 +15386,7 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
   }
 
   return (
-    <div className="product-root">
+    <div className={`product-root${isStandaloneOnboarding ? " product-root-onboarding-app" : ""}`}>
       <div className="product-orb product-orb-a" aria-hidden="true" />
       <div className="product-orb product-orb-b" aria-hidden="true" />
       <div className="product-gridwash" aria-hidden="true" />
@@ -15312,29 +15401,43 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
             </span>
           </a>
           <div className="product-nav-links">
-            <a className={linkToneForMode(mode, "/")} href="/">Overview</a>
-            {hasManagedRuntime ? (
-              <a className={linkToneForMode(mode, "/inbox")} href="/inbox">
-                <span className="product-nav-link-label">Inbox</span>
-                {inboxBadgeCount > 0 ? (
-                  <span className="product-nav-notice" aria-label={inboxBadgeLabel}>
-                    {inboxBadgeCount > 9 ? "9+" : inboxBadgeCount}
-                  </span>
+            {isStandaloneOnboarding ? (
+              <>
+                <a className={linkToneForMode(mode, "/product")} href="/product">Product</a>
+                <a className={linkToneForMode(mode, "/pricing")} href="/pricing">Pricing</a>
+                <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
+                <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a>
+                <a href={docsLinks.home}>Docs</a>
+              </>
+            ) : (
+              <>
+                <a className={linkToneForMode(mode, "/")} href="/">Overview</a>
+                {hasManagedRuntime ? (
+                  <a className={linkToneForMode(mode, "/inbox")} href="/inbox">
+                    <span className="product-nav-link-label">Inbox</span>
+                    {inboxBadgeCount > 0 ? (
+                      <span className="product-nav-notice" aria-label={inboxBadgeLabel}>
+                        {inboxBadgeCount > 9 ? "9+" : inboxBadgeCount}
+                      </span>
+                    ) : null}
+                  </a>
                 ) : null}
-              </a>
-            ) : null}
-            {hasManagedRuntime ? <a className={linkToneForMode(mode, "/approvals")} href="/approvals">Approvals</a> : null}
-            {hasManagedRuntime ? <a className={linkToneForMode(mode, "/wallet")} href="/wallet">Wallet</a> : null}
-            {hasManagedRuntime ? <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a> : null}
-            {hasManagedRuntime ? <a className={linkToneForMode(mode, "/receipts")} href="/receipts">Receipts</a> : null}
-            {hasManagedRuntime ? <a className={linkToneForMode(mode, "/disputes")} href="/disputes">Disputes</a> : null}
-            <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
-            <a href={docsLinks.home}>Docs</a>
+                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/approvals")} href="/approvals">Approvals</a> : null}
+                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/wallet")} href="/wallet">Wallet</a> : null}
+                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a> : null}
+                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/receipts")} href="/receipts">Receipts</a> : null}
+                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/disputes")} href="/disputes">Disputes</a> : null}
+                <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
+                <a href={docsLinks.home}>Docs</a>
+              </>
+            )}
           </div>
           <div className="product-nav-actions">
-            <a className="product-button product-button-ghost" href={ossLinks.repo}>GitHub</a>
-            <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : "/onboarding"}>
-              {onboardingState?.buyer ? "Open Action Wallet" : "Get started"}
+            <a className="product-button product-button-ghost" href={isStandaloneOnboarding ? "/support" : ossLinks.repo}>
+              {isStandaloneOnboarding ? "Support" : "GitHub"}
+            </a>
+            <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : (isStandaloneOnboarding ? "/pricing" : "/onboarding")}>
+              {onboardingState?.buyer ? "Open Action Wallet" : (isStandaloneOnboarding ? "View pricing" : "Get started")}
             </a>
           </div>
         </nav>
@@ -15348,14 +15451,26 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
       <footer className="product-footer">
         <div>
           <strong>Nooterra</strong>
-          <span>Approvals, scoped authority, receipts, disputes, and recourse for AI actions that matter.</span>
+          <span>{isStandaloneOnboarding ? "Create the account, issue one runtime, and prove one governed action before you widen the surface." : "Approvals, scoped authority, receipts, disputes, and recourse for AI actions that matter."}</span>
         </div>
         <div className="product-footer-links">
-          <a href={docsLinks.quickstart}>Quickstart</a>
-          <a href="/approvals">Approvals</a>
-          <a href="/developers">Developers</a>
-          <a href="/receipts">Receipts</a>
-          <a href={docsLinks.home}>Docs</a>
+          {isStandaloneOnboarding ? (
+            <>
+              <a href="/product">Product</a>
+              <a href="/pricing">Pricing</a>
+              <a href="/developers">Developers</a>
+              <a href={docsLinks.quickstart}>Quickstart</a>
+              <a href={docsLinks.home}>Docs</a>
+            </>
+          ) : (
+            <>
+              <a href={docsLinks.quickstart}>Quickstart</a>
+              <a href="/approvals">Approvals</a>
+              <a href="/developers">Developers</a>
+              <a href="/receipts">Receipts</a>
+              <a href={docsLinks.home}>Docs</a>
+            </>
+          )}
         </div>
       </footer>
     </div>
