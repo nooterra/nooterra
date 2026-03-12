@@ -33,6 +33,7 @@ Run this sequence in order to generate inputs and then produce the ACS-E10 summa
 ```bash
 npm run test:ops:public-onboarding-gate -- \
   --base-url https://api.nooterra.work \
+  --website-base-url https://www.nooterra.ai \
   --tenant-id tenant_default \
   --out artifacts/gates/public-onboarding-gate.json
 

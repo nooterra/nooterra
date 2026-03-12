@@ -51,6 +51,15 @@ curl -fsS https://gateway.nooterra.work/healthz
 npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.work --tenant-id tenant_default
 ```
 
+Same-origin website onboarding and auth proxy should also be exercised from the production website host:
+
+```bash
+npm run test:ops:public-onboarding-gate -- \
+  --base-url https://api.nooterra.work \
+  --website-base-url https://www.nooterra.ai \
+  --tenant-id tenant_default
+```
+
 ## Phase 3: Baseline ops verification
 
 1. Run hosted baseline evidence command:
