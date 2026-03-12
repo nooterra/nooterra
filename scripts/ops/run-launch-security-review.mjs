@@ -70,7 +70,7 @@ const REQUIRED_CHECKS = Object.freeze([
       {
         path: "dashboard/src/product/api.js",
         patterns: [
-          'DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.work"',
+          "DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES",
           '"/__nooterra"',
           '"/__magic"',
           "control plane returned HTML instead of JSON",

@@ -63,14 +63,14 @@ test("requestJson fails closed when a control-plane route returns non-JSON succe
   }
 });
 
-test("public website defaults route API and auth calls to the managed public base", () => {
+test("public website defaults route API and auth calls through same-origin control-plane proxies", () => {
   assert.equal(
     resolveDefaultApiBaseUrl({ envBaseUrl: "", hostname: "www.nooterra.ai" }),
-    "https://api.nooterra.work"
+    "/__nooterra"
   );
   assert.equal(
     resolveDefaultAuthBaseUrl({ envBaseUrl: "", hostname: "nooterra.ai" }),
-    "https://api.nooterra.work"
+    "/__magic"
   );
 });
 
