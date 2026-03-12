@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
+const PUBLIC_ONBOARDING_HREF = "/onboarding";
 const MANAGED_ONBOARDING_HREF = "/onboarding?experience=app#identity-access";
 const PRODUCT_ONBOARDING_HREF = "/onboarding?experience=app&source=product#identity-access";
 const PRICING_ONBOARDING_HREF = "/onboarding?experience=app&source=pricing#identity-access";
@@ -122,17 +123,7 @@ function SiteNav() {
       ? PRODUCT_ONBOARDING_HREF
       : pathname === "/pricing"
         ? PRICING_ONBOARDING_HREF
-        : pathname === "/developers"
-          ? buildManagedOnboardingHref("developers")
-          : pathname === "/integrations"
-            ? buildManagedOnboardingHref("integrations")
-            : pathname === "/wallet" || pathname === "/approvals" || pathname === "/receipts" || pathname === "/disputes"
-              ? buildManagedOnboardingHref(pathname.slice(1))
-              : pathname === "/docs/quickstart"
-                ? buildManagedOnboardingHref("docs_quickstart")
-                : pathname === "/support"
-                  ? buildManagedOnboardingHref("support")
-                  : buildManagedOnboardingHref("home");
+        : PUBLIC_ONBOARDING_HREF;
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#080b10]/80 backdrop-blur-xl">
@@ -954,7 +945,7 @@ function PrivacyPage() {
 }
 
 function HomePage() {
-  const onboardingHref = buildManagedOnboardingHref("home");
+  const onboardingHref = PUBLIC_ONBOARDING_HREF;
   return (
     <SiteLayout>
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
