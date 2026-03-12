@@ -3,11 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_ROUTE_CHECKS = [
-  { path: "/", needle: "Give agents wallets, not unchecked permissions." },
-  { path: "/product", needle: "for every consequential agent action." },
-  { path: "/pricing", needle: "Free to build." },
-  { path: "/developers", needle: "Add an Action Wallet in minutes." },
-  { path: "/integrations", needle: "Connect where agents already run." },
+  { path: "/", needles: ["Give agents wallets, not unchecked permissions.", "/onboarding?experience=app&source=home#identity-access"] },
+  { path: "/product", needles: ["for every consequential agent action.", "/onboarding?experience=app&source=product#identity-access"] },
+  { path: "/pricing", needles: ["Free to build.", "/onboarding?experience=app&source=pricing#identity-access"] },
+  { path: "/developers", needles: ["Add an Action Wallet in minutes.", "/onboarding?experience=app&source=developers#identity-access"] },
+  { path: "/integrations", needles: ["Connect where agents already run.", "/onboarding?experience=app&source=integrations#identity-access"] },
   { path: "/wallet", needle: "One wallet for every consequential AI action." },
   { path: "/approvals", needle: "Know exactly what you are approving." },
   { path: "/receipts", needle: "Every action should end in a readable record." },
@@ -103,8 +103,11 @@ export async function runPublicWebsiteRouteSmoke(args, { requestPageFn = request
   for (const routeCheck of DEFAULT_ROUTE_CHECKS) {
     const url = `${args.websiteBaseUrl}${routeCheck.path}`;
     const page = await requestPageFn(url);
-    const containsNeedle = String(page.body ?? "").includes(routeCheck.needle);
-    const routeOk = page.ok && page.contentType.includes("text/html") && looksLikeHtmlDocument(page.body) && containsNeedle;
+    const needles = Array.isArray(routeCheck.needles)
+      ? routeCheck.needles
+      : [routeCheck.needle];
+    const missingNeedles = needles.filter((needle) => !String(page.body ?? "").includes(String(needle ?? "")));
+    const routeOk = page.ok && page.contentType.includes("text/html") && looksLikeHtmlDocument(page.body) && missingNeedles.length === 0;
     checks.push({
       id: `route:${routeCheck.path}`,
       path: routeCheck.path,
@@ -112,16 +115,17 @@ export async function runPublicWebsiteRouteSmoke(args, { requestPageFn = request
       ok: routeOk,
       statusCode: page.statusCode,
       contentType: page.contentType,
-      containsNeedle,
-      needle: routeCheck.needle
+      needles,
+      missingNeedles
     });
     if (!routeOk) {
       blockingIssues.push({
         code: "PUBLIC_ROUTE_SMOKE_FAILED",
         path: routeCheck.path,
-        message: `expected ${routeCheck.path} to return HTML containing \"${routeCheck.needle}\"`,
+        message: `expected ${routeCheck.path} to return HTML containing ${needles.map((needle) => `\"${needle}\"`).join(", ")}`,
         statusCode: page.statusCode,
-        contentType: page.contentType
+        contentType: page.contentType,
+        missingNeedles
       });
     }
   }
