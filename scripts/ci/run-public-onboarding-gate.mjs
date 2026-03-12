@@ -123,6 +123,34 @@ function summarizeBody(outcome) {
   return { raw: String(outcome?.text ?? "").slice(0, 500) };
 }
 
+function classifyAuthPlaneFailure(outcome) {
+  const statusCode = Number(outcome?.statusCode ?? 0);
+  const message =
+    typeof outcome?.json?.message === "string"
+      ? outcome.json.message
+      : typeof outcome?.json?.error === "string"
+        ? outcome.json.error
+        : typeof outcome?.text === "string"
+          ? outcome.text
+          : "";
+  if (statusCode === 404 && /application not found/i.test(message)) {
+    return "APPLICATION_NOT_FOUND";
+  }
+  if (statusCode === 502 && /dns_hostname_not_found/i.test(message)) {
+    return "DNS_HOSTNAME_NOT_FOUND";
+  }
+  if (statusCode === 200 && typeof outcome?.json?.authMode !== "string") {
+    if (!outcome?.json && /<!doctype html|<html/i.test(message)) {
+      return "HTML_SUCCESS_RESPONSE";
+    }
+    return "INVALID_JSON_SUCCESS_RESPONSE";
+  }
+  if (!statusCode) {
+    return "REQUEST_FAILED";
+  }
+  return "UNEXPECTED_RESPONSE";
+}
+
 export async function runPublicOnboardingGate(args, { requestJsonFn = requestJson, requestPageFn = requestPage } = {}) {
   const startedAt = new Date().toISOString();
   const steps = [];
@@ -137,7 +165,8 @@ export async function runPublicOnboardingGate(args, { requestJsonFn = requestJso
   if (authMode.statusCode !== 200 || typeof authMode.json?.authMode !== "string") {
     errors.push({
       code: "PUBLIC_AUTH_MODE_UNAVAILABLE",
-      message: `expected GET /v1/public/auth-mode to return 200 with authMode; got ${authMode.statusCode}`
+      message: `expected GET /v1/public/auth-mode to return 200 with authMode; got ${authMode.statusCode}`,
+      reasonCode: classifyAuthPlaneFailure(authMode)
     });
   }
 
@@ -209,7 +238,8 @@ export async function runPublicOnboardingGate(args, { requestJsonFn = requestJso
     if (!sameOriginJsonOk) {
       errors.push({
         code: "WEBSITE_AUTH_PROXY_UNAVAILABLE",
-        message: `expected website same-origin auth proxy to return 200 with authMode; got ${sameOriginAuthMode.statusCode}`
+        message: `expected website same-origin auth proxy to return 200 with authMode; got ${sameOriginAuthMode.statusCode}`,
+        reasonCode: classifyAuthPlaneFailure(sameOriginAuthMode)
       });
     }
   }
