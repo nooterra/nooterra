@@ -5594,47 +5594,65 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         </div>
       </section>
 
-      <section className="product-access-grid product-onboarding-entry-grid">
-        <article className="product-access-card product-access-card-activation">
-          <div className="product-mini-card-head">
-            <ShieldCheck size={18} />
-            <span>1. Identity</span>
+      {accountFirstMode ? (
+        <section className="product-onboarding-account-rail">
+          <div className="product-onboarding-account-rail-card">
+            <span>01</span>
+            <strong>Create the workspace</strong>
+            <p>Issue the operator identity and trust boundary first.</p>
           </div>
-          <strong>Create the workspace once.</strong>
-          <p>Issue the operator identity, sign-in path, and trust boundary before anything else shows up on this page.</p>
-          <div className="product-actions">
-            <a className="product-button product-button-solid" href="#identity-access">Create workspace</a>
+          <div className="product-onboarding-account-rail-card">
+            <span>02</span>
+            <strong>Unlock the runtime</strong>
+            <p>Bootstrap one shared Action Wallet bundle after the account is real.</p>
           </div>
-        </article>
-        <article className="product-access-card product-access-card-activation">
-          <div className="product-mini-card-head">
-            <ShieldCheck size={18} />
-            <span>2. Runtime</span>
+          <div className="product-onboarding-account-rail-card">
+            <span>03</span>
+            <strong>Close one proof loop</strong>
+            <p>Approval, receipt, and dispute appear only after the secure handoff succeeds.</p>
           </div>
-          <strong>Issue one runtime bundle.</strong>
-          <p>{accountFirstMode ? "The runtime only unlocks after the workspace exists. First create the account, then bootstrap one shared boundary for every host." : "Bootstrap the shared Action Wallet runtime once, then reuse it across Claude MCP, OpenClaw, Codex, CLI, and API."}</p>
-          <div className="product-actions">
-            <a className="product-button product-button-ghost" href={accountFirstMode ? "#identity-access" : "#runtime-bootstrap"}>
-              {accountFirstMode ? "Unlock runtime" : "Issue runtime"}
-            </a>
-          </div>
-        </article>
-        <article className="product-access-card product-access-card-activation">
-          <div className="product-mini-card-head">
-            <ShieldCheck size={18} />
-            <span>3. Proof loop</span>
-          </div>
-          <strong>Finish one governed action.</strong>
-          <p>{accountFirstMode ? "Approval, receipt, and dispute matter after the workspace and runtime are real. Stay on the account step first, then prove one live loop." : "Reach a hosted approval, close one receipt, and keep recourse visible before you widen into more hosts or workflows."}</p>
-          <div className="product-actions">
-            <a className="product-button product-button-ghost" href={buyer ? "#first-governed-action" : "#identity-access"}>
-              {accountFirstMode ? "See the secure steps" : "See the first loop"}
-            </a>
-          </div>
-        </article>
-      </section>
+        </section>
+      ) : (
+        <section className="product-access-grid product-onboarding-entry-grid">
+          <article className="product-access-card product-access-card-activation">
+            <div className="product-mini-card-head">
+              <ShieldCheck size={18} />
+              <span>1. Identity</span>
+            </div>
+            <strong>Create the workspace once.</strong>
+            <p>Issue the operator identity, sign-in path, and trust boundary before anything else shows up on this page.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-solid" href="#identity-access">Create workspace</a>
+            </div>
+          </article>
+          <article className="product-access-card product-access-card-activation">
+            <div className="product-mini-card-head">
+              <ShieldCheck size={18} />
+              <span>2. Runtime</span>
+            </div>
+            <strong>Issue one runtime bundle.</strong>
+            <p>Bootstrap the shared Action Wallet runtime once, then reuse it across Claude MCP, OpenClaw, Codex, CLI, and API.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href="#runtime-bootstrap">Issue runtime</a>
+            </div>
+          </article>
+          <article className="product-access-card product-access-card-activation">
+            <div className="product-mini-card-head">
+              <ShieldCheck size={18} />
+              <span>3. Proof loop</span>
+            </div>
+            <strong>Finish one governed action.</strong>
+            <p>Reach a hosted approval, close one receipt, and keep recourse visible before you widen into more hosts or workflows.</p>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href={buyer ? "#first-governed-action" : "#identity-access"}>
+                See the first loop
+              </a>
+            </div>
+          </article>
+        </section>
+      )}
 
-      {!onboardingStarted ? (
+      {!onboardingStarted && !accountFirstMode ? (
         <section className="product-card product-card-emphasis">
           <div className="product-section-head compact">
             <p>Start narrow</p>
@@ -6181,7 +6199,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
       ) : null}
 
       <section className="product-grid-two product-onboarding-setup-grid">
-        <article className="product-card product-card-emphasis" id="identity-access">
+        <article className={`product-card product-card-emphasis${accountFirstMode ? " product-onboarding-account-card" : ""}`} id="identity-access">
           <div className="product-section-head compact">
             <p>Identity + Access</p>
             <h2>{accountFirstMode ? "Create the account first." : "Create or recover a workspace."}</h2>
@@ -6193,6 +6211,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           ) : null}
           {accountFirstMode ? (
             <>
+              <p className="product-card-body-copy product-onboarding-account-copy">
+                Start with a real workspace owner, not a temporary shell. Once the account exists, this page reveals runtime bootstrap and the first hosted approval path automatically.
+              </p>
               <div className="product-inline-note accent">
                 <strong>One setup step comes first.</strong>
                 <span>Create the workspace and save the passkey before runtime bootstrap, host setup, or proof artifacts appear.</span>
@@ -6357,7 +6378,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   )}
                 </section>
 
-                <section className="product-onboarding-auth-panel">
+                <section className="product-onboarding-auth-panel product-onboarding-auth-panel-secondary">
                   <div className="product-section-head compact">
                     <p>Return to workspace</p>
                     <h3>Use the saved device key.</h3>
@@ -6431,7 +6452,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         </article>
 
         {accountFirstMode ? (
-          <article className="product-card product-card-subtle">
+          <article className="product-card product-card-subtle product-onboarding-account-handoff">
             <div className="product-section-head compact">
               <p>Secure handoff</p>
               <h2>What unlocks after the workspace is real.</h2>
