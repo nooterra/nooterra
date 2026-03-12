@@ -1858,6 +1858,13 @@ function IntegrationsPage() {
 }
 
 function OnboardingPage() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("experience") !== "app") return;
+    window.location.replace(MANAGED_ONBOARDING_HREF);
+  }, []);
+
   const activationSteps = [
     {
       title: "Create the runtime identity",
