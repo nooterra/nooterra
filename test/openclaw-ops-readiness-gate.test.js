@@ -43,7 +43,7 @@ test("openclaw operator readiness gate: passes with hosted evidence + plugin env
       status: "pass",
       failures: [],
       inputs: {
-        baseUrl: "https://api.nooterra.work",
+        baseUrl: "https://api.nooterra.ai",
         tenantId: "tenant_default",
         environment: "production",
         requireBillingCatalog: true,
@@ -88,7 +88,7 @@ test("openclaw operator readiness gate: passes with hosted evidence + plugin env
     `${JSON.stringify(
       {
         id: "nooterra",
-        baseUrl: "https://api.nooterra.work",
+        baseUrl: "https://api.nooterra.ai",
         tenantId: "tenant_default",
         apiKey: "sk_live_ops"
       },
@@ -155,7 +155,7 @@ test("openclaw operator readiness gate: fails closed when required self-host con
     `${JSON.stringify(
       {
         id: "nooterra",
-        baseUrl: "https://api.nooterra.work"
+        baseUrl: "https://api.nooterra.ai"
       },
       null,
       2
@@ -216,7 +216,7 @@ test("openclaw operator readiness gate: fails closed when hosted S8 rollout guar
     `${JSON.stringify(
       {
         id: "nooterra",
-        baseUrl: "https://api.nooterra.work",
+        baseUrl: "https://api.nooterra.ai",
         tenantId: "tenant_default",
         apiKey: "sk_live_ops"
       },

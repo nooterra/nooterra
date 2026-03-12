@@ -42,12 +42,12 @@ test("production cutover gate parser: validates live mode required args", () => 
   assert.throws(() => parseArgs(["--mode", "live"], {}, "/tmp/nooterra"), /--base-url is required/);
 
   const args = parseArgs(
-    ["--mode", "live", "--base-url", "https://api.nooterra.work", "--tenant-id", "tenant_prod_gate", "--ops-token", "tok_ops", "--protocol", "1.0"],
+    ["--mode", "live", "--base-url", "https://api.nooterra.ai", "--tenant-id", "tenant_prod_gate", "--ops-token", "tok_ops", "--protocol", "1.0"],
     {},
     "/tmp/nooterra"
   );
   assert.equal(args.mode, "live");
-  assert.equal(args.baseUrl, "https://api.nooterra.work");
+  assert.equal(args.baseUrl, "https://api.nooterra.ai");
   assert.equal(args.tenantId, "tenant_prod_gate");
   assert.equal(args.opsToken, "tok_ops");
   assert.equal(args.protocol, "1.0");

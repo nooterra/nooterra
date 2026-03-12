@@ -32,13 +32,13 @@ Run this sequence in order to generate inputs and then produce the ACS-E10 summa
 
 ```bash
 npm run test:ops:public-onboarding-gate -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --website-base-url https://www.nooterra.ai \
   --tenant-id tenant_default \
   --out artifacts/gates/public-onboarding-gate.json
 
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --environment production \
@@ -51,7 +51,7 @@ node scripts/ops/openclaw-operator-readiness-gate.mjs \
   --out artifacts/gates/openclaw-operator-readiness-gate.json
 
 npm run test:ops:onboarding-host-success-gate -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --api-key "$NOOTERRA_API_KEY" \
   --attempts 3 \

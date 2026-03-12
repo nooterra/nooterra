@@ -78,7 +78,7 @@ test("public onboarding gate runner: passes when public auth mode is available a
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       websiteBaseUrl: "https://www.nooterra.ai",
       tenantId: "tenant_default",
       email: "probe@nooterra.work",
@@ -118,7 +118,7 @@ test("public onboarding gate runner: fails closed when auth mode or otp probe en
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       tenantId: "tenant_default",
       email: "probe@nooterra.work",
       out: "/tmp/public-onboarding-gate.json"
@@ -176,7 +176,7 @@ test("public onboarding gate runner: fails closed when website onboarding pages 
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
-      baseUrl: "https://api.nooterra.work",
+      baseUrl: "https://api.nooterra.ai",
       websiteBaseUrl: "https://www.nooterra.ai",
       tenantId: "tenant_default",
       email: "probe@nooterra.work",

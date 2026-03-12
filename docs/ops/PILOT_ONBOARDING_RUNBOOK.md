@@ -17,7 +17,7 @@ Goal: install a design partner in one afternoon and prove a known-good `402 -> a
 ## 2. Environment Setup (15-20m)
 
 ```bash
-export NOOTERRA_BASE_URL='https://api.nooterra.work'
+export NOOTERRA_BASE_URL='https://api.nooterra.ai'
 export NOOTERRA_TENANT_ID='tenant_default'
 export PROXY_OPS_TOKEN='tok_ops'
 ```

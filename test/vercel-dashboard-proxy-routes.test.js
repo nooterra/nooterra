@@ -19,9 +19,9 @@ function assertProxyRewrite(config, source, destination) {
 
 test("root vercel config proxies control-plane routes before the SPA fallback", async () => {
   const config = await loadJson("vercel.json");
-  assertProxyRewrite(config, "/__magic/:match*", "https://api.nooterra.work/:match*");
-  assertProxyRewrite(config, "/__nooterra/:match*", "https://api.nooterra.work/:match*");
-  assertProxyRewrite(config, "/v1/:match*", "https://api.nooterra.work/v1/:match*");
+  assertProxyRewrite(config, "/__magic/:match*", "https://api.nooterra.ai/:match*");
+  assertProxyRewrite(config, "/__nooterra/:match*", "https://api.nooterra.ai/:match*");
+  assertProxyRewrite(config, "/v1/:match*", "https://api.nooterra.ai/v1/:match*");
   assert.deepEqual(config.rewrites.at(-1), {
     source: "/((?!(?:__magic|__nooterra|v1)(?:/|$))(?!.*\\.).*)",
     destination: "/index.html"
@@ -30,9 +30,9 @@ test("root vercel config proxies control-plane routes before the SPA fallback", 
 
 test("dashboard vercel config proxies control-plane routes before the SPA fallback", async () => {
   const config = await loadJson("dashboard/vercel.json");
-  assertProxyRewrite(config, "/__magic/:match*", "https://api.nooterra.work/:match*");
-  assertProxyRewrite(config, "/__nooterra/:match*", "https://api.nooterra.work/:match*");
-  assertProxyRewrite(config, "/v1/:match*", "https://api.nooterra.work/v1/:match*");
+  assertProxyRewrite(config, "/__magic/:match*", "https://api.nooterra.ai/:match*");
+  assertProxyRewrite(config, "/__nooterra/:match*", "https://api.nooterra.ai/:match*");
+  assertProxyRewrite(config, "/v1/:match*", "https://api.nooterra.ai/v1/:match*");
   assert.deepEqual(config.rewrites.at(-1), {
     source: "/((?!(?:__magic|__nooterra|v1)(?:/|$))(?!.*\\.).*)",
     destination: "/index.html"

@@ -15,7 +15,7 @@ test("launch synthetic smokes parser: uses env defaults and supports overrides",
   const args = parseArgs(
     ["--environment", "production", "--website-base-url", "https://www.nooterra.ai/", "--report", "artifacts/custom/launch-smoke.json", "--skip-host-success"],
     {
-      NOOTERRA_BASE_URL: "https://api.nooterra.work/",
+      NOOTERRA_BASE_URL: "https://api.nooterra.ai/",
       NOOTERRA_TENANT_ID: "tenant_default",
       NOOTERRA_ONBOARDING_PROBE_EMAIL: "probe@nooterra.work",
       NOOTERRA_API_KEY: "sk_live_test",
@@ -25,7 +25,7 @@ test("launch synthetic smokes parser: uses env defaults and supports overrides",
   );
 
   assert.equal(args.environment, "production");
-  assert.equal(args.baseUrl, "https://api.nooterra.work");
+  assert.equal(args.baseUrl, "https://api.nooterra.ai");
   assert.equal(args.websiteBaseUrl, "https://www.nooterra.ai");
   assert.equal(args.tenantId, "tenant_default");
   assert.equal(args.probeEmail, "probe@nooterra.work");

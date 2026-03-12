@@ -29,7 +29,7 @@ Non-interactive path:
 npx -y nooterra@latest setup \
   --non-interactive \
   --host nooterra \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --nooterra-api-key 'sk_live_xxx.yyy' \
   --wallet-mode managed \

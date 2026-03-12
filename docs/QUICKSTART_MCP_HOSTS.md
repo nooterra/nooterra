@@ -173,7 +173,7 @@ That helper emits machine-readable JSON with:
 Webhook subscription (managed auth plane / Magic Link):
 
 ```bash
-NOOTERRA_AUTH_BASE_URL=https://auth.nooterra.work \
+NOOTERRA_AUTH_BASE_URL=https://api.nooterra.ai \
 NOOTERRA_MAGIC_LINK_API_KEY=ml_live_example \
 NOOTERRA_TENANT_ID=tenant_example \
 NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/continuations \

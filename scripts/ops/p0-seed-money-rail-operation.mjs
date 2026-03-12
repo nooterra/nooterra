@@ -13,7 +13,7 @@
  *  - NOOTERRA_OPS_TOKEN
  *
  * Optional env:
- *  - NOOTERRA_BASE_URL (default: https://api.nooterra.work)
+ *  - NOOTERRA_BASE_URL (default: https://api.nooterra.ai)
  *  - NOOTERRA_TENANT_ID (default: tenant_default)
  *  - NOOTERRA_PROTOCOL (default: 1.0)
  *  - NOOTERRA_PERIOD (default: current UTC YYYY-MM)
@@ -201,7 +201,7 @@ async function pollMonthCloseClosed({ baseUrl, tenantId, opsToken, protocol, mon
 }
 
 async function main() {
-  const baseUrl = env("NOOTERRA_BASE_URL", "https://api.nooterra.work");
+  const baseUrl = env("NOOTERRA_BASE_URL", "https://api.nooterra.ai");
   const tenantId = env("NOOTERRA_TENANT_ID", "tenant_default");
   const protocol = env("NOOTERRA_PROTOCOL", "1.0");
   const opsToken = mustEnv("NOOTERRA_OPS_TOKEN");

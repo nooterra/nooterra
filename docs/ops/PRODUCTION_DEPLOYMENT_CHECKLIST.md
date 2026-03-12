@@ -46,16 +46,16 @@ Use this checklist to launch and verify a real hosted Nooterra environment.
 4. Verify service health:
 
 ```bash
-curl -fsS https://api.nooterra.work/healthz
+curl -fsS https://api.nooterra.ai/healthz
 curl -fsS https://gateway.nooterra.work/healthz
-npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.work --tenant-id tenant_default
+npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.ai --tenant-id tenant_default
 ```
 
 Same-origin website onboarding and auth proxy should also be exercised from the production website host:
 
 ```bash
 npm run test:ops:public-onboarding-gate -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --website-base-url https://www.nooterra.ai \
   --tenant-id tenant_default
 ```
@@ -66,7 +66,7 @@ npm run test:ops:public-onboarding-gate -- \
 
 ```bash
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --environment production \
@@ -104,7 +104,7 @@ Expected report path:
 
 ```bash
 npm run ops:launch-alerting:report -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --period "$(date -u +%Y-%m)" \
@@ -172,7 +172,7 @@ Expected report path:
 
 ```bash
 npm run ops:launch-abuse:report -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --period "$(date -u +%Y-%m)"
@@ -222,7 +222,7 @@ npm run test:ci:mcp-host-cert-matrix -- \
 
 ```bash
 npm run test:ops:onboarding-host-success-gate -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --api-key "$NOOTERRA_API_KEY" \
   --attempts 3 \

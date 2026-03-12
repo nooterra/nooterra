@@ -48,7 +48,7 @@ test("requestJson fails closed when a control-plane route returns non-JSON succe
     await assert.rejects(
       () =>
         requestJson({
-          baseUrl: "https://api.nooterra.work",
+          baseUrl: "https://api.nooterra.ai",
           pathname: "/healthz",
           method: "GET"
         }),

@@ -21,7 +21,7 @@ Add `--smoke` if you want setup to run an immediate MCP probe before moving on.
 Bootstrap mode (same flow, runtime key minted by onboarding endpoint):
 
 ```bash
-./bin/nooterra.js setup --yes --mode bootstrap --host nooterra --base-url https://api.nooterra.work --tenant-id tenant_default --bootstrap-api-key mlk_admin_xxx --bootstrap-key-id sk_runtime --bootstrap-scopes runs:read,runs:write --idempotency-key profile_setup_bootstrap_1
+./bin/nooterra.js setup --yes --mode bootstrap --host nooterra --base-url https://api.nooterra.ai --tenant-id tenant_default --bootstrap-api-key mlk_admin_xxx --bootstrap-key-id sk_runtime --bootstrap-scopes runs:read,runs:write --idempotency-key profile_setup_bootstrap_1
 ```
 
 If you only want runtime env + host wiring (without applying a profile), add:

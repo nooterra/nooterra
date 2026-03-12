@@ -13,7 +13,7 @@ function printHelp() {
       "5. run the managed first paid call unless skipped",
       "",
       "Environment:",
-      "  NOOTERRA_BASE_URL        API base URL (default: https://api.nooterra.work)",
+      "  NOOTERRA_BASE_URL        API base URL (default: https://api.nooterra.ai)",
       "  NOOTERRA_WEBSITE_BASE_URL  Website base URL for hosted approval/receipt/dispute links",
       "  NOOTERRA_VERIFY_HOSTED_ROUTES  Set to 1/true/yes to verify hosted approval/receipt/dispute pages resolve",
       "  NOOTERRA_TENANT_ID       Existing tenant to reuse",
@@ -43,7 +43,7 @@ function normalizeHostTrack(value) {
 
 function baseUrlFromEnv() {
   const raw = typeof process.env.NOOTERRA_BASE_URL === "string" ? process.env.NOOTERRA_BASE_URL.trim() : "";
-  return raw !== "" ? raw.replace(/\/+$/, "") : "https://api.nooterra.work";
+  return raw !== "" ? raw.replace(/\/+$/, "") : "https://api.nooterra.ai";
 }
 
 function requireSignupFields() {

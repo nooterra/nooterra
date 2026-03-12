@@ -63,7 +63,7 @@ Website auth is production-first via Auth0:
 - `VITE_AUTH0_DOMAIN`
 - `VITE_AUTH0_CLIENT_ID`
 - `VITE_AUTH0_AUDIENCE` (optional, recommended for API access tokens)
-- `VITE_NOOTERRA_API_BASE_URL` (for `/operator`, example `https://api.nooterra.work`)
+- `VITE_NOOTERRA_API_BASE_URL` (for `/operator`, example `https://api.nooterra.ai`)
 
 In Auth0 application settings, use your real domains:
 

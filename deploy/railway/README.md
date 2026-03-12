@@ -88,8 +88,8 @@ Set on `nooterra-maintenance`:
 
 Set on the Vercel project only if you are not using the same-origin proxy paths:
 
-- `VITE_NOOTERRA_API_BASE_URL=https://api.nooterra.work`
-- `VITE_NOOTERRA_AUTH_BASE_URL=https://api.nooterra.work`
+- `VITE_NOOTERRA_API_BASE_URL=https://api.nooterra.ai`
+- `VITE_NOOTERRA_AUTH_BASE_URL=https://api.nooterra.ai`
 
 ## Post-deploy validation
 
@@ -97,7 +97,7 @@ Run against the hosted API:
 
 ```sh
 npm run -s ops:hosted-baseline:evidence -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$PROXY_OPS_TOKEN" \
   --environment production \
@@ -107,7 +107,7 @@ npm run -s ops:hosted-baseline:evidence -- \
 Then run local CLI against hosted API:
 
 ```sh
-nooterra agent status --agent-id <agent_id> --base-url https://api.nooterra.work --ops-token "$PROXY_OPS_TOKEN"
+nooterra agent status --agent-id <agent_id> --base-url https://api.nooterra.ai --ops-token "$PROXY_OPS_TOKEN"
 ```
 
 ## Reference

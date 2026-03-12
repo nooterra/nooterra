@@ -50,14 +50,14 @@ test("parseNooterraServerConfig supports mcpServers and root shapes", () => {
 test("parseNooterraEnvFromServer picks required + optional vars", () => {
   const parsed = parseNooterraEnvFromServer({
     env: {
-      NOOTERRA_BASE_URL: "https://api.nooterra.work",
+      NOOTERRA_BASE_URL: "https://api.nooterra.ai",
       NOOTERRA_TENANT_ID: "tenant_test",
       NOOTERRA_API_KEY: "sk_live_test.secret",
       NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.example",
       IGNORE_ME: "x"
     }
   });
-  assert.equal(parsed.NOOTERRA_BASE_URL, "https://api.nooterra.work");
+  assert.equal(parsed.NOOTERRA_BASE_URL, "https://api.nooterra.ai");
   assert.equal(parsed.NOOTERRA_TENANT_ID, "tenant_test");
   assert.equal(parsed.NOOTERRA_API_KEY, "sk_live_test.secret");
   assert.equal(parsed.NOOTERRA_PAID_TOOLS_BASE_URL, "https://paid.example");
@@ -80,7 +80,7 @@ test("resolveNooterraEnv reads from mcp config when env vars are missing", async
               command: "npx",
               args: ["-y", "--package", "nooterra", "nooterra-mcp"],
               env: {
-                NOOTERRA_BASE_URL: "https://api.nooterra.work",
+                NOOTERRA_BASE_URL: "https://api.nooterra.ai",
                 NOOTERRA_TENANT_ID: "tenant_from_file",
                 NOOTERRA_API_KEY: "sk_live_file.secret"
               }
@@ -94,7 +94,7 @@ test("resolveNooterraEnv reads from mcp config when env vars are missing", async
     );
 
     const env = await resolveNooterraEnv({ mcpConfigPath: mcpPath });
-    assert.equal(env.NOOTERRA_BASE_URL, "https://api.nooterra.work");
+    assert.equal(env.NOOTERRA_BASE_URL, "https://api.nooterra.ai");
     assert.equal(env.NOOTERRA_TENANT_ID, "tenant_from_file");
     assert.equal(env.NOOTERRA_API_KEY, "sk_live_file.secret");
   } finally {

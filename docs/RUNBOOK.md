@@ -162,7 +162,7 @@ Use the launch abuse report before opening traffic to detect:
 
 ```bash
 npm run ops:launch-abuse:report -- \
-  --base-url https://api.nooterra.work \
+  --base-url https://api.nooterra.ai \
   --tenant-id tenant_default \
   --ops-token "$NOOTERRA_OPS_TOKEN" \
   --period "$(date -u +%Y-%m)" \
