@@ -3808,7 +3808,7 @@ function NetworkPage({ runtime, onboardingState, lastAgentId, launchId, onLaunch
   );
 }
 
-function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingState }) {
+function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingState, standaloneMode = false }) {
   const authMode = onboardingState?.authMode ?? null;
   const buyer = onboardingState?.buyer ?? null;
   const bootstrapBundle = onboardingState?.bootstrap ?? null;
@@ -5501,6 +5501,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     hostedApprovalState.history.length ||
     firstPaidCallState.history.length
   );
+  const accountFirstMode = standaloneMode && !buyer;
   const onboardingSourceMessages = {
     home: {
       label: "From home",
@@ -5611,9 +5612,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <span>2. Runtime</span>
           </div>
           <strong>Issue one runtime bundle.</strong>
-          <p>Bootstrap the shared Action Wallet runtime once, then reuse it across Claude MCP, OpenClaw, Codex, CLI, and API.</p>
+          <p>{accountFirstMode ? "The runtime only unlocks after the workspace exists. First create the account, then bootstrap one shared boundary for every host." : "Bootstrap the shared Action Wallet runtime once, then reuse it across Claude MCP, OpenClaw, Codex, CLI, and API."}</p>
           <div className="product-actions">
-            <a className="product-button product-button-ghost" href="#runtime-bootstrap">Issue runtime</a>
+            <a className="product-button product-button-ghost" href={accountFirstMode ? "#identity-access" : "#runtime-bootstrap"}>
+              {accountFirstMode ? "Unlock runtime" : "Issue runtime"}
+            </a>
           </div>
         </article>
         <article className="product-access-card product-access-card-activation">
@@ -5622,10 +5625,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <span>3. Proof loop</span>
           </div>
           <strong>Finish one governed action.</strong>
-          <p>Reach a hosted approval, close one receipt, and keep recourse visible before you widen into more hosts or workflows.</p>
+          <p>{accountFirstMode ? "Approval, receipt, and dispute matter after the workspace and runtime are real. Stay on the account step first, then prove one live loop." : "Reach a hosted approval, close one receipt, and keep recourse visible before you widen into more hosts or workflows."}</p>
           <div className="product-actions">
-            <a className="product-button product-button-ghost" href={buyer ? "#first-governed-action" : "#host-shortcuts"}>
-              See the first loop
+            <a className="product-button product-button-ghost" href={buyer ? "#first-governed-action" : "#identity-access"}>
+              {accountFirstMode ? "See the secure steps" : "See the first loop"}
             </a>
           </div>
         </article>
@@ -6374,6 +6377,44 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           )}
         </article>
 
+        {accountFirstMode ? (
+          <article className="product-card product-card-subtle">
+            <div className="product-section-head compact">
+              <p>Secure handoff</p>
+              <h2>What unlocks after the workspace is real.</h2>
+            </div>
+            <p className="product-card-body-copy">
+              This secure flow should feel linear. Create the workspace first. Once the account exists, this same page reveals runtime bootstrap, the host-specific first action, and the first approval-to-receipt loop.
+            </p>
+            <div className="product-step-list">
+              <div className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>Workspace issued</strong>
+                  <span>The buyer session and tenant boundary become the owner for future approvals, receipts, and disputes.</span>
+                </div>
+                <StatusPill value="pending" />
+              </div>
+              <div className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>Runtime unlocked</strong>
+                  <span>The API key and MCP bundle appear only after the account exists, instead of showing raw runtime controls too early.</span>
+                </div>
+                <StatusPill value="pending" />
+              </div>
+              <div className="product-step-item">
+                <div className="product-step-copy">
+                  <strong>First proof loop</strong>
+                  <span>After that, pick one host and close a real approval, receipt, and dispute path before widening scope.</span>
+                </div>
+                <StatusPill value="pending" />
+              </div>
+            </div>
+            <div className="product-actions">
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Open launch host guide</a>
+              <a className="product-button product-button-solid" href="/pricing">View pricing</a>
+            </div>
+          </article>
+        ) : (
         <article className="product-card product-card-emphasis" id="runtime-bootstrap">
           <div className="product-section-head compact">
             <p>Runtime Bootstrap</p>
@@ -6432,8 +6473,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
           </div>
         </article>
+        )}
       </section>
 
+      {!accountFirstMode ? (
       <section className="product-grid-two">
         <article className="product-card">
           <div className="product-section-head compact">
@@ -6474,7 +6517,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <CodeBlock title="Host Runtime Notes" code={builderCliSnippet} hint="Keep the host runtime deterministic and attached to the same tenant credentials." />
         </article>
       </section>
+      ) : null}
 
+      {!accountFirstMode ? (
       <section className="product-card product-onboarding-host-shortcuts" id="host-shortcuts">
         <div className="product-section-head compact">
           <p>Host shortcuts</p>
@@ -6508,6 +6553,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           })}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -15363,6 +15409,7 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
         setRuntime={setRuntime}
         onboardingState={onboardingState}
         setOnboardingState={setOnboardingState}
+        standaloneMode={isStandaloneOnboarding}
       />
     );
   } else if (mode === "inbox") {
