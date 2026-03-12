@@ -2366,7 +2366,7 @@ function LaunchScopePage({ requestedPath, onboardingState }) {
   const primaryHref = onboardingState?.buyer ? "/approvals" : "/onboarding";
   const primaryLabel = onboardingState?.buyer ? "Open approvals" : "Complete onboarding";
   return (
-    <div className="product-page">
+    <div className={`product-page${accountFirstMode ? " product-page-onboarding-app" : ""}`}>
       <section className="product-page-top">
         <div>
           <p className="product-kicker">Action Wallet v1</p>
