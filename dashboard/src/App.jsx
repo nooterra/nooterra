@@ -13,6 +13,8 @@ function getRouteMode() {
   }
   const rawPath = window.location.pathname;
   const path = rawPath.length > 1 && rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath;
+  const searchParams = new URLSearchParams(window.location.search);
+  const wantsManagedOnboarding = searchParams.get("experience") === "app";
 
   if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
@@ -25,7 +27,15 @@ function getRouteMode() {
   if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
-  if (path === "/onboarding") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/onboarding") {
+    return {
+      mode: wantsManagedOnboarding ? "workspace" : "onboarding",
+      launchId: null,
+      agentId: null,
+      runId: null,
+      requestedPath: null
+    };
+  }
   if (path === "/workspace") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
