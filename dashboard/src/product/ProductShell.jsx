@@ -15453,11 +15453,12 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
     };
   }, [inboxReadStateVersion, lastLaunchId, runtime]);
 
-  const debugMode =
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("debug") === "1";
+  const searchParams =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const debugMode = searchParams?.get("debug") === "1";
+  const prefersStandaloneOnboarding = searchParams?.get("experience") === "app";
   const hasManagedRuntime = Boolean(onboardingState?.buyer) || Boolean(String(runtime?.apiKey ?? "").trim());
-  const isStandaloneOnboarding = mode === "onboarding" && !hasManagedRuntime;
+  const isStandaloneOnboarding = mode === "onboarding" && prefersStandaloneOnboarding;
   const showRuntimeBar =
     (
       mode === "inbox" ||
