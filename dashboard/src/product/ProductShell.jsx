@@ -5468,6 +5468,21 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             : focusedFirstPaidDisputeId
               ? "Open dispute"
               : "Open focused receipt";
+  const onboardingSource = getQueryParam("source");
+  const onboardingSourceMessage =
+    onboardingSource === "product"
+      ? {
+          label: "From product",
+          title: "You are on the shortest Action Wallet path.",
+          body: "Create the workspace, issue the runtime, then close one hosted approval with one receipt. That is the exact loop the product page is promising."
+        }
+      : onboardingSource === "pricing"
+        ? {
+            label: "From pricing",
+            title: "Start on the builder path and prove one live loop first.",
+            body: "You do not need a long rollout to get value here. Create the account, use the hosted approval path, and widen into live governed actions only after the receipt flow is boring."
+          }
+        : null;
 
   return (
     <div className="product-page">
@@ -5478,6 +5493,12 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <p className="product-lead">
             Signup, recovery, runtime bootstrap, hosted approval setup, and launch-channel config all happen from one page. This is the activation path for host-first Action Wallet installs.
           </p>
+          {onboardingSourceMessage ? (
+            <div className="product-inline-note accent">
+              <strong>{onboardingSourceMessage.label}</strong>
+              <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
+            </div>
+          ) : null}
         </div>
         <div className="product-page-top-actions">
           {!buyer ? (
@@ -6007,6 +6028,11 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             <p>Identity + Access</p>
             <h2>Create or recover a workspace.</h2>
           </div>
+          {onboardingSource === "pricing" ? (
+            <p className="product-card-body-copy">
+              Start in the free builder path, prove the first approval and receipt loop, then widen into live governed actions once the runtime is stable for your team.
+            </p>
+          ) : null}
           <div className="product-badge-row">
             <span className="product-badge">Primary: passkey</span>
             <span className="product-badge subtle">Recovery: email OTP</span>

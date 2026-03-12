@@ -19,6 +19,8 @@ function getRouteMode() {
   if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/approvals") return { mode: "approvals", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/wallet") return { mode: "wallet", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/product") return { mode: "product", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/pricing") return { mode: "pricing", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/integrations") return { mode: "integrations", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -108,6 +110,8 @@ export default function App() {
   const wantsManagedOnboarding = route.mode === "onboarding" && prefersManagedOnboardingFlow();
   const alwaysPublicModes = new Set([
     "home",
+    "product",
+    "pricing",
     "developers",
     "integrations",
     "docs",
