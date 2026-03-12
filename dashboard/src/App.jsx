@@ -26,6 +26,7 @@ function getRouteMode() {
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/onboarding") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/workspace") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/studio") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
@@ -113,13 +114,15 @@ export default function App() {
     setFrontendSentryRoute({ mode: route.mode, path: window.location.pathname });
   }, [route.mode]);
   const hasManagedRuntime = hasManagedRuntimeSession();
-  const wantsManagedOnboarding = route.mode === "onboarding" && prefersManagedOnboardingFlow();
+  const wantsManagedOnboarding =
+    route.mode === "workspace" || (route.mode === "onboarding" && prefersManagedOnboardingFlow());
   const alwaysPublicModes = new Set([
     "home",
     "product",
     "pricing",
     "developers",
     "integrations",
+    "onboarding",
     "signup",
     "login",
     "docs",
@@ -147,7 +150,7 @@ export default function App() {
     "verification_failed",
     "unsupported_host"
   ]);
-  const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "onboarding"]);
+  const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "workspace"]);
   if (route.mode === "operator") {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
@@ -168,7 +171,7 @@ export default function App() {
   return (
     <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
       <ProductShell
-        mode={route.mode}
+        mode={route.mode === "workspace" ? "onboarding" : route.mode}
         launchId={route.launchId}
         agentId={route.agentId}
         runId={route.runId}

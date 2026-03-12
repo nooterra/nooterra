@@ -15456,7 +15456,9 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
   const searchParams =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const debugMode = searchParams?.get("debug") === "1";
-  const prefersStandaloneOnboarding = searchParams?.get("experience") === "app";
+  const prefersStandaloneOnboarding =
+    searchParams?.get("experience") === "app" ||
+    (typeof window !== "undefined" && window.location.pathname === "/workspace");
   const hasManagedRuntime = Boolean(onboardingState?.buyer) || Boolean(String(runtime?.apiKey ?? "").trim());
   const isStandaloneOnboarding = mode === "onboarding" && prefersStandaloneOnboarding;
   const showRuntimeBar =
