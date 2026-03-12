@@ -143,6 +143,57 @@ Success for this step means:
 - finalization returns a stable `receiptId`
 - the hosted receipt page opens cleanly
 
+## 3.5) Continuation polling and webhook handoff
+
+Launch v1 continuation is intentionally narrow:
+
+- hosts poll approval and receipt state directly against the public Action Wallet aliases
+- webhook delivery uses the existing buyer-notification product-event channel
+- there is no separate streaming/event platform in launch
+
+Deterministic polling helper:
+
+```bash
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_API_KEY=sk_live_example.secret \
+NOOTERRA_REQUEST_ID=apr_example \
+NOOTERRA_EXECUTION_GRANT_ID=agrant_example \
+NOOTERRA_RECEIPT_ID=rcpt_example \
+npm run quickstart:action-wallet:continuation
+```
+
+That helper emits machine-readable JSON with:
+
+- `approval.approvalStatus`
+- `executionGrant.status`
+- `receipt.status`
+- `receipt.settlementStatus`
+- a deterministic `checks[]` trail showing each poll read
+
+Webhook subscription (managed auth plane / Magic Link):
+
+```bash
+NOOTERRA_AUTH_BASE_URL=https://auth.nooterra.work \
+NOOTERRA_MAGIC_LINK_API_KEY=ml_live_example \
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_WEBHOOK_URL=https://ops.example.com/nooterra/continuations \
+npm run quickstart:action-wallet:subscribe-webhook
+```
+
+Launch continuation events are:
+
+- `approval.required`
+- `information.required`
+- `receipt.ready`
+- `run.update`
+- `dispute.update`
+
+Retry and failure behavior:
+
+- polling fails closed on timeout or missing ids
+- webhook delivery is retried by the auth plane and recorded in tenant settings status
+- hosts should always keep the polling path as the fallback even when webhook delivery is enabled
+
 ## 4) Open dispute
 
 Only if the receipt needs follow-up:

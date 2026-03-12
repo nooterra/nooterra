@@ -91,6 +91,25 @@ Expected result:
 - approval state changes from `pending`
 - approved run returns an execution grant OpenClaw can use for the host-side execution step
 
+Continuation helper:
+
+```bash
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_API_KEY=sk_live_example.secret \
+NOOTERRA_REQUEST_ID=apr_example \
+NOOTERRA_EXECUTION_GRANT_ID=agrant_example \
+NOOTERRA_RECEIPT_ID=rcpt_example \
+npm run quickstart:action-wallet:continuation
+```
+
+Webhook continuation (managed auth plane) is optional in launch and uses:
+
+- `approval.required`
+- `information.required`
+- `receipt.ready`
+- `run.update`
+- `dispute.update`
+
 ## 4) Finalize and fetch the receipt
 
 After OpenClaw or the connected adapter completes the external action, run:
