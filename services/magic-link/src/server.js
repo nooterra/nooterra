@@ -125,7 +125,6 @@ import {
 import { buildOnramperHostedUrls } from "../../../src/core/wallet-funding-hosted.js";
 import { buildCoinbaseHostedUrls } from "../../../src/core/wallet-funding-coinbase.js";
 import { applyCorsHeaders } from "../../../src/api/cors.js";
-import { logger } from "../../../src/core/log.js";
 import {
   captureNodeSentryException,
   flushNodeSentry,
@@ -1547,52 +1546,74 @@ async function callNooterraTenantBootstrap({ tenantId, payload, idempotencyKey =
   };
   if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
 
-  let response = null;
-  let text = "";
-  try {
-    response = await fetch(target, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload ?? {})
-    });
-    text = await response.text();
-  } catch (err) {
-    return {
-      ok: false,
-      statusCode: 502,
-      code: "RUNTIME_BOOTSTRAP_UPSTREAM_UNREACHABLE",
-      message: err?.message ?? "unable to reach Nooterra API"
-    };
-  }
+  const bodyText = JSON.stringify(payload ?? {});
+  const maxAttempts = 2;
+  const timeoutMs = 15_000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response = null;
+    let text = "";
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        response = await fetch(target, {
+          method: "POST",
+          headers,
+          body: bodyText,
+          signal: controller.signal
+        });
+        text = await response.text();
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch (err) {
+      const timedOut = err?.name === "AbortError";
+      if (attempt < maxAttempts) continue;
+      return {
+        ok: false,
+        statusCode: 502,
+        code: timedOut ? "RUNTIME_BOOTSTRAP_UPSTREAM_TIMEOUT" : "RUNTIME_BOOTSTRAP_UPSTREAM_UNREACHABLE",
+        message: timedOut ? `Nooterra bootstrap upstream timed out after ${timeoutMs}ms` : err?.message ?? "unable to reach Nooterra API"
+      };
+    }
 
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!response.ok) {
+      if (attempt < maxAttempts && [502, 503, 504].includes(response.status)) continue;
+      const message =
+        (json && typeof json?.message === "string" && json.message) ||
+        (json && typeof json?.error === "string" && json.error) ||
+        safeTruncate(text, { max: 800 }) ||
+        `Nooterra bootstrap failed (${response.status})`;
+      return {
+        ok: false,
+        statusCode: response.status,
+        code: (json && typeof json?.code === "string" && json.code) || "RUNTIME_BOOTSTRAP_FAILED",
+        message
+      };
+    }
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      if (attempt < maxAttempts) continue;
+      return {
+        ok: false,
+        statusCode: 502,
+        code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+        message: "Nooterra bootstrap returned invalid JSON"
+      };
+    }
+    return { ok: true, response: json };
   }
-  if (!response.ok) {
-    const message =
-      (json && typeof json?.message === "string" && json.message) ||
-      (json && typeof json?.error === "string" && json.error) ||
-      safeTruncate(text, { max: 800 }) ||
-      `Nooterra bootstrap failed (${response.status})`;
-    return {
-      ok: false,
-      statusCode: response.status,
-      code: (json && typeof json?.code === "string" && json.code) || "RUNTIME_BOOTSTRAP_FAILED",
-      message
-    };
-  }
-  if (!json || typeof json !== "object" || Array.isArray(json)) {
-    return {
-      ok: false,
-      statusCode: 502,
-      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
-      message: "Nooterra bootstrap returned invalid JSON"
-    };
-  }
-  return { ok: true, response: json };
+  return {
+    ok: false,
+    statusCode: 502,
+    code: "RUNTIME_BOOTSTRAP_FAILED",
+    message: "Nooterra bootstrap failed"
+  };
 }
 
 async function callNooterraTenantApi({
@@ -6868,11 +6889,14 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
   const requestPayload = { ...json };
   delete requestPayload.paidToolsBaseUrl;
 
-  const idempotencyKey = req.headers["x-idempotency-key"] ? String(req.headers["x-idempotency-key"]).trim() : "";
+  const idempotencyKey =
+    req.headers["x-idempotency-key"] && String(req.headers["x-idempotency-key"]).trim()
+      ? String(req.headers["x-idempotency-key"]).trim()
+      : `runtime_bootstrap_${crypto.randomUUID()}`;
   const upstream = await callNooterraTenantBootstrap({
     tenantId,
     payload: requestPayload,
-    idempotencyKey: idempotencyKey || null
+    idempotencyKey
   });
   if (!upstream.ok) return sendJson(res, upstream.statusCode ?? 502, { ok: false, code: upstream.code, message: upstream.message });
 

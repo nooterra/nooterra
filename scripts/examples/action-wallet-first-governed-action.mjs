@@ -62,39 +62,60 @@ function requireSignupFields() {
   return { email, company, fullName };
 }
 
-async function requestJson({ baseUrl, pathname, method = "GET", body = null }) {
-  const res = await fetch(`${baseUrl}${pathname}`, {
-    method,
-    headers: body === null ? {} : { "content-type": "application/json" },
-    body: body === null ? undefined : JSON.stringify(body)
-  });
-  const text = await res.text();
-  const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
-  }
-  if (!res.ok) {
-    if (!json && contentType.includes("text/html")) {
-      const normalized = text.toLowerCase();
-      if (res.status === 502 && normalized.includes("bad gateway")) {
-        throw new Error(`${method} ${pathname} failed: upstream gateway returned 502 HTML (Cloudflare/host edge)`);
+function isRetryableRequestError(error) {
+  const message = String(error?.message ?? "");
+  return (
+    /\b502\b/.test(message) ||
+    /upstream gateway returned 502 html/i.test(message) ||
+    /temporarily unavailable/i.test(message)
+  );
+}
+
+async function requestJson({ baseUrl, pathname, method = "GET", body = null, headers = {}, retries = 0 }) {
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      const requestHeaders = {
+        ...headers
+      };
+      if (body !== null) requestHeaders["content-type"] = "application/json";
+      const res = await fetch(`${baseUrl}${pathname}`, {
+        method,
+        headers: requestHeaders,
+        body: body === null ? undefined : JSON.stringify(body)
+      });
+      const text = await res.text();
+      const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
       }
-      throw new Error(`${method} ${pathname} failed: upstream returned HTML instead of JSON`);
+      if (!res.ok) {
+        if (!json && contentType.includes("text/html")) {
+          const normalized = text.toLowerCase();
+          if (res.status === 502 && normalized.includes("bad gateway")) {
+            throw new Error(`${method} ${pathname} failed: upstream gateway returned 502 HTML (Cloudflare/host edge)`);
+          }
+          throw new Error(`${method} ${pathname} failed: upstream returned HTML instead of JSON`);
+        }
+        const message =
+          (json && typeof json === "object" && (json.message || json.code)) ? `${json.message ?? "request failed"} (${json.code ?? "UNKNOWN"})` : text || `HTTP ${res.status}`;
+        throw new Error(`${method} ${pathname} failed: ${message}`);
+      }
+      if (!json) {
+        if (contentType.includes("text/html")) {
+          throw new Error(`${method} ${pathname} failed: expected JSON but received HTML`);
+        }
+        throw new Error(`${method} ${pathname} failed: expected JSON response`);
+      }
+      return json;
+    } catch (error) {
+      if (attempt > retries || !isRetryableRequestError(error)) throw error;
     }
-    const message =
-      (json && typeof json === "object" && (json.message || json.code)) ? `${json.message ?? "request failed"} (${json.code ?? "UNKNOWN"})` : text || `HTTP ${res.status}`;
-    throw new Error(`${method} ${pathname} failed: ${message}`);
   }
-  if (!json) {
-    if (contentType.includes("text/html")) {
-      throw new Error(`${method} ${pathname} failed: expected JSON but received HTML`);
-    }
-    throw new Error(`${method} ${pathname} failed: expected JSON response`);
-  }
-  return json;
 }
 
 async function requestHtml(url) {
@@ -170,6 +191,11 @@ function buildNextSteps({ hostTrack, approvalUrl, receiptUrl, disputeUrl }) {
     steps.push(`If the action looks wrong, open recourse directly: ${disputeUrl}`);
   }
   return steps;
+}
+
+function buildIdempotencyKey({ tenantId, operation }) {
+  const hash = Buffer.from(`${tenantId}:${operation}`).toString("base64url").replace(/[^a-zA-Z0-9_-]/g, "");
+  return `fga_${hash}`.slice(0, 120);
 }
 
 function requireArtifactPair({ id, url, label, required = false }) {
@@ -260,12 +286,18 @@ async function main() {
   const skipFirstPaidCall = envFlagEnabled("NOOTERRA_SKIP_FIRST_PAID_CALL");
   const verifyHostedRoutes = envFlagEnabled("NOOTERRA_VERIFY_HOSTED_ROUTES");
   const tenant = await resolveTenantId(baseUrl);
+  const runtimeBootstrapIdempotencyKey = buildIdempotencyKey({
+    tenantId: tenant.tenantId,
+    operation: "runtime-bootstrap"
+  });
 
   const bootstrap = await requestJson({
     baseUrl,
     pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/runtime-bootstrap`,
     method: "POST",
-    body: {}
+    body: {},
+    headers: { "x-idempotency-key": runtimeBootstrapIdempotencyKey },
+    retries: 1
   });
   const runtimeEnv = bootstrap?.mcp?.env && typeof bootstrap.mcp.env === "object" ? bootstrap.mcp.env : null;
   if (!runtimeEnv) throw new Error("runtime bootstrap did not return mcp.env");

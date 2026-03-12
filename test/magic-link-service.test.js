@@ -304,7 +304,7 @@ const circleMockServer = http.createServer((req, res) => {
 });
 
 const nooterraOpsBootstrapRequests = [];
-const nooterraOpsBootstrapState = { nextErrorStatus: null, nextErrorBody: null };
+const nooterraOpsBootstrapState = { nextErrorStatus: null, nextErrorBody: null, nextErrorCount: 0 };
 const nooterraOpsApiRequests = [];
 const nooterraOpsFlowState = {
   walletBalances: new Map(),
@@ -354,8 +354,16 @@ const nooterraOpsMockServer = http.createServer((req, res) => {
       if (Number.isInteger(nooterraOpsBootstrapState.nextErrorStatus)) {
         const status = nooterraOpsBootstrapState.nextErrorStatus;
         const errBody = nooterraOpsBootstrapState.nextErrorBody ?? { ok: false, code: "UPSTREAM_FAILURE", message: "mock upstream failure" };
-        nooterraOpsBootstrapState.nextErrorStatus = null;
-        nooterraOpsBootstrapState.nextErrorBody = null;
+        const remaining = Number.isInteger(nooterraOpsBootstrapState.nextErrorCount) && nooterraOpsBootstrapState.nextErrorCount > 0
+          ? nooterraOpsBootstrapState.nextErrorCount - 1
+          : 0;
+        if (remaining <= 0) {
+          nooterraOpsBootstrapState.nextErrorStatus = null;
+          nooterraOpsBootstrapState.nextErrorBody = null;
+          nooterraOpsBootstrapState.nextErrorCount = 0;
+        } else {
+          nooterraOpsBootstrapState.nextErrorCount = remaining;
+        }
         res.statusCode = status;
         res.setHeader("content-type", "application/json; charset=utf-8");
         res.end(JSON.stringify(errBody));
@@ -1360,6 +1368,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   nooterraOpsBootstrapRequests.length = 0;
   nooterraOpsBootstrapState.nextErrorStatus = null;
   nooterraOpsBootstrapState.nextErrorBody = null;
+  nooterraOpsBootstrapState.nextErrorCount = 0;
   nooterraOpsApiRequests.length = 0;
   nooterraOpsFlowState.walletBalances.clear();
   nooterraOpsFlowState.runs.clear();
@@ -1643,6 +1652,38 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
     const auditRaw = await fs.readFile(auditFp, "utf8");
     assert.match(auditRaw, /TENANT_RUNTIME_BOOTSTRAP_ISSUED/);
+  });
+
+  await t.test("tenant onboarding runtime bootstrap: retries one transient upstream 502 with a stable idempotency key", async () => {
+    const tenantId = "tenant_runtime_bootstrap_retry";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Retry Tenant",
+      contactEmail: "ops+runtime-retry@example.com",
+      billingEmail: "billing+runtime-retry@example.com"
+    });
+
+    nooterraOpsBootstrapState.nextErrorStatus = 502;
+    nooterraOpsBootstrapState.nextErrorBody = { ok: false, code: "UPSTREAM_FAILURE", message: "temporary upstream failure" };
+    nooterraOpsBootstrapState.nextErrorCount = 1;
+
+    const beforeCount = nooterraOpsBootstrapRequests.length;
+    const out = await postTenantRuntimeBootstrap({
+      tenantId,
+      body: {
+        apiKey: {
+          keyId: "ak_runtime_retry"
+        }
+      }
+    });
+    assert.equal(out.statusCode, 201, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+
+    const retryRecords = nooterraOpsBootstrapRequests.slice(beforeCount);
+    assert.equal(retryRecords.length, 2, JSON.stringify(retryRecords));
+    assert.equal(typeof retryRecords[0]?.idempotencyKey, "string");
+    assert.ok(retryRecords[0].idempotencyKey.startsWith("runtime_bootstrap_"));
+    assert.equal(retryRecords[0]?.idempotencyKey, retryRecords[1]?.idempotencyKey);
   });
 
   await t.test("tenant onboarding runtime bootstrap: session cookie and bootstrap key emit identical MCP env contract", async () => {
@@ -2334,6 +2375,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       code: "BOOTSTRAP_DOWN",
       message: "ops unavailable"
     };
+    nooterraOpsBootstrapState.nextErrorCount = 2;
     const out = await postTenantRuntimeBootstrap({ tenantId, body: {} });
     assert.equal(out.statusCode, 502, JSON.stringify(out.json));
     assert.equal(out.json?.ok, false);
