@@ -32,6 +32,13 @@ const SITE_DOC_ROUTES = {
   support: "/support"
 };
 
+function buildManagedOnboardingHref(source) {
+  const normalizedSource = String(source ?? "").trim();
+  return normalizedSource
+    ? `/onboarding?experience=app&source=${encodeURIComponent(normalizedSource)}#identity-access`
+    : MANAGED_ONBOARDING_HREF;
+}
+
 function FadeIn({ children, delay = 0, className = "" }) {
   return (
     <div className={`lovable-fade ${className}`.trim()} style={{ animationDelay: `${delay}s` }}>
@@ -60,6 +67,22 @@ function SiteNav() {
     { label: "Disputes", href: "/disputes" },
     { label: "Integrations", href: "/integrations" }
   ];
+  const primaryOnboardingHref =
+    pathname === "/product"
+      ? PRODUCT_ONBOARDING_HREF
+      : pathname === "/pricing"
+        ? PRICING_ONBOARDING_HREF
+        : pathname === "/developers"
+          ? buildManagedOnboardingHref("developers")
+          : pathname === "/integrations"
+            ? buildManagedOnboardingHref("integrations")
+            : pathname === "/wallet" || pathname === "/approvals" || pathname === "/receipts" || pathname === "/disputes"
+              ? buildManagedOnboardingHref(pathname.slice(1))
+              : pathname === "/docs/quickstart"
+                ? buildManagedOnboardingHref("docs_quickstart")
+                : pathname === "/support"
+                  ? buildManagedOnboardingHref("support")
+                  : buildManagedOnboardingHref("home");
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#080b10]/80 backdrop-blur-xl">
@@ -86,7 +109,7 @@ function SiteNav() {
 
         <div className="hidden lg:block">
             <a
-            href={MANAGED_ONBOARDING_HREF}
+            href={primaryOnboardingHref}
             className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
           >
             Get started
@@ -118,7 +141,7 @@ function SiteNav() {
               </a>
             ))}
             <a
-              href={MANAGED_ONBOARDING_HREF}
+              href={primaryOnboardingHref}
               onClick={() => setMobileOpen(false)}
               className="mt-2 inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14]"
             >
@@ -194,6 +217,7 @@ function SiteLayout({ children }) {
 }
 
 function HomePage() {
+  const onboardingHref = buildManagedOnboardingHref("home");
   return (
     <SiteLayout>
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
@@ -228,7 +252,7 @@ function HomePage() {
           </FadeIn>
           <FadeIn delay={0.3}>
             <div className="mt-12 flex flex-wrap gap-4">
-              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+              <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 Create your first Action Wallet <ArrowRight size={16} />
               </a>
               <a href="/product" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -378,7 +402,7 @@ function HomePage() {
               The first win is simple: one hosted approval, one bounded action, one receipt. After that, teams can widen authority with confidence.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+              <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 Create your first Action Wallet <ArrowRight size={16} />
               </a>
               <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -559,6 +583,7 @@ function ProductPage() {
 }
 
 function PricingPage() {
+  const builderOnboardingHref = PRICING_ONBOARDING_HREF;
   const tiers = [
     {
       title: "Builder",
@@ -570,7 +595,7 @@ function PricingPage() {
         "Simulated approvals and receipts",
         "Limited live beta usage"
       ],
-      cta: { label: "Start free", href: MANAGED_ONBOARDING_HREF },
+      cta: { label: "Start free", href: builderOnboardingHref },
       featured: false
     },
     {
@@ -739,6 +764,7 @@ function PricingPage() {
 }
 
 function DevelopersPage() {
+  const onboardingHref = buildManagedOnboardingHref("developers");
   const tabs = [
     {
       id: "mcp",
@@ -892,7 +918,7 @@ curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding
                   <p className="mt-3 text-sm leading-relaxed text-[#d2b06f]">{activeTrack.success}</p>
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                     Create workspace <ArrowRight size={16} />
                   </a>
                   <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -933,7 +959,7 @@ curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
-                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Open onboarding <ArrowRight size={16} />
                 </a>
                 <a href={SITE_DOC_ROUTES.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -949,6 +975,7 @@ curl -X POST https://api.nooterra.work/v1/tenants/$NOOTERRA_TENANT_ID/onboarding
 }
 
 function IntegrationsPage() {
+  const onboardingHref = buildManagedOnboardingHref("integrations");
   const integrations = [
     {
       name: "Claude MCP",
@@ -1078,7 +1105,7 @@ function IntegrationsPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
-                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   Set up runtime <ArrowRight size={16} />
                 </a>
                 <a href={SITE_DOC_ROUTES.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
