@@ -27,9 +27,10 @@ test("public onboarding gate parser: fails closed when base url is not configure
 test("public onboarding gate parser: uses env defaults and supports overrides", () => {
   const cwd = "/tmp/nooterra";
   const args = parseArgs(
-    ["--base-url", "https://api.override.test/", "--tenant-id", "tenant_override", "--email", "USER@EXAMPLE.COM", "--out", "artifacts/custom/public-onboarding.json"],
+    ["--base-url", "https://api.override.test/", "--website-base-url", "https://www.override.test/", "--tenant-id", "tenant_override", "--email", "USER@EXAMPLE.COM", "--out", "artifacts/custom/public-onboarding.json"],
     {
       NOOTERRA_BASE_URL: "https://api.default.test/",
+      NOOTERRA_WEBSITE_BASE_URL: "https://www.default.test/",
       NOOTERRA_TENANT_ID: "tenant_default",
       NOOTERRA_ONBOARDING_PROBE_EMAIL: "probe@nooterra.work"
     },
@@ -38,6 +39,7 @@ test("public onboarding gate parser: uses env defaults and supports overrides", 
 
   assert.equal(args.help, false);
   assert.equal(args.baseUrl, "https://api.override.test");
+  assert.equal(args.websiteBaseUrl, "https://www.override.test");
   assert.equal(args.tenantId, "tenant_override");
   assert.equal(args.email, "user@example.com");
   assert.equal(args.out, path.resolve(cwd, "artifacts/custom/public-onboarding.json"));
@@ -66,24 +68,31 @@ test("public onboarding gate runner: passes when public auth mode is available a
       json: { code: "BUYER_AUTH_DISABLED", message: "buyer OTP login is not enabled for this tenant" }
     };
   };
+  const requestPageFn = async () => ({
+    ok: true,
+    statusCode: 200,
+    contentType: "text/html; charset=utf-8",
+    text: "<!DOCTYPE html><html><body>Nooterra app entry</body></html>"
+  });
 
   const { report } = await runPublicOnboardingGate(
     {
       help: false,
       baseUrl: "https://api.nooterra.work",
+      websiteBaseUrl: "https://www.nooterra.ai",
       tenantId: "tenant_default",
       email: "probe@nooterra.work",
       out: "/tmp/public-onboarding-gate.json"
     },
-    { requestJsonFn }
+    { requestJsonFn, requestPageFn }
   );
 
   assert.equal(report.schemaVersion, "PublicOnboardingGate.v1");
   assert.equal(report.ok, true);
   assert.equal(Array.isArray(report.steps), true);
-  assert.equal(report.steps.length, 2);
+  assert.equal(report.steps.length, 5);
   assert.equal(report.errors.length, 0);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.equal(calls[0]?.method, "GET");
   assert.equal(calls[1]?.method, "POST");
 });
@@ -120,4 +129,63 @@ test("public onboarding gate runner: fails closed when auth mode or otp probe en
   assert.equal(report.ok, false);
   assert.equal(report.errors.some((row) => row?.code === "PUBLIC_AUTH_MODE_UNAVAILABLE"), true);
   assert.equal(report.errors.some((row) => row?.code === "BUYER_LOGIN_OTP_UNAVAILABLE"), true);
+});
+
+test("public onboarding gate runner: fails closed when website onboarding pages or same-origin auth proxy are unavailable", async () => {
+  const requestJsonFn = async (url) => {
+    if (url.includes("/__magic/")) {
+      return {
+        ok: true,
+        statusCode: 200,
+        text: "<!DOCTYPE html><html><body>index shell</body></html>",
+        json: null
+      };
+    }
+    if (url.endsWith("/v1/public/auth-mode")) {
+      return {
+        ok: true,
+        statusCode: 200,
+        text: "{\"authMode\":\"hybrid\"}",
+        json: { authMode: "hybrid" }
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 400,
+      text: "{\"code\":\"BUYER_AUTH_DISABLED\"}",
+      json: { code: "BUYER_AUTH_DISABLED", message: "buyer OTP login is not enabled for this tenant" }
+    };
+  };
+  const requestPageFn = async (url) => {
+    if (url.includes("/login?")) {
+      return {
+        ok: true,
+        statusCode: 200,
+        contentType: "text/html; charset=utf-8",
+        text: "<!DOCTYPE html><html><body>login</body></html>"
+      };
+    }
+    return {
+      ok: true,
+      statusCode: 200,
+      contentType: "application/json",
+      text: "{\"ok\":true}"
+    };
+  };
+
+  const { report } = await runPublicOnboardingGate(
+    {
+      help: false,
+      baseUrl: "https://api.nooterra.work",
+      websiteBaseUrl: "https://www.nooterra.ai",
+      tenantId: "tenant_default",
+      email: "probe@nooterra.work",
+      out: "/tmp/public-onboarding-gate.json"
+    },
+    { requestJsonFn, requestPageFn }
+  );
+
+  assert.equal(report.ok, false);
+  assert.equal(report.errors.some((row) => row?.code === "WEBSITE_ONBOARDING_PAGE_UNAVAILABLE"), true);
+  assert.equal(report.errors.some((row) => row?.code === "WEBSITE_AUTH_PROXY_UNAVAILABLE"), true);
 });
