@@ -1354,6 +1354,7 @@ function TrustEntryPage({
   artifactBody,
   artifactStats,
   ctaLabel = "Open onboarding",
+  onboardingHref = MANAGED_ONBOARDING_HREF,
   supportHref = SITE_DOC_ROUTES.hostQuickstart,
   supportLabel = "Launch host guide"
 }) {
@@ -1374,7 +1375,7 @@ function TrustEntryPage({
             </FadeIn>
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
-                <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                   {ctaLabel} <ArrowRight size={16} />
                 </a>
                 <a href={supportHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
@@ -1481,7 +1482,7 @@ function TrustEntryPage({
                   Once your workspace is issued, this route becomes the live Action Wallet surface. Until then, we show the product clearly instead of dumping you into an empty shell.
                 </p>
               </div>
-              <a href={MANAGED_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+              <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
                 Create workspace <ArrowRight size={16} />
               </a>
             </div>
@@ -1690,14 +1691,14 @@ export default function LovableSite({ mode = "home" }) {
         title="Start with one real action, not a giant setup ritual."
         summary="The quickstart should get a builder or operator to the first approval and receipt path with the fewest moving parts possible."
         primaryCta={{ label: "Open quickstart", href: docsLinks.quickstart }}
-        secondaryCta={{ label: "Create workspace", href: MANAGED_ONBOARDING_HREF }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_quickstart") }}
         proofPoints={[
           { title: "One runtime", body: "Bootstrap the workspace once, then reuse the same trust contract across hosts." },
           { title: "One live loop", body: "Install, approval, receipt, dispute. Nothing else matters until that path is boring." },
           { title: "One artifact chain", body: "The quickstart should leave users with a real approval URL and a real receipt, not a shell-only success message." }
         ]}
         sections={[
-          { eyebrow: "Hosted", title: "Managed onboarding", body: "Use the public onboarding rail if you want the website to issue the runtime for you.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Start onboarding" },
+          { eyebrow: "Hosted", title: "Managed onboarding", body: "Use the public onboarding rail if you want the website to issue the runtime for you.", href: buildManagedOnboardingHref("docs_quickstart"), ctaLabel: "Start onboarding" },
           { eyebrow: "CLI", title: "Codex / CLI quickstart", body: "The fastest engineering path is still the Action Wallet first-governed-action script.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" },
           { eyebrow: "Hosts", title: "Launch host guide", body: "Pick the supported host path you want to prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" }
         ]}
@@ -2100,6 +2101,7 @@ export default function LovableSite({ mode = "home" }) {
           { label: "Controls", value: "Limits, revokes, windows", body: "Real constraints stay attached to actions instead of hiding in prompts or tribal knowledge." }
         ]}
         ctaLabel="Set up Action Wallet"
+        onboardingHref={buildManagedOnboardingHref("wallet")}
       />
     );
   }
@@ -2129,6 +2131,7 @@ export default function LovableSite({ mode = "home" }) {
           { label: "Posture", value: "Fail closed", body: "If state drifts or proof is missing, the action stops instead of silently succeeding." }
         ]}
         ctaLabel="Open approval flow"
+        onboardingHref={buildManagedOnboardingHref("approvals")}
       />
     );
   }
@@ -2158,6 +2161,7 @@ export default function LovableSite({ mode = "home" }) {
           { label: "Recourse", value: "Refunds, disputes, reversals", body: "Receipts are live records with follow-on rights, not inert history." }
         ]}
         ctaLabel="Issue first receipt"
+        onboardingHref={buildManagedOnboardingHref("receipts")}
       />
     );
   }
@@ -2187,6 +2191,7 @@ export default function LovableSite({ mode = "home" }) {
           { label: "Outcome", value: "Resolved with lineage", body: "The resolution becomes part of the permanent history of that run." }
         ]}
         ctaLabel="Set up recourse"
+        onboardingHref={buildManagedOnboardingHref("disputes")}
       />
     );
   }
