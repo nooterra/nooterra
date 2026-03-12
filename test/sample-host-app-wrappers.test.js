@@ -25,3 +25,11 @@ test("OpenClaw sample app wrapper exposes help and delegates to the shared quick
   assert.match(result.stdout, /OpenClaw sample app/);
   assert.match(result.stdout, /first-governed-action quickstart/);
 });
+
+test("Codex sample app wrapper exposes help and delegates to the shared quickstart", () => {
+  const scriptPath = path.join(process.cwd(), "examples/codex-action-wallet/run.mjs");
+  const result = runHelp(scriptPath);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Codex sample app/);
+  assert.match(result.stdout, /first-governed-action quickstart/);
+});

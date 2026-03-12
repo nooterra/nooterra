@@ -393,6 +393,9 @@ async function main() {
 
   if (verifyHostedRoutes) {
     summary.hostedRouteChecks.push(await verifyHostedRoute(approvalUrl, "approvalUrl"));
+    if (resolvedRunUrl) {
+      summary.hostedRouteChecks.push(await verifyHostedRoute(resolvedRunUrl, "runUrl"));
+    }
     if (resolvedReceiptUrl) {
       summary.hostedRouteChecks.push(await verifyHostedRoute(resolvedReceiptUrl, "receiptUrl"));
     }

@@ -471,12 +471,12 @@ test("action-wallet first-governed-action script: fails closed on relative hoste
   }
 });
 
-test("action-wallet first-governed-action script: can verify hosted approval and receipt routes", async () => {
+test("action-wallet first-governed-action script: can verify hosted approval, run, and receipt routes", async () => {
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const url = req.url ?? "/";
-    if (req.method === "GET" && (url.startsWith("/approvals") || url.startsWith("/receipts"))) {
+    if (req.method === "GET" && (url.startsWith("/approvals") || url.startsWith("/runs") || url.startsWith("/receipts"))) {
       res.statusCode = 200;
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end("<!DOCTYPE html><html><body>Nooterra hosted page</body></html>");
@@ -575,10 +575,10 @@ test("action-wallet first-governed-action script: can verify hosted approval and
     const summary = JSON.parse(stdout);
     assert.equal(summary.schemaVersion, "ActionWalletFirstGovernedAction.v2");
     assert.equal(summary.verifyHostedRoutes, true);
-    assert.equal(summary.hostedRouteChecks.length, 2);
+    assert.equal(summary.hostedRouteChecks.length, 3);
     assert.deepEqual(
       summary.hostedRouteChecks.map((entry) => entry.fieldName),
-      ["approvalUrl", "receiptUrl"]
+      ["approvalUrl", "runUrl", "receiptUrl"]
     );
   } finally {
     await close(server);
