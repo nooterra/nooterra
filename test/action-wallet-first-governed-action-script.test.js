@@ -20,10 +20,14 @@ function createJsonServer(handler) {
     } catch {
       body = rawBody;
     }
-    requests.push({ method: req.method, url: req.url, body });
+    requests.push({ method: req.method, url: req.url, body, headers: req.headers });
     const response = await handler({ method: req.method, url: req.url, body, headers: req.headers, requests });
     res.statusCode = response.status ?? 200;
-    res.setHeader("content-type", "application/json");
+    res.setHeader("content-type", response.contentType ?? "application/json");
+    if ((response.contentType ?? "").includes("text/html")) {
+      res.end(typeof response.body === "string" ? response.body : "");
+      return;
+    }
     res.end(JSON.stringify(response.body ?? {}));
   });
   return { server, requests };
@@ -200,6 +204,10 @@ test("action-wallet first-governed-action script: emits approval and first paid 
     assert.equal(summary.firstPaid.artifacts.handoffReady, true);
     assert.equal(summary.runtime.tenantId, "tenant_demo");
     assert.equal(summary.runtime.apiKeyIssued, true);
+    const runtimeBootstrapRequest = requests.find((row) => row.method === "POST" && row.url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") ?? null;
+    assert.ok(runtimeBootstrapRequest);
+    assert.equal(typeof runtimeBootstrapRequest.headers?.["x-idempotency-key"], "string");
+    assert.match(String(runtimeBootstrapRequest.headers?.["x-idempotency-key"] ?? ""), /^fga_/);
     assert.deepEqual(
       requests.map((entry) => `${entry.method} ${entry.url}`),
       [
@@ -315,6 +323,71 @@ test("action-wallet first-governed-action script: resolves root-relative hosted 
     assert.equal(summary.firstPaid.disputeUrl, "https://www.nooterra.ai/disputes/disp_demo");
     assert.equal(summary.firstPaid.artifacts.dispute.linked, true);
     assert.match(summary.nextSteps[0], /https:\/\/www\.nooterra\.ai\/approvals\?requestId=apr_demo/);
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: retries runtime bootstrap once on gateway HTML", async () => {
+  let runtimeBootstrapCalls = 0;
+  let firstIdempotencyKey = null;
+  const { server } = createJsonServer(async ({ method, url, headers }) => {
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      runtimeBootstrapCalls += 1;
+      const idem = String(headers?.["x-idempotency-key"] ?? "");
+      if (!firstIdempotencyKey) firstIdempotencyKey = idem;
+      assert.equal(idem, firstIdempotencyKey);
+      if (runtimeBootstrapCalls === 1) {
+        return {
+          status: 502,
+          body: "<html><body><h1>Bad gateway</h1></body></html>",
+          contentType: "text/html"
+        };
+      }
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+          bootstrap: { apiKey: { keyId: "ak_demo" } }
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      return { status: 200, body: { ok: true, smoke: { toolsCount: 4 } } };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          attemptId: "apr_attempt_1",
+          approvalUrl: "https://www.nooterra.ai/approvals?requestId=apr_demo",
+          approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      return { status: 200, body: { ok: true, attempts: [{ attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }] } };
+    }
+    return { status: 404, body: { ok: false, method, url } };
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_WEBSITE_BASE_URL: "https://www.nooterra.ai",
+        NOOTERRA_SKIP_FIRST_PAID_CALL: "1"
+      }
+    });
+    const summary = JSON.parse(stdout);
+    assert.equal(summary.runtime.apiKeyIssued, true);
+    assert.equal(runtimeBootstrapCalls, 2);
   } finally {
     await close(server);
   }
@@ -471,12 +544,12 @@ test("action-wallet first-governed-action script: fails closed on relative hoste
   }
 });
 
-test("action-wallet first-governed-action script: can verify hosted approval and receipt routes", async () => {
+test("action-wallet first-governed-action script: can verify hosted approval, run, and receipt routes", async () => {
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const url = req.url ?? "/";
-    if (req.method === "GET" && (url.startsWith("/approvals") || url.startsWith("/receipts"))) {
+    if (req.method === "GET" && (url.startsWith("/approvals") || url.startsWith("/runs") || url.startsWith("/receipts"))) {
       res.statusCode = 200;
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end("<!DOCTYPE html><html><body>Nooterra hosted page</body></html>");
@@ -575,10 +648,10 @@ test("action-wallet first-governed-action script: can verify hosted approval and
     const summary = JSON.parse(stdout);
     assert.equal(summary.schemaVersion, "ActionWalletFirstGovernedAction.v2");
     assert.equal(summary.verifyHostedRoutes, true);
-    assert.equal(summary.hostedRouteChecks.length, 2);
+    assert.equal(summary.hostedRouteChecks.length, 3);
     assert.deepEqual(
       summary.hostedRouteChecks.map((entry) => entry.fieldName),
-      ["approvalUrl", "receiptUrl"]
+      ["approvalUrl", "runUrl", "receiptUrl"]
     );
   } finally {
     await close(server);
@@ -657,6 +730,41 @@ test("action-wallet first-governed-action script: fails closed when hosted route
     );
     assert.equal(child.ok, false);
     assert.match(String(child.error?.stderr ?? ""), /approvalUrl did not resolve to a hosted HTML page/i);
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: classifies upstream 502 HTML from runtime bootstrap", async () => {
+  const server = http.createServer(async (req, res) => {
+    const url = req.url ?? "/";
+    if (req.method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      res.statusCode = 502;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end("<!DOCTYPE html><html><body><h1>Bad gateway</h1></body></html>");
+      return;
+    }
+    res.statusCode = 404;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: false, method: req.method, url }));
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_SKIP_FIRST_PAID_CALL: "1"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /upstream gateway returned 502 HTML/i);
   } finally {
     await close(server);
   }

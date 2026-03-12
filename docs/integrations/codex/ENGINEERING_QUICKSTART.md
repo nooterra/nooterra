@@ -69,6 +69,12 @@ From Codex, the shortest install-to-first-approval loop is:
 NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
 ```
 
+If you want the same wrapper-style entrypoint the launch hosts use, run:
+
+```bash
+node examples/codex-action-wallet/run.mjs
+```
+
 Or, if you want the script to create the workspace for you:
 
 ```bash

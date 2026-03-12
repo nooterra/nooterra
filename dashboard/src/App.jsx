@@ -35,6 +35,10 @@ function getRouteMode() {
   if (path === "/docs/api") return { mode: "docs_api", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/security") return { mode: "docs_security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/ops") return { mode: "docs_ops", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/claude-desktop") return { mode: "docs_claude_desktop", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/openclaw") return { mode: "docs_openclaw", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/codex") return { mode: "docs_codex", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/docs/local-environment") return { mode: "docs_local_environment", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/launch-hosts") return { mode: "docs_launch_hosts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/partner-kit") return { mode: "docs_partner_kit", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/launch-checklist") return { mode: "docs_launch_checklist", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -93,6 +97,8 @@ function hasManagedRuntimeSession() {
 function prefersManagedOnboardingFlow() {
   if (typeof window === "undefined") return false;
   try {
+    const pathname = String(window.location.pathname ?? "").trim();
+    if (pathname === "/signup" || pathname === "/login") return true;
     const params = new URLSearchParams(window.location.search);
     return params.get("experience") === "app";
   } catch {
@@ -121,6 +127,10 @@ export default function App() {
     "docs_api",
     "docs_security",
     "docs_ops",
+    "docs_claude_desktop",
+    "docs_openclaw",
+    "docs_codex",
+    "docs_local_environment",
     "docs_launch_hosts",
     "docs_partner_kit",
     "docs_launch_checklist",
