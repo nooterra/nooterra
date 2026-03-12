@@ -26,6 +26,10 @@ const SITE_DOC_ROUTES = {
   api: "/docs/api",
   security: "/docs/security",
   ops: "/docs/ops",
+  claudeDesktop: "/docs/claude-desktop",
+  openClaw: "/docs/openclaw",
+  codex: "/docs/codex",
+  localEnvironment: "/docs/local-environment",
   hostQuickstart: "/docs/launch-hosts",
   designPartnerKit: "/docs/partner-kit",
   launchChecklist: "/docs/launch-checklist",
@@ -2576,6 +2580,90 @@ export default function LovableSite({ mode = "home" }) {
           { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: "/onboarding", ctaLabel: "Open onboarding" },
           { eyebrow: "Hosts", title: "Launch host guide", body: "Choose the exact host path the partner will prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
           { eyebrow: "Runbook", title: "Support and escalation", body: "Use the same support and operator path when something breaks.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support path" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_claude_desktop") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Claude MCP"
+        title="Claude should reach its first approval without leaving people guessing."
+        summary="This is the cleanest launch host. Install the MCP server, seed one Action Wallet request, and prove the approval-to-receipt loop before expanding anywhere else."
+        primaryCta={{ label: "Open Claude quickstart", href: SITE_DOC_ROUTES.claudeDesktop }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_claude_desktop") }}
+        proofPoints={[
+          { title: "Host-native first", body: "Claude stays in front until trust, proof, or recourse needs a hosted Nooterra surface." },
+          { title: "One approval path", body: "The first success bar is a hosted approval URL that resolves cleanly back into the same wallet, receipt, and dispute chain." },
+          { title: "No shell theater", body: "The quickstart should leave a real receipt, not just a completed local command." }
+        ]}
+        sections={[
+          { eyebrow: "Setup", title: "Create the workspace", body: "Issue the managed account first so the approval and receipt surfaces already exist when Claude asks to act.", href: buildManagedOnboardingHref("docs_claude_desktop"), ctaLabel: "Start onboarding" },
+          { eyebrow: "Launch", title: "Launch host guide", body: "See where Claude sits in the supported host matrix and how it shares the same runtime contract as every other channel.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Reference", title: "API lifecycle", body: "The Claude flow still resolves into the same ActionIntent, ApprovalRequest, ExecutionGrant, receipt, and dispute chain.", href: SITE_DOC_ROUTES.api, ctaLabel: "Open API docs" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_openclaw") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / OpenClaw"
+        title="OpenClaw should prove host-native parity, not invent a second product."
+        summary="Use the OpenClaw path when you want a more agentic shell, but keep approvals, receipts, and disputes on the same Action Wallet contract."
+        primaryCta={{ label: "Open OpenClaw guide", href: SITE_DOC_ROUTES.openClaw }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_openclaw") }}
+        proofPoints={[
+          { title: "Same runtime underneath", body: "The host gets freedom in the shell, not freedom from the Action Wallet rules and artifacts." },
+          { title: "Hosted trust surfaces stay canonical", body: "Approvals, receipts, and disputes still belong to Nooterra even when the initiating shell is more autonomous." },
+          { title: "Parity beats novelty", body: "The point of OpenClaw is to prove the same loop survives a more agentic environment." }
+        ]}
+        sections={[
+          { eyebrow: "Setup", title: "Managed onboarding", body: "Start with the same workspace and runtime identity used by Claude, Codex, CLI, and direct API flows.", href: buildManagedOnboardingHref("docs_openclaw"), ctaLabel: "Start onboarding" },
+          { eyebrow: "Hosts", title: "Launch host guide", body: "Compare OpenClaw against the other supported channels and keep the scope disciplined.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Reference", title: "Developers", body: "OpenClaw is still a builder path, so the developer page should stay close at hand while you prove the first governed action.", href: "/developers", ctaLabel: "View developers" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_codex") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Codex / CLI / API"
+        title="The shortest engineering path should still leave a real approval and receipt."
+        summary="This route is for builders who want the direct scriptable flow. Use it to prove the same managed Action Wallet loop from Codex, CLI, or raw API calls."
+        primaryCta={{ label: "Open engineering guide", href: SITE_DOC_ROUTES.codex }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_codex") }}
+        proofPoints={[
+          { title: "Scriptable end to end", body: "Bootstrap, seed approval, and verify the hosted links without needing the UI to fake success for you." },
+          { title: "Fail closed on route drift", body: "The quickstart should stop immediately if the public API returns HTML, stale links, or incomplete artifacts." },
+          { title: "Same receipts, same disputes", body: "CLI and API users should land on the same receipt and recourse surfaces as every other host." }
+        ]}
+        sections={[
+          { eyebrow: "Quickstart", title: "First governed action", body: "Run the direct engineering loop and make sure it returns approval, run, and receipt links that all resolve on the public site.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
+          { eyebrow: "Launch", title: "Launch host guide", body: "Codex, CLI, and API are part of the launch matrix even when they are not the most polished public shell.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Environment", title: "Local environment", body: "When you need the repo and runtime details, use the local environment guide instead of digging through random files.", href: SITE_DOC_ROUTES.localEnvironment, ctaLabel: "Open local guide" }
+        ]}
+      />
+    );
+  }
+  if (mode === "docs_local_environment") {
+    return (
+      <ResourcePage
+        eyebrow="Docs / Local environment"
+        title="Set up the repo once, then get back to proving the live loop."
+        summary="The local environment route exists for engineers who need the repo and runtime details without leaving the branded site for a dead external docs domain."
+        primaryCta={{ label: "Open developers", href: "/developers" }}
+        secondaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
+        proofPoints={[
+          { title: "Local is a means, not the product", body: "The point of local setup is still to reach a real approval, receipt, and dispute loop as quickly as possible." },
+          { title: "One repo, one runtime", body: "Use the documented setup path instead of wandering through internal files and deployment clutter." },
+          { title: "Keep public docs coherent", body: "Even engineering-heavy pages should feel like part of the same website and not bounce users to another domain." }
+        ]}
+        sections={[
+          { eyebrow: "Build", title: "Developers", body: "Start from the developer page if you need the public-facing overview of channels, SDKs, and support surfaces.", href: "/developers", ctaLabel: "Open developers" },
+          { eyebrow: "Run", title: "Quickstart", body: "Once the repo is ready, go straight into the first governed action loop instead of staying in setup mode.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
+          { eyebrow: "Ops", title: "Operations", body: "If the local environment differs from production behavior, the ops docs are where the live gates and recovery rules live.", href: SITE_DOC_ROUTES.ops, ctaLabel: "Open ops docs" }
         ]}
       />
     );
