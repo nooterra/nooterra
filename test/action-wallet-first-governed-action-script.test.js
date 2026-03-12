@@ -180,7 +180,7 @@ test("action-wallet first-governed-action script: emits approval and first paid 
     });
     assert.equal(stderr, "");
     const summary = JSON.parse(stdout);
-    assert.equal(summary.schemaVersion, "ActionWalletFirstGovernedAction.v1");
+    assert.equal(summary.schemaVersion, "ActionWalletFirstGovernedAction.v2");
     assert.equal(summary.tenantId, "tenant_demo");
     assert.equal(summary.tenantCreated, true);
     assert.equal(summary.hostTrack, "codex");
@@ -194,6 +194,10 @@ test("action-wallet first-governed-action script: emits approval and first paid 
     assert.equal(summary.firstPaid.settlementStatus, "released");
     assert.equal(summary.firstPaid.status, "passed");
     assert.match(summary.firstPaid.receiptUrl, /\/receipts\/rcpt_demo$/);
+    assert.equal(summary.firstPaid.artifacts.run.linked, true);
+    assert.equal(summary.firstPaid.artifacts.receipt.linked, true);
+    assert.equal(summary.firstPaid.artifacts.dispute.linked, false);
+    assert.equal(summary.firstPaid.artifacts.handoffReady, true);
     assert.equal(summary.runtime.tenantId, "tenant_demo");
     assert.equal(summary.runtime.apiKeyIssued, true);
     assert.deepEqual(
@@ -309,7 +313,98 @@ test("action-wallet first-governed-action script: resolves root-relative hosted 
     assert.equal(summary.firstPaid.runUrl, "https://www.nooterra.ai/runs/run_demo");
     assert.equal(summary.firstPaid.receiptUrl, "https://www.nooterra.ai/receipts/rcpt_demo");
     assert.equal(summary.firstPaid.disputeUrl, "https://www.nooterra.ai/disputes/disp_demo");
+    assert.equal(summary.firstPaid.artifacts.dispute.linked, true);
     assert.match(summary.nextSteps[0], /https:\/\/www\.nooterra\.ai\/approvals\?requestId=apr_demo/);
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: fails closed when a passed first paid call is missing receipt artifacts", async () => {
+  const { server } = createJsonServer(async ({ method, url }) => {
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          mcp: { env: { NOOTERRA_TENANT_ID: "tenant_demo", NOOTERRA_API_KEY: "nt_live_demo" } },
+          bootstrap: { apiKey: { keyId: "ak_demo" } }
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test") {
+      return { status: 200, body: { ok: true, smoke: { toolsCount: 4 } } };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval") {
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          attemptId: "apr_attempt_1",
+          approvalUrl: "https://www.nooterra.ai/approvals?requestId=apr_demo",
+          approvalRequest: { requestId: "apr_demo", approvalStatus: "pending" }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/seed-hosted-approval/history") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attempts: [{ attemptId: "apr_attempt_1", approvalStatus: "pending", status: "pending" }]
+        }
+      };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attemptId: "fpc_attempt_1",
+          verificationStatus: "green",
+          settlementStatus: "released",
+          ids: { runId: "run_demo", receiptId: null, disputeId: null },
+          links: { runUrl: "https://www.nooterra.ai/runs/run_demo", receiptUrl: null, disputeUrl: null }
+        }
+      };
+    }
+    if (method === "GET" && url === "/v1/tenants/tenant_demo/onboarding/first-paid-call/history") {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          attempts: [
+            {
+              attemptId: "fpc_attempt_1",
+              status: "passed",
+              verificationStatus: "green",
+              settlementStatus: "released",
+              ids: { runId: "run_demo", receiptId: null, disputeId: null },
+              links: { runUrl: "https://www.nooterra.ai/runs/run_demo", receiptUrl: null, disputeUrl: null }
+            }
+          ]
+        }
+      };
+    }
+    return { status: 404, body: { ok: false, method, url } };
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: "tenant_demo",
+        NOOTERRA_HOST_TRACK: "codex"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /receipt artifact must include both an id and hosted URL/i);
   } finally {
     await close(server);
   }
@@ -478,6 +573,7 @@ test("action-wallet first-governed-action script: can verify hosted approval and
       }
     });
     const summary = JSON.parse(stdout);
+    assert.equal(summary.schemaVersion, "ActionWalletFirstGovernedAction.v2");
     assert.equal(summary.verifyHostedRoutes, true);
     assert.equal(summary.hostedRouteChecks.length, 2);
     assert.deepEqual(

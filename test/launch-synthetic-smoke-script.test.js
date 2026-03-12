@@ -13,7 +13,7 @@ import {
 test("launch synthetic smokes parser: uses env defaults and supports overrides", () => {
   const cwd = "/tmp/nooterra";
   const args = parseArgs(
-    ["--environment", "production", "--report", "artifacts/custom/launch-smoke.json", "--skip-host-success"],
+    ["--environment", "production", "--website-base-url", "https://www.nooterra.ai/", "--report", "artifacts/custom/launch-smoke.json", "--skip-host-success"],
     {
       NOOTERRA_BASE_URL: "https://api.nooterra.work/",
       NOOTERRA_TENANT_ID: "tenant_default",
@@ -26,6 +26,7 @@ test("launch synthetic smokes parser: uses env defaults and supports overrides",
 
   assert.equal(args.environment, "production");
   assert.equal(args.baseUrl, "https://api.nooterra.work");
+  assert.equal(args.websiteBaseUrl, "https://www.nooterra.ai");
   assert.equal(args.tenantId, "tenant_default");
   assert.equal(args.probeEmail, "probe@nooterra.work");
   assert.equal(args.apiKey, "sk_live_test");
@@ -46,6 +47,8 @@ test("launch synthetic smokes runner: emits combined deterministic report", asyn
       "staging",
       "--base-url",
       "https://api.nooterra.staging",
+      "--website-base-url",
+      "https://www.nooterra.ai",
       "--tenant-id",
       "tenant_stage",
       "--probe-email",
@@ -86,6 +89,7 @@ test("launch synthetic smokes runner: emits combined deterministic report", asyn
 
   assert.equal(report.schemaVersion, "LaunchSyntheticSmokeReport.v1");
   assert.equal(report.environment, "staging");
+  assert.equal(report.context.websiteBaseUrl, "https://www.nooterra.ai");
   assert.equal(report.checks.length, 2);
   assert.equal(report.verdict.ok, true);
   assert.equal(report.blockingIssues.length, 0);
@@ -94,7 +98,7 @@ test("launch synthetic smokes runner: emits combined deterministic report", asyn
 
 test("launch synthetic smokes runner: fails closed when host success gate is required without an API key", async () => {
   const args = parseArgs(
-    ["--base-url", "https://api.nooterra.staging", "--tenant-id", "tenant_stage", "--probe-email", "smoke@nooterra.work"],
+    ["--base-url", "https://api.nooterra.staging", "--website-base-url", "https://www.nooterra.ai", "--tenant-id", "tenant_stage", "--probe-email", "smoke@nooterra.work"],
     {},
     "/tmp/nooterra"
   );

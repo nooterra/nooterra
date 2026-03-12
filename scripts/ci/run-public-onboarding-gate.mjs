@@ -7,14 +7,16 @@ function usage() {
     "usage: node scripts/ci/run-public-onboarding-gate.mjs [options]",
     "",
     "options:",
-    "  --base-url <url>   API base URL (required; no production default)",
-    "  --tenant-id <id>   Tenant id (default: tenant_default)",
-    "  --email <address>  OTP probe email (default: probe@nooterra.work)",
-    "  --out <file>       Output report path (default: artifacts/gates/public-onboarding-gate.json)",
-    "  --help             Show help",
+    "  --base-url <url>          API base URL (required; no production default)",
+    "  --website-base-url <url>  Public website base URL for same-origin onboarding checks (optional)",
+    "  --tenant-id <id>          Tenant id (default: tenant_default)",
+    "  --email <address>         OTP probe email (default: probe@nooterra.work)",
+    "  --out <file>              Output report path (default: artifacts/gates/public-onboarding-gate.json)",
+    "  --help                    Show help",
     "",
     "env fallbacks:",
     "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_WEBSITE_BASE_URL",
     "  NOOTERRA_TENANT_ID",
     "  NOOTERRA_ONBOARDING_PROBE_EMAIL"
   ].join("\n");
@@ -24,6 +26,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
     help: false,
     baseUrl: env.NOOTERRA_BASE_URL ?? null,
+    websiteBaseUrl: env.NOOTERRA_WEBSITE_BASE_URL ?? "",
     tenantId: env.NOOTERRA_TENANT_ID ?? "tenant_default",
     email: env.NOOTERRA_ONBOARDING_PROBE_EMAIL ?? "probe@nooterra.work",
     out: path.resolve(cwd, "artifacts/gates/public-onboarding-gate.json")
@@ -38,6 +41,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     if (arg === "--help" || arg === "-h") out.help = true;
     else if (arg === "--base-url") out.baseUrl = next();
     else if (arg.startsWith("--base-url=")) out.baseUrl = arg.slice("--base-url=".length);
+    else if (arg === "--website-base-url") out.websiteBaseUrl = next();
+    else if (arg.startsWith("--website-base-url=")) out.websiteBaseUrl = arg.slice("--website-base-url=".length);
     else if (arg === "--tenant-id") out.tenantId = next();
     else if (arg.startsWith("--tenant-id=")) out.tenantId = arg.slice("--tenant-id=".length);
     else if (arg === "--email") out.email = next();
@@ -47,6 +52,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else throw new Error(`unknown argument: ${arg}`);
   }
   out.baseUrl = String(out.baseUrl ?? "").trim().replace(/\/+$/, "");
+  out.websiteBaseUrl = String(out.websiteBaseUrl ?? "").trim().replace(/\/+$/, "");
   out.tenantId = String(out.tenantId ?? "").trim();
   out.email = String(out.email ?? "").trim().toLowerCase();
   out.out = String(out.out ?? "").trim();
@@ -84,6 +90,27 @@ async function requestJson(url, { method = "GET", body = null, headers = {} } = 
   };
 }
 
+async function requestPage(url) {
+  const res = await fetch(url, {
+    headers: {
+      accept: "text/html,application/xhtml+xml"
+    }
+  });
+  const text = await res.text();
+  return {
+    ok: res.ok,
+    statusCode: res.status,
+    url,
+    contentType: String(res.headers.get("content-type") ?? "").toLowerCase(),
+    text
+  };
+}
+
+function looksLikeHtmlDocument(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
 function summarizeBody(outcome) {
   if (outcome?.json && typeof outcome.json === "object") {
     return {
@@ -96,7 +123,7 @@ function summarizeBody(outcome) {
   return { raw: String(outcome?.text ?? "").slice(0, 500) };
 }
 
-export async function runPublicOnboardingGate(args, { requestJsonFn = requestJson } = {}) {
+export async function runPublicOnboardingGate(args, { requestJsonFn = requestJson, requestPageFn = requestPage } = {}) {
   const startedAt = new Date().toISOString();
   const steps = [];
   const errors = [];
@@ -133,12 +160,67 @@ export async function runPublicOnboardingGate(args, { requestJsonFn = requestJso
     });
   }
 
+  if (args.websiteBaseUrl) {
+    const onboardingPage = await requestPageFn(`${args.websiteBaseUrl}/onboarding?experience=app#identity-access`);
+    const onboardingHtmlOk =
+      onboardingPage.ok &&
+      onboardingPage.contentType.includes("text/html") &&
+      looksLikeHtmlDocument(onboardingPage.text);
+    steps.push({
+      step: "website_onboarding_page",
+      statusCode: onboardingPage.statusCode,
+      contentType: onboardingPage.contentType,
+      html: onboardingHtmlOk
+    });
+    if (!onboardingHtmlOk) {
+      errors.push({
+        code: "WEBSITE_ONBOARDING_PAGE_UNAVAILABLE",
+        message: `expected website onboarding page to return HTML; got ${onboardingPage.statusCode} ${onboardingPage.contentType}`
+      });
+    }
+
+    const loginPage = await requestPageFn(`${args.websiteBaseUrl}/login?experience=app#identity-access`);
+    const loginHtmlOk =
+      loginPage.ok &&
+      loginPage.contentType.includes("text/html") &&
+      looksLikeHtmlDocument(loginPage.text);
+    steps.push({
+      step: "website_login_page",
+      statusCode: loginPage.statusCode,
+      contentType: loginPage.contentType,
+      html: loginHtmlOk
+    });
+    if (!loginHtmlOk) {
+      errors.push({
+        code: "WEBSITE_LOGIN_PAGE_UNAVAILABLE",
+        message: `expected website login page to return HTML; got ${loginPage.statusCode} ${loginPage.contentType}`
+      });
+    }
+
+    const sameOriginAuthMode = await requestJsonFn(`${args.websiteBaseUrl}/__magic/v1/public/auth-mode`);
+    const sameOriginJsonOk =
+      sameOriginAuthMode.statusCode === 200 &&
+      typeof sameOriginAuthMode.json?.authMode === "string";
+    steps.push({
+      step: "website_same_origin_auth_mode",
+      statusCode: sameOriginAuthMode.statusCode,
+      body: summarizeBody(sameOriginAuthMode)
+    });
+    if (!sameOriginJsonOk) {
+      errors.push({
+        code: "WEBSITE_AUTH_PROXY_UNAVAILABLE",
+        message: `expected website same-origin auth proxy to return 200 with authMode; got ${sameOriginAuthMode.statusCode}`
+      });
+    }
+  }
+
   const report = {
     schemaVersion: "PublicOnboardingGate.v1",
     ok: errors.length === 0,
     startedAt,
     completedAt: new Date().toISOString(),
     baseUrl: args.baseUrl,
+    websiteBaseUrl: args.websiteBaseUrl || null,
     tenantId: args.tenantId,
     steps,
     errors

@@ -157,6 +157,63 @@ function buildNextSteps({ hostTrack, approvalUrl, receiptUrl, disputeUrl }) {
   }
   return steps;
 }
+
+function requireArtifactPair({ id, url, label, required = false }) {
+  if (id && url) {
+    return { linked: true, required };
+  }
+  if (!id && !url) {
+    if (required) {
+      throw new Error(`${label} must include both an id and hosted URL once the first paid action reaches a trusted state`);
+    }
+    return { linked: false, required };
+  }
+  throw new Error(`${label} must include both an id and hosted URL together`);
+}
+
+function enforceFirstPaidArtifactParity(firstPaid) {
+  if (!firstPaid.attempted) {
+    return {
+      run: { linked: false, required: false },
+      receipt: { linked: false, required: false },
+      dispute: { linked: false, required: false },
+      handoffReady: false
+    };
+  }
+  if (!firstPaid.attemptId) {
+    throw new Error("firstPaid.attemptId is required when the managed first paid call runs");
+  }
+  const settled = firstPaid.settlementStatus === "released";
+  const passed = firstPaid.status === "passed";
+  const receiptRequired = settled || passed;
+  const runRequired = receiptRequired || Boolean(firstPaid.runId || firstPaid.runUrl);
+  const disputeRequired = Boolean(firstPaid.disputeId || firstPaid.disputeUrl);
+  const run = requireArtifactPair({
+    id: firstPaid.runId,
+    url: firstPaid.runUrl,
+    label: "run artifact",
+    required: runRequired
+  });
+  const receipt = requireArtifactPair({
+    id: firstPaid.receiptId,
+    url: firstPaid.receiptUrl,
+    label: "receipt artifact",
+    required: receiptRequired
+  });
+  const dispute = requireArtifactPair({
+    id: firstPaid.disputeId,
+    url: firstPaid.disputeUrl,
+    label: "dispute artifact",
+    required: disputeRequired
+  });
+  return {
+    run,
+    receipt,
+    dispute,
+    handoffReady: run.linked && receipt.linked
+  };
+}
+
 async function resolveTenantId(baseUrl) {
   const existingTenantId = typeof process.env.NOOTERRA_TENANT_ID === "string" ? process.env.NOOTERRA_TENANT_ID.trim() : "";
   if (existingTenantId !== "") return { tenantId: existingTenantId, created: false };
@@ -288,7 +345,7 @@ async function main() {
       : null;
 
   const summary = {
-    schemaVersion: "ActionWalletFirstGovernedAction.v1",
+    schemaVersion: "ActionWalletFirstGovernedAction.v2",
     baseUrl,
     websiteBaseUrl: websiteBaseUrl || null,
     verifyHostedRoutes,
@@ -331,6 +388,8 @@ async function main() {
     }),
     hostedRouteChecks: []
   };
+
+  summary.firstPaid.artifacts = enforceFirstPaidArtifactParity(summary.firstPaid);
 
   if (verifyHostedRoutes) {
     summary.hostedRouteChecks.push(await verifyHostedRoute(approvalUrl, "approvalUrl"));

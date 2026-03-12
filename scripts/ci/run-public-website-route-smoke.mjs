@@ -3,29 +3,31 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_ROUTE_CHECKS = [
-  { path: "/", needle: "Let AI act." },
-  { path: "/developers", needle: "Integrate trust in minutes." },
-  { path: "/integrations", needle: "Choose your launch host." },
-  { path: "/wallet", needle: "Action Wallet" },
-  { path: "/approvals", needle: "Approve the action" },
-  { path: "/receipts", needle: "See exactly what happened" },
-  { path: "/disputes", needle: "Challenge what went wrong" },
-  { path: "/onboarding", needle: "Set up your workspace" },
-  { path: "/docs", needle: "Every route should help you move" },
-  { path: "/docs/quickstart", needle: "Get from zero to first governed action" },
-  { path: "/docs/architecture", needle: "Architecture should explain what Nooterra governs" },
-  { path: "/docs/integrations", needle: "should all resolve into the same approval" },
-  { path: "/docs/api", needle: "The API is the runtime contract" },
-  { path: "/docs/security", needle: "Security should explain the boundaries" },
-  { path: "/docs/ops", needle: "Operations should make launch and failure boring" },
+  { path: "/", needles: ["Give agents wallets, not unchecked permissions.", "/onboarding?experience=app&source=home#identity-access"] },
+  { path: "/product", needles: ["for every consequential agent action.", "/onboarding?experience=app&source=product#identity-access"] },
+  { path: "/pricing", needles: ["Free to build.", "/onboarding?experience=app&source=pricing#identity-access"] },
+  { path: "/developers", needles: ["Add an Action Wallet in minutes.", "/onboarding?experience=app&source=developers#identity-access"] },
+  { path: "/integrations", needles: ["Connect where agents already run.", "/onboarding?experience=app&source=integrations#identity-access"] },
+  { path: "/wallet", needle: "One wallet for every consequential AI action." },
+  { path: "/approvals", needle: "Know exactly what you are approving." },
+  { path: "/receipts", needle: "Every action should end in a readable record." },
+  { path: "/disputes", needle: "If something goes wrong, there has to be a path back." },
+  { path: "/onboarding", needle: "Create the account." },
+  { path: "/docs", needle: "Documentation with the website as the index" },
+  { path: "/docs/quickstart", needle: "Start with one real action, not a giant setup ritual." },
+  { path: "/docs/architecture", needle: "Understand the control plane before you trust it." },
+  { path: "/docs/integrations", needle: "should all resolve into the same approval, receipt, and dispute surfaces." },
+  { path: "/docs/api", needle: "The API should feel like one product, not a bag of endpoints." },
+  { path: "/docs/security", needle: "Security should explain the boundaries, not just claim them." },
+  { path: "/docs/ops", needle: "Operator pages should lead to runbooks, not leave you guessing." },
   { path: "/docs/launch-hosts", needle: "Every supported host should land on the same approval" },
   { path: "/docs/partner-kit", needle: "Design partners should get one disciplined onboarding pack" },
   { path: "/docs/launch-checklist", needle: "A production claim should map to a concrete release bar" },
   { path: "/docs/incidents", needle: "When something goes wrong, the support path should already exist" },
-  { path: "/status", needle: "Current posture for the launch surface" },
+  { path: "/status", needle: "Production posture should be visible." },
   { path: "/support", needle: "Support should route users into the right trust surface fast" },
   { path: "/security", needle: "Security for Nooterra means bounded authority" },
-  { path: "/privacy", needle: "Nooterra minimizes what it needs" },
+  { path: "/privacy", needle: "The public site should explain the data boundary before people enter the product." },
   { path: "/terms", needle: "host-first Action Wallet" },
   { path: "/expired", needle: "The approval window closed before the action could continue" },
   { path: "/revoked", needle: "This authority was revoked before execution could continue" },
@@ -101,8 +103,11 @@ export async function runPublicWebsiteRouteSmoke(args, { requestPageFn = request
   for (const routeCheck of DEFAULT_ROUTE_CHECKS) {
     const url = `${args.websiteBaseUrl}${routeCheck.path}`;
     const page = await requestPageFn(url);
-    const containsNeedle = String(page.body ?? "").includes(routeCheck.needle);
-    const routeOk = page.ok && page.contentType.includes("text/html") && looksLikeHtmlDocument(page.body) && containsNeedle;
+    const needles = Array.isArray(routeCheck.needles)
+      ? routeCheck.needles
+      : [routeCheck.needle];
+    const missingNeedles = needles.filter((needle) => !String(page.body ?? "").includes(String(needle ?? "")));
+    const routeOk = page.ok && page.contentType.includes("text/html") && looksLikeHtmlDocument(page.body) && missingNeedles.length === 0;
     checks.push({
       id: `route:${routeCheck.path}`,
       path: routeCheck.path,
@@ -110,16 +115,17 @@ export async function runPublicWebsiteRouteSmoke(args, { requestPageFn = request
       ok: routeOk,
       statusCode: page.statusCode,
       contentType: page.contentType,
-      containsNeedle,
-      needle: routeCheck.needle
+      needles,
+      missingNeedles
     });
     if (!routeOk) {
       blockingIssues.push({
         code: "PUBLIC_ROUTE_SMOKE_FAILED",
         path: routeCheck.path,
-        message: `expected ${routeCheck.path} to return HTML containing \"${routeCheck.needle}\"`,
+        message: `expected ${routeCheck.path} to return HTML containing ${needles.map((needle) => `\"${needle}\"`).join(", ")}`,
         statusCode: page.statusCode,
-        contentType: page.contentType
+        contentType: page.contentType,
+        missingNeedles
       });
     }
   }
