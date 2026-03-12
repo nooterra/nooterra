@@ -3862,6 +3862,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   });
   const lastActivationArtifactRefreshRef = useRef(0);
   const [busyState, setBusyState] = useState("");
+  const [authPlaneError, setAuthPlaneError] = useState("");
   const [statusMessage, setStatusMessage] = useState("Create or unlock a workspace with a saved browser passkey. Email OTP stays available as the recovery path.");
   const browserPasskeyReady = typeof window !== "undefined" && Boolean(globalThis.crypto?.subtle);
   const buyerTenantId = String(buyer?.tenantId ?? "").trim();
@@ -3874,6 +3875,17 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     if (typeof window === "undefined") return false;
     const hostname = String(window.location.hostname ?? "").trim().toLowerCase();
     return hostname === "www.nooterra.ai" || hostname === "nooterra.ai";
+  }
+
+  function formatAuthPlaneFailure(error) {
+    const message = String(error?.message ?? "").trim();
+    if (
+      error?.status === 502 ||
+      /dns_hostname_not_found|failed to fetch|networkerror|load failed|fetch|temporarily unavailable/i.test(message)
+    ) {
+      return "Hosted onboarding is temporarily unavailable. Account creation and sign-in are paused until the control plane reconnects.";
+    }
+    return `Auth control plane unavailable: ${message || "Unknown error"}`;
   }
 
   async function requestAuthJson(request) {
@@ -3937,6 +3949,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
           credentials: "include"
         });
         if (cancelled) return;
+        setAuthPlaneError("");
         startTransition(() => {
           setOnboardingState((previous) => ({
             ...normalizeOnboardingState(previous),
@@ -3945,7 +3958,9 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
         });
       } catch (error) {
         if (!cancelled) {
-          setStatusMessage(`Auth control plane unavailable: ${error.message}`);
+          const nextAuthPlaneError = formatAuthPlaneFailure(error);
+          setAuthPlaneError(nextAuthPlaneError);
+          setStatusMessage(nextAuthPlaneError);
         }
       }
 
@@ -5298,12 +5313,13 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   const recoveryCodeError = validateWorkspaceRecoveryCode(loginForm);
   const passkeySignupDisabled =
     busyState !== "" ||
+    Boolean(authPlaneError) ||
     !browserPasskeyReady ||
     authMode?.publicSignupEnabled === false ||
     Boolean(signupValidationError);
-  const passkeyLoginDisabled = busyState !== "" || !browserPasskeyReady || Boolean(loginIdentityError);
-  const requestOtpDisabled = busyState !== "" || Boolean(loginIdentityError);
-  const verifyOtpDisabled = busyState !== "" || Boolean(recoveryCodeError);
+  const passkeyLoginDisabled = busyState !== "" || Boolean(authPlaneError) || !browserPasskeyReady || Boolean(loginIdentityError);
+  const requestOtpDisabled = busyState !== "" || Boolean(authPlaneError) || Boolean(loginIdentityError);
+  const verifyOtpDisabled = busyState !== "" || Boolean(authPlaneError) || Boolean(recoveryCodeError);
   const [selectedHostTrackId, setSelectedHostTrackId] = useState("claude");
   const activationChannels = [
     {
@@ -6115,6 +6131,22 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Passkey is the primary path. This browser can hold a device key for same-device Action Wallet sign-in; email OTP stays available as recovery when the device key is missing."
               : "Passkey is the primary path, but this browser cannot create or prove the saved device key. Use recovery OTP or switch to a browser with Web Crypto support."}
           </div>
+          {authPlaneError ? (
+            <>
+              <div className="product-inline-note bad">
+                <strong>Hosted onboarding is paused.</strong>
+                <span>{authPlaneError}</span>
+              </div>
+              <div className="product-actions">
+                <a className="product-button product-button-ghost" href="/status">
+                  View status
+                </a>
+                <a className="product-button product-button-ghost" href="/support">
+                  Contact support
+                </a>
+              </div>
+            </>
+          ) : null}
           <div className="product-form-grid">
             {authMode?.publicSignupEnabled !== false ? (
               <>
@@ -6221,7 +6253,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
             {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
           </details>
-          <div className="product-inline-note">{statusMessage}</div>
+          <div className={`product-inline-note ${authPlaneError ? "bad" : ""}`}>{statusMessage}</div>
         </article>
 
         <article className="product-card product-card-emphasis" id="runtime-bootstrap">
