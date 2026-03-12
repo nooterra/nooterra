@@ -6184,39 +6184,71 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         <article className="product-card product-card-emphasis" id="identity-access">
           <div className="product-section-head compact">
             <p>Identity + Access</p>
-            <h2>Create or recover a workspace.</h2>
+            <h2>{accountFirstMode ? "Create the account first." : "Create or recover a workspace."}</h2>
           </div>
           {onboardingSource === "pricing" ? (
             <p className="product-card-body-copy">
               Start in the free builder path, prove the first approval and receipt loop, then widen into live governed actions once the runtime is stable for your team.
             </p>
           ) : null}
-          <div className="product-badge-row">
-            <span className="product-badge">Primary: passkey</span>
-            <span className="product-badge subtle">Recovery: email OTP</span>
-          </div>
-          <div className="product-sidebar-list">
-            <div>
-              <strong>Auth mode</strong>
-              <span>{authMode?.guidance ?? `Auth plane ${runtime.authBaseUrl}`}</span>
-            </div>
-            <div>
-              <strong>Session</strong>
-              <span>{buyer ? `${buyer.email} (${buyer.role}) in ${buyer.tenantId}` : "No active buyer session yet."}</span>
-            </div>
-            <div>
-              <strong>Saved device passkey</strong>
-              <span>
-                {storedPasskey
-                  ? `${storedPasskey.label || "Current browser"} for ${storedPasskey.email} in ${storedPasskey.tenantId}`
-                  : "No saved same-device passkey detected for the current tenant/email."}
-              </span>
-            </div>
-            <div>
-              <strong>Runtime</strong>
-              <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? `Issued ${bootstrapBundle.bootstrap.apiKey.keyId}` : "Not bootstrapped yet."}</span>
-            </div>
-          </div>
+          {accountFirstMode ? (
+            <>
+              <div className="product-inline-note accent">
+                <strong>One setup step comes first.</strong>
+                <span>Create the workspace and save the passkey before runtime bootstrap, host setup, or proof artifacts appear.</span>
+              </div>
+              <div className="product-onboarding-auth-summary">
+                <div className="product-onboarding-auth-stat">
+                  <span>Account mode</span>
+                  <strong>Passkey first</strong>
+                  <small>Email OTP remains the recovery path.</small>
+                </div>
+                <div className="product-onboarding-auth-stat">
+                  <span>Current session</span>
+                  <strong>{buyer ? "Workspace live" : "No workspace yet"}</strong>
+                  <small>{buyer ? `${buyer.email} in ${buyer.tenantId}` : "The public site stays anonymous until the account is issued."}</small>
+                </div>
+                <div className="product-onboarding-auth-stat">
+                  <span>Saved device key</span>
+                  <strong>{storedPasskey ? "Detected" : "Missing"}</strong>
+                  <small>
+                    {storedPasskey
+                      ? `${storedPasskey.label || "Current browser"} for ${storedPasskey.email}`
+                      : "A saved browser passkey appears here when the same workspace returns later."}
+                  </small>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="product-badge-row">
+                <span className="product-badge">Primary: passkey</span>
+                <span className="product-badge subtle">Recovery: email OTP</span>
+              </div>
+              <div className="product-sidebar-list">
+                <div>
+                  <strong>Auth mode</strong>
+                  <span>{authMode?.guidance ?? `Auth plane ${runtime.authBaseUrl}`}</span>
+                </div>
+                <div>
+                  <strong>Session</strong>
+                  <span>{buyer ? `${buyer.email} (${buyer.role}) in ${buyer.tenantId}` : "No active buyer session yet."}</span>
+                </div>
+                <div>
+                  <strong>Saved device passkey</strong>
+                  <span>
+                    {storedPasskey
+                      ? `${storedPasskey.label || "Current browser"} for ${storedPasskey.email} in ${storedPasskey.tenantId}`
+                      : "No saved same-device passkey detected for the current tenant/email."}
+                  </span>
+                </div>
+                <div>
+                  <strong>Runtime</strong>
+                  <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? `Issued ${bootstrapBundle.bootstrap.apiKey.keyId}` : "Not bootstrapped yet."}</span>
+                </div>
+              </div>
+            </>
+          )}
           <div className={`product-inline-note ${browserPasskeyReady ? "accent" : "warn"}`}>
             {browserPasskeyReady
               ? "Passkey is the primary path. This browser can hold a device key for same-device Action Wallet sign-in; email OTP stays available as recovery when the device key is missing."
@@ -6266,112 +6298,133 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </>
           ) : (
             <>
-              <div className="product-form-grid">
-                {authMode?.publicSignupEnabled !== false ? (
-                  <>
+              <div className={`product-onboarding-auth-panels${accountFirstMode ? " account-first" : ""}`}>
+                <section className="product-onboarding-auth-panel product-onboarding-auth-panel-primary">
+                  <div className="product-section-head compact">
+                    <p>New workspace</p>
+                    <h3>Create the account once.</h3>
+                  </div>
+                  <p className="product-card-body-copy">
+                    This is the first real handoff. Create the workspace identity now, then the same page reveals runtime bootstrap and the first governed action.
+                  </p>
+                  {authMode?.publicSignupEnabled !== false ? (
+                    <>
+                      <div className="product-form-grid">
+                        <label>
+                          <span>Work email</span>
+                          <input
+                            value={signupForm.email}
+                            onChange={(event) => setSignupForm((previous) => ({ ...previous, email: event.target.value }))}
+                            placeholder="founder@company.com"
+                          />
+                        </label>
+                        <label>
+                          <span>Company</span>
+                          <input
+                            value={signupForm.company}
+                            onChange={(event) => setSignupForm((previous) => ({ ...previous, company: event.target.value }))}
+                            placeholder="Acme AI"
+                          />
+                        </label>
+                        <label>
+                          <span>Full name</span>
+                          <input
+                            value={signupForm.fullName}
+                            onChange={(event) => setSignupForm((previous) => ({ ...previous, fullName: event.target.value }))}
+                            placeholder="Founder Name"
+                          />
+                        </label>
+                        <label>
+                          <span>Tenant slug (optional)</span>
+                          <input
+                            value={signupForm.tenantId}
+                            onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                            placeholder="acme_ai"
+                          />
+                        </label>
+                      </div>
+                      <div className="product-actions">
+                        <button className="product-button product-button-solid" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                          {busyState === "passkey_signup" ? "Creating..." : "Create Workspace + Save Passkey"}
+                        </button>
+                      </div>
+                      {signupValidationError ? <div className="product-inline-note warn">{signupValidationError}</div> : null}
+                    </>
+                  ) : (
+                    <div className="product-inline-note bad">
+                      Public signup is disabled on this control plane. Use the returning workspace lane with an existing tenant and saved device passkey.
+                    </div>
+                  )}
+                </section>
+
+                <section className="product-onboarding-auth-panel">
+                  <div className="product-section-head compact">
+                    <p>Return to workspace</p>
+                    <h3>Use the saved device key.</h3>
+                  </div>
+                  <p className="product-card-body-copy">
+                    Returning operators should feel one move too: enter the workspace, prove the browser passkey, and step back into runtime and receipts.
+                  </p>
+                  <div className="product-form-grid">
                     <label>
-                      <span>Work email</span>
+                      <span>Existing tenant</span>
                       <input
-                        value={signupForm.email}
-                        onChange={(event) => setSignupForm((previous) => ({ ...previous, email: event.target.value }))}
+                        value={loginForm.tenantId}
+                        onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                        placeholder="tenant_acme"
+                      />
+                    </label>
+                    <label>
+                      <span>Sign-in email</span>
+                      <input
+                        value={loginForm.email}
+                        onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
                         placeholder="founder@company.com"
                       />
                     </label>
-                    <label>
-                      <span>Company</span>
+                    <label className="wide">
+                      <span>Device label</span>
                       <input
-                        value={signupForm.company}
-                        onChange={(event) => setSignupForm((previous) => ({ ...previous, company: event.target.value }))}
-                        placeholder="Acme AI"
+                        value={passkeyForm.label}
+                        onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
+                        placeholder="This browser"
                       />
                     </label>
-                    <label>
-                      <span>Full name</span>
-                      <input
-                        value={signupForm.fullName}
-                        onChange={(event) => setSignupForm((previous) => ({ ...previous, fullName: event.target.value }))}
-                        placeholder="Founder Name"
-                      />
-                    </label>
-                    <label>
-                      <span>Tenant slug (optional)</span>
-                      <input
-                        value={signupForm.tenantId}
-                        onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
-                        placeholder="acme_ai"
-                      />
-                    </label>
-                  </>
-                ) : (
-                  <div className="product-inline-note bad">
-                    Public signup is disabled on this control plane. Use an existing tenant with a saved device passkey or the recovery path below.
                   </div>
-                )}
-                <label>
-                  <span>Existing tenant</span>
-                  <input
-                    value={loginForm.tenantId}
-                    onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
-                    placeholder="tenant_acme"
-                  />
-                </label>
-                <label>
-                  <span>Sign-in email</span>
-                  <input
-                    value={loginForm.email}
-                    onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
-                    placeholder="founder@company.com"
-                  />
-                </label>
-                <label>
-                  <span>Device label</span>
-                  <input
-                    value={passkeyForm.label}
-                    onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
-                    placeholder="Founder laptop"
-                  />
-                </label>
+                  <div className="product-actions">
+                    <button className="product-button product-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                      {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
+                    </button>
+                  </div>
+                  {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
+                  <details className="product-details">
+                    <summary>Recovery by email</summary>
+                    <div className="product-inline-note warn">
+                      Recovery is for a new browser, lost device key, or registry mismatch. Use the same tenant and sign-in email above, then request and verify a six-digit code.
+                    </div>
+                    <div className="product-form-grid">
+                      <label className="wide">
+                        <span>Recovery code</span>
+                        <input
+                          value={loginForm.code}
+                          onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
+                          inputMode="numeric"
+                          placeholder="123456"
+                        />
+                      </label>
+                    </div>
+                    <div className="product-actions">
+                      <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                        {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
+                      </button>
+                      <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                        {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
+                      </button>
+                    </div>
+                    {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
+                  </details>
+                </section>
               </div>
-              <div className="product-actions">
-                {authMode?.publicSignupEnabled !== false ? (
-                  <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
-                    {busyState === "passkey_signup" ? "Creating..." : "Create Workspace + Save Passkey"}
-                  </button>
-                ) : null}
-                <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
-                  {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
-                </button>
-              </div>
-              {authMode?.publicSignupEnabled !== false && signupValidationError ? (
-                <div className="product-inline-note warn">{signupValidationError}</div>
-              ) : null}
-              {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
-              <details className="product-details">
-                <summary>Recovery by email</summary>
-                <div className="product-inline-note warn">
-                  Recovery is for a new browser, lost device key, or registry mismatch. Use the same tenant and sign-in email above, then request and verify a six-digit code.
-                </div>
-                <div className="product-form-grid">
-                  <label className="wide">
-                    <span>Recovery code</span>
-                    <input
-                      value={loginForm.code}
-                      onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
-                      inputMode="numeric"
-                      placeholder="123456"
-                    />
-                  </label>
-                </div>
-                <div className="product-actions">
-                  <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
-                    {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
-                  </button>
-                  <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
-                    {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
-                  </button>
-                </div>
-                {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
-              </details>
               <div className="product-inline-note">{statusMessage}</div>
             </>
           )}
@@ -15444,7 +15497,7 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
             <span className="product-brand-mark"><ShieldCheck size={16} /></span>
             <span>
               <strong>Nooterra</strong>
-              <small>Agent Control Layer</small>
+              <small>{isStandaloneOnboarding ? "Secure Account Setup" : "Agent Control Layer"}</small>
             </span>
           </a>
           <div className="product-nav-links">
