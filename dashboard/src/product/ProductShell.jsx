@@ -5594,7 +5594,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         </div>
       </section>
 
-      <section className="product-access-grid product-onboarding-entry-grid">
+      <section className={`product-access-grid product-onboarding-entry-grid${accountFirstMode ? " compact" : ""}`}>
         <article className="product-access-card product-access-card-activation">
           <div className="product-mini-card-head">
             <ShieldCheck size={18} />
@@ -5634,7 +5634,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         </article>
       </section>
 
-      {!onboardingStarted ? (
+      {!onboardingStarted && !accountFirstMode ? (
         <section className="product-card product-card-emphasis">
           <div className="product-section-head compact">
             <p>Start narrow</p>
@@ -6181,7 +6181,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
       ) : null}
 
       <section className="product-grid-two product-onboarding-setup-grid">
-        <article className="product-card product-card-emphasis" id="identity-access">
+        <article className={`product-card product-card-emphasis${accountFirstMode ? " product-onboarding-account-card" : ""}`} id="identity-access">
           <div className="product-section-head compact">
             <p>Identity + Access</p>
             <h2>{accountFirstMode ? "Create the account first." : "Create or recover a workspace."}</h2>
@@ -6193,6 +6193,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           ) : null}
           {accountFirstMode ? (
             <>
+              <p className="product-card-body-copy product-onboarding-account-copy">
+                Start with a real workspace owner, not a temporary shell. Once the account exists, this page reveals runtime bootstrap and the first hosted approval path automatically.
+              </p>
               <div className="product-inline-note accent">
                 <strong>One setup step comes first.</strong>
                 <span>Create the workspace and save the passkey before runtime bootstrap, host setup, or proof artifacts appear.</span>
@@ -6357,7 +6360,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   )}
                 </section>
 
-                <section className="product-onboarding-auth-panel">
+                <section className="product-onboarding-auth-panel product-onboarding-auth-panel-secondary">
                   <div className="product-section-head compact">
                     <p>Return to workspace</p>
                     <h3>Use the saved device key.</h3>
@@ -6431,7 +6434,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         </article>
 
         {accountFirstMode ? (
-          <article className="product-card product-card-subtle">
+          <article className="product-card product-card-subtle product-onboarding-account-handoff">
             <div className="product-section-head compact">
               <p>Secure handoff</p>
               <h2>What unlocks after the workspace is real.</h2>
