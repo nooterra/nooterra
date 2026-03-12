@@ -77,8 +77,6 @@ import {
   createTenantAccountSession,
   createTenantBrowserState,
   createTenantConsumerConnector,
-  DEFAULT_PUBLIC_API_BASE_URL,
-  DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES,
   disconnectTenantIntegration,
   runMarketplaceProviderConformance,
   requestJson,
@@ -3894,15 +3892,14 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     const configuredBaseUrl = String(runtime.authBaseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
     const normalizedPathname = typeof request?.pathname === "string" ? request.pathname.trim() : "";
     const preferManagedPublicAuthMode = normalizedPathname === "/v1/public/auth-mode";
-    const runtimeApiBaseUrl = String(runtime.baseUrl ?? "").trim();
     const managedWebsiteFallbacks = shouldUseManagedPublicApiFallback(DEFAULT_AUTH_BASE_URL)
-      ? ["/__magic", "/__nooterra", ...DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES]
+      ? ["/__magic"]
       : [];
     const baseUrlCandidates = Array.from(
       new Set(
         (preferManagedPublicAuthMode
-          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
-          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, runtimeApiBaseUrl, ...managedWebsiteFallbacks]
+          ? [DEFAULT_AUTH_BASE_URL, configuredBaseUrl, ...managedWebsiteFallbacks]
+          : [configuredBaseUrl, DEFAULT_AUTH_BASE_URL, ...managedWebsiteFallbacks]
         ).filter((value) => typeof value === "string" && value.trim() !== "")
       )
     );
