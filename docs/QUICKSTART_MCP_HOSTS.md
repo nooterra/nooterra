@@ -78,6 +78,7 @@ Channel-specific bootstrap:
   - run `openclaw doctor`, then open `openclaw tui --session main` if you want an interactive session
 - `Codex / API / CLI`
   - export the same runtime values from setup or onboarding and use them through the engineering quickstart in `docs/integrations/codex/ENGINEERING_QUICKSTART.md`
+  - if you want the same wrapper entrypoint the host samples use, run `node examples/codex-action-wallet/run.mjs`
 
 ## 2) Request first approval
 
