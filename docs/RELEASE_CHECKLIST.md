@@ -77,6 +77,7 @@ Release-gate evidence should also include:
 - `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
 - `artifacts/gates/onboarding-host-success-gate.json`
 - `artifacts/gates/public-website-route-smoke.json`
+- `artifacts/ops/railway-public-api-readiness.json` (`RailwayPublicApiReadinessReport.v1`, pass)
 - `artifacts/ops/launch-security-review.json` (`LaunchSecurityReviewReport.v1`, pass)
 - `artifacts/ops/launch-alerting-report.json` (`LaunchAlertingReport.v1`, pass)
 - `artifacts/ops/launch-abuse-report.json` (`LaunchAbuseControlsReport.v1`, pass)

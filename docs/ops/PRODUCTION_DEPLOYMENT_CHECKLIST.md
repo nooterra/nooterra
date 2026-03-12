@@ -46,10 +46,18 @@ Use this checklist to launch and verify a real hosted Nooterra environment.
 4. Verify service health:
 
 ```bash
+npm run ops:railway:public-api-readiness -- \
+  --base-url https://api.nooterra.ai \
+  --expected-project nooterra \
+  --expected-service nooterra-api \
+  --out artifacts/ops/railway-public-api-readiness.json
+
 curl -fsS https://api.nooterra.ai/healthz
 curl -fsS https://gateway.nooterra.work/healthz
 npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.ai --tenant-id tenant_default
 ```
+
+Fail-closed note: if the Railway check reports `APPLICATION_NOT_FOUND`, the domain is reaching Railway but the public API service is still not actually serving the Nooterra app.
 
 Same-origin website onboarding and auth proxy should also be exercised from the production website host:
 
