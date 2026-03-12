@@ -2401,8 +2401,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs"
         title="Documentation with the website as the index, not a dead-end redirect."
         summary="Every major public route should explain itself first, then hand users into the deeper docs where the runtime details live."
-        primaryCta={{ label: "Open docs home", href: docsLinks.home }}
-        secondaryCta={{ label: "Quickstart", href: "/docs/quickstart" }}
+        primaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
+        secondaryCta={{ label: "View architecture", href: SITE_DOC_ROUTES.architecture }}
         proofPoints={[
           { title: "Browse by job", body: "Quickstart, architecture, integrations, API, security, and ops each get their own route and context." },
           { title: "Keep the jump short", body: "The website explains what the doc set is for before sending users into the full reference surface." },
@@ -2422,8 +2422,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Quickstart"
         title="Start with one real action, not a giant setup ritual."
         summary="The quickstart should get a builder or operator to the first approval and receipt path with the fewest moving parts possible."
-        primaryCta={{ label: "Open quickstart", href: docsLinks.quickstart }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_quickstart") }}
+        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_quickstart") }}
+        secondaryCta={{ label: "Open engineering guide", href: docsLinks.codexEngineeringQuickstart }}
         proofPoints={[
           { title: "One runtime", body: "Bootstrap the workspace once, then reuse the same trust contract across hosts." },
           { title: "One live loop", body: "Install, approval, receipt, dispute. Nothing else matters until that path is boring." },
@@ -2443,8 +2443,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Architecture"
         title="Understand the control plane before you trust it."
         summary="Architecture should explain what Nooterra governs, what it does not, and how proofs, receipts, and recourse remain bound to each action."
-        primaryCta={{ label: "Open architecture docs", href: docsLinks.architecture }}
-        secondaryCta={{ label: "API surface", href: "/docs/api" }}
+        primaryCta={{ label: "API surface", href: SITE_DOC_ROUTES.api }}
+        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Policy, not prompts", body: "The system makes decisions through explicit rules and bounded grants, not hidden prompt state." },
           { title: "Evidence, not vibes", body: "Receipts, verifier results, and disputes are attached to the same artifact chain." },
@@ -2464,8 +2464,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Integrations"
         title="Every channel should reuse the same trust contract."
         summary="Claude MCP, OpenClaw, Codex, CLI, and direct API should all resolve into the same approval, receipt, and dispute surfaces."
-        primaryCta={{ label: "Open integrations reference", href: docsLinks.integrations }}
-        secondaryCta={{ label: "Launch hosts", href: SITE_DOC_ROUTES.hostQuickstart }}
+        primaryCta={{ label: "Launch hosts", href: SITE_DOC_ROUTES.hostQuickstart }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_integrations") }}
         proofPoints={[
           { title: "Host-native in front", body: "The agent experience stays inside the host until trust, proof, or recourse is needed." },
           { title: "Hosted trust surfaces", body: "Approval, wallet, receipt, and dispute stay canonical even when the initiating host changes." },
@@ -2485,8 +2485,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / API"
         title="The API should feel like one product, not a bag of endpoints."
         summary="Action Wallet becomes trustworthy when the lifecycle is explicit: intent, approval, grant, evidence, receipt, and dispute."
-        primaryCta={{ label: "Open API reference", href: docsLinks.api }}
-        secondaryCta={{ label: "Engineering guide", href: docsLinks.codexEngineeringQuickstart }}
+        primaryCta={{ label: "Run quickstart", href: docsLinks.codexEngineeringQuickstart }}
+        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Deterministic writes", body: "The contract should fail closed on missing evidence, mismatched scope, or non-JSON control-plane drift." },
           { title: "Canonical links", body: "Hosted approval, receipt, and dispute surfaces should resolve consistently from every channel." },
@@ -2506,8 +2506,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Security"
         title="Security should explain the boundaries, not just claim them."
         summary="Nooterra is only credible if the public docs explain fail-closed behavior, scoped authority, operator controls, and the ways the system blocks unsafe state drift."
-        primaryCta={{ label: "Open security docs", href: docsLinks.security }}
-        secondaryCta={{ label: "Security overview", href: "/security" }}
+        primaryCta={{ label: "Security overview", href: "/security" }}
+        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Fail closed by default", body: "Missing artifacts, route drift, or mismatched bindings should stop the action, not silently succeed." },
           { title: "Scoped authority", body: "Hosts get bounded grants, not vague permission to act however they like." },
@@ -2527,8 +2527,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Operations"
         title="Operator pages should lead to runbooks, not leave you guessing."
         summary="The ops surface is part of the product. Launch checklists, incidents, cutover, and host success gates should be discoverable from the website too."
-        primaryCta={{ label: "Open operations docs", href: docsLinks.ops }}
-        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        primaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        secondaryCta={{ label: "Open status", href: "/status" }}
         proofPoints={[
           { title: "Readiness before launch", body: "Synthetic smokes and onboarding gates should catch route drift before a user does." },
           { title: "Rescue before scale", body: "Operators need quarantine, revoke, refund, and dispute resolution before the product broadens." },
@@ -2548,8 +2548,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Launch hosts"
         title="Every supported host should land on the same approval, receipt, and dispute loop."
         summary="The launch host guide is the public index for proving Claude MCP, OpenClaw, and engineering-shell integrations against one Action Wallet runtime."
-        primaryCta={{ label: "Open launch host guide", href: docsLinks.hostQuickstart }}
-        secondaryCta={{ label: "Integrations", href: "/integrations" }}
+        primaryCta={{ label: "Open Claude quickstart", href: docsLinks.claudeDesktopQuickstart }}
+        secondaryCta={{ label: "View integrations", href: "/integrations" }}
         proofPoints={[
           { title: "Claude MCP first", body: "The cleanest host handoff still matters most for proving the trust layer." },
           { title: "Framework parity second", body: "OpenClaw and engineering shells should reuse the same approval URL, receipt link, and dispute route." },
@@ -2569,8 +2569,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Partner kit"
         title="Design partners should get one disciplined onboarding pack, not tribal knowledge."
         summary="The partner kit is the public handoff for what a launch partner needs to run a first real action, what evidence to expect, and how to escalate problems."
-        primaryCta={{ label: "Open partner kit", href: docsLinks.designPartnerKit }}
-        secondaryCta={{ label: "Open onboarding", href: "/onboarding" }}
+        primaryCta={{ label: "Open onboarding", href: "/onboarding" }}
+        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Fast first value", body: "Partners should reach one hosted approval and one receipt quickly." },
           { title: "Sharp expectations", body: "What is supported, what is not, and where to escalate must be visible before the first run." },
@@ -2590,8 +2590,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Claude MCP"
         title="Claude should reach its first approval without leaving people guessing."
         summary="This is the cleanest launch host. Install the MCP server, seed one Action Wallet request, and prove the approval-to-receipt loop before expanding anywhere else."
-        primaryCta={{ label: "Open Claude quickstart", href: SITE_DOC_ROUTES.claudeDesktop }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_claude_desktop") }}
+        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_claude_desktop") }}
+        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Host-native first", body: "Claude stays in front until trust, proof, or recourse needs a hosted Nooterra surface." },
           { title: "One approval path", body: "The first success bar is a hosted approval URL that resolves cleanly back into the same wallet, receipt, and dispute chain." },
@@ -2611,8 +2611,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / OpenClaw"
         title="OpenClaw should prove host-native parity, not invent a second product."
         summary="Use the OpenClaw path when you want a more agentic shell, but keep approvals, receipts, and disputes on the same Action Wallet contract."
-        primaryCta={{ label: "Open OpenClaw guide", href: SITE_DOC_ROUTES.openClaw }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_openclaw") }}
+        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_openclaw") }}
+        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Same runtime underneath", body: "The host gets freedom in the shell, not freedom from the Action Wallet rules and artifacts." },
           { title: "Hosted trust surfaces stay canonical", body: "Approvals, receipts, and disputes still belong to Nooterra even when the initiating shell is more autonomous." },
@@ -2632,8 +2632,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Codex / CLI / API"
         title="The shortest engineering path should still leave a real approval and receipt."
         summary="This route is for builders who want the direct scriptable flow. Use it to prove the same managed Action Wallet loop from Codex, CLI, or raw API calls."
-        primaryCta={{ label: "Open engineering guide", href: SITE_DOC_ROUTES.codex }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_codex") }}
+        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_codex") }}
+        secondaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
         proofPoints={[
           { title: "Scriptable end to end", body: "Bootstrap, seed approval, and verify the hosted links without needing the UI to fake success for you." },
           { title: "Fail closed on route drift", body: "The quickstart should stop immediately if the public API returns HTML, stale links, or incomplete artifacts." },
@@ -2674,8 +2674,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Launch checklist"
         title="A production claim should map to a concrete release bar."
         summary="This route turns the launch checklist into a public website page first, then hands off into the full runbook when deeper operator detail is needed."
-        primaryCta={{ label: "Open launch checklist", href: docsLinks.launchChecklist }}
-        secondaryCta={{ label: "Status", href: "/status" }}
+        primaryCta={{ label: "Open status", href: "/status" }}
+        secondaryCta={{ label: "Open onboarding", href: "/onboarding" }}
         proofPoints={[
           { title: "Route health first", body: "Public routes and same-origin control-plane paths should be green before any launch claim." },
           { title: "Proof loop second", body: "Install, approval, receipt, and dispute should work on live hosts before broad rollout." },
@@ -2695,8 +2695,8 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Incidents"
         title="When something goes wrong, the support path should already exist."
         summary="Incident response is part of the product. This route gives operators, partners, and builders a clear first stop before they dive into the full runbook."
-        primaryCta={{ label: "Open incident docs", href: docsLinks.incidents }}
-        secondaryCta={{ label: "Support", href: "/support" }}
+        primaryCta={{ label: "Open support", href: "/support" }}
+        secondaryCta={{ label: "Open status", href: "/status" }}
         proofPoints={[
           { title: "One escalation path", body: "Users should know where to go when approvals, receipts, or disputes drift." },
           { title: "Keep the artifact chain intact", body: "Incident handling should preserve grants, receipts, verifier results, and disputes." },
