@@ -5469,20 +5469,64 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Open dispute"
               : "Open focused receipt";
   const onboardingSource = getQueryParam("source");
-  const onboardingSourceMessage =
-    onboardingSource === "product"
-      ? {
-          label: "From product",
-          title: "You are on the shortest Action Wallet path.",
-          body: "Create the workspace, issue the runtime, then close one hosted approval with one receipt. That is the exact loop the product page is promising."
-        }
-      : onboardingSource === "pricing"
-        ? {
-            label: "From pricing",
-            title: "Start on the builder path and prove one live loop first.",
-            body: "You do not need a long rollout to get value here. Create the account, use the hosted approval path, and widen into live governed actions only after the receipt flow is boring."
-          }
-        : null;
+  const onboardingSourceMessages = {
+    home: {
+      label: "From home",
+      title: "Start with one real action, not a giant setup ritual.",
+      body: "Create the workspace, issue the runtime, and prove one approval-to-receipt loop before you widen scope or add more hosts."
+    },
+    product: {
+      label: "From product",
+      title: "You are on the shortest Action Wallet path.",
+      body: "Create the workspace, issue the runtime, then close one hosted approval with one receipt. That is the exact loop the product page is promising."
+    },
+    pricing: {
+      label: "From pricing",
+      title: "Start on the builder path and prove one live loop first.",
+      body: "You do not need a long rollout to get value here. Create the account, use the hosted approval path, and widen into live governed actions only after the receipt flow is boring."
+    },
+    developers: {
+      label: "From developers",
+      title: "The first proof point is one boring integration loop.",
+      body: "Issue the workspace, pick one host, open one approval, and end with one receipt before you think about a wider SDK rollout."
+    },
+    integrations: {
+      label: "From integrations",
+      title: "Choose one host and close the same trust loop on it.",
+      body: "Do not treat the matrix as the goal. Pick Claude, OpenClaw, or the engineering path, then prove install to approval to receipt on that exact channel."
+    },
+    wallet: {
+      label: "From wallet",
+      title: "You are entering through the operating account view.",
+      body: "Create the workspace first, then use onboarding to issue the runtime and seed one approval so the wallet points at a real governed action."
+    },
+    approvals: {
+      label: "From approvals",
+      title: "The first goal is a real approval request, not a fake success state.",
+      body: "Create the workspace, issue the runtime, and seed one hosted approval so a user can actually review a live action request."
+    },
+    receipts: {
+      label: "From receipts",
+      title: "Receipts only matter once the first live loop is closed.",
+      body: "Use this onboarding path to create the workspace, run one governed action, and bind it to the first readable receipt."
+    },
+    disputes: {
+      label: "From disputes",
+      title: "Recourse starts with a live action record.",
+      body: "Issue the runtime, close one approval-to-receipt loop, and only then test the dispute path from a real governed artifact."
+    },
+    docs_quickstart: {
+      label: "From quickstart",
+      title: "The docs path should still end in the same live proof loop.",
+      body: "Use onboarding to create the workspace and runtime, then let the script or host path prove one real approval and receipt instead of stopping at setup."
+    },
+    support: {
+      label: "From support",
+      title: "The fastest support answer is still one clean activation path.",
+      body: "Create or recover the workspace here, then go straight into the smallest supported host flow so the first action becomes debuggable."
+    }
+  };
+  const onboardingSourceMessage = onboardingSource ? onboardingSourceMessages[onboardingSource] ?? null : null;
 
   return (
     <div className="product-page">
