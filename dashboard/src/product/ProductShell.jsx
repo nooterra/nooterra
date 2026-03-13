@@ -5624,9 +5624,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               </span>
             </a>
             <nav className="workspace-shell-links" aria-label="Secure account navigation">
-              <a href="/product">Product</a>
-              <a href="/pricing">Pricing</a>
-              <a href={docsLinks.quickstart}>Quickstart</a>
+              <a href="/product">Back to product</a>
               <a href="/support">Support</a>
             </nav>
           </div>
@@ -5684,8 +5682,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 )}
                 <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
               </div>
-            </div>
-            <div className="workspace-intake-steprail">
+              <div className="workspace-intake-steprail">
               {setupSteps.map((step, index) => {
                 const active = (step.id === "identity" && hasWorkspace) || (step.id === "runtime" && hasRuntime) || (step.id === "proof" && hasProofLoop);
                 return (
@@ -5696,6 +5693,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   </article>
                 );
               })}
+              </div>
             </div>
           </div>
 
