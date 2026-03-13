@@ -5572,6 +5572,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     }
   };
   const onboardingSourceMessage = onboardingSource ? onboardingSourceMessages[onboardingSource] ?? null : null;
+  const forceAccountIntake = standaloneMode && Boolean(onboardingSourceMessage);
 
   if (standaloneMode) {
     const setupSteps = [
@@ -5610,6 +5611,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     const hasWorkspace = Boolean(buyer);
     const hasRuntime = Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId);
     const hasProofLoop = Boolean(firstPaidCallState.history.length);
+    const showAccountIntake = forceAccountIntake || !hasWorkspace;
     const recoveryReady = Boolean(String(loginForm.tenantId ?? "").trim() && String(loginForm.email ?? "").trim());
 
     return (
@@ -5634,7 +5636,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <div className="workspace-intake-head">
             <p className="product-kicker">Secure account setup</p>
             <h1>
-              {!hasWorkspace
+              {showAccountIntake
                 ? "Create your workspace."
                 : !hasRuntime
                   ? "Issue the runtime."
@@ -5643,7 +5645,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     : "Create the first hosted approval."}
             </h1>
             <p className="product-lead">
-              {!hasWorkspace
+              {showAccountIntake
                 ? "Start on the form immediately. Create one real workspace owner, then let this same page unlock the runtime and the first governed action."
                 : !hasRuntime
                   ? "The account boundary is live. Issue one shared Action Wallet runtime next so every host uses the same authority boundary."
@@ -5688,13 +5690,17 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 <a className="product-button product-button-ghost" href="/support">Contact support</a>
               </div>
             </section>
-          ) : !hasWorkspace ? (
+          ) : showAccountIntake ? (
             <div className="workspace-intake-layout workspace-intake-layout-account">
               <section className="workspace-intake-card workspace-intake-card-primary workspace-intake-formcard workspace-intake-formcard-primary" id="account-create">
               <div className="workspace-intake-panel-head">
                 <p>Account creation</p>
-                <h2>Create the account now.</h2>
-                <span>One operator, one company, one workspace. Keep the runtime and proof loop hidden until this step is done.</span>
+                <h2>{hasWorkspace ? "Start from a clean account step." : "Create the account now."}</h2>
+                <span>
+                  {hasWorkspace
+                    ? "This route always starts at account creation first. Use the existing-workspace lane if you want to keep the current session."
+                    : "One operator, one company, one workspace. Keep the runtime and proof loop hidden until this step is done."}
+                </span>
               </div>
                   <div className="product-section-head compact">
                     <p>New workspace</p>
@@ -5815,6 +5821,25 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     <small>The runtime, approval, receipt, and dispute stay hidden until the account exists.</small>
                   </article>
                 </div>
+                {hasWorkspace ? (
+                  <div className="workspace-intake-sidecard-copy">
+                    <div className="product-section-head compact">
+                      <p>Current session</p>
+                      <h3>{buyer.tenantId} is already signed in.</h3>
+                    </div>
+                    <p className="product-card-body-copy">
+                      Continue with the existing workspace only if you explicitly want to skip straight to runtime and proof. Otherwise create or recover a different workspace from this page.
+                    </p>
+                    <div className="workspace-intake-actions">
+                      <a className="product-button product-button-solid" href="#runtime-bootstrap">
+                        Continue with current workspace
+                      </a>
+                      <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
+                        {busyState === "logout" ? "Signing out..." : "Sign out first"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="workspace-intake-sidecard-copy">
                   <div className="product-section-head compact">
                     <p>Return to workspace</p>
