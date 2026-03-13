@@ -5588,28 +5588,6 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           : "The first run should end with one hosted approval, one receipt, and one visible recourse path."
       }
     ];
-    const supportLinks = [
-      { label: "Launch host guide", href: docsLinks.hostQuickstart },
-      { label: "Docs", href: docsLinks.home },
-      { label: "Support", href: "/support" }
-    ];
-    const accountStatusCards = [
-      {
-        label: "Workspace",
-        value: buyer ? buyer.tenantId : "Not issued",
-        detail: buyer ? `${buyer.email} · ${buyer.role}` : "Create the account first."
-      },
-      {
-        label: "Runtime",
-        value: bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "Pending",
-        detail: bootstrapBundle?.bootstrap?.apiKey?.keyId ? "Shared Action Wallet bundle is ready." : "Bootstrap appears after account creation."
-      },
-      {
-        label: "Proof loop",
-        value: firstPaidCallState.history.length ? `${firstPaidCallState.history.length} attempt${firstPaidCallState.history.length === 1 ? "" : "s"}` : "Not started",
-        detail: firstPaidCallState.history.length ? "Receipt and dispute stay attached to the same action." : "Seed one hosted approval and finish one governed action."
-      }
-    ];
     const standaloneStatusTone = authPlaneUnavailable
       ? "workspace-account-note-bad"
       : /failed|error|unavailable/i.test(statusMessage)
@@ -5619,138 +5597,121 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           : "workspace-account-note";
 
     return (
-      <section className="workspace-account-shell">
-        <div className="workspace-account-topbar">
-          <a className="workspace-account-brand" href="/">
-            <span className="workspace-account-brand-mark"><ShieldCheck size={16} /></span>
+      <section className="workspace-handoff-shell">
+        <div className="workspace-handoff-topbar">
+          <a className="workspace-handoff-brand" href="/">
+            <span className="workspace-handoff-brand-mark"><ShieldCheck size={16} /></span>
             <span>
               <strong>Nooterra</strong>
               <small>Secure account setup</small>
             </span>
           </a>
-          <div className="workspace-account-topbar-actions">
-            <a href="/product">Back to product</a>
+          <div className="workspace-handoff-topbar-actions">
             <a href="/support">Support</a>
           </div>
         </div>
 
-        <section className="workspace-account-stage" id="identity-access">
-          <div className="workspace-account-intro">
-            <p className="workspace-account-kicker">Account handoff</p>
-            <h1>{buyer ? "The account is live. Close the first governed action." : "Create the account first."}</h1>
-            <p className="workspace-account-lead">
+        <section className="workspace-handoff-layout" id="identity-access">
+          <div className="workspace-handoff-copy">
+            <p className="workspace-handoff-kicker">Account handoff</p>
+            <h1>{buyer ? "The account is real. Now prove one live action." : "Create the account first."}</h1>
+            <p className="workspace-handoff-lead">
               {buyer
-                ? "Keep the first live loop narrow: issue one runtime, use one host, and end with one approval, one receipt, and one visible dispute path."
-                : "This should feel like a clean account handoff, not an internal dashboard. Create one workspace owner now, then unlock runtime and the first proof loop after the account is real."}
+                ? "Keep the first loop narrow: one runtime, one host, one approval, one receipt, one visible path back."
+                : "The secure step should feel like account creation, not a dashboard. Create one workspace owner, then unlock runtime and the first governed action after the account is real."}
             </p>
             {onboardingSourceMessage ? (
-              <div className="workspace-account-callout">
+              <div className="workspace-handoff-callout">
                 <strong>{onboardingSourceMessage.label}</strong>
                 <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
               </div>
             ) : null}
-
-            <div className="workspace-account-rail" aria-label="Account setup progress">
+            <ol className="workspace-handoff-steps" aria-label="Account setup progress">
               {setupSteps.map((step, index) => (
-                <article key={`account_step:${step.id}`} className="workspace-account-rail-card">
+                <li key={`handoff_step:${step.id}`} className="workspace-handoff-step">
                   <span>{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{step.title}</strong>
-                  <p>{step.body}</p>
-                </article>
+                  <div>
+                    <strong>{step.title}</strong>
+                    <p>{step.body}</p>
+                  </div>
+                </li>
               ))}
-            </div>
+            </ol>
           </div>
 
-          <article className="workspace-account-card">
+          <article className="workspace-handoff-card">
             {authPlaneUnavailable ? (
-              <div className="workspace-account-outage">
-                <div className="workspace-account-panel-head">
+              <div className="workspace-handoff-stack">
+                <div className="workspace-handoff-panel-head">
                   <p>Hosted onboarding paused</p>
                   <h2>The auth plane is unavailable.</h2>
                 </div>
-                <div className="workspace-account-note workspace-account-note-bad">
+                <div className="workspace-handoff-note workspace-handoff-note-bad">
                   <strong>Account creation fails closed right now.</strong>
                   <span>{authPlaneError}</span>
                 </div>
-                <p className="workspace-account-panel-copy">
-                  The public site stays available, but workspace creation and sign-in stop until the auth plane answers again.
+                <p className="workspace-handoff-panel-copy">
+                  The public site stays live, but workspace creation and sign-in stop until the auth plane answers again.
                 </p>
-                <div className="workspace-account-actions">
-                  <a className="workspace-account-button workspace-account-button-solid" href="/status">View live status</a>
-                  <a className="workspace-account-button workspace-account-button-ghost" href="/support">Contact support</a>
+                <div className="workspace-handoff-actions">
+                  <a className="workspace-handoff-button workspace-handoff-button-solid" href="/status">View live status</a>
+                  <a className="workspace-handoff-button workspace-handoff-button-ghost" href="/support">Contact support</a>
                 </div>
               </div>
             ) : buyer ? (
-              <div className="workspace-account-card-grid">
-                <section className="workspace-account-pane workspace-account-pane-primary">
-                  <div className="workspace-account-panel-head">
-                    <p>Workspace status</p>
-                    <h2>The boundary is real.</h2>
-                  </div>
-                  <p className="workspace-account-panel-copy">
-                    Approvals, receipts, and disputes now bind back to one workspace owner instead of floating in host-local state.
-                  </p>
-                  <div className="workspace-account-status-grid">
-                    {accountStatusCards.map((card) => (
-                      <div key={`account_status:${card.label}`} className="workspace-account-status-card">
-                        <span>{card.label}</span>
-                        <strong>{card.value}</strong>
-                        <p>{card.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="workspace-account-actions">
-                    {!bootstrapBundle?.bootstrap?.apiKey?.keyId ? (
-                      <button className="workspace-account-button workspace-account-button-solid" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
-                        {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
-                      </button>
-                    ) : (
-                      <a className="workspace-account-button workspace-account-button-solid" href="#first-governed-action">
-                        Open the first proof loop
-                      </a>
-                    )}
-                    <a className="workspace-account-button workspace-account-button-ghost" href="/wallet">Open Action Wallet</a>
-                  </div>
-                </section>
-
-                <aside className="workspace-account-pane workspace-account-pane-secondary">
-                  <div className="workspace-account-panel-head">
-                    <p>What unlocks next</p>
-                    <h2>One host. One approval. One receipt.</h2>
-                  </div>
-                  <div className="workspace-account-next-grid">
-                    <a className="workspace-account-next-card" href={docsLinks.hostQuickstart}>
-                      <span>Host</span>
-                      <strong>Pick the launch host</strong>
-                      <p>Claude MCP is still the cleanest install-to-approval proof path.</p>
+              <div className="workspace-handoff-stack">
+                <div className="workspace-handoff-panel-head">
+                  <p>Workspace ready</p>
+                  <h2>The authority boundary is live.</h2>
+                </div>
+                <p className="workspace-handoff-panel-copy">
+                  Approvals, receipts, and disputes now bind back to one workspace owner instead of floating in host-local state.
+                </p>
+                <div className="workspace-handoff-summary">
+                  <article className="workspace-handoff-summary-card">
+                    <span>Workspace</span>
+                    <strong>{buyer.tenantId}</strong>
+                    <p>{buyer.email} · {buyer.role}</p>
+                  </article>
+                  <article className="workspace-handoff-summary-card">
+                    <span>Runtime</span>
+                    <strong>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "Pending"}</strong>
+                    <p>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? "Shared Action Wallet bundle is ready." : "Bootstrap appears after account creation."}</p>
+                  </article>
+                  <article className="workspace-handoff-summary-card">
+                    <span>Proof loop</span>
+                    <strong>{firstPaidCallState.history.length ? `${firstPaidCallState.history.length} attempt${firstPaidCallState.history.length === 1 ? "" : "s"}` : "Not started"}</strong>
+                    <p>{firstPaidCallState.history.length ? "Receipt and dispute stay attached to the same action." : "Seed one hosted approval and finish one governed action."}</p>
+                  </article>
+                </div>
+                <div className="workspace-handoff-actions">
+                  {!bootstrapBundle?.bootstrap?.apiKey?.keyId ? (
+                    <button className="workspace-handoff-button workspace-handoff-button-solid" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
+                      {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
+                    </button>
+                  ) : (
+                    <a className="workspace-handoff-button workspace-handoff-button-solid" href="#first-governed-action">
+                      Open the first proof loop
                     </a>
-                    <a className="workspace-account-next-card" href="#first-governed-action">
-                      <span>Approval</span>
-                      <strong>Seed the first request</strong>
-                      <p>Use the host guide or onboarding console to generate one live approval.</p>
-                    </a>
-                    <a className="workspace-account-next-card" href="/receipts">
-                      <span>Receipt</span>
-                      <strong>Keep the proof visible</strong>
-                      <p>Every real action should end with a receipt and visible recourse.</p>
-                    </a>
-                  </div>
-                </aside>
+                  )}
+                  <a className="workspace-handoff-button workspace-handoff-button-ghost" href={docsLinks.hostQuickstart}>Open launch host guide</a>
+                  <a className="workspace-handoff-button workspace-handoff-button-ghost" href="/receipts">Open receipts</a>
+                </div>
               </div>
             ) : (
-              <div className="workspace-account-card-grid">
-                <section className="workspace-account-pane workspace-account-pane-primary">
-                  <div className="workspace-account-panel-head">
+              <div className="workspace-handoff-auth">
+                <section className="workspace-handoff-panel">
+                  <div className="workspace-handoff-panel-head">
                     <p>New workspace</p>
                     <h2>Create one real workspace owner.</h2>
                   </div>
-                  <p className="workspace-account-panel-copy">
+                  <p className="workspace-handoff-panel-copy">
                     This is the only setup users should really feel. Once the workspace exists, the same account unlocks runtime bootstrap, hosted approval, receipt, and dispute.
                   </p>
 
                   {authMode?.publicSignupEnabled !== false ? (
                     <>
-                      <div className="workspace-account-form-grid">
+                      <div className="workspace-handoff-form-grid">
                         <label>
                           <span>Work email</span>
                           <input
@@ -5785,36 +5746,36 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                         </label>
                       </div>
 
-                      <div className="workspace-account-note">
+                      <div className="workspace-handoff-note">
                         <strong>Choose the first path.</strong>
                         <span>Use passkey for the fastest secure setup, or create the workspace by email and finish sign-in with a six-digit recovery code.</span>
                       </div>
 
-                  <div className="workspace-account-actions workspace-account-actions-stack">
-                        <button className="workspace-account-button workspace-account-button-solid" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                      <div className="workspace-handoff-actions workspace-handoff-actions-stack">
+                        <button className="workspace-handoff-button workspace-handoff-button-solid" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
                           {busyState === "passkey_signup" ? "Creating..." : "Create workspace + save passkey"}
                         </button>
-                        <button className="workspace-account-button workspace-account-button-ghost" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
+                        <button className="workspace-handoff-button workspace-handoff-button-ghost" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
                           {busyState === "signup" ? "Sending code..." : "Create workspace with email code"}
                         </button>
                       </div>
-                      <div className={`workspace-account-note ${standaloneStatusTone}`}>
+                      <div className={`workspace-handoff-note ${standaloneStatusTone.replace("workspace-account", "workspace-handoff")}`}>
                         <strong>Current status</strong>
                         <span>{statusMessage}</span>
                       </div>
-                      {signupValidationError ? <div className="workspace-account-note workspace-account-note-warn">{signupValidationError}</div> : null}
+                      {signupValidationError ? <div className="workspace-handoff-note workspace-handoff-note-warn">{signupValidationError}</div> : null}
 
                       {(String(loginForm.tenantId ?? "").trim() && String(loginForm.email ?? "").trim()) ? (
-                        <div className="workspace-account-subsection">
-                          <div className="workspace-account-panel-head">
+                        <div className="workspace-handoff-inline">
+                          <div className="workspace-handoff-panel-head">
                             <p>Email handoff</p>
                             <h2>Finish sign-in with the code.</h2>
                           </div>
-                          <p className="workspace-account-panel-copy">
+                          <p className="workspace-handoff-panel-copy">
                             We use the same tenant and email from the workspace you just created. Request or reuse the latest six-digit recovery code, then continue into runtime bootstrap.
                           </p>
-                          <div className="workspace-account-form-grid">
-                            <label className="workspace-account-form-wide">
+                          <div className="workspace-handoff-form-grid">
+                            <label className="workspace-handoff-form-wide">
                               <span>Recovery code</span>
                               <input
                                 value={loginForm.code}
@@ -5824,36 +5785,35 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                               />
                             </label>
                           </div>
-                          <div className="workspace-account-actions">
-                            <button className="workspace-account-button workspace-account-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                          <div className="workspace-handoff-actions">
+                            <button className="workspace-handoff-button workspace-handoff-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                               {busyState === "otp" ? "Issuing..." : "Request recovery code"}
                             </button>
-                            <button className="workspace-account-button workspace-account-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                            <button className="workspace-handoff-button workspace-handoff-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                               {busyState === "verify" ? "Verifying..." : "Use recovery code"}
                             </button>
                           </div>
-                          {recoveryCodeError ? <div className="workspace-account-note workspace-account-note-warn">{recoveryCodeError}</div> : null}
+                          {recoveryCodeError ? <div className="workspace-handoff-note workspace-handoff-note-warn">{recoveryCodeError}</div> : null}
                         </div>
                       ) : null}
                     </>
                   ) : (
-                    <div className="workspace-account-note workspace-account-note-bad">
+                    <div className="workspace-handoff-note workspace-handoff-note-bad">
                       <strong>Public signup is disabled.</strong>
                       <span>Use the returning workspace lane with an existing tenant and saved device key.</span>
                     </div>
                   )}
                 </section>
 
-                <aside className="workspace-account-pane workspace-account-pane-secondary">
-                  <div className="workspace-account-panel-head">
+                <section className="workspace-handoff-panel workspace-handoff-panel-secondary">
+                  <div className="workspace-handoff-panel-head">
                     <p>Already have a workspace?</p>
-                    <h2>Use the saved device key.</h2>
+                    <h2>Return with the saved key or recovery code.</h2>
                   </div>
-                  <p className="workspace-account-panel-copy">
-                    Returning operators should get one simple move too: enter the tenant, prove the saved browser key, and step back into runtime and receipts without rebuilding anything.
+                  <p className="workspace-handoff-panel-copy">
+                    Returning operators should get one clean move too: use the device key if it exists, or recover by email without rebuilding anything.
                   </p>
-
-                  <div className="workspace-account-form-grid">
+                  <div className="workspace-handoff-form-grid">
                     <label>
                       <span>Existing tenant</span>
                       <input
@@ -5870,7 +5830,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                         placeholder="founder@company.com"
                       />
                     </label>
-                    <label className="workspace-account-form-wide">
+                    <label className="workspace-handoff-form-wide">
                       <span>Device label</span>
                       <input
                         value={passkeyForm.label}
@@ -5879,26 +5839,25 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                       />
                     </label>
                   </div>
-
-                  <div className="workspace-account-actions">
-                    <button className="workspace-account-button workspace-account-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                  <div className="workspace-handoff-actions">
+                    <button className="workspace-handoff-button workspace-handoff-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
                       {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
                     </button>
                   </div>
-                  <div className={`workspace-account-note ${standaloneStatusTone}`}>
+                  <div className={`workspace-handoff-note ${standaloneStatusTone.replace("workspace-account", "workspace-handoff")}`}>
                     <strong>Current status</strong>
                     <span>{statusMessage}</span>
                   </div>
-                  {loginIdentityError ? <div className="workspace-account-note workspace-account-note-warn">{loginIdentityError}</div> : null}
+                  {loginIdentityError ? <div className="workspace-handoff-note workspace-handoff-note-warn">{loginIdentityError}</div> : null}
 
-                  <details className="workspace-account-details">
+                  <details className="workspace-handoff-details">
                     <summary>Recover this workspace by email</summary>
-                    <div className="workspace-account-note workspace-account-note-warn">
+                    <div className="workspace-handoff-note workspace-handoff-note-warn">
                       <strong>Use this if the device key is missing.</strong>
                       <span>Use the same tenant and sign-in email, then request and verify a six-digit recovery code.</span>
                     </div>
-                    <div className="workspace-account-form-grid">
-                      <label className="workspace-account-form-wide">
+                    <div className="workspace-handoff-form-grid">
+                      <label className="workspace-handoff-form-wide">
                         <span>Recovery code</span>
                         <input
                           value={loginForm.code}
@@ -5908,17 +5867,17 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                         />
                       </label>
                     </div>
-                    <div className="workspace-account-actions">
-                      <button className="workspace-account-button workspace-account-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                    <div className="workspace-handoff-actions">
+                      <button className="workspace-handoff-button workspace-handoff-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                         {busyState === "otp" ? "Issuing..." : "Request recovery code"}
                       </button>
-                      <button className="workspace-account-button workspace-account-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                      <button className="workspace-handoff-button workspace-handoff-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                         {busyState === "verify" ? "Verifying..." : "Use recovery code"}
                       </button>
                     </div>
-                    {recoveryCodeError ? <div className="workspace-account-note workspace-account-note-warn">{recoveryCodeError}</div> : null}
+                    {recoveryCodeError ? <div className="workspace-handoff-note workspace-handoff-note-warn">{recoveryCodeError}</div> : null}
                   </details>
-                </aside>
+                </section>
               </div>
             )}
           </article>
