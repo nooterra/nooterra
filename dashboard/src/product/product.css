@@ -3758,3 +3758,408 @@ textarea {
     font-size: clamp(2.4rem, 17vw, 4rem);
   }
 }
+
+.account-reset-shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1rem, 2.8vw, 1.75rem) clamp(0.85rem, 3vw, 1.4rem) 3.25rem;
+}
+
+.account-reset-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-reset-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  text-decoration: none;
+}
+
+.account-reset-brand-mark {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at top, rgba(210, 176, 111, 0.22), transparent 55%),
+    linear-gradient(135deg, rgba(35, 126, 111, 0.98), rgba(16, 61, 56, 0.98));
+}
+
+.account-reset-brand strong {
+  display: block;
+  color: #f7f2e8;
+  font-size: 1.02rem;
+}
+
+.account-reset-brand small,
+.account-reset-kicker,
+.account-reset-step span,
+.account-reset-panel-head p,
+.account-reset-stage-head p,
+.account-reset-summary-card span {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.82);
+}
+
+.account-reset-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.account-reset-topbar-actions a {
+  color: rgba(234, 240, 246, 0.76);
+  text-decoration: none;
+  font-size: 0.94rem;
+}
+
+.account-reset-topbar-actions a:hover {
+  color: #f5efe6;
+}
+
+.account-reset-main,
+.account-reset-stage,
+.account-reset-step,
+.account-reset-panel,
+.account-reset-summary-card {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(180deg, rgba(7, 11, 18, 0.96), rgba(10, 15, 24, 0.93)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.1), transparent 16rem);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.28);
+}
+
+.account-reset-main {
+  display: grid;
+  gap: 1.1rem;
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, rgba(5, 9, 16, 0.98), rgba(8, 12, 20, 0.96)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.14), transparent 18rem),
+    radial-gradient(circle at 82% 16%, rgba(35, 126, 111, 0.14), transparent 20rem);
+}
+
+.account-reset-hero {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.1fr) minmax(19rem, 0.9fr);
+  align-items: start;
+}
+
+.account-reset-copy {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.account-reset-copy h1 {
+  margin: 0;
+  max-width: 10.5ch;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(3rem, 6vw, 4.9rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+  color: #f7f2e8;
+}
+
+.account-reset-lead,
+.account-reset-callout span,
+.account-reset-step p,
+.account-reset-stage-copy,
+.account-reset-panel-copy,
+.account-reset-note span,
+.account-reset-summary-card p {
+  margin: 0;
+  color: rgba(229, 236, 244, 0.8);
+  line-height: 1.62;
+  font-size: 0.99rem;
+}
+
+.account-reset-callout,
+.account-reset-note {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.account-reset-callout strong,
+.account-reset-step strong,
+.account-reset-stage-head h2,
+.account-reset-panel-head h3,
+.account-reset-note strong,
+.account-reset-summary-card strong {
+  color: #f7f2e8;
+}
+
+.account-reset-progress {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.account-reset-step {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+  min-height: 8.6rem;
+}
+
+.account-reset-step.is-active {
+  border-color: rgba(68, 173, 144, 0.32);
+  background:
+    linear-gradient(180deg, rgba(8, 18, 18, 0.96), rgba(9, 16, 20, 0.94)),
+    radial-gradient(circle at top right, rgba(35, 126, 111, 0.18), transparent 12rem);
+}
+
+.account-reset-stage {
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem;
+  border-radius: 28px;
+}
+
+.account-reset-stage-outage {
+  background:
+    linear-gradient(180deg, rgba(15, 10, 12, 0.96), rgba(18, 10, 14, 0.94)),
+    radial-gradient(circle at top right, rgba(210, 112, 102, 0.18), transparent 15rem);
+}
+
+.account-reset-stage-head,
+.account-reset-panel-head {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.account-reset-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.12fr) minmax(18rem, 0.88fr);
+}
+
+.account-reset-panel {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.1rem;
+  border-radius: 24px;
+}
+
+.account-reset-panel-primary {
+  background:
+    linear-gradient(180deg, rgba(11, 18, 30, 0.96), rgba(10, 16, 24, 0.94)),
+    radial-gradient(circle at top left, rgba(35, 126, 111, 0.15), transparent 14rem);
+}
+
+.account-reset-panel-secondary {
+  background:
+    linear-gradient(180deg, rgba(12, 16, 25, 0.84), rgba(13, 18, 28, 0.74)),
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.12), transparent 15rem);
+}
+
+.account-reset-summary {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.account-reset-summary-card {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 8.4rem;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+}
+
+.account-reset-actions,
+.account-reset-actions-stack {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.account-reset-actions-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-reset-form-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-reset-form-wide {
+  grid-column: 1 / -1;
+}
+
+.account-reset-form-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.account-reset-form-grid label span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.8);
+}
+
+.account-reset-form-grid input {
+  width: 100%;
+  min-height: 3.1rem;
+  padding: 0.92rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5efe6;
+}
+
+.account-reset-form-grid input::placeholder {
+  color: rgba(229, 236, 244, 0.38);
+}
+
+.account-reset-form-grid input:focus {
+  outline: none;
+  border-color: rgba(210, 176, 111, 0.56);
+  box-shadow: 0 0 0 1px rgba(210, 176, 111, 0.26), 0 0 0 6px rgba(210, 176, 111, 0.08);
+}
+
+.account-reset-button {
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 0.92rem 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.account-reset-button:hover {
+  transform: translateY(-1px);
+}
+
+.account-reset-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.account-reset-button-solid {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(35, 126, 111, 0.98), rgba(24, 92, 80, 0.98));
+  color: #f4fbf8;
+  box-shadow: 0 18px 36px rgba(12, 58, 52, 0.24);
+}
+
+.account-reset-button-ghost {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #eef3f8;
+}
+
+.account-reset-inline {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.account-reset-note-neutral {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.account-reset-note-warn {
+  border-color: rgba(210, 176, 111, 0.26);
+  background: rgba(210, 176, 111, 0.08);
+}
+
+.account-reset-note-bad {
+  border-color: rgba(210, 112, 102, 0.28);
+  background: rgba(210, 112, 102, 0.08);
+}
+
+.account-reset-note-good {
+  border-color: rgba(68, 173, 144, 0.28);
+  background: rgba(68, 173, 144, 0.09);
+}
+
+.account-reset-details {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.95rem 1rem;
+}
+
+.account-reset-details summary {
+  cursor: pointer;
+  color: #f5efe6;
+  font-weight: 700;
+}
+
+@media (max-width: 1040px) {
+  .account-reset-hero,
+  .account-reset-grid,
+  .account-reset-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .account-reset-topbar,
+  .account-reset-actions {
+    align-items: flex-start;
+  }
+
+  .account-reset-actions-stack,
+  .account-reset-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .account-reset-shell {
+    padding-inline: 0.78rem;
+  }
+
+  .account-reset-main,
+  .account-reset-stage,
+  .account-reset-panel,
+  .account-reset-step,
+  .account-reset-summary-card {
+    padding: 1rem;
+  }
+
+  .account-reset-button {
+    width: 100%;
+  }
+
+  .account-reset-copy h1 {
+    font-size: clamp(2.4rem, 17vw, 4rem);
+  }
+}
