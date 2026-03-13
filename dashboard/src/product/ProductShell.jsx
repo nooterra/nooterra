@@ -5606,87 +5606,107 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         : "Keep one hosted approval, one receipt, and one visible recourse path in front of you until the loop feels boring.";
 
     return (
-      <div className="account-entry-page">
-        <header className="account-entry-header">
-          <div className="account-entry-header-inner">
-            <a className="account-entry-brand" href="/">
-              <span className="account-entry-brand-mark"><ShieldCheck size={16} /></span>
+      <div className="lovable-site min-h-screen bg-[#07090d] text-stone-100">
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+          <div className="lovable-grid absolute inset-0 opacity-35" />
+          <div className="lovable-orb lovable-orb-a" />
+          <div className="lovable-orb lovable-orb-b" />
+        </div>
+
+        <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#080b10]/80 backdrop-blur-xl">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
+            <a href="/" className="flex items-center gap-3 group">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(35,126,111,0.98),rgba(16,61,56,0.98))] text-stone-100 shadow-[0_18px_32px_rgba(0,0,0,0.25)]">
+                <ShieldCheck size={18} />
+              </span>
               <span>
-                <strong>Nooterra</strong>
-                <small>{showAccountIntake ? "Secure account setup" : "Secure handoff"}</small>
+                <span className="block text-xl tracking-tight text-stone-100 transition-colors duration-300 group-hover:text-[#d2b06f]" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Nooterra
+                </span>
+                <span className="block text-[0.68rem] uppercase tracking-[0.28em] text-[#d2b06f]/80">
+                  {showAccountIntake ? "Secure account setup" : "Secure handoff"}
+                </span>
               </span>
             </a>
-            <nav className="account-entry-header-links" aria-label="Secure account navigation">
-              <a href="/product">Product</a>
-              <a href="/pricing">Pricing</a>
-              <a href="/docs/quickstart">Quickstart</a>
-              <a href="/support">Support</a>
-            </nav>
-          </div>
-        </header>
 
-        <main className="account-entry-main" id="identity-access">
-          <section className="account-entry-hero">
-            <p className="account-entry-kicker">{showAccountIntake ? "Secure account setup" : "Account handoff"}</p>
-            <h1>{secureEntryHeading}</h1>
-            <p className="account-entry-lead">{secureEntryLead}</p>
+            <div className="hidden items-center gap-8 lg:flex">
+              <a href="/product" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Product</a>
+              <a href="/docs/quickstart" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Quickstart</a>
+              <a href="/support" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Support</a>
+            </div>
+          </div>
+        </nav>
+
+        <main className="relative mx-auto flex max-w-7xl flex-col gap-8 px-6 pb-20 pt-28 lg:px-8" id="identity-access">
+          <section className="max-w-3xl">
+            <p className="mb-4 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-[#d2b06f]/80">
+              {showAccountIntake ? "Secure account setup" : "Workspace ready"}
+            </p>
+            <h1 className="max-w-4xl text-[clamp(3.3rem,8vw,6.4rem)] leading-[0.92] tracking-[-0.07em] text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              {secureEntryHeading}
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-stone-300">
+              {secureEntryLead}
+            </p>
             {onboardingSourceMessage ? (
-              <div className={`account-entry-note ${standaloneStatusTone}`}>
-                <strong>{onboardingSourceMessage.label}</strong>
-                <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
+              <div className={`mt-6 rounded-3xl border border-white/10 bg-white/5 p-5 ${standaloneStatusTone}`}>
+                <strong className="block text-sm text-stone-100">{onboardingSourceMessage.label}</strong>
+                <span className="mt-2 block text-sm leading-7 text-stone-300">{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
               </div>
             ) : null}
-            <div className="account-entry-progress">
-              <article className={`account-entry-progress-item${hasWorkspace ? " is-active" : ""}`}>
-                <span>01</span>
-                <strong>{hasWorkspace ? "Workspace is live" : "Create the workspace"}</strong>
-                <p>{hasWorkspace ? workspaceTenantLabel : "One real operator and one real company."}</p>
+            <div className="mt-8 grid gap-3 md:grid-cols-3" aria-label="Secure account progress">
+              <article className={`lovable-stat-card ${hasWorkspace ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
+                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">01</span>
+                <strong className="block text-base text-stone-100">{hasWorkspace ? "Workspace live" : "Create workspace"}</strong>
+                <p className="mt-2 text-sm leading-6 text-stone-400">{hasWorkspace ? workspaceTenantLabel : "One real owner and one real trust boundary."}</p>
               </article>
-              <article className={`account-entry-progress-item${hasRuntime ? " is-active" : ""}`}>
-                <span>02</span>
-                <strong>{hasRuntime ? "Runtime issued" : "Issue the runtime"}</strong>
-                <p>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "One shared authority boundary for every host."}</p>
+              <article className={`lovable-stat-card ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
+                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">02</span>
+                <strong className="block text-base text-stone-100">{hasRuntime ? "Runtime ready" : "Issue runtime"}</strong>
+                <p className="mt-2 text-sm leading-6 text-stone-400">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "One shared authority boundary for every host."}</p>
               </article>
-              <article className={`account-entry-progress-item${hasProofLoop ? " is-active" : ""}`}>
-                <span>03</span>
-                <strong>{hasProofLoop ? "First proof loop visible" : "Close one proof loop"}</strong>
-                <p>{hasProofLoop ? `${firstPaidCallState.history.length} governed run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Approval, receipt, and recourse stay visible."}</p>
+              <article className={`lovable-stat-card ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
+                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">03</span>
+                <strong className="block text-base text-stone-100">{hasProofLoop ? "Proof loop visible" : "Close one loop"}</strong>
+                <p className="mt-2 text-sm leading-6 text-stone-400">{hasProofLoop ? `${firstPaidCallState.history.length} governed run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Approval, receipt, and recourse stay visible."}</p>
               </article>
             </div>
           </section>
 
           {authPlaneUnavailable ? (
-            <section className="account-entry-panel account-entry-panel-primary">
-              <div className="account-entry-panel-head">
-                <p>Hosted onboarding paused</p>
-                <h2>The auth plane is unavailable.</h2>
-                <span>Account creation and sign-in fail closed until the secure auth service answers again.</span>
-              </div>
-              <div className="account-entry-note account-reset-note-bad">
-                <strong>Account creation is paused right now.</strong>
-                <span>{authPlaneError}</span>
-              </div>
-              <div className="account-entry-actions">
-                <a className="product-button product-button-solid" href="/status">View live status</a>
-                <a className="product-button product-button-ghost" href="/support">Contact support</a>
-              </div>
+            <section className="grid gap-6">
+              <section className="lovable-panel lovable-panel-strong max-w-3xl">
+                <div className="space-y-2">
+                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Hosted onboarding paused</p>
+                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>The auth plane is unavailable.</h2>
+                  <p className="text-base leading-7 text-stone-300">Account creation and sign-in fail closed until the secure auth service answers again.</p>
+                </div>
+                <div className="mt-5 rounded-3xl border border-rose-500/25 bg-rose-500/10 p-5 text-sm leading-7 text-rose-100">
+                  <strong className="block text-stone-100">Account creation is paused right now.</strong>
+                  <span className="mt-2 block">{authPlaneError}</span>
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <a className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90" href="/status">View live status</a>
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/support">Contact support</a>
+                </div>
+              </section>
             </section>
           ) : showAccountIntake ? (
-            <section className="account-entry-intake">
-              <section className="account-entry-panel account-entry-panel-primary" id="account-create">
-                <div className="account-entry-panel-head">
-                  <p>{loginFirstMode ? "Return to workspace" : "New workspace"}</p>
-                  <h2>{loginFirstMode ? "Sign back in." : "Create the account first."}</h2>
-                  <span>
+            <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_360px]">
+              <section className="lovable-panel lovable-panel-strong" id="account-create">
+                <div className="space-y-2">
+                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">{loginFirstMode ? "Return to workspace" : "New workspace"}</p>
+                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{loginFirstMode ? "Sign back in." : "Create the account first."}</h2>
+                  <p className="text-base leading-7 text-stone-300">
                     {loginFirstMode
                       ? "Use the same tenant and browser key when possible. Email recovery stays available if the passkey is missing."
-                      : "Create one workspace owner, then unlock runtime and the first governed action on this same page."}
-                  </span>
+                      : "Create one workspace owner first. Runtime bootstrap and the first governed action only unlock after the secure account exists."}
+                  </p>
                 </div>
                 {!loginFirstMode ? (
                   authMode?.publicSignupEnabled !== false ? (
                     <>
-                      <div className="account-entry-form-grid">
+                      <div className="account-entry-form-grid mt-6">
                         <label>
                           <span>Work email</span>
                           <input
@@ -5720,23 +5740,23 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                           />
                         </label>
                       </div>
-                      <div className="account-entry-note account-reset-note-neutral">
-                        <strong>Fastest path</strong>
-                        <span>Create the workspace with an email code first, then save a passkey for fast return on this browser.</span>
+                      <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-5 text-sm leading-7 text-stone-300">
+                        <strong className="block text-stone-100">Fastest path</strong>
+                        <span className="mt-2 block">Create the workspace with an email code first, then save a passkey for fast return on this browser.</span>
                       </div>
-                      {signupValidationError ? <div className="account-entry-note account-reset-note-warn">{signupValidationError}</div> : null}
-                      <div className="account-entry-actions">
-                        <button className="product-button product-button-solid" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
+                      {signupValidationError ? <div className="mt-5 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{signupValidationError}</div> : null}
+                      <div className="mt-6 flex flex-wrap gap-3">
+                        <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
                           {busyState === "signup" ? "Sending code..." : "Create workspace"}
                         </button>
-                        <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                        <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
                           {busyState === "passkey_signup" ? "Creating..." : "Create with passkey"}
                         </button>
                       </div>
                       {recoveryReady ? (
-                        <details className="product-details">
+                        <details className="product-details mt-6">
                           <summary>Already have the email code?</summary>
-                          <div className="account-entry-form-grid account-entry-form-grid-single">
+                          <div className="account-entry-form-grid account-entry-form-grid-single mt-4">
                             <label>
                               <span>Recovery code</span>
                               <input
@@ -5747,27 +5767,27 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                               />
                             </label>
                           </div>
-                          <div className="account-entry-actions">
-                            <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                               {busyState === "otp" ? "Issuing..." : "Request recovery code"}
                             </button>
-                            <button className="product-button product-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                            <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                               {busyState === "verify" ? "Verifying..." : "Use recovery code"}
                             </button>
                           </div>
-                          {recoveryCodeError ? <div className="account-entry-note account-reset-note-warn">{recoveryCodeError}</div> : null}
+                          {recoveryCodeError ? <div className="mt-4 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{recoveryCodeError}</div> : null}
                         </details>
                       ) : null}
                     </>
                   ) : (
-                    <div className="account-entry-note account-reset-note-bad">
-                      <strong>Public signup is disabled.</strong>
-                      <span>Use the return flow with an existing tenant and saved device key.</span>
+                    <div className="mt-5 rounded-3xl border border-rose-500/25 bg-rose-500/10 p-5 text-sm leading-7 text-rose-100">
+                      <strong className="block text-stone-100">Public signup is disabled.</strong>
+                      <span className="mt-2 block">Use the return flow with an existing tenant and saved device key.</span>
                     </div>
                   )
                 ) : (
                   <>
-                    <div className="account-entry-form-grid">
+                    <div className="account-entry-form-grid mt-6">
                       <label>
                         <span>Existing tenant</span>
                         <input
@@ -5793,15 +5813,15 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                         />
                       </label>
                     </div>
-                    <div className="account-entry-actions">
-                      <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                    <div className="mt-6 flex flex-wrap gap-3">
+                      <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
                         {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
                       </button>
                     </div>
-                    {loginIdentityError ? <div className="account-entry-note account-reset-note-warn">{loginIdentityError}</div> : null}
-                    <details className="product-details">
+                    {loginIdentityError ? <div className="mt-5 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{loginIdentityError}</div> : null}
+                    <details className="product-details mt-6">
                       <summary>Recover by email</summary>
-                      <div className="account-entry-form-grid account-entry-form-grid-single">
+                      <div className="account-entry-form-grid account-entry-form-grid-single mt-4">
                         <label>
                           <span>Recovery code</span>
                           <input
@@ -5812,108 +5832,83 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                           />
                         </label>
                       </div>
-                      <div className="account-entry-actions">
-                        <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                           {busyState === "otp" ? "Issuing..." : "Request recovery code"}
                         </button>
-                        <button className="product-button product-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                        <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                           {busyState === "verify" ? "Verifying..." : "Use recovery code"}
                         </button>
                       </div>
-                      {recoveryCodeError ? <div className="account-entry-note account-reset-note-warn">{recoveryCodeError}</div> : null}
+                      {recoveryCodeError ? <div className="mt-4 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{recoveryCodeError}</div> : null}
                     </details>
                   </>
                 )}
               </section>
 
-              <aside className="account-entry-panel account-entry-panel-secondary">
-                <div className="account-entry-panel-head">
-                  <p>{loginFirstMode ? "What unlocks next" : "Already have a workspace?"}</p>
-                  <h2>{loginFirstMode ? "Then go straight into one live loop." : "Return fast when the workspace already exists."}</h2>
-                  <span>
+              <aside className="lovable-panel">
+                <div className="space-y-2">
+                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">{loginFirstMode ? "What unlocks next" : "Stay narrow"}</p>
+                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{loginFirstMode ? "Then finish one real loop." : "Account first. Everything else second."}</h2>
+                  <p className="text-base leading-7 text-stone-300">
                     {loginFirstMode
-                      ? "Sign back in, issue one runtime, then prove one approval-to-receipt loop. Nothing broader matters yet."
-                      : "Use the same tenant and browser key when possible. Recovery by email stays available if the device key is missing."}
-                  </span>
+                      ? "Sign back in, issue one runtime, then close one hosted approval with one receipt and one recourse path."
+                      : "Create the workspace first. Runtime, approval, receipt, and dispute only appear after the secure account boundary exists."}
+                  </p>
                 </div>
-                {!loginFirstMode ? (
-                  <>
-                    <div className="account-entry-note account-reset-note-neutral">
-                      <strong>Return flow</strong>
-                      <span>Use <code>/login</code> when you already have a workspace. Keep signup for net-new operators.</span>
-                    </div>
-                    <div className="account-entry-actions">
-                      <a className="product-button product-button-ghost" href="/login#identity-access">Go to login</a>
-                      <a className="product-button product-button-ghost" href="/docs/launch-hosts">Launch host guide</a>
-                    </div>
-                    <div className="account-entry-status-stack">
-                      <article className="account-entry-mini-card">
-                        <span>What unlocks next</span>
-                        <strong>Runtime bootstrap</strong>
-                        <p>Issue one shared Action Wallet runtime only after the account boundary is real.</p>
-                      </article>
-                      <article className="account-entry-mini-card">
-                        <span>Then</span>
-                        <strong>One proof loop</strong>
-                        <p>Seed one approval, get one receipt, and keep recourse visible before widening scope.</p>
-                      </article>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="account-entry-note account-reset-note-neutral">
-                      <strong>What unlocks next</strong>
-                      <span>Create the workspace, issue one runtime bundle, then close one hosted approval with one receipt before you think about anything broader.</span>
-                    </div>
-                    <div className="account-entry-status-stack">
-                      <article className="account-entry-mini-card">
-                        <span>Auth mode</span>
-                        <strong>{authMode?.publicSignupEnabled !== false ? "Public signup is live" : "Pre-provisioned only"}</strong>
-                        <p>Email code creates the workspace. Passkey is the fast return path from this browser later.</p>
-                      </article>
-                      <article className="account-entry-mini-card">
-                        <span>Status</span>
-                        <strong>{statusMessage || "Ready to create the account."}</strong>
-                        <p>Stay here until the account boundary is issued.</p>
-                      </article>
-                    </div>
-                  </>
-                )}
+                <div className="mt-6 space-y-4">
+                  <div className={`rounded-3xl border p-5 ${hasWorkspace ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Account</span>
+                    <strong className="mt-2 block text-stone-100">{hasWorkspace ? workspaceTenantLabel : "Create one workspace owner"}</strong>
+                  </div>
+                  <div className={`rounded-3xl border p-5 ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Runtime</span>
+                    <strong className="mt-2 block text-stone-100">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Issue one shared bundle"}</strong>
+                  </div>
+                  <div className={`rounded-3xl border p-5 ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</span>
+                    <strong className="mt-2 block text-stone-100">{hasProofLoop ? `${firstPaidCallState.history.length} run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Finish one hosted approval"}</strong>
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  {!loginFirstMode ? <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/login#identity-access">Go to login</a> : null}
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/docs/launch-hosts">Launch host guide</a>
+                </div>
               </aside>
             </section>
           ) : (
-            <section className="account-entry-live">
-              <section className="account-entry-panel account-entry-panel-primary" id="runtime-bootstrap">
-                <div className="account-entry-panel-head">
-                  <p>Workspace ready</p>
-                  <h2>The authority boundary is live.</h2>
-                  <span>Keep the next move narrow: issue one runtime, pick one host, and finish one governed action with a receipt and recourse.</span>
+            <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_360px]">
+              <section className="lovable-panel lovable-panel-strong" id="runtime-bootstrap">
+                <div className="space-y-2">
+                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Workspace ready</p>
+                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>The account is real. Now close the first loop.</h2>
+                  <p className="text-base leading-7 text-stone-300">Issue one runtime, pick one host, and keep one hosted approval, one receipt, and one recourse path in front of you.</p>
                 </div>
-                <div className="account-entry-runtime-grid">
-                  <article className="account-entry-mini-card">
-                    <span>Workspace</span>
-                    <strong>{buyer.tenantId}</strong>
-                    <p>{buyer.email} · {buyer.role}</p>
-                  </article>
-                  <article className="account-entry-mini-card">
-                    <span>Runtime</span>
-                    <strong>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
-                    <p>{hasRuntime ? "Shared Action Wallet bundle is ready." : "Issue the runtime next."}</p>
-                  </article>
-                  <article className="account-entry-mini-card">
-                    <span>Proof loop</span>
-                    <strong>{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Not started"}</strong>
-                    <p>{hasProofLoop ? "Receipt and recourse attach to the same action." : "Seed one approval and finish one governed action."}</p>
-                  </article>
+                <div className="mt-6 space-y-4">
+                  <div className="rounded-3xl border border-[#d2b06f]/25 bg-[#121921] p-5">
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Workspace</span>
+                    <strong className="mt-2 block text-stone-100">{buyer.tenantId}</strong>
+                    <p className="mt-2 text-sm leading-6 text-stone-400">{buyer.email} · {buyer.role}</p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className={`rounded-3xl border p-5 ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                      <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Runtime</span>
+                      <strong className="mt-2 block text-stone-100">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
+                    </div>
+                    <div className={`rounded-3xl border p-5 ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                      <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</span>
+                      <strong className="mt-2 block text-stone-100">{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Pending"}</strong>
+                    </div>
+                  </div>
                 </div>
-                <div className="account-entry-actions">
+                <div className="mt-6 flex flex-wrap gap-3">
                   {!hasRuntime ? (
-                    <button className="product-button product-button-solid" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
+                    <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
                       {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
                     </button>
                   ) : !hostedApprovalReady ? (
                     <button
-                      className="product-button product-button-solid"
+                      className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={busyState !== "" || !buyer?.tenantId}
                       onClick={() => void handleCreateFirstHostedApproval()}
                     >
@@ -5921,61 +5916,58 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     </button>
                   ) : (
                     <a
-                      className="product-button product-button-solid"
+                      className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
                       href={focusedHostedApprovalUrl || approvalSurfaceHref}
                       {...(focusedHostedApprovalUrl ? { target: "_blank", rel: "noreferrer" } : {})}
                     >
                       Reopen hosted approval
                     </a>
                   )}
-                  <a className="product-button product-button-ghost" href={selectedHostTrack.href}>
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href={selectedHostTrack.href}>
                     {selectedHostTrack.guideLabel}
                   </a>
                 </div>
               </section>
 
-              <section className="account-entry-panel account-entry-panel-secondary" id="proof-loop">
-                <div className="account-entry-panel-head">
-                  <p>Keep the first proof loop visible</p>
-                  <h2>Do not widen scope yet.</h2>
-                  <span>One host, one hosted approval, one receipt, and one visible recourse path. That is the only bar right now.</span>
+              <aside className="lovable-panel">
+                <div className="space-y-2">
+                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</p>
+                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Do not widen scope yet.</h2>
+                  <p className="text-base leading-7 text-stone-300">Close one governed action from one host and keep the same approval, receipt, and dispute chain visible.</p>
                 </div>
-                <div className="account-entry-runtime-grid">
-                  <article className="account-entry-mini-card">
-                    <span>Host</span>
-                    <strong>{selectedHostTrack.label}</strong>
-                    <p>{selectedHostTrack.success}</p>
-                  </article>
-                  <article className="account-entry-mini-card">
-                    <span>Approval</span>
-                    <strong>{latestHostedApprovalId || "Pending"}</strong>
-                    <p>{humanizeLabel(focusedHostedApprovalState, "Pending")}</p>
-                  </article>
-                  <article className="account-entry-mini-card">
-                    <span>Receipt</span>
-                    <strong>{focusedFirstPaidReceiptId || "Pending"}</strong>
-                    <p>{focusedFirstPaidRecourseLabel}</p>
-                  </article>
+                <div className="mt-6 space-y-4">
+                  <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Host</span>
+                    <strong className="mt-2 block text-stone-100">{selectedHostTrack.label}</strong>
+                  </div>
+                  <div className={`rounded-3xl border p-5 ${focusedHostedApprovalId ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Approval</span>
+                    <strong className="mt-2 block text-stone-100">{latestHostedApprovalId || "Pending"}</strong>
+                  </div>
+                  <div className={`rounded-3xl border p-5 ${focusedFirstPaidReceiptId ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
+                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Receipt</span>
+                    <strong className="mt-2 block text-stone-100">{focusedFirstPaidReceiptId || "Pending"}</strong>
+                  </div>
                 </div>
-                <div className="account-entry-actions">
-                  <a className="product-button product-button-ghost" href={focusedReceiptSurfaceHrefResolved}>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href={focusedReceiptSurfaceHrefResolved}>
                     {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
                   </a>
-                  <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href={focusedDisputeSurfaceHrefResolved}>
                     {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
                   </a>
-                  <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
+                  <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={busyState !== ""} onClick={() => void handleLogout()}>
                     {busyState === "logout" ? "Signing out..." : "Sign out"}
                   </button>
                 </div>
-              </section>
+              </aside>
             </section>
           )}
         </main>
 
-        <footer className="account-entry-footer">
-          <strong>Nooterra</strong>
-          <span>Create the workspace, issue one runtime, and prove one governed action before you widen the surface.</span>
+        <footer className="relative z-10 mx-auto flex max-w-7xl flex-col items-start justify-between gap-3 border-t border-white/10 px-6 py-8 text-sm text-stone-400 lg:flex-row lg:items-center lg:px-8">
+          <strong className="text-stone-100">Nooterra</strong>
+          <span>One account. One runtime. One governed action before anything broader.</span>
         </footer>
       </div>
     );
