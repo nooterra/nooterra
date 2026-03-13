@@ -65,10 +65,23 @@ If you are validating from Codex, keep the same runtime values and follow the AP
 The fastest Codex/API/CLI proof is:
 
 ```bash
-NOOTERRA_TENANT_ID=tenant_example npm run quickstart:action-wallet:first-approval
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_LOGIN_EMAIL=founder@example.com \
+NOOTERRA_LOGIN_OTP=123456 \
+npm run quickstart:action-wallet:first-approval
 ```
 
 That script bootstraps the runtime, runs the smoke test, seeds the first hosted approval, runs the managed first paid call, and prints the exact approval URL, request id, run id, and receipt URL you need next.
+
+If the script should create the tenant first, provide:
+
+```bash
+NOOTERRA_SIGNUP_EMAIL=founder@example.com \
+NOOTERRA_SIGNUP_COMPANY="Nooterra" \
+NOOTERRA_SIGNUP_NAME="Founding User" \
+NOOTERRA_SIGNUP_OTP=123456 \
+npm run quickstart:action-wallet:first-approval
+```
 
 Channel-specific bootstrap:
 
