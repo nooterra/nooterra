@@ -31,6 +31,7 @@ mkdocs/site/
 
 # Dashboard build output
 dashboard/dist/
+output/
 
 # Demo generated outputs
 demo/**/output/
