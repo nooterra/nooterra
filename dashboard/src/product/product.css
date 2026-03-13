@@ -3774,6 +3774,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  padding: 0.2rem 0.1rem 0;
 }
 
 .account-reset-brand {
@@ -3833,7 +3834,6 @@ textarea {
   color: #f5efe6;
 }
 
-.account-reset-main,
 .account-reset-stage,
 .account-reset-step,
 .account-reset-panel,
@@ -3847,20 +3847,27 @@ textarea {
 
 .account-reset-main {
   display: grid;
-  gap: 1.1rem;
-  padding: clamp(1.2rem, 3vw, 1.7rem);
-  border-radius: 32px;
-  background:
-    linear-gradient(180deg, rgba(5, 9, 16, 0.98), rgba(8, 12, 20, 0.96)),
-    radial-gradient(circle at top left, rgba(210, 176, 111, 0.14), transparent 18rem),
-    radial-gradient(circle at 82% 16%, rgba(35, 126, 111, 0.14), transparent 20rem);
+  gap: 1.35rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 
 .account-reset-hero {
   display: grid;
-  gap: 1rem;
+  gap: 1.3rem;
   grid-template-columns: minmax(0, 1.1fr) minmax(19rem, 0.9fr);
   align-items: start;
+  padding: clamp(1.35rem, 3vw, 1.9rem);
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(5, 9, 16, 0.92), rgba(8, 12, 20, 0.9)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.12), transparent 17rem),
+    radial-gradient(circle at 82% 16%, rgba(35, 126, 111, 0.12), transparent 18rem);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24);
 }
 
 .account-reset-copy {
@@ -3921,6 +3928,10 @@ textarea {
   padding: 1rem 1.05rem;
   border-radius: 22px;
   min-height: 8.6rem;
+  background:
+    linear-gradient(180deg, rgba(9, 14, 22, 0.88), rgba(8, 12, 18, 0.82)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.03), transparent 12rem);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
 }
 
 .account-reset-step.is-active {
@@ -3933,8 +3944,12 @@ textarea {
 .account-reset-stage {
   display: grid;
   gap: 1rem;
-  padding: 1.15rem;
-  border-radius: 28px;
+  padding: 1.35rem;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(7, 11, 18, 0.9), rgba(10, 15, 24, 0.84)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.09), transparent 15rem);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.22);
 }
 
 .account-reset-stage-outage {
@@ -3958,8 +3973,9 @@ textarea {
 .account-reset-panel {
   display: grid;
   gap: 0.95rem;
-  padding: 1.1rem;
+  padding: 1.15rem;
   border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
 }
 
 .account-reset-panel-primary {
@@ -3986,6 +4002,7 @@ textarea {
   min-height: 8.4rem;
   padding: 0.95rem 1rem;
   border-radius: 20px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.17);
 }
 
 .account-reset-actions,
