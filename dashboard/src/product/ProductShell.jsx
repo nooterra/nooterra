@@ -15920,7 +15920,7 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
               <a className="product-button product-button-ghost" href={ossLinks.repo}>
                 GitHub
               </a>
-              <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : "/onboarding"}>
+              <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : "/account#identity-access"}>
                 {onboardingState?.buyer ? "Open Action Wallet" : "Get started"}
               </a>
             </div>

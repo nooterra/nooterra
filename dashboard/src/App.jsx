@@ -38,8 +38,8 @@ function getRouteMode() {
   }
   if (path === "/account") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/workspace") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/signup") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/login") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/studio") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/developers") return { mode: "developers", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs") return { mode: "docs", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -134,6 +134,11 @@ export default function App() {
       window.history.replaceState({}, "", `/account${hash}`);
       return;
     }
+    if (rawPath === "/signup" || rawPath === "/login") {
+      const search = window.location.search || "";
+      window.history.replaceState({}, "", `/account${search}${hash}`);
+      return;
+    }
     if (rawPath === "/onboarding" && wantsManagedOnboarding) {
       window.history.replaceState({}, "", `/account${hash}`);
     }
@@ -148,8 +153,6 @@ export default function App() {
     "developers",
     "integrations",
     "onboarding",
-    "signup",
-    "login",
     "docs",
     "docs_quickstart",
     "docs_architecture",
