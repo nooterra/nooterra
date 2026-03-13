@@ -15,11 +15,11 @@ import {
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
 const PUBLIC_ONBOARDING_HREF = "/onboarding";
-const PUBLIC_SIGNUP_HREF = "/signup";
-const PUBLIC_LOGIN_HREF = "/login";
+const PUBLIC_SIGNUP_HREF = "/account#identity-access";
+const PUBLIC_LOGIN_HREF = "/account#identity-access";
 const MANAGED_ONBOARDING_HREF = "/account#identity-access";
-const PRODUCT_ONBOARDING_HREF = "/signup?source=product";
-const PRICING_ONBOARDING_HREF = "/signup?source=pricing";
+const PRODUCT_ONBOARDING_HREF = "/account?source=product#identity-access";
+const PRICING_ONBOARDING_HREF = "/account?source=pricing#identity-access";
 const SITE_DOC_ROUTES = {
   home: "/docs",
   quickstart: "/docs/quickstart",
@@ -92,7 +92,7 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
 function buildManagedOnboardingHref(source) {
   const normalizedSource = String(source ?? "").trim();
   return normalizedSource
-    ? `/signup?source=${encodeURIComponent(normalizedSource)}`
+    ? `/account?source=${encodeURIComponent(normalizedSource)}#identity-access`
     : PUBLIC_SIGNUP_HREF;
 }
 
@@ -783,8 +783,8 @@ function SecurityPage() {
       eyebrow: "Auth plane",
       title: "Hosted onboarding fails closed",
       body: "If the auth plane or same-origin proxy is unavailable, onboarding should stop cleanly and point people to status and support instead of pretending signup still works.",
-      href: "/onboarding",
-      ctaLabel: "Open onboarding"
+      href: buildManagedOnboardingHref("security"),
+      ctaLabel: "Create workspace"
     },
     {
       eyebrow: "Runtime",
@@ -909,8 +909,8 @@ function PrivacyPage() {
             </FadeIn>
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
-                <a href="/onboarding" className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                  View onboarding <ArrowRight size={16} />
+                <a href={buildManagedOnboardingHref("privacy")} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Create workspace <ArrowRight size={16} />
                 </a>
                 <a href="/support" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Support path <ArrowUpRight size={15} />
@@ -951,7 +951,7 @@ function PrivacyPage() {
 }
 
 function HomePage() {
-  const onboardingHref = PUBLIC_ONBOARDING_HREF;
+  const onboardingHref = buildManagedOnboardingHref("home");
   return (
     <SiteLayout>
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
@@ -2717,7 +2717,7 @@ export default function LovableSite({ mode = "home" }) {
         eyebrow="Docs / Partner kit"
         title="Design partners should get one disciplined onboarding pack, not tribal knowledge."
         summary="The partner kit is the public handoff for what a launch partner needs to run a first real action, what evidence to expect, and how to escalate problems."
-        primaryCta={{ label: "Open onboarding", href: "/onboarding" }}
+        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_partner_kit") }}
         secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Fast first value", body: "Partners should reach one hosted approval and one receipt quickly." },
@@ -2725,7 +2725,7 @@ export default function LovableSite({ mode = "home" }) {
           { title: "Shared language", body: "Hosts, receipts, disputes, and operator rescue should be explained the same way everywhere." }
         ]}
         sections={[
-          { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: buildManagedOnboardingHref("docs_partner_kit"), ctaLabel: "Create workspace" },
           { eyebrow: "Hosts", title: "Launch host guide", body: "Choose the exact host path the partner will prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
           { eyebrow: "Runbook", title: "Support and escalation", body: "Use the same support and operator path when something breaks.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support path" }
         ]}
@@ -2823,7 +2823,7 @@ export default function LovableSite({ mode = "home" }) {
         title="A production claim should map to a concrete release bar."
         summary="This route turns the launch checklist into a public website page first, then hands off into the full runbook when deeper operator detail is needed."
         primaryCta={{ label: "Open status", href: "/status" }}
-        secondaryCta={{ label: "Open onboarding", href: "/onboarding" }}
+        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_launch_checklist") }}
         proofPoints={[
           { title: "Route health first", body: "Public routes and same-origin control-plane paths should be green before any launch claim." },
           { title: "Proof loop second", body: "Install, approval, receipt, and dispute should work on live hosts before broad rollout." },
@@ -2831,7 +2831,7 @@ export default function LovableSite({ mode = "home" }) {
         ]}
         sections={[
           { eyebrow: "Website", title: "Public route smoke", body: "The live website has to prove each public route is branded, intentional, and wired correctly.", href: "/status", ctaLabel: "Open status" },
-          { eyebrow: "Runtime", title: "First real action", body: "The real product bar is still the first live approval-to-receipt loop.", href: "/onboarding", ctaLabel: "Open onboarding" },
+          { eyebrow: "Runtime", title: "First real action", body: "The real product bar is still the first live approval-to-receipt loop.", href: buildManagedOnboardingHref("docs_launch_checklist"), ctaLabel: "Create workspace" },
           { eyebrow: "Docs", title: "Operations", body: "Dive into the full operator checklist and cutover docs if you need the full detail.", href: docsLinks.ops, ctaLabel: "Open ops docs" }
         ]}
       />
