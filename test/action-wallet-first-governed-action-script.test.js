@@ -23,6 +23,11 @@ function createJsonServer(handler) {
     requests.push({ method: req.method, url: req.url, body, headers: req.headers });
     const response = await handler({ method: req.method, url: req.url, body, headers: req.headers, requests });
     res.statusCode = response.status ?? 200;
+    if (response.headers && typeof response.headers === "object") {
+      for (const [key, value] of Object.entries(response.headers)) {
+        res.setHeader(key, value);
+      }
+    }
     res.setHeader("content-type", response.contentType ?? "application/json");
     if ((response.contentType ?? "").includes("text/html")) {
       res.end(typeof response.body === "string" ? response.body : "");
@@ -64,6 +69,8 @@ test("action-wallet first-governed-action script: --help prints quickstart usage
   assert.match(stdout, /NOOTERRA_TENANT_ID/);
   assert.match(stdout, /NOOTERRA_WEBSITE_BASE_URL/);
   assert.match(stdout, /NOOTERRA_VERIFY_HOSTED_ROUTES/);
+  assert.match(stdout, /NOOTERRA_SIGNUP_OTP/);
+  assert.match(stdout, /NOOTERRA_LOGIN_OTP/);
   assert.equal(stderr, "");
 });
 
@@ -88,7 +95,15 @@ test("action-wallet first-governed-action script: fails closed without tenant or
 test("action-wallet first-governed-action script: emits approval and first paid artifacts against managed onboarding endpoints", async () => {
   const { server, requests } = createJsonServer(async ({ method, url, body }) => {
     if (method === "POST" && url === "/v1/public/signup") {
-      return { status: 201, body: { ok: true, tenantId: "tenant_demo" } };
+      return { status: 201, body: { ok: true, tenantId: "tenant_demo", email: "founder@example.com", otpIssued: true } };
+    }
+    if (method === "POST" && url === "/v1/tenants/tenant_demo/buyer/login") {
+      assert.deepEqual(body, { email: "founder@example.com", code: "123456" });
+      return {
+        status: 200,
+        headers: { "set-cookie": "nt_buy_sess=session_demo; Path=/; HttpOnly; SameSite=Strict" },
+        body: { ok: true, tenantId: "tenant_demo", email: "founder@example.com", role: "admin", sessionId: "sess_demo" }
+      };
     }
     if (method === "POST" && url === "/v1/tenants/tenant_demo/onboarding/runtime-bootstrap") {
       return {
@@ -177,6 +192,7 @@ test("action-wallet first-governed-action script: emits approval and first paid 
         NOOTERRA_SIGNUP_EMAIL: "founder@example.com",
         NOOTERRA_SIGNUP_COMPANY: "Nooterra",
         NOOTERRA_SIGNUP_NAME: "Founding User",
+        NOOTERRA_SIGNUP_OTP: "123456",
         NOOTERRA_HOST_TRACK: "codex"
       }
     }).catch((error) => {
@@ -212,6 +228,7 @@ test("action-wallet first-governed-action script: emits approval and first paid 
       requests.map((entry) => `${entry.method} ${entry.url}`),
       [
         "POST /v1/public/signup",
+        "POST /v1/tenants/tenant_demo/buyer/login",
         "POST /v1/tenants/tenant_demo/onboarding/runtime-bootstrap",
         "POST /v1/tenants/tenant_demo/onboarding/runtime-bootstrap/smoke-test",
         "POST /v1/tenants/tenant_demo/onboarding/seed-hosted-approval",
@@ -220,6 +237,36 @@ test("action-wallet first-governed-action script: emits approval and first paid 
         "GET /v1/tenants/tenant_demo/onboarding/first-paid-call/history"
       ]
     );
+  } finally {
+    await close(server);
+  }
+});
+
+test("action-wallet first-governed-action script: fails closed after public signup when signup otp is missing", async () => {
+  const { server } = createJsonServer(async ({ method, url }) => {
+    if (method === "POST" && url === "/v1/public/signup") {
+      return { status: 201, body: { ok: true, tenantId: "tenant_demo", email: "founder@example.com", otpIssued: true } };
+    }
+    return { status: 404, body: { ok: false, method, url } };
+  });
+
+  const baseUrl = await listen(server);
+  try {
+    const child = await execFileAsync(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_SIGNUP_EMAIL: "founder@example.com",
+        NOOTERRA_SIGNUP_COMPANY: "Nooterra",
+        NOOTERRA_SIGNUP_NAME: "Founding User"
+      }
+    }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, error })
+    );
+    assert.equal(child.ok, false);
+    assert.match(String(child.error?.stderr ?? ""), /Set NOOTERRA_SIGNUP_OTP from the emailed recovery code/i);
   } finally {
     await close(server);
   }

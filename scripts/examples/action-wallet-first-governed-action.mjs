@@ -20,6 +20,9 @@ function printHelp() {
       "  NOOTERRA_SIGNUP_EMAIL    Signup email when creating a tenant",
       "  NOOTERRA_SIGNUP_COMPANY  Signup company when creating a tenant",
       "  NOOTERRA_SIGNUP_NAME     Signup full name when creating a tenant",
+      "  NOOTERRA_SIGNUP_OTP      OTP issued by public signup to complete the first secure account handoff",
+      "  NOOTERRA_LOGIN_EMAIL     Buyer email when reusing an existing tenant",
+      "  NOOTERRA_LOGIN_OTP       Buyer OTP when reusing an existing tenant",
       "  NOOTERRA_HOST_TRACK      claude | openclaw | codex (default: codex)",
       "  NOOTERRA_SKIP_FIRST_PAID_CALL  Set to 1/true/yes to stop after seeding approval",
       "",
@@ -72,6 +75,39 @@ function isRetryableRequestError(error) {
 }
 
 async function requestJson({ baseUrl, pathname, method = "GET", body = null, headers = {}, retries = 0 }) {
+  return requestJsonWithState({ baseUrl, pathname, method, body, headers, retries, cookieJar: null });
+}
+
+function parseSetCookieHeader(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const first = raw.split(";")[0] ?? "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) return null;
+  const name = first.slice(0, eq).trim();
+  const cookieValue = first.slice(eq + 1).trim();
+  if (!name) return null;
+  return { name, value: cookieValue };
+}
+
+function readSetCookieHeaders(headers) {
+  if (!headers) return [];
+  if (typeof headers.getSetCookie === "function") {
+    const values = headers.getSetCookie();
+    return Array.isArray(values) ? values : [];
+  }
+  const single = typeof headers.get === "function" ? headers.get("set-cookie") : null;
+  return single ? [single] : [];
+}
+
+function buildCookieHeader(cookieJar) {
+  if (!(cookieJar instanceof Map) || cookieJar.size === 0) return "";
+  return Array.from(cookieJar.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+}
+
+async function requestJsonWithState({ baseUrl, pathname, method = "GET", body = null, headers = {}, retries = 0, cookieJar = null }) {
   let attempt = 0;
   while (true) {
     attempt += 1;
@@ -80,11 +116,18 @@ async function requestJson({ baseUrl, pathname, method = "GET", body = null, hea
         ...headers
       };
       if (body !== null) requestHeaders["content-type"] = "application/json";
+      const cookieHeader = buildCookieHeader(cookieJar);
+      if (cookieHeader) requestHeaders.cookie = cookieHeader;
       const res = await fetch(`${baseUrl}${pathname}`, {
         method,
         headers: requestHeaders,
         body: body === null ? undefined : JSON.stringify(body)
       });
+      for (const entry of readSetCookieHeaders(res.headers)) {
+        const parsed = parseSetCookieHeader(entry);
+        if (!parsed || !(cookieJar instanceof Map)) continue;
+        cookieJar.set(parsed.name, parsed.value);
+      }
       const text = await res.text();
       const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
       let json = null;
@@ -256,7 +299,7 @@ function enforceFirstPaidArtifactParity(firstPaid) {
 
 async function resolveTenantId(baseUrl) {
   const existingTenantId = typeof process.env.NOOTERRA_TENANT_ID === "string" ? process.env.NOOTERRA_TENANT_ID.trim() : "";
-  if (existingTenantId !== "") return { tenantId: existingTenantId, created: false };
+  if (existingTenantId !== "") return { tenantId: existingTenantId, created: false, email: null };
 
   const signup = requireSignupFields();
   const response = await requestJson({
@@ -271,7 +314,29 @@ async function resolveTenantId(baseUrl) {
   });
   const tenantId = typeof response?.tenantId === "string" ? response.tenantId.trim() : "";
   if (!tenantId) throw new Error("public signup did not return tenantId");
-  return { tenantId, created: true };
+  return { tenantId, created: true, email: signup.email };
+}
+
+async function loginBuyerSession({ baseUrl, tenantId, email, code, cookieJar }) {
+  const normalizedEmail = typeof email === "string" ? email.trim() : "";
+  const normalizedCode = typeof code === "string" ? code.trim() : "";
+  if (!normalizedEmail || !normalizedCode) {
+    throw new Error("buyer login requires both email and otp");
+  }
+  const response = await requestJsonWithState({
+    baseUrl,
+    pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+    method: "POST",
+    body: { email: normalizedEmail, code: normalizedCode },
+    cookieJar
+  });
+  if (typeof response?.sessionId !== "string" || !response.sessionId.trim()) {
+    throw new Error("buyer login did not return sessionId");
+  }
+  if (!(cookieJar instanceof Map) || cookieJar.size === 0) {
+    throw new Error("buyer login did not issue a session cookie");
+  }
+  return response;
 }
 
 async function main() {
@@ -285,40 +350,72 @@ async function main() {
   const hostTrack = normalizeHostTrack(process.env.NOOTERRA_HOST_TRACK);
   const skipFirstPaidCall = envFlagEnabled("NOOTERRA_SKIP_FIRST_PAID_CALL");
   const verifyHostedRoutes = envFlagEnabled("NOOTERRA_VERIFY_HOSTED_ROUTES");
+  const cookieJar = new Map();
   const tenant = await resolveTenantId(baseUrl);
+  if (tenant.created) {
+    const signupOtp = typeof process.env.NOOTERRA_SIGNUP_OTP === "string" ? process.env.NOOTERRA_SIGNUP_OTP.trim() : "";
+    if (!signupOtp) {
+      throw new Error(
+        `Public signup created ${tenant.tenantId}. Set NOOTERRA_SIGNUP_OTP from the emailed recovery code to continue runtime bootstrap.`
+      );
+    }
+    await loginBuyerSession({
+      baseUrl,
+      tenantId: tenant.tenantId,
+      email: tenant.email,
+      code: signupOtp,
+      cookieJar
+    });
+  } else {
+    const loginEmail = typeof process.env.NOOTERRA_LOGIN_EMAIL === "string" ? process.env.NOOTERRA_LOGIN_EMAIL.trim() : "";
+    const loginOtp = typeof process.env.NOOTERRA_LOGIN_OTP === "string" ? process.env.NOOTERRA_LOGIN_OTP.trim() : "";
+    if (loginEmail && loginOtp) {
+      await loginBuyerSession({
+        baseUrl,
+        tenantId: tenant.tenantId,
+        email: loginEmail,
+        code: loginOtp,
+        cookieJar
+      });
+    }
+  }
   const runtimeBootstrapIdempotencyKey = buildIdempotencyKey({
     tenantId: tenant.tenantId,
     operation: "runtime-bootstrap"
   });
 
-  const bootstrap = await requestJson({
+  const bootstrap = await requestJsonWithState({
     baseUrl,
     pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/runtime-bootstrap`,
     method: "POST",
     body: {},
     headers: { "x-idempotency-key": runtimeBootstrapIdempotencyKey },
-    retries: 1
+    retries: 1,
+    cookieJar
   });
   const runtimeEnv = bootstrap?.mcp?.env && typeof bootstrap.mcp.env === "object" ? bootstrap.mcp.env : null;
   if (!runtimeEnv) throw new Error("runtime bootstrap did not return mcp.env");
 
-  const smoke = await requestJson({
+  const smoke = await requestJsonWithState({
     baseUrl,
     pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/runtime-bootstrap/smoke-test`,
     method: "POST",
-    body: { env: runtimeEnv }
+    body: { env: runtimeEnv },
+    cookieJar
   });
 
-  const seededApproval = await requestJson({
+  const seededApproval = await requestJsonWithState({
     baseUrl,
     pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/seed-hosted-approval`,
     method: "POST",
-    body: { hostTrack }
+    body: { hostTrack },
+    cookieJar
   });
 
-  const approvalHistory = await requestJson({
+  const approvalHistory = await requestJsonWithState({
     baseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/seed-hosted-approval/history`
+    pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/seed-hosted-approval/history`,
+    cookieJar
   });
 
   const attemptId = typeof seededApproval?.attemptId === "string" ? seededApproval.attemptId.trim() : "";
@@ -331,15 +428,17 @@ async function main() {
   let firstPaidHistory = null;
   let firstPaidAttempt = null;
   if (!skipFirstPaidCall) {
-    firstPaidCall = await requestJson({
+    firstPaidCall = await requestJsonWithState({
       baseUrl,
       pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/first-paid-call`,
       method: "POST",
-      body: {}
+      body: {},
+      cookieJar
     });
-    firstPaidHistory = await requestJson({
+    firstPaidHistory = await requestJsonWithState({
       baseUrl,
-      pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/first-paid-call/history`
+      pathname: `/v1/tenants/${encodeURIComponent(tenant.tenantId)}/onboarding/first-paid-call/history`,
+      cookieJar
     });
     const firstPaidAttemptId = typeof firstPaidCall?.attemptId === "string" ? firstPaidCall.attemptId.trim() : "";
     firstPaidAttempt =

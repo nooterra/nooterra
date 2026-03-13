@@ -81,6 +81,20 @@ Or, if you want the script to create the workspace for you:
 NOOTERRA_SIGNUP_EMAIL=founder@example.com \
 NOOTERRA_SIGNUP_COMPANY="Nooterra" \
 NOOTERRA_SIGNUP_NAME="Founding User" \
+NOOTERRA_SIGNUP_OTP=123456 \
+npm run quickstart:action-wallet:first-approval
+```
+
+Important:
+
+- public signup only creates the tenant and issues the first recovery code
+- `NOOTERRA_SIGNUP_OTP` is the emailed OTP that completes the first secure account handoff
+- if you are reusing an existing tenant instead, provide:
+
+```bash
+NOOTERRA_TENANT_ID=tenant_example \
+NOOTERRA_LOGIN_EMAIL=founder@example.com \
+NOOTERRA_LOGIN_OTP=123456 \
 npm run quickstart:action-wallet:first-approval
 ```
 
