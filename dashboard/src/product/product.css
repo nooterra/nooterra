@@ -3762,11 +3762,11 @@ textarea {
 .account-reset-shell {
   position: relative;
   z-index: 1;
-  max-width: 1120px;
+  max-width: 1200px;
   margin: 0 auto;
   display: grid;
-  gap: 1.25rem;
-  padding: clamp(1rem, 2.8vw, 1.75rem) clamp(0.85rem, 3vw, 1.4rem) 3.25rem;
+  gap: 1rem;
+  padding: clamp(0.9rem, 2.4vw, 1.45rem) clamp(0.9rem, 3vw, 1.45rem) 2.75rem;
 }
 
 .account-reset-topbar {
@@ -3774,7 +3774,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.2rem 0.1rem 0;
+  padding: 0 0.1rem 0.15rem;
 }
 
 .account-reset-brand {
@@ -3834,20 +3834,9 @@ textarea {
   color: #f5efe6;
 }
 
-.account-reset-stage,
-.account-reset-step,
-.account-reset-panel,
-.account-reset-summary-card {
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background:
-    linear-gradient(180deg, rgba(7, 11, 18, 0.96), rgba(10, 15, 24, 0.93)),
-    radial-gradient(circle at top left, rgba(210, 176, 111, 0.1), transparent 16rem);
-  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.28);
-}
-
 .account-reset-main {
   display: grid;
-  gap: 1.35rem;
+  gap: 1rem;
   padding: 0;
   border: none;
   border-radius: 0;
@@ -3857,30 +3846,34 @@ textarea {
 
 .account-reset-hero {
   display: grid;
-  gap: 1.3rem;
-  grid-template-columns: minmax(0, 1.1fr) minmax(19rem, 0.9fr);
+  gap: 1rem;
+  grid-template-columns: 1fr;
   align-items: start;
-  padding: clamp(1.35rem, 3vw, 1.9rem);
-  border-radius: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(5, 9, 16, 0.92), rgba(8, 12, 20, 0.9)),
-    radial-gradient(circle at top left, rgba(210, 176, 111, 0.12), transparent 17rem),
-    radial-gradient(circle at 82% 16%, rgba(35, 126, 111, 0.12), transparent 18rem);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24);
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
 }
 
 .account-reset-copy {
   display: grid;
   gap: 0.95rem;
+  padding: clamp(1.3rem, 3vw, 1.8rem);
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(5, 9, 16, 0.88), rgba(8, 12, 20, 0.8)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.12), transparent 17rem),
+    radial-gradient(circle at 82% 16%, rgba(35, 126, 111, 0.12), transparent 18rem);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
 }
 
 .account-reset-copy h1 {
   margin: 0;
-  max-width: 10.5ch;
+  max-width: 11ch;
   font-family: "Fraunces", Georgia, serif;
-  font-size: clamp(3rem, 6vw, 4.9rem);
-  line-height: 0.92;
+  font-size: clamp(2.7rem, 5.4vw, 4.6rem);
+  line-height: 0.94;
   letter-spacing: -0.065em;
   color: #f7f2e8;
 }
@@ -3920,6 +3913,7 @@ textarea {
 .account-reset-progress {
   display: grid;
   gap: 0.8rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .account-reset-step {
@@ -3927,11 +3921,12 @@ textarea {
   gap: 0.45rem;
   padding: 1rem 1.05rem;
   border-radius: 22px;
-  min-height: 8.6rem;
+  min-height: 7.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   background:
-    linear-gradient(180deg, rgba(9, 14, 22, 0.88), rgba(8, 12, 18, 0.82)),
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.03), transparent 12rem);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+    linear-gradient(180deg, rgba(9, 14, 22, 0.8), rgba(8, 12, 18, 0.72)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.025), transparent 12rem);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
 }
 
 .account-reset-step.is-active {
@@ -3944,12 +3939,13 @@ textarea {
 .account-reset-stage {
   display: grid;
   gap: 1rem;
-  padding: 1.35rem;
-  border-radius: 30px;
+  padding: 1.25rem 1.3rem;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   background:
-    linear-gradient(180deg, rgba(7, 11, 18, 0.9), rgba(10, 15, 24, 0.84)),
+    linear-gradient(180deg, rgba(7, 11, 18, 0.86), rgba(10, 15, 24, 0.76)),
     radial-gradient(circle at top left, rgba(210, 176, 111, 0.09), transparent 15rem);
-  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18);
 }
 
 .account-reset-stage-outage {
@@ -3975,7 +3971,8 @@ textarea {
   gap: 0.95rem;
   padding: 1.15rem;
   border-radius: 24px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
 }
 
 .account-reset-panel-primary {
@@ -4002,7 +3999,11 @@ textarea {
   min-height: 8.4rem;
   padding: 0.95rem 1rem;
   border-radius: 20px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.17);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(9, 14, 22, 0.8), rgba(8, 12, 18, 0.72)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.025), transparent 12rem);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
 }
 
 .account-reset-actions,
@@ -4140,7 +4141,7 @@ textarea {
 }
 
 @media (max-width: 1040px) {
-  .account-reset-hero,
+  .account-reset-progress,
   .account-reset-grid,
   .account-reset-summary {
     grid-template-columns: 1fr;
