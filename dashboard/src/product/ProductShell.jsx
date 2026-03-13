@@ -5504,6 +5504,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Open dispute"
               : "Open focused receipt";
   const onboardingSource = getQueryParam("source");
+  const onboardingStep = getQueryParam("step");
   const onboardingStarted = Boolean(
     buyer ||
     bootstrapBundle ||
@@ -5572,7 +5573,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     }
   };
   const onboardingSourceMessage = onboardingSource ? onboardingSourceMessages[onboardingSource] ?? null : null;
-  const forceAccountIntake = standaloneMode && Boolean(onboardingSourceMessage);
+  const showStandaloneRuntimeStep = standaloneMode && (onboardingStep === "runtime" || onboardingStep === "proof");
 
   if (standaloneMode) {
     const setupSteps = [
@@ -5611,7 +5612,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     const hasWorkspace = Boolean(buyer);
     const hasRuntime = Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId);
     const hasProofLoop = Boolean(firstPaidCallState.history.length);
-    const showAccountIntake = forceAccountIntake || !hasWorkspace;
+    const showAccountIntake = !showStandaloneRuntimeStep;
     const recoveryReady = Boolean(String(loginForm.tenantId ?? "").trim() && String(loginForm.email ?? "").trim());
 
     return (
@@ -5831,7 +5832,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                       Continue with the existing workspace only if you explicitly want to skip straight to runtime and proof. Otherwise create or recover a different workspace from this page.
                     </p>
                     <div className="workspace-intake-actions">
-                      <a className="product-button product-button-solid" href="#runtime-bootstrap">
+                      <a className="product-button product-button-solid" href="/account?step=runtime#runtime-bootstrap">
                         Continue with current workspace
                       </a>
                       <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
