@@ -951,7 +951,7 @@ function PrivacyPage() {
 }
 
 function HomePage() {
-  const onboardingHref = PUBLIC_ONBOARDING_HREF;
+  const onboardingHref = buildManagedOnboardingHref("home");
   return (
     <SiteLayout>
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
