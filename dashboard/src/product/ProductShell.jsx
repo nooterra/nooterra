@@ -15790,8 +15790,13 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
         const pathname = window.location.pathname;
         const params = new URLSearchParams(window.location.search);
         const standaloneSecureRoute =
-          params.get("experience") === "app" &&
-          (pathname === "/account" || pathname === "/workspace" || pathname === "/onboarding");
+          pathname === "/account" ||
+          pathname === "/signup" ||
+          pathname === "/login" ||
+          (
+            params.get("experience") === "app" &&
+            (pathname === "/workspace" || pathname === "/onboarding")
+          );
         if (standaloneSecureRoute) return;
       }
       try {
