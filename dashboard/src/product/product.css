@@ -151,6 +151,10 @@ textarea {
   padding-top: 1.8rem;
 }
 
+.product-main-standalone-account {
+  padding-top: 0.75rem;
+}
+
 .product-nav {
   max-width: var(--product-max);
   margin: 0 auto;
@@ -2959,5 +2963,378 @@ textarea {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+.workspace-account-shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.35rem;
+  padding: clamp(1rem, 2.5vw, 1.75rem) clamp(0.9rem, 3vw, 1.5rem) 3rem;
+}
+
+.workspace-account-header,
+.workspace-account-hero,
+.workspace-account-panel,
+.workspace-account-step,
+.workspace-account-next-card,
+.workspace-account-status-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(10, 14, 21, 0.92), rgba(13, 19, 29, 0.9)),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.12), transparent 14rem);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.28);
+}
+
+.workspace-account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-radius: 24px;
+}
+
+.workspace-account-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  text-decoration: none;
+}
+
+.workspace-account-brand-mark {
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at top, rgba(210, 176, 111, 0.26), transparent 50%),
+    linear-gradient(135deg, rgba(31, 104, 92, 0.98), rgba(14, 58, 52, 0.98));
+}
+
+.workspace-account-brand strong {
+  display: block;
+  font-size: 1.08rem;
+  color: #f5efe6;
+}
+
+.workspace-account-brand small,
+.workspace-account-kicker,
+.workspace-account-step span,
+.workspace-account-panel-head p,
+.workspace-account-status-card span,
+.workspace-account-next-card span {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.82);
+}
+
+.workspace-account-header-links,
+.workspace-account-hero-actions,
+.workspace-account-actions,
+.workspace-account-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.workspace-account-header-links a,
+.workspace-account-footer-links a {
+  color: rgba(232, 238, 245, 0.76);
+  text-decoration: none;
+  font-size: 0.94rem;
+}
+
+.workspace-account-header-links a:hover,
+.workspace-account-footer-links a:hover {
+  color: #f5efe6;
+}
+
+.workspace-account-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr);
+  gap: 1.25rem;
+  align-items: end;
+  padding: clamp(1.4rem, 4vw, 2.4rem);
+  border-radius: 36px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.24), transparent 15rem),
+    radial-gradient(circle at 82% 25%, rgba(31, 104, 92, 0.24), transparent 16rem),
+    linear-gradient(180deg, rgba(7, 11, 17, 0.98), rgba(11, 16, 24, 0.96));
+}
+
+.workspace-account-hero-copy {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.workspace-account-hero h1 {
+  margin: 0;
+  max-width: 10ch;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(3.3rem, 8vw, 6rem);
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+  color: #f5efe6;
+}
+
+.workspace-account-lead,
+.workspace-account-panel-copy,
+.workspace-account-step p,
+.workspace-account-status-card p,
+.workspace-account-next-card p,
+.workspace-account-note span,
+.workspace-account-footer span {
+  margin: 0;
+  color: rgba(229, 236, 244, 0.78);
+  line-height: 1.65;
+}
+
+.workspace-account-callout,
+.workspace-account-note {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.workspace-account-callout strong,
+.workspace-account-note strong,
+.workspace-account-step strong,
+.workspace-account-panel-head h2,
+.workspace-account-status-card strong,
+.workspace-account-next-card strong {
+  color: #f5efe6;
+}
+
+.workspace-account-steps,
+.workspace-account-next-grid,
+.workspace-account-status-grid {
+  display: grid;
+  gap: 0.95rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.workspace-account-step,
+.workspace-account-next-card,
+.workspace-account-status-card {
+  display: grid;
+  gap: 0.42rem;
+  min-height: 11rem;
+  padding: 1.15rem 1.1rem;
+  border-radius: 24px;
+  text-decoration: none;
+}
+
+.workspace-account-step strong,
+.workspace-account-panel-head h2,
+.workspace-account-status-card strong,
+.workspace-account-next-card strong {
+  font-size: 1.15rem;
+  line-height: 1.15;
+}
+
+.workspace-account-body {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  align-items: start;
+}
+
+.workspace-account-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.35rem;
+  border-radius: 30px;
+}
+
+.workspace-account-panel-primary {
+  background:
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.16), transparent 15rem),
+    linear-gradient(180deg, rgba(9, 14, 22, 0.96), rgba(13, 18, 28, 0.94));
+}
+
+.workspace-account-panel-secondary {
+  background:
+    radial-gradient(circle at top right, rgba(31, 104, 92, 0.18), transparent 15rem),
+    linear-gradient(180deg, rgba(12, 17, 26, 0.94), rgba(15, 21, 31, 0.92));
+}
+
+.workspace-account-form-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-account-form-wide {
+  grid-column: 1 / -1;
+}
+
+.workspace-account-form-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.workspace-account-form-grid label span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.8);
+}
+
+.workspace-account-form-grid input {
+  width: 100%;
+  min-height: 3.2rem;
+  padding: 0.92rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5efe6;
+}
+
+.workspace-account-form-grid input::placeholder {
+  color: rgba(229, 236, 244, 0.38);
+}
+
+.workspace-account-form-grid input:focus {
+  outline: none;
+  border-color: rgba(210, 176, 111, 0.56);
+  box-shadow: 0 0 0 1px rgba(210, 176, 111, 0.26), 0 0 0 6px rgba(210, 176, 111, 0.08);
+}
+
+.workspace-account-button {
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 0.95rem 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.workspace-account-button:hover {
+  transform: translateY(-1px);
+}
+
+.workspace-account-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.workspace-account-button-solid {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(35, 126, 111, 0.98), rgba(24, 92, 80, 0.98));
+  color: #f4fbf8;
+  box-shadow: 0 18px 36px rgba(12, 58, 52, 0.28);
+}
+
+.workspace-account-button-ghost {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #eef3f8;
+}
+
+.workspace-account-note-warn {
+  border-color: rgba(210, 176, 111, 0.26);
+  background: rgba(210, 176, 111, 0.08);
+}
+
+.workspace-account-note-bad {
+  border-color: rgba(210, 112, 102, 0.28);
+  background: rgba(210, 112, 102, 0.08);
+}
+
+.workspace-account-details {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.95rem 1rem;
+}
+
+.workspace-account-details summary {
+  cursor: pointer;
+  color: #f5efe6;
+  font-weight: 700;
+}
+
+.workspace-account-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.2rem 0 0.5rem;
+}
+
+.workspace-account-footer strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: #f5efe6;
+}
+
+@media (max-width: 1120px) {
+  .workspace-account-hero,
+  .workspace-account-body,
+  .workspace-account-steps,
+  .workspace-account-next-grid,
+  .workspace-account-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace-account-header,
+  .workspace-account-footer {
+    align-items: flex-start;
+  }
+
+  .workspace-account-header-links,
+  .workspace-account-hero-actions,
+  .workspace-account-actions {
+    width: 100%;
+  }
+
+  .workspace-account-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace-account-shell {
+    padding-inline: 0.8rem;
+  }
+
+  .workspace-account-header,
+  .workspace-account-hero,
+  .workspace-account-panel,
+  .workspace-account-step,
+  .workspace-account-next-card,
+  .workspace-account-status-card {
+    padding: 1rem;
+  }
+
+  .workspace-account-button {
+    width: 100%;
   }
 }

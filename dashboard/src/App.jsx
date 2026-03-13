@@ -36,6 +36,7 @@ function getRouteMode() {
       requestedPath: null
     };
   }
+  if (path === "/account") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/workspace") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -122,6 +123,20 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     setFrontendSentryRoute({ mode: route.mode, path: window.location.pathname });
+  }, [route.mode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const rawPath = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const wantsManagedOnboarding = params.get("experience") === "app";
+    const hash = window.location.hash || "#identity-access";
+    if (rawPath === "/workspace") {
+      window.history.replaceState({}, "", `/account${hash}`);
+      return;
+    }
+    if (rawPath === "/onboarding" && wantsManagedOnboarding) {
+      window.history.replaceState({}, "", `/account${hash}`);
+    }
   }, [route.mode]);
   const hasManagedRuntime = hasManagedRuntimeSession();
   const wantsManagedOnboarding =
