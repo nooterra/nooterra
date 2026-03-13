@@ -4139,7 +4139,322 @@ textarea {
   font-weight: 700;
 }
 
+.account-entry-page {
+  position: relative;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(27, 96, 91, 0.3), transparent 26rem),
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.14), transparent 24rem),
+    linear-gradient(180deg, #0a111c 0%, #0f1724 45%, #131b28 100%);
+  color: #f7f2e8;
+}
+
+.account-entry-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  opacity: 0.24;
+  pointer-events: none;
+}
+
+.account-entry-header,
+.account-entry-main,
+.account-entry-footer {
+  position: relative;
+  z-index: 1;
+  width: min(1120px, calc(100vw - 2rem));
+  margin: 0 auto;
+}
+
+.account-entry-header {
+  padding-top: 1rem;
+}
+
+.account-entry-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 12, 18, 0.72);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.account-entry-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  text-decoration: none;
+}
+
+.account-entry-brand-mark {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at top, rgba(210, 176, 111, 0.2), transparent 60%),
+    linear-gradient(135deg, rgba(35, 126, 111, 0.98), rgba(16, 61, 56, 0.98));
+}
+
+.account-entry-brand strong {
+  display: block;
+  color: #f7f2e8;
+  font-size: 1.05rem;
+}
+
+.account-entry-brand small,
+.account-entry-kicker,
+.account-entry-progress-item span,
+.account-entry-panel-head p,
+.account-entry-mini-card span {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.82);
+}
+
+.account-entry-header-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.35rem;
+}
+
+.account-entry-header-links a {
+  color: rgba(234, 240, 246, 0.76);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.account-entry-header-links a:hover {
+  color: #f5efe6;
+}
+
+.account-entry-main {
+  display: grid;
+  gap: 1.2rem;
+  padding: 1.35rem 0 2.5rem;
+}
+
+.account-entry-hero,
+.account-entry-panel {
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(7, 12, 18, 0.86), rgba(9, 15, 23, 0.78)),
+    radial-gradient(circle at top left, rgba(35, 126, 111, 0.13), transparent 20rem),
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.1), transparent 20rem);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.22);
+}
+
+.account-entry-hero {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.4rem, 3vw, 2rem);
+}
+
+.account-entry-hero h1 {
+  margin: 0;
+  max-width: 11ch;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(3rem, 7vw, 6rem);
+  line-height: 0.92;
+  letter-spacing: -0.07em;
+  color: #f7f2e8;
+}
+
+.account-entry-lead,
+.account-entry-note span,
+.account-entry-progress-item p,
+.account-entry-panel-head span,
+.account-entry-mini-card p {
+  margin: 0;
+  color: rgba(229, 236, 244, 0.82);
+  line-height: 1.62;
+  font-size: 1rem;
+}
+
+.account-entry-note {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.account-entry-note strong,
+.account-entry-progress-item strong,
+.account-entry-panel-head h2,
+.account-entry-mini-card strong {
+  color: #f7f2e8;
+}
+
+.account-entry-progress {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.account-entry-progress-item {
+  display: grid;
+  gap: 0.38rem;
+  min-height: 8rem;
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-entry-progress-item.is-active {
+  border-color: rgba(68, 173, 144, 0.28);
+  background:
+    linear-gradient(180deg, rgba(8, 18, 18, 0.96), rgba(9, 16, 20, 0.94)),
+    radial-gradient(circle at top right, rgba(35, 126, 111, 0.16), transparent 12rem);
+}
+
+.account-entry-intake,
+.account-entry-live {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+}
+
+.account-entry-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.35rem;
+}
+
+.account-entry-panel-secondary {
+  background:
+    linear-gradient(180deg, rgba(11, 16, 24, 0.84), rgba(13, 19, 28, 0.78)),
+    radial-gradient(circle at top right, rgba(210, 176, 111, 0.1), transparent 18rem);
+}
+
+.account-entry-panel-head {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.account-entry-form-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-entry-form-grid-single,
+.account-entry-form-grid .account-entry-form-grid-span {
+  grid-template-columns: 1fr;
+}
+
+.account-entry-form-grid .account-entry-form-grid-span {
+  grid-column: 1 / -1;
+}
+
+.account-entry-form-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.account-entry-form-grid label span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(210, 176, 111, 0.8);
+}
+
+.account-entry-form-grid input {
+  width: 100%;
+  min-height: 3.15rem;
+  padding: 0.92rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5efe6;
+}
+
+.account-entry-form-grid input::placeholder {
+  color: rgba(229, 236, 244, 0.38);
+}
+
+.account-entry-form-grid input:focus {
+  outline: none;
+  border-color: rgba(210, 176, 111, 0.56);
+  box-shadow: 0 0 0 1px rgba(210, 176, 111, 0.26), 0 0 0 6px rgba(210, 176, 111, 0.08);
+}
+
+.account-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.account-entry-status-stack,
+.account-entry-runtime-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-entry-runtime-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.account-entry-mini-card {
+  display: grid;
+  gap: 0.32rem;
+  min-height: 7.5rem;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-entry-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+
+.account-entry-footer strong {
+  color: #f7f2e8;
+}
+
+.account-entry-footer span {
+  color: rgba(229, 236, 244, 0.72);
+  text-align: right;
+}
+
 @media (max-width: 1040px) {
+  .account-entry-progress,
+  .account-entry-intake,
+  .account-entry-live,
+  .account-entry-runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
   .account-reset-progress,
   .account-reset-grid,
   .account-reset-summary {
@@ -4148,6 +4463,23 @@ textarea {
 }
 
 @media (max-width: 820px) {
+  .account-entry-header-inner,
+  .account-entry-footer,
+  .account-entry-actions,
+  .account-entry-header-links {
+    align-items: flex-start;
+  }
+
+  .account-entry-header-inner,
+  .account-entry-footer {
+    flex-direction: column;
+  }
+
+  .account-entry-form-grid,
+  .account-entry-status-stack {
+    grid-template-columns: 1fr;
+  }
+
   .account-reset-topbar,
   .account-reset-actions {
     align-items: flex-start;
@@ -4160,6 +4492,26 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  .account-entry-header,
+  .account-entry-main,
+  .account-entry-footer {
+    width: min(100vw - 1rem, calc(100vw - 1rem));
+  }
+
+  .account-entry-hero,
+  .account-entry-panel {
+    padding: 1rem;
+    border-radius: 24px;
+  }
+
+  .account-entry-hero h1 {
+    font-size: clamp(2.5rem, 16vw, 4.1rem);
+  }
+
+  .account-entry-actions .product-button {
+    width: 100%;
+  }
+
   .account-reset-shell {
     padding-inline: 0.78rem;
   }
