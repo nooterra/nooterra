@@ -5576,13 +5576,6 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
   const showStandaloneRuntimeStep = standaloneMode && (onboardingStep === "runtime" || onboardingStep === "proof");
 
   if (standaloneMode) {
-    const standaloneStatusTone = authPlaneUnavailable
-      ? "account-reset-note-bad"
-      : /failed|error|unavailable/i.test(statusMessage)
-        ? "account-reset-note-bad"
-        : /ready|issued|signed in|signed|live|sent/i.test(statusMessage)
-          ? "account-reset-note-good"
-          : "account-reset-note-neutral";
     const hasWorkspace = Boolean(buyer);
     const hasRuntime = Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId);
     const hasProofLoop = Boolean(firstPaidCallState.history.length);
@@ -5631,14 +5624,17 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
 
             <div className="hidden items-center gap-8 lg:flex">
               <a href="/product" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Product</a>
+              <a href="/pricing" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Pricing</a>
+              <a href="/developers" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Developers</a>
+              <a href="/integrations" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Integrations</a>
               <a href="/docs/quickstart" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Quickstart</a>
               <a href="/support" className="text-sm text-stone-400 transition-colors hover:text-stone-100">Support</a>
             </div>
           </div>
         </nav>
 
-        <main className="relative mx-auto flex max-w-7xl flex-col gap-8 px-6 pb-20 pt-28 lg:px-8" id="identity-access">
-          <section className="max-w-3xl">
+        <main className={`workspace-intake account-intake-main relative z-10 pt-28 ${showAccountIntake ? "is-account" : "is-live"}`} id="account-create">
+          <section className={`workspace-intake-head ${showAccountIntake ? "account-intake-head" : ""}`}>
             <p className="mb-4 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-[#d2b06f]/80">
               {showAccountIntake ? "Secure account setup" : "Workspace ready"}
             </p>
@@ -5649,64 +5645,66 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               {secureEntryLead}
             </p>
             {onboardingSourceMessage ? (
-              <div className={`mt-6 rounded-3xl border border-white/10 bg-white/5 p-5 ${standaloneStatusTone}`}>
+              <div className="product-inline-note accent max-w-2xl">
                 <strong className="block text-sm text-stone-100">{onboardingSourceMessage.label}</strong>
                 <span className="mt-2 block text-sm leading-7 text-stone-300">{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
               </div>
             ) : null}
-            <div className="mt-8 grid gap-3 md:grid-cols-3" aria-label="Secure account progress">
-              <article className={`lovable-stat-card ${hasWorkspace ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
-                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">01</span>
-                <strong className="block text-base text-stone-100">{hasWorkspace ? "Workspace live" : "Create workspace"}</strong>
-                <p className="mt-2 text-sm leading-6 text-stone-400">{hasWorkspace ? workspaceTenantLabel : "One real owner and one real trust boundary."}</p>
+            <div className={`workspace-intake-track ${showAccountIntake ? "account-intake-track" : ""}`} aria-label="Secure account progress">
+              <article className={`workspace-intake-track-item ${!hasWorkspace ? "is-active" : ""}`}>
+                <span>01</span>
+                <strong>{hasWorkspace ? "Workspace live" : "Create workspace"}</strong>
               </article>
-              <article className={`lovable-stat-card ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
-                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">02</span>
-                <strong className="block text-base text-stone-100">{hasRuntime ? "Runtime ready" : "Issue runtime"}</strong>
-                <p className="mt-2 text-sm leading-6 text-stone-400">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "One shared authority boundary for every host."}</p>
+              <article className={`workspace-intake-track-item ${hasWorkspace && !hasRuntime ? "is-active" : ""}`}>
+                <span>02</span>
+                <strong>{hasRuntime ? "Runtime ready" : "Issue runtime"}</strong>
               </article>
-              <article className={`lovable-stat-card ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : ""}`}>
-                <span className="mb-3 block font-mono text-[0.7rem] uppercase tracking-[0.22em] text-[#d2b06f]/80">03</span>
-                <strong className="block text-base text-stone-100">{hasProofLoop ? "Proof loop visible" : "Close one loop"}</strong>
-                <p className="mt-2 text-sm leading-6 text-stone-400">{hasProofLoop ? `${firstPaidCallState.history.length} governed run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Approval, receipt, and recourse stay visible."}</p>
+              <article className={`workspace-intake-track-item ${hasRuntime && !hasProofLoop ? "is-active" : ""}`}>
+                <span>03</span>
+                <strong>{hasProofLoop ? "Proof loop visible" : "Close one loop"}</strong>
               </article>
             </div>
           </section>
 
           {authPlaneUnavailable ? (
-            <section className="grid gap-6">
-              <section className="lovable-panel lovable-panel-strong max-w-3xl">
-                <div className="space-y-2">
+            <section className="workspace-intake-unavailable">
+              <section className="workspace-intake-card workspace-intake-card-primary">
+                <div className="workspace-intake-panel-head">
                   <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Hosted onboarding paused</p>
                   <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>The auth plane is unavailable.</h2>
-                  <p className="text-base leading-7 text-stone-300">Account creation and sign-in fail closed until the secure auth service answers again.</p>
+                  <span>Account creation and sign-in fail closed until the secure auth service answers again.</span>
                 </div>
-                <div className="mt-5 rounded-3xl border border-rose-500/25 bg-rose-500/10 p-5 text-sm leading-7 text-rose-100">
+                <div className="workspace-intake-unavailable-card">
                   <strong className="block text-stone-100">Account creation is paused right now.</strong>
-                  <span className="mt-2 block">{authPlaneError}</span>
+                  <p>{authPlaneError}</p>
                 </div>
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="workspace-intake-actions">
                   <a className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90" href="/status">View live status</a>
                   <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/support">Contact support</a>
                 </div>
               </section>
             </section>
           ) : showAccountIntake ? (
-            <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_360px]">
-              <section className="lovable-panel lovable-panel-strong" id="account-create">
-                <div className="space-y-2">
+            <section className="account-intake-layout">
+              <section className="account-intake-card" id="identity-access">
+                <div className="account-intake-card-head">
                   <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">{loginFirstMode ? "Return to workspace" : "New workspace"}</p>
                   <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{loginFirstMode ? "Sign back in." : "Create the account first."}</h2>
-                  <p className="text-base leading-7 text-stone-300">
+                  <span>
                     {loginFirstMode
                       ? "Use the same tenant and browser key when possible. Email recovery stays available if the passkey is missing."
                       : "Create one workspace owner first. Runtime bootstrap and the first governed action only unlock after the secure account exists."}
-                  </p>
+                  </span>
                 </div>
                 {!loginFirstMode ? (
                   authMode?.publicSignupEnabled !== false ? (
                     <>
-                      <div className="account-entry-form-grid mt-6">
+                      <div className="product-inline-note accent">
+                        <strong>Fastest path</strong>
+                        <span>Create the workspace with an email code first, then save a passkey for fast return on this browser.</span>
+                      </div>
+                      <div className="account-intake-form-card">
+                          <div className="product-form-grid">
                         <label>
                           <span>Work email</span>
                           <input
@@ -5739,19 +5737,20 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                             placeholder="acme_ai"
                           />
                         </label>
-                      </div>
-                      <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-5 text-sm leading-7 text-stone-300">
-                        <strong className="block text-stone-100">Fastest path</strong>
-                        <span className="mt-2 block">Create the workspace with an email code first, then save a passkey for fast return on this browser.</span>
+                          </div>
                       </div>
                       {signupValidationError ? <div className="mt-5 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{signupValidationError}</div> : null}
-                      <div className="mt-6 flex flex-wrap gap-3">
+                      <div className="account-intake-actions">
                         <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
                           {busyState === "signup" ? "Sending code..." : "Create workspace"}
                         </button>
                         <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
                           {busyState === "passkey_signup" ? "Creating..." : "Create with passkey"}
                         </button>
+                      </div>
+                      <div className="account-intake-after">
+                        <strong>What unlocks next</strong>
+                        <span>After the workspace exists, this same route reveals runtime bootstrap and the first approval-to-receipt loop. Nothing else should get in your way first.</span>
                       </div>
                       {recoveryReady ? (
                         <details className="product-details mt-6">
@@ -5787,7 +5786,8 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   )
                 ) : (
                   <>
-                    <div className="account-entry-form-grid mt-6">
+                    <div className="account-intake-form-card">
+                        <div className="product-form-grid">
                       <label>
                         <span>Existing tenant</span>
                         <input
@@ -5812,11 +5812,16 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                           placeholder="This browser"
                         />
                       </label>
+                        </div>
                     </div>
-                    <div className="mt-6 flex flex-wrap gap-3">
+                    <div className="account-intake-actions">
                       <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
                         {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
                       </button>
+                    </div>
+                    <div className="account-intake-after">
+                      <strong>Return path</strong>
+                      <span>Use the same tenant and device key when possible. Email recovery stays available if the browser passkey is missing.</span>
                     </div>
                     {loginIdentityError ? <div className="mt-5 rounded-3xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm leading-7 text-amber-100">{loginIdentityError}</div> : null}
                     <details className="product-details mt-6">
@@ -5845,63 +5850,47 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                   </>
                 )}
               </section>
-
-              <aside className="lovable-panel">
-                <div className="space-y-2">
-                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">{loginFirstMode ? "What unlocks next" : "Stay narrow"}</p>
-                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>{loginFirstMode ? "Then finish one real loop." : "Account first. Everything else second."}</h2>
-                  <p className="text-base leading-7 text-stone-300">
-                    {loginFirstMode
-                      ? "Sign back in, issue one runtime, then close one hosted approval with one receipt and one recourse path."
-                      : "Create the workspace first. Runtime, approval, receipt, and dispute only appear after the secure account boundary exists."}
-                  </p>
-                </div>
-                <div className="mt-6 space-y-4">
-                  <div className={`rounded-3xl border p-5 ${hasWorkspace ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Account</span>
-                    <strong className="mt-2 block text-stone-100">{hasWorkspace ? workspaceTenantLabel : "Create one workspace owner"}</strong>
-                  </div>
-                  <div className={`rounded-3xl border p-5 ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Runtime</span>
-                    <strong className="mt-2 block text-stone-100">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Issue one shared bundle"}</strong>
-                  </div>
-                  <div className={`rounded-3xl border p-5 ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</span>
-                    <strong className="mt-2 block text-stone-100">{hasProofLoop ? `${firstPaidCallState.history.length} run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Finish one hosted approval"}</strong>
-                  </div>
-                </div>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  {!loginFirstMode ? <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/login#identity-access">Go to login</a> : null}
-                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/docs/launch-hosts">Launch host guide</a>
-                </div>
-              </aside>
+              <div className="account-intake-links">
+                {!loginFirstMode ? (
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/login#identity-access">
+                    Already have a workspace? Sign in
+                  </a>
+                ) : (
+                  <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/account#identity-access">
+                    Need a new workspace? Create one
+                  </a>
+                )}
+                <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href="/docs/launch-hosts">
+                  Launch host guide
+                </a>
+              </div>
             </section>
           ) : (
-            <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_360px]">
-              <section className="lovable-panel lovable-panel-strong" id="runtime-bootstrap">
-                <div className="space-y-2">
+            <section className="workspace-intake-layout workspace-intake-layout-live">
+              <section className="workspace-intake-card workspace-intake-card-primary" id="runtime-bootstrap">
+                <div className="workspace-intake-panel-head">
                   <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Workspace ready</p>
                   <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>The account is real. Now close the first loop.</h2>
-                  <p className="text-base leading-7 text-stone-300">Issue one runtime, pick one host, and keep one hosted approval, one receipt, and one recourse path in front of you.</p>
+                  <span>Issue one runtime, pick one host, and keep one hosted approval, one receipt, and one recourse path in front of you.</span>
                 </div>
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-3xl border border-[#d2b06f]/25 bg-[#121921] p-5">
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Workspace</span>
-                    <strong className="mt-2 block text-stone-100">{buyer.tenantId}</strong>
-                    <p className="mt-2 text-sm leading-6 text-stone-400">{buyer.email} · {buyer.role}</p>
+                <div className="workspace-intake-statusbar workspace-intake-statusbar-live">
+                  <div className="workspace-intake-status">
+                    <span>Workspace</span>
+                    <strong>{buyer.tenantId}</strong>
+                    <small>{buyer.email} · {buyer.role}</small>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className={`rounded-3xl border p-5 ${hasRuntime ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                      <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Runtime</span>
-                      <strong className="mt-2 block text-stone-100">{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
-                    </div>
-                    <div className={`rounded-3xl border p-5 ${hasProofLoop ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                      <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</span>
-                      <strong className="mt-2 block text-stone-100">{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Pending"}</strong>
-                    </div>
+                  <div className="workspace-intake-status">
+                    <span>Runtime</span>
+                    <strong>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
+                    <small>One shared Action Wallet boundary.</small>
+                  </div>
+                  <div className="workspace-intake-status">
+                    <span>Proof loop</span>
+                    <strong>{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Pending"}</strong>
+                    <small>Approval, receipt, and dispute stay visible.</small>
                   </div>
                 </div>
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="workspace-intake-actions">
                   {!hasRuntime ? (
                     <button className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
                       {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
@@ -5929,27 +5918,30 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 </div>
               </section>
 
-              <aside className="lovable-panel">
-                <div className="space-y-2">
-                  <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#d2b06f]/80">Proof loop</p>
-                  <h2 className="text-3xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Do not widen scope yet.</h2>
-                  <p className="text-base leading-7 text-stone-300">Close one governed action from one host and keep the same approval, receipt, and dispute chain visible.</p>
+              <section className="workspace-intake-card workspace-intake-card-secondary">
+                <div className="workspace-intake-panel-head">
+                  <p>Proof loop</p>
+                  <h2>Keep one chain visible.</h2>
+                  <span>Close one governed action from one host and keep the same approval, receipt, and dispute chain visible.</span>
                 </div>
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Host</span>
-                    <strong className="mt-2 block text-stone-100">{selectedHostTrack.label}</strong>
+                <div className="workspace-intake-statusbar workspace-intake-statusbar-live">
+                  <div className="workspace-intake-status">
+                    <span>Host</span>
+                    <strong>{selectedHostTrack.label}</strong>
+                    <small>{selectedHostTrack.description}</small>
                   </div>
-                  <div className={`rounded-3xl border p-5 ${focusedHostedApprovalId ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Approval</span>
-                    <strong className="mt-2 block text-stone-100">{latestHostedApprovalId || "Pending"}</strong>
+                  <div className="workspace-intake-status">
+                    <span>Approval</span>
+                    <strong>{latestHostedApprovalId || "Pending"}</strong>
+                    <small>{focusedHostedApprovalTrack}</small>
                   </div>
-                  <div className={`rounded-3xl border p-5 ${focusedFirstPaidReceiptId ? "border-[#d2b06f]/25 bg-[#121921]" : "border-white/10 bg-white/5"}`}>
-                    <span className="block font-mono text-[0.68rem] uppercase tracking-[0.18em] text-[#d2b06f]/80">Receipt</span>
-                    <strong className="mt-2 block text-stone-100">{focusedFirstPaidReceiptId || "Pending"}</strong>
+                  <div className="workspace-intake-status">
+                    <span>Receipt</span>
+                    <strong>{focusedFirstPaidReceiptId || "Pending"}</strong>
+                    <small>{focusedFirstPaidSettlementLabel}</small>
                   </div>
                 </div>
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="workspace-intake-actions">
                   <a className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/10" href={focusedReceiptSurfaceHrefResolved}>
                     {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
                   </a>
@@ -5960,7 +5952,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     {busyState === "logout" ? "Signing out..." : "Sign out"}
                   </button>
                 </div>
-              </aside>
+              </section>
             </section>
           )}
         </main>
