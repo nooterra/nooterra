@@ -1736,108 +1736,102 @@ textarea {
 
 .workspace-intake {
   display: grid;
-  gap: 1.1rem;
-  max-width: 1080px;
+  gap: 1.35rem;
+  max-width: 1120px;
   margin: 0 auto;
+  padding: 0 clamp(1rem, 2vw, 1.5rem) 2.75rem;
 }
 
-.workspace-intake-hero {
+.workspace-intake-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.9rem;
+  gap: 1rem;
+  max-width: 860px;
+}
+
+.workspace-intake-head h1 {
+  max-width: 10ch;
+  margin: 0;
+  color: #f4efe6;
+  font-size: clamp(3rem, 7vw, 5.6rem);
+  line-height: 0.9;
+  letter-spacing: -0.07em;
+}
+
+.workspace-intake-head .product-lead {
+  max-width: 48rem;
+  margin: 0;
+  color: rgba(230, 237, 244, 0.84);
+}
+
+.workspace-intake-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.workspace-intake-track-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(14, 20, 29, 0.76);
+  color: rgba(225, 232, 239, 0.74);
+}
+
+.workspace-intake-track-item span {
+  color: rgba(210, 176, 111, 0.86);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+}
+
+.workspace-intake-track-item strong {
+  color: #e8edf2;
+  font-size: 0.92rem;
+}
+
+.workspace-intake-track-item.is-active {
+  border-color: rgba(61, 167, 149, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(61, 167, 149, 0.18), transparent 8rem),
+    rgba(14, 20, 29, 0.92);
+}
+
+.workspace-intake-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.workspace-intake-layout-account {
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
   align-items: start;
 }
 
-.workspace-intake-copy {
+.workspace-intake-layout-live {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-intake-card {
   display: grid;
   gap: 1rem;
-  padding: clamp(1.35rem, 2.7vw, 1.85rem);
+  padding: clamp(1.15rem, 2.6vw, 1.6rem);
   border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top left, rgba(210, 176, 111, 0.14), transparent 13rem),
-    radial-gradient(circle at 86% 18%, rgba(31, 104, 92, 0.18), transparent 16rem),
-    linear-gradient(180deg, rgba(10, 15, 22, 0.86), rgba(14, 21, 31, 0.76));
-  box-shadow: 0 18px 42px rgba(3, 8, 15, 0.24);
-}
-
-.workspace-intake-copy .product-kicker {
-  color: rgba(210, 176, 111, 0.82);
-}
-
-.workspace-intake-copy h1 {
-  max-width: 12ch;
-  margin: 0;
-  color: #f4efe6;
-  font-size: clamp(2.8rem, 6vw, 5rem);
-  line-height: 0.92;
-  letter-spacing: -0.06em;
-}
-
-.workspace-intake-copy .product-lead {
-  max-width: 46rem;
-  margin: 0;
-  color: rgba(230, 237, 244, 0.8);
-}
-
-.workspace-intake-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-}
-
-.workspace-intake-steprail {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin-top: 0.15rem;
-}
-
-.workspace-intake-step {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.9rem 1rem;
-  border-radius: var(--product-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 10rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(16, 21, 28, 0.92);
-}
-
-.workspace-intake-step span {
-  color: rgba(210, 176, 111, 0.82);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.workspace-intake-step strong {
-  color: #f4efe6;
-  font-size: 0.98rem;
-  line-height: 1.18;
-}
-
-.workspace-intake-step p {
-  margin: 0;
-  color: rgba(225, 232, 239, 0.76);
-  font-size: 0.93rem;
-  line-height: 1.5;
-}
-
-.workspace-intake-panel {
-  display: grid;
-  gap: 1rem;
-  padding: clamp(1.25rem, 2.6vw, 1.65rem);
-  border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   background:
-    radial-gradient(circle at top right, rgba(31, 104, 92, 0.16), transparent 14rem),
-    radial-gradient(circle at bottom left, rgba(210, 176, 111, 0.12), transparent 11rem),
-    linear-gradient(180deg, rgba(10, 15, 22, 0.82), rgba(14, 20, 29, 0.8));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    radial-gradient(circle at top right, rgba(61, 167, 149, 0.12), transparent 14rem),
+    radial-gradient(circle at top left, rgba(210, 176, 111, 0.1), transparent 12rem),
+    linear-gradient(180deg, rgba(9, 14, 21, 0.9), rgba(12, 18, 27, 0.86));
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.2);
+}
+
+.workspace-intake-card-primary {
+  border-color: rgba(61, 167, 149, 0.18);
+}
+
+.workspace-intake-card-secondary {
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .workspace-intake-panel-head {
@@ -1871,6 +1865,10 @@ textarea {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.85rem;
+}
+
+.workspace-intake-statusbar-live {
+  margin-top: 0.15rem;
 }
 
 .workspace-intake-status {
@@ -1912,22 +1910,15 @@ textarea {
 .workspace-intake-formcard {
   display: grid;
   gap: 1rem;
-  padding: 1.1rem;
-  border-radius: var(--product-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 12rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(16, 21, 28, 0.9);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .workspace-intake-formcard-primary {
-  border-color: rgba(61, 167, 149, 0.22);
-  background:
-    radial-gradient(circle at top right, rgba(61, 167, 149, 0.3), transparent 13rem),
-    radial-gradient(circle at bottom left, rgba(210, 176, 111, 0.14), transparent 12rem),
-    linear-gradient(180deg, rgba(11, 20, 29, 0.98), rgba(15, 24, 35, 0.96));
+  border: 0;
+  background: transparent;
 }
 
 .workspace-intake-formcard .product-section-head p {
@@ -1979,70 +1970,54 @@ textarea {
   color: rgba(210, 176, 111, 0.82);
 }
 
-.workspace-intake-next {
+.workspace-intake-sidecard {
   display: grid;
   gap: 1rem;
-  padding: clamp(1.25rem, 2.6vw, 1.7rem);
+  align-self: start;
+  padding: 1rem 1.05rem;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
-    radial-gradient(circle at top right, rgba(31, 104, 92, 0.14), transparent 15rem),
-    linear-gradient(180deg, rgba(10, 15, 22, 0.8), rgba(14, 20, 29, 0.78));
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
-}
-
-.workspace-intake-next-head {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.workspace-intake-next-head h2 {
-  margin: 0;
-  color: #f4efe6;
-  font-size: clamp(1.8rem, 3.4vw, 2.4rem);
-  line-height: 1;
-}
-
-.workspace-intake-next-head .product-lead {
-  margin: 0;
-  color: rgba(225, 232, 239, 0.74);
-}
-
-.workspace-intake-next-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
-}
-
-.workspace-intake-next-card {
-  display: grid;
-  gap: 0.45rem;
-  padding: 1rem 1.05rem;
-  border-radius: var(--product-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 12rem),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.05), transparent 10rem),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(16, 21, 28, 0.9);
+    rgba(16, 21, 28, 0.88);
 }
 
-.workspace-intake-next-card span {
-  color: rgba(210, 176, 111, 0.82);
-  font-family: "IBM Plex Mono", monospace;
+.workspace-intake-sidecard-copy {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.workspace-intake-statuslist {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workspace-intake-mini-status {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(8, 12, 18, 0.7);
+}
+
+.workspace-intake-mini-status span {
+  color: rgba(210, 176, 111, 0.76);
   font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.16em;
+  font-family: "IBM Plex Mono", monospace;
   text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
-.workspace-intake-next-card strong {
+.workspace-intake-mini-status strong {
   color: #f4efe6;
-  font-size: 1rem;
+  font-size: 0.98rem;
 }
 
-.workspace-intake-next-card p {
-  margin: 0;
-  color: rgba(225, 232, 239, 0.74);
+.workspace-intake-mini-status small {
+  color: rgba(225, 232, 239, 0.72);
+  line-height: 1.45;
 }
 
 .workspace-intake-unavailable {
@@ -2069,6 +2044,25 @@ textarea {
 .workspace-intake-unavailable-card p {
   margin: 0;
   color: rgba(225, 232, 239, 0.74);
+}
+
+.workspace-intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+@media (max-width: 980px) {
+  .workspace-intake-layout-account,
+  .workspace-intake-layout-live,
+  .workspace-intake-statusbar,
+  .workspace-intake-statusbar-live {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-intake-head h1 {
+    max-width: 12ch;
+  }
 }
 
 .product-page-onboarding-app .product-inline-note.warn,

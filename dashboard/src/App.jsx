@@ -129,7 +129,7 @@ export default function App() {
     const rawPath = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     const wantsManagedOnboarding = params.get("experience") === "app";
-    const hash = window.location.hash || "#identity-access";
+    const hash = window.location.hash || "#account-create";
     if (rawPath === "/workspace") {
       window.history.replaceState({}, "", `/account${hash}`);
       return;

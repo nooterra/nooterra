@@ -15,11 +15,11 @@ import {
 import { docsLinks, ossLinks } from "../site/config/links.js";
 
 const PUBLIC_ONBOARDING_HREF = "/onboarding";
-const PUBLIC_SIGNUP_HREF = "/account#identity-access";
-const PUBLIC_LOGIN_HREF = "/account#identity-access";
-const MANAGED_ONBOARDING_HREF = "/account#identity-access";
-const PRODUCT_ONBOARDING_HREF = "/account?source=product#identity-access";
-const PRICING_ONBOARDING_HREF = "/account?source=pricing#identity-access";
+const PUBLIC_SIGNUP_HREF = "/account#account-create";
+const PUBLIC_LOGIN_HREF = "/account#account-create";
+const MANAGED_ONBOARDING_HREF = "/account#account-create";
+const PRODUCT_ONBOARDING_HREF = "/account?source=product#account-create";
+const PRICING_ONBOARDING_HREF = "/account?source=pricing#account-create";
 const SITE_DOC_ROUTES = {
   home: "/docs",
   quickstart: "/docs/quickstart",
@@ -68,7 +68,7 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
     id: "onboarding",
     label: "Onboarding app",
     description: "Account creation and first wallet issuance entry point.",
-    path: "/account#identity-access",
+    path: "/account#account-create",
     type: "html",
     needle: "Create the account first."
   },
@@ -92,7 +92,7 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
 function buildManagedOnboardingHref(source) {
   const normalizedSource = String(source ?? "").trim();
   return normalizedSource
-    ? `/account?source=${encodeURIComponent(normalizedSource)}#identity-access`
+    ? `/account?source=${encodeURIComponent(normalizedSource)}#account-create`
     : PUBLIC_SIGNUP_HREF;
 }
 
