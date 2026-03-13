@@ -15,6 +15,7 @@ const DEFAULT_ROUTE_CHECKS = [
   { path: "/onboarding", needle: "Create the account." },
   { path: "/signup", needle: "Create the workspace before the agent gets to act." },
   { path: "/login", needle: "Return to the same workspace, approvals, and receipts." },
+  { path: "/account", needle: "Create the account first." },
   { path: "/docs", needle: "Documentation with the website as the index" },
   { path: "/docs/quickstart", needle: "Start with one real action, not a giant setup ritual." },
   { path: "/docs/architecture", needle: "Understand the control plane before you trust it." },
