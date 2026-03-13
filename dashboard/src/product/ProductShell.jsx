@@ -5703,11 +5703,77 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
                   </button>
                 ) : (
-                  <a className="account-reset-button account-reset-button-solid" href={firstActionPrimaryHref}>{firstActionPrimaryLabel}</a>
+                  <a className="account-reset-button account-reset-button-solid" href="#proof-loop">Open the proof loop</a>
                 )}
                 <a className="account-reset-button account-reset-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
                 <a className="account-reset-button account-reset-button-ghost" href="/receipts">Open receipts</a>
               </div>
+
+              {hasRuntime ? (
+                <div className="account-reset-proof" id="proof-loop">
+                  <div className="account-reset-stage-head">
+                    <p>First proof loop</p>
+                    <h2>Stay in one secure flow until approval, receipt, and recourse are all visible.</h2>
+                  </div>
+                  <p className="account-reset-stage-copy">
+                    Keep the first real action narrow. Use one host, one hosted approval, and one receipt path until the flow feels boring.
+                  </p>
+                  <div className="account-reset-progress">
+                    {selectedHostTrackSteps.map((step, index) => (
+                      <article key={`account_reset_proof_step:${step.title}`} className={`account-reset-step${step.ready ? " is-active" : ""}`}>
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <strong>{step.title}</strong>
+                        <p>{step.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="account-reset-actions">
+                    {!hostedApprovalReady ? (
+                      <button
+                        className="account-reset-button account-reset-button-solid"
+                        disabled={busyState !== "" || !buyer?.tenantId}
+                        onClick={() => void handleCreateFirstHostedApproval()}
+                      >
+                        {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
+                      </button>
+                    ) : (
+                      <a
+                        className="account-reset-button account-reset-button-solid"
+                        href={focusedHostedApprovalUrl || approvalSurfaceHref}
+                        {...(focusedHostedApprovalUrl ? { target: "_blank", rel: "noreferrer" } : {})}
+                      >
+                        Reopen hosted approval
+                      </a>
+                    )}
+                    <a className="account-reset-button account-reset-button-ghost" href={selectedHostTrack.href}>
+                      {selectedHostTrack.guideLabel}
+                    </a>
+                    <a className="account-reset-button account-reset-button-ghost" href={focusedReceiptSurfaceHrefResolved}>
+                      {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
+                    </a>
+                    <a className="account-reset-button account-reset-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
+                      {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
+                    </a>
+                  </div>
+                  <div className="account-reset-summary">
+                    <article className="account-reset-summary-card">
+                      <span>Host</span>
+                      <strong>{selectedHostTrack.label}</strong>
+                      <p>{selectedHostTrack.success}</p>
+                    </article>
+                    <article className="account-reset-summary-card">
+                      <span>Approval</span>
+                      <strong>{latestHostedApprovalId || "Pending"}</strong>
+                      <p>{humanizeLabel(focusedHostedApprovalState, "Pending")}</p>
+                    </article>
+                    <article className="account-reset-summary-card">
+                      <span>Receipt</span>
+                      <strong>{focusedFirstPaidReceiptId || "Pending"}</strong>
+                      <p>{focusedFirstPaidRecourseLabel}</p>
+                    </article>
+                  </div>
+                </div>
+              ) : null}
             </article>
           ) : (
             <article className="account-reset-stage">
