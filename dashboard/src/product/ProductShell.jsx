@@ -674,6 +674,13 @@ function maskToken(value) {
   return `${normalized.slice(0, 8)}…${normalized.slice(-4)}`;
 }
 
+function formatApiKeyHandle(value, fallback = "Not issued") {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return fallback;
+  if (/^sk_(live|test)_/i.test(normalized)) return maskToken(normalized);
+  return normalized;
+}
+
 function toIdSlug(value, fallback = "tenant") {
   const normalized = String(value ?? "")
     .trim()
@@ -3402,7 +3409,7 @@ function NetworkPage({ runtime, onboardingState, lastAgentId, launchId, onLaunch
     {
       title: "Runtime key",
       body: runtimeReady
-        ? `Using ${bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "a configured API key"} for live requests.`
+        ? `Using ${formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "a configured API key")} for live requests.`
         : "Issue runtime bootstrap before planning or dispatching work.",
       ready: runtimeReady
     },
@@ -3659,7 +3666,7 @@ function NetworkPage({ runtime, onboardingState, lastAgentId, launchId, onLaunch
               <strong>Runtime key</strong>
               <span>
                 {runtimeReady
-                  ? `Using ${bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "a configured API key"} for live requests.`
+                  ? `Using ${formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "a configured API key")} for live requests.`
                   : "Issue runtime bootstrap before planning or dispatching work."}
               </span>
             </div>
@@ -4969,7 +4976,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       label: "Runtime bootstrap is issued",
       ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId),
       detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
-        ? `API key ${bootstrapBundle.bootstrap.apiKey.keyId} is ready for host installs.`
+        ? `API key ${formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")} is ready for host installs.`
         : "Issue the runtime bootstrap so hosts can create intents and fetch receipts."
     },
     {
@@ -5255,7 +5262,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
     {
       title: "Issue runtime bootstrap",
       detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
-        ? `Bootstrap ${bootstrapBundle.bootstrap.apiKey.keyId} is live for ${workspaceTenantLabel}. Reuse this exact runtime bundle for the first host install.`
+        ? `Bootstrap ${formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")} is live for ${workspaceTenantLabel}. Reuse this exact runtime bundle for the first host install.`
         : buyer
           ? "Issue Runtime Bootstrap below. This mints the tenant-scoped API key and MCP env the first host will use."
           : "Create or recover the workspace first, then issue Runtime Bootstrap from this page.",
@@ -5441,7 +5448,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     {
       title: "Issue the shared runtime",
       detail: bootstrapBundle?.bootstrap?.apiKey?.keyId
-        ? `Runtime ${bootstrapBundle.bootstrap.apiKey.keyId} is already live. Keep ${selectedHostTrack.label} on this exact tenant bundle.`
+        ? `Runtime ${formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")} is already live. Keep ${selectedHostTrack.label} on this exact tenant bundle.`
         : "Create the workspace and issue Runtime Bootstrap before you touch any host install path.",
       ready: Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId)
     },
@@ -5681,7 +5688,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 </article>
                 <article className="account-reset-summary-card">
                   <span>Runtime</span>
-                  <strong>{hasRuntime ? bootstrapBundle.bootstrap.apiKey.keyId : "Pending"}</strong>
+                  <strong>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
                   <p>{hasRuntime ? "Shared Action Wallet bundle is ready." : "Issue the runtime next."}</p>
                 </article>
                 <article className="account-reset-summary-card">
@@ -5696,7 +5703,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
                   </button>
                 ) : (
-                  <a className="account-reset-button account-reset-button-solid" href="#first-governed-action">Open the proof loop</a>
+                  <a className="account-reset-button account-reset-button-solid" href={firstActionPrimaryHref}>{firstActionPrimaryLabel}</a>
                 )}
                 <a className="account-reset-button account-reset-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
                 <a className="account-reset-button account-reset-button-ghost" href="/receipts">Open receipts</a>
@@ -6124,7 +6131,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
           <div className="product-detail-meta">
             <div>
               <strong>Runtime bundle</strong>
-              <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "Not issued yet"}</span>
+              <span>{formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "Not issued yet")}</span>
             </div>
             <div>
               <strong>Approval route</strong>
@@ -6598,7 +6605,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                 </div>
                 <div>
                   <strong>Runtime</strong>
-                  <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? `Issued ${bootstrapBundle.bootstrap.apiKey.keyId}` : "Not bootstrapped yet."}</span>
+                  <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ? `Issued ${formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")}` : "Not bootstrapped yet."}</span>
                 </div>
               </div>
             </>
@@ -6831,7 +6838,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
             </div>
             <div>
               <strong>API key</strong>
-              <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "Not issued"} · {maskToken(runtime.apiKey)}</span>
+              <span>{formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "Not issued")} · {maskToken(runtime.apiKey)}</span>
             </div>
             <div>
               <strong>Smoke status</strong>
@@ -7662,7 +7669,7 @@ function StudioPage({ runtime, onboardingState, onAgentRecorded, lastAgentId, de
     {
       title: "Runtime ready",
       body: runtimeReady
-        ? `Using ${bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "a configured runtime key"} for write actions.`
+        ? `Using ${formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "a configured runtime key")} for write actions.`
         : "Finish onboarding and issue runtime bootstrap first.",
       ready: runtimeReady
     },
@@ -7819,7 +7826,7 @@ ${form.seedEndpointBaseUrl ? `export NOOTERRA_STARTER_ENDPOINT_BASE_URL=${JSON.s
           </div>
           {bootstrapBundle?.bootstrap?.apiKey?.keyId ? (
             <div className="product-inline-note good">
-              Runtime bootstrap {bootstrapBundle.bootstrap.apiKey.keyId} is active.
+              Runtime bootstrap {formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")} is active.
               {smokeBundle?.smoke?.initialized ? ` MCP smoke is green with ${smokeBundle.smoke.toolsCount ?? 0} tools.` : ""}
             </div>
           ) : (
@@ -11111,7 +11118,7 @@ function WalletPage({ runtime, onboardingState, lastLaunchId = null, lastAgentId
                 </div>
                 <div>
                   <strong>Runtime key</strong>
-                  <span>{bootstrapBundle?.bootstrap?.apiKey?.keyId ?? maskToken(runtime.apiKey)}</span>
+                  <span>{formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, maskToken(runtime.apiKey))}</span>
                 </div>
                 <div>
                   <strong>Documents</strong>
@@ -15372,7 +15379,7 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
       label: "Runtime bootstrap issued",
       ready: bootstrapIssued,
       detail: bootstrapIssued
-        ? `API key ${bootstrapBundle?.bootstrap?.apiKey?.keyId ?? "issued"} is ready for host installs.`
+        ? `API key ${formatApiKeyHandle(bootstrapBundle?.bootstrap?.apiKey?.keyId, "issued")} is ready for host installs.`
         : "Use workspace onboarding to issue the tenant-scoped API key and MCP bundle first."
     },
     {
@@ -15577,7 +15584,7 @@ function DeveloperPage({ runtime, onboardingState, lastAgentId }) {
         </div>
         {bootstrapBundle?.bootstrap?.apiKey?.keyId ? (
           <div className="product-inline-note good">
-            Workspace bootstrap {bootstrapBundle.bootstrap.apiKey.keyId} is active.
+            Workspace bootstrap {formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "issued")} is active.
             {smokeBundle?.smoke?.initialized ? ` Smoke test passed with ${smokeBundle.smoke.toolsCount ?? 0} tools.` : ""}
           </div>
         ) : (
