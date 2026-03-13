@@ -3288,6 +3288,11 @@ textarea {
   background: rgba(210, 112, 102, 0.08);
 }
 
+.workspace-account-note-good {
+  border-color: rgba(68, 173, 144, 0.28);
+  background: rgba(68, 173, 144, 0.09);
+}
+
 .workspace-account-details {
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);

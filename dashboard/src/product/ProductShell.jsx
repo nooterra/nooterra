@@ -5610,6 +5610,13 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
         detail: firstPaidCallState.history.length ? "Receipt and dispute stay attached to the same action." : "Seed one hosted approval and finish one governed action."
       }
     ];
+    const standaloneStatusTone = authPlaneUnavailable
+      ? "workspace-account-note-bad"
+      : /failed|error|unavailable/i.test(statusMessage)
+        ? "workspace-account-note-bad"
+        : /ready|issued|signed in|signed|live|sent/i.test(statusMessage)
+          ? "workspace-account-note-good"
+          : "workspace-account-note";
 
     return (
       <section className="workspace-account-shell">
@@ -5783,13 +5790,17 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                         <span>Use passkey for the fastest secure setup, or create the workspace by email and finish sign-in with a six-digit recovery code.</span>
                       </div>
 
-                      <div className="workspace-account-actions workspace-account-actions-stack">
+                  <div className="workspace-account-actions workspace-account-actions-stack">
                         <button className="workspace-account-button workspace-account-button-solid" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
                           {busyState === "passkey_signup" ? "Creating..." : "Create workspace + save passkey"}
                         </button>
                         <button className="workspace-account-button workspace-account-button-ghost" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
                           {busyState === "signup" ? "Sending code..." : "Create workspace with email code"}
                         </button>
+                      </div>
+                      <div className={`workspace-account-note ${standaloneStatusTone}`}>
+                        <strong>Current status</strong>
+                        <span>{statusMessage}</span>
                       </div>
                       {signupValidationError ? <div className="workspace-account-note workspace-account-note-warn">{signupValidationError}</div> : null}
 
@@ -5873,6 +5884,10 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                     <button className="workspace-account-button workspace-account-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
                       {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
                     </button>
+                  </div>
+                  <div className={`workspace-account-note ${standaloneStatusTone}`}>
+                    <strong>Current status</strong>
+                    <span>{statusMessage}</span>
                   </div>
                   {loginIdentityError ? <div className="workspace-account-note workspace-account-note-warn">{loginIdentityError}</div> : null}
 
