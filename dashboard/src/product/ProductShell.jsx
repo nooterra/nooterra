@@ -4053,6 +4053,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
   useEffect(() => {
     let cancelled = false;
     const tenantId = buyer?.tenantId;
+    const skipHostedApprovalHistorySync = standaloneMode;
     if (!tenantId) {
       setHostedApprovalState({
         latest: null,
@@ -4170,13 +4171,15 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       loading: true,
       error: ""
     }));
-    void loadHostedApprovalHistory();
+    if (!skipHostedApprovalHistorySync) {
+      void loadHostedApprovalHistory();
+    }
     void loadOnboardingMetrics();
     void loadFirstPaidHistory();
     return () => {
       cancelled = true;
     };
-  }, [buyer?.tenantId, runtime.authBaseUrl, runtime.tenantId]);
+  }, [buyer?.tenantId, runtime.authBaseUrl, runtime.tenantId, standaloneMode]);
 
   async function refreshOnboardingMetrics() {
     const tenantId = buyer?.tenantId;
@@ -4724,7 +4727,9 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       const now = Date.now();
       if (now - lastActivationArtifactRefreshRef.current < 15000) return;
       lastActivationArtifactRefreshRef.current = now;
-      void refreshHostedApprovalHistory().catch(() => {});
+      if (!standaloneMode) {
+        void refreshHostedApprovalHistory().catch(() => {});
+      }
       void refreshFirstPaidHistory().catch(() => {});
       void refreshOnboardingMetrics().catch(() => {});
     }
@@ -4741,7 +4746,7 @@ function OnboardingPage({ runtime, setRuntime, onboardingState, setOnboardingSta
       window.removeEventListener("focus", refreshActivationArtifactsOnReturn);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [buyer?.tenantId]);
+  }, [buyer?.tenantId, standaloneMode]);
 
   async function handleRunFirstPaidCall({ replayAttemptId = null } = {}) {
     const tenantId = buyer?.tenantId;
@@ -5499,6 +5504,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
               ? "Open dispute"
               : "Open focused receipt";
   const onboardingSource = getQueryParam("source");
+  const onboardingStep = getQueryParam("step");
   const onboardingStarted = Boolean(
     buyer ||
     bootstrapBundle ||
@@ -5567,34 +5573,9 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     }
   };
   const onboardingSourceMessage = onboardingSource ? onboardingSourceMessages[onboardingSource] ?? null : null;
+  const showStandaloneRuntimeStep = standaloneMode && (onboardingStep === "runtime" || onboardingStep === "proof");
 
   if (standaloneMode) {
-    const setupSteps = [
-      {
-        id: "identity",
-        label: "Identity",
-        title: buyer ? "Workspace identity is live." : "Create the workspace.",
-        body: buyer
-          ? "The account boundary is issued and attached to the secure sign-in path for approvals, receipts, and disputes."
-          : "Start with one real operator and one real workspace before any runtime or host setup appears."
-      },
-      {
-        id: "runtime",
-        label: "Runtime",
-        title: bootstrapBundle?.bootstrap?.apiKey?.keyId ? "Runtime bundle is issued." : "Unlock the runtime.",
-        body: bootstrapBundle?.bootstrap?.apiKey?.keyId
-          ? "The shared Action Wallet bundle is ready for Claude, OpenClaw, Codex, CLI, and API."
-          : "Bootstrap one Action Wallet runtime after the account exists so every host uses the same trust boundary."
-      },
-      {
-        id: "proof",
-        label: "Proof",
-        title: firstPaidCallState.history.length ? "Proof loop has started." : "Close one proof loop.",
-        body: firstPaidCallState.history.length
-          ? "Keep the first approval, receipt, and dispute path visible until the loop feels boring."
-          : "The first run should end with one hosted approval, one receipt, and one visible recourse path."
-      }
-    ];
     const standaloneStatusTone = authPlaneUnavailable
       ? "account-reset-note-bad"
       : /failed|error|unavailable/i.test(statusMessage)
@@ -5605,194 +5586,107 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
     const hasWorkspace = Boolean(buyer);
     const hasRuntime = Boolean(bootstrapBundle?.bootstrap?.apiKey?.keyId);
     const hasProofLoop = Boolean(firstPaidCallState.history.length);
+    const showAccountIntake = !showStandaloneRuntimeStep;
     const recoveryReady = Boolean(String(loginForm.tenantId ?? "").trim() && String(loginForm.email ?? "").trim());
+    const currentSecurePath = typeof window !== "undefined" ? window.location.pathname : "";
+    const loginFirstMode = currentSecurePath === "/login";
+    const secureEntryHeading = showAccountIntake
+      ? loginFirstMode
+        ? "Return to your workspace."
+        : "Create your workspace."
+      : !hasRuntime
+        ? "Issue the runtime next."
+        : "Close the first proof loop.";
+    const secureEntryLead = showAccountIntake
+      ? loginFirstMode
+        ? "Use the same tenant and browser key, or recover by email. Keep the return path as simple as the first signup."
+        : "One operator, one company, one workspace. Create the account here and keep everything else hidden until the trust boundary is real."
+      : !hasRuntime
+        ? "The account boundary is live. Issue one shared Action Wallet runtime so every host uses the same authority boundary."
+        : "Keep one hosted approval, one receipt, and one visible recourse path in front of you until the loop feels boring.";
 
     return (
-      <section className="account-reset-shell">
-        <div className="account-reset-topbar">
-          <a className="account-reset-brand" href="/">
-            <span className="account-reset-brand-mark"><ShieldCheck size={16} /></span>
-            <span>
-              <strong>Nooterra</strong>
-              <small>Secure account setup</small>
-            </span>
-          </a>
-          <div className="account-reset-topbar-actions">
-            <a href="/support">Support</a>
+      <div className="account-entry-page">
+        <header className="account-entry-header">
+          <div className="account-entry-header-inner">
+            <a className="account-entry-brand" href="/">
+              <span className="account-entry-brand-mark"><ShieldCheck size={16} /></span>
+              <span>
+                <strong>Nooterra</strong>
+                <small>{showAccountIntake ? "Secure account setup" : "Secure handoff"}</small>
+              </span>
+            </a>
+            <nav className="account-entry-header-links" aria-label="Secure account navigation">
+              <a href="/product">Product</a>
+              <a href="/pricing">Pricing</a>
+              <a href="/docs/quickstart">Quickstart</a>
+              <a href="/support">Support</a>
+            </nav>
           </div>
-        </div>
+        </header>
 
-        <section className="account-reset-main" id="identity-access">
-          <div className="account-reset-hero">
-            <div className="account-reset-copy">
-              <p className="account-reset-kicker">Account handoff</p>
-              <h1>{hasWorkspace ? "The account is real. Now close the first loop." : "Create the account first."}</h1>
-              <p className="account-reset-lead">
-                {hasWorkspace
-                  ? "Keep the next move narrow: issue one runtime, pick one host, and end one governed action with a receipt and recourse."
-                  : "This should feel like secure account creation, not an internal dashboard. Create one workspace owner first. Runtime and proof unlock after the account is real."}
-              </p>
-              {onboardingSourceMessage ? (
-                <div className="account-reset-callout">
-                  <strong>{onboardingSourceMessage.label}</strong>
-                  <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
-                </div>
-              ) : null}
+        <main className="account-entry-main" id="identity-access">
+          <section className="account-entry-hero">
+            <p className="account-entry-kicker">{showAccountIntake ? "Secure account setup" : "Account handoff"}</p>
+            <h1>{secureEntryHeading}</h1>
+            <p className="account-entry-lead">{secureEntryLead}</p>
+            {onboardingSourceMessage ? (
+              <div className={`account-entry-note ${standaloneStatusTone}`}>
+                <strong>{onboardingSourceMessage.label}</strong>
+                <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
+              </div>
+            ) : null}
+            <div className="account-entry-progress">
+              <article className={`account-entry-progress-item${hasWorkspace ? " is-active" : ""}`}>
+                <span>01</span>
+                <strong>{hasWorkspace ? "Workspace is live" : "Create the workspace"}</strong>
+                <p>{hasWorkspace ? workspaceTenantLabel : "One real operator and one real company."}</p>
+              </article>
+              <article className={`account-entry-progress-item${hasRuntime ? " is-active" : ""}`}>
+                <span>02</span>
+                <strong>{hasRuntime ? "Runtime issued" : "Issue the runtime"}</strong>
+                <p>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "One shared authority boundary for every host."}</p>
+              </article>
+              <article className={`account-entry-progress-item${hasProofLoop ? " is-active" : ""}`}>
+                <span>03</span>
+                <strong>{hasProofLoop ? "First proof loop visible" : "Close one proof loop"}</strong>
+                <p>{hasProofLoop ? `${firstPaidCallState.history.length} governed run${firstPaidCallState.history.length === 1 ? "" : "s"} tracked` : "Approval, receipt, and recourse stay visible."}</p>
+              </article>
             </div>
-            <div className="account-reset-progress">
-              {setupSteps.map((step, index) => {
-                const active = (step.id === "identity" && hasWorkspace) || (step.id === "runtime" && hasRuntime) || (step.id === "proof" && hasProofLoop);
-                return (
-                  <article key={`account_reset_step:${step.id}`} className={`account-reset-step${active ? " is-active" : ""}`}>
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    <strong>{step.title}</strong>
-                    <p>{step.body}</p>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
+          </section>
 
           {authPlaneUnavailable ? (
-            <article className="account-reset-stage account-reset-stage-outage">
-              <div className="account-reset-stage-head">
+            <section className="account-entry-panel account-entry-panel-primary">
+              <div className="account-entry-panel-head">
                 <p>Hosted onboarding paused</p>
                 <h2>The auth plane is unavailable.</h2>
+                <span>Account creation and sign-in fail closed until the secure auth service answers again.</span>
               </div>
-              <div className="account-reset-note account-reset-note-bad">
-                <strong>Account creation fails closed right now.</strong>
+              <div className="account-entry-note account-reset-note-bad">
+                <strong>Account creation is paused right now.</strong>
                 <span>{authPlaneError}</span>
               </div>
-              <p className="account-reset-stage-copy">
-                The public site stays live, but workspace creation and sign-in stop until the auth plane answers again.
-              </p>
-              <div className="account-reset-actions">
-                <a className="account-reset-button account-reset-button-solid" href="/status">View live status</a>
-                <a className="account-reset-button account-reset-button-ghost" href="/support">Contact support</a>
+              <div className="account-entry-actions">
+                <a className="product-button product-button-solid" href="/status">View live status</a>
+                <a className="product-button product-button-ghost" href="/support">Contact support</a>
               </div>
-            </article>
-          ) : hasWorkspace ? (
-            <article className="account-reset-stage">
-              <div className="account-reset-stage-head">
-                <p>Workspace ready</p>
-                <h2>The authority boundary is live.</h2>
-              </div>
-              <p className="account-reset-stage-copy">
-                This account now owns the runtime, approval, receipt, and dispute chain. The next job is to issue one runtime bundle and close one real proof loop.
-              </p>
-              <div className="account-reset-summary">
-                <article className="account-reset-summary-card">
-                  <span>Workspace</span>
-                  <strong>{buyer.tenantId}</strong>
-                  <p>{buyer.email} · {buyer.role}</p>
-                </article>
-                <article className="account-reset-summary-card">
-                  <span>Runtime</span>
-                  <strong>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
-                  <p>{hasRuntime ? "Shared Action Wallet bundle is ready." : "Issue the runtime next."}</p>
-                </article>
-                <article className="account-reset-summary-card">
-                  <span>Proof loop</span>
-                  <strong>{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Not started"}</strong>
-                  <p>{hasProofLoop ? "Receipt and dispute stay attached to the same action." : "Seed one hosted approval and finish one governed action."}</p>
-                </article>
-              </div>
-              <div className="account-reset-actions">
-                {!hasRuntime ? (
-                  <button className="account-reset-button account-reset-button-solid" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
-                    {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
-                  </button>
-                ) : (
-                  <a className="account-reset-button account-reset-button-solid" href="#proof-loop">Open the proof loop</a>
-                )}
-                <a className="account-reset-button account-reset-button-ghost" href={docsLinks.hostQuickstart}>Launch host guide</a>
-                <a className="account-reset-button account-reset-button-ghost" href="/receipts">Open receipts</a>
-              </div>
-
-              {hasRuntime ? (
-                <div className="account-reset-proof" id="proof-loop">
-                  <div className="account-reset-stage-head">
-                    <p>First proof loop</p>
-                    <h2>Stay in one secure flow until approval, receipt, and recourse are all visible.</h2>
-                  </div>
-                  <p className="account-reset-stage-copy">
-                    Keep the first real action narrow. Use one host, one hosted approval, and one receipt path until the flow feels boring.
-                  </p>
-                  <div className="account-reset-progress">
-                    {selectedHostTrackSteps.map((step, index) => (
-                      <article key={`account_reset_proof_step:${step.title}`} className={`account-reset-step${step.ready ? " is-active" : ""}`}>
-                        <span>{String(index + 1).padStart(2, "0")}</span>
-                        <strong>{step.title}</strong>
-                        <p>{step.detail}</p>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="account-reset-actions">
-                    {!hostedApprovalReady ? (
-                      <button
-                        className="account-reset-button account-reset-button-solid"
-                        disabled={busyState !== "" || !buyer?.tenantId}
-                        onClick={() => void handleCreateFirstHostedApproval()}
-                      >
-                        {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
-                      </button>
-                    ) : (
-                      <a
-                        className="account-reset-button account-reset-button-solid"
-                        href={focusedHostedApprovalUrl || approvalSurfaceHref}
-                        {...(focusedHostedApprovalUrl ? { target: "_blank", rel: "noreferrer" } : {})}
-                      >
-                        Reopen hosted approval
-                      </a>
-                    )}
-                    <a className="account-reset-button account-reset-button-ghost" href={selectedHostTrack.href}>
-                      {selectedHostTrack.guideLabel}
-                    </a>
-                    <a className="account-reset-button account-reset-button-ghost" href={focusedReceiptSurfaceHrefResolved}>
-                      {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
-                    </a>
-                    <a className="account-reset-button account-reset-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
-                      {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
-                    </a>
-                  </div>
-                  <div className="account-reset-summary">
-                    <article className="account-reset-summary-card">
-                      <span>Host</span>
-                      <strong>{selectedHostTrack.label}</strong>
-                      <p>{selectedHostTrack.success}</p>
-                    </article>
-                    <article className="account-reset-summary-card">
-                      <span>Approval</span>
-                      <strong>{latestHostedApprovalId || "Pending"}</strong>
-                      <p>{humanizeLabel(focusedHostedApprovalState, "Pending")}</p>
-                    </article>
-                    <article className="account-reset-summary-card">
-                      <span>Receipt</span>
-                      <strong>{focusedFirstPaidReceiptId || "Pending"}</strong>
-                      <p>{focusedFirstPaidRecourseLabel}</p>
-                    </article>
-                  </div>
+            </section>
+          ) : showAccountIntake ? (
+            <section className="account-entry-intake">
+              <section className="account-entry-panel account-entry-panel-primary" id="account-create">
+                <div className="account-entry-panel-head">
+                  <p>{loginFirstMode ? "Return to workspace" : "New workspace"}</p>
+                  <h2>{loginFirstMode ? "Sign back in." : "Create the account first."}</h2>
+                  <span>
+                    {loginFirstMode
+                      ? "Use the same tenant and browser key when possible. Email recovery stays available if the passkey is missing."
+                      : "Create one workspace owner, then unlock runtime and the first governed action on this same page."}
+                  </span>
                 </div>
-              ) : null}
-            </article>
-          ) : (
-            <article className="account-reset-stage">
-              <div className="account-reset-stage-head">
-                <p>Secure account creation</p>
-                <h2>Create one real workspace owner.</h2>
-              </div>
-              <p className="account-reset-stage-copy">
-                New users should feel one setup step here: create the workspace, then move into runtime and proof. Returning users should have one clean way back in.
-              </p>
-              <div className="account-reset-grid">
-                <section className="account-reset-panel account-reset-panel-primary">
-                  <div className="account-reset-panel-head">
-                    <p>New workspace</p>
-                    <h3>Create the workspace</h3>
-                  </div>
-                  {authMode?.publicSignupEnabled !== false ? (
+                {!loginFirstMode ? (
+                  authMode?.publicSignupEnabled !== false ? (
                     <>
-                      <div className="account-reset-form-grid">
+                      <div className="account-entry-form-grid">
                         <label>
                           <span>Work email</span>
                           <input
@@ -5818,7 +5712,7 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                           />
                         </label>
                         <label>
-                          <span>Tenant slug (optional)</span>
+                          <span>Workspace slug (optional)</span>
                           <input
                             value={signupForm.tenantId}
                             onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
@@ -5826,34 +5720,24 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                           />
                         </label>
                       </div>
-                      <div className="account-reset-note account-reset-note-neutral">
-                        <strong>Recommended path</strong>
-                        <span>Create the workspace with an email code first. Save a passkey immediately after if this browser is yours.</span>
+                      <div className="account-entry-note account-reset-note-neutral">
+                        <strong>Fastest path</strong>
+                        <span>Create the workspace with an email code first, then save a passkey for fast return on this browser.</span>
                       </div>
-                      {signupValidationError ? <div className="account-reset-note account-reset-note-warn">{signupValidationError}</div> : null}
-                      <div className="account-reset-actions account-reset-actions-stack">
-                        <button className="account-reset-button account-reset-button-solid" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
+                      {signupValidationError ? <div className="account-entry-note account-reset-note-warn">{signupValidationError}</div> : null}
+                      <div className="account-entry-actions">
+                        <button className="product-button product-button-solid" disabled={busyState !== "" || !!signupValidationError} onClick={() => void handlePublicSignup()}>
                           {busyState === "signup" ? "Sending code..." : "Create workspace"}
                         </button>
-                        <button className="account-reset-button account-reset-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
-                          {busyState === "passkey_signup" ? "Creating..." : "Create with passkey instead"}
+                        <button className="product-button product-button-ghost" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                          {busyState === "passkey_signup" ? "Creating..." : "Create with passkey"}
                         </button>
                       </div>
-                      <div className={`account-reset-note ${standaloneStatusTone}`}>
-                        <strong>Current status</strong>
-                        <span>{statusMessage}</span>
-                      </div>
                       {recoveryReady ? (
-                        <div className="account-reset-inline">
-                          <div className="account-reset-panel-head">
-                            <p>Email handoff</p>
-                            <h3>Finish sign-in with the code.</h3>
-                          </div>
-                          <p className="account-reset-panel-copy">
-                            Use the latest six-digit code sent to the workspace email, then continue straight into runtime bootstrap.
-                          </p>
-                          <div className="account-reset-form-grid">
-                            <label className="account-reset-form-wide">
+                        <details className="product-details">
+                          <summary>Already have the email code?</summary>
+                          <div className="account-entry-form-grid account-entry-form-grid-single">
+                            <label>
                               <span>Recovery code</span>
                               <input
                                 value={loginForm.code}
@@ -5863,99 +5747,237 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
                               />
                             </label>
                           </div>
-                          <div className="account-reset-actions">
-                            <button className="account-reset-button account-reset-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                          <div className="account-entry-actions">
+                            <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
                               {busyState === "otp" ? "Issuing..." : "Request recovery code"}
                             </button>
-                            <button className="account-reset-button account-reset-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                            <button className="product-button product-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
                               {busyState === "verify" ? "Verifying..." : "Use recovery code"}
                             </button>
                           </div>
-                          {recoveryCodeError ? <div className="account-reset-note account-reset-note-warn">{recoveryCodeError}</div> : null}
-                        </div>
+                          {recoveryCodeError ? <div className="account-entry-note account-reset-note-warn">{recoveryCodeError}</div> : null}
+                        </details>
                       ) : null}
                     </>
                   ) : (
-                    <div className="account-reset-note account-reset-note-bad">
+                    <div className="account-entry-note account-reset-note-bad">
                       <strong>Public signup is disabled.</strong>
-                      <span>Use the returning workspace lane with an existing tenant and saved device key.</span>
+                      <span>Use the return flow with an existing tenant and saved device key.</span>
                     </div>
-                  )}
-                </section>
-
-                <aside className="account-reset-panel account-reset-panel-secondary">
-                  <div className="account-reset-panel-head">
-                    <p>Already have a workspace?</p>
-                    <h3>Return with the saved device key.</h3>
-                  </div>
-                  <p className="account-reset-panel-copy">
-                    Returning operators should get one fast path back in. Use the saved browser key if it exists, or recover by email without rebuilding anything.
-                  </p>
-                  <div className="account-reset-form-grid">
-                    <label>
-                      <span>Existing tenant</span>
-                      <input
-                        value={loginForm.tenantId}
-                        onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
-                        placeholder="tenant_acme"
-                      />
-                    </label>
-                    <label>
-                      <span>Sign-in email</span>
-                      <input
-                        value={loginForm.email}
-                        onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
-                        placeholder="founder@company.com"
-                      />
-                    </label>
-                    <label className="account-reset-form-wide">
-                      <span>Device label</span>
-                      <input
-                        value={passkeyForm.label}
-                        onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
-                        placeholder="This browser"
-                      />
-                    </label>
-                  </div>
-                  <div className="account-reset-actions">
-                    <button className="account-reset-button account-reset-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
-                      {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
-                    </button>
-                  </div>
-                  {loginIdentityError ? <div className="account-reset-note account-reset-note-warn">{loginIdentityError}</div> : null}
-                  <details className="account-reset-details">
-                    <summary>Recover this workspace by email</summary>
-                    <div className="account-reset-note account-reset-note-warn">
-                      <strong>Use this if the saved device key is missing.</strong>
-                      <span>Request a fresh six-digit code for the same tenant and email, then finish sign-in here.</span>
-                    </div>
-                    <div className="account-reset-form-grid">
-                      <label className="account-reset-form-wide">
-                        <span>Recovery code</span>
+                  )
+                ) : (
+                  <>
+                    <div className="account-entry-form-grid">
+                      <label>
+                        <span>Existing tenant</span>
                         <input
-                          value={loginForm.code}
-                          onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
-                          inputMode="numeric"
-                          placeholder="123456"
+                          value={loginForm.tenantId}
+                          onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                          placeholder="tenant_acme"
+                        />
+                      </label>
+                      <label>
+                        <span>Sign-in email</span>
+                        <input
+                          value={loginForm.email}
+                          onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
+                          placeholder="founder@company.com"
+                        />
+                      </label>
+                      <label className="account-entry-form-grid-span">
+                        <span>Device label</span>
+                        <input
+                          value={passkeyForm.label}
+                          onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
+                          placeholder="This browser"
                         />
                       </label>
                     </div>
-                    <div className="account-reset-actions">
-                      <button className="account-reset-button account-reset-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
-                        {busyState === "otp" ? "Issuing..." : "Request recovery code"}
-                      </button>
-                      <button className="account-reset-button account-reset-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
-                        {busyState === "verify" ? "Verifying..." : "Use recovery code"}
+                    <div className="account-entry-actions">
+                      <button className="product-button product-button-solid" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                        {busyState === "passkey_login" ? "Signing in..." : "Sign in with saved passkey"}
                       </button>
                     </div>
-                    {recoveryCodeError ? <div className="account-reset-note account-reset-note-warn">{recoveryCodeError}</div> : null}
-                  </details>
-                </aside>
-              </div>
-            </article>
+                    {loginIdentityError ? <div className="account-entry-note account-reset-note-warn">{loginIdentityError}</div> : null}
+                    <details className="product-details">
+                      <summary>Recover by email</summary>
+                      <div className="account-entry-form-grid account-entry-form-grid-single">
+                        <label>
+                          <span>Recovery code</span>
+                          <input
+                            value={loginForm.code}
+                            onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
+                            inputMode="numeric"
+                            placeholder="123456"
+                          />
+                        </label>
+                      </div>
+                      <div className="account-entry-actions">
+                        <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                          {busyState === "otp" ? "Issuing..." : "Request recovery code"}
+                        </button>
+                        <button className="product-button product-button-solid" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                          {busyState === "verify" ? "Verifying..." : "Use recovery code"}
+                        </button>
+                      </div>
+                      {recoveryCodeError ? <div className="account-entry-note account-reset-note-warn">{recoveryCodeError}</div> : null}
+                    </details>
+                  </>
+                )}
+              </section>
+
+              <aside className="account-entry-panel account-entry-panel-secondary">
+                <div className="account-entry-panel-head">
+                  <p>{loginFirstMode ? "What unlocks next" : "Already have a workspace?"}</p>
+                  <h2>{loginFirstMode ? "Then go straight into one live loop." : "Return fast when the workspace already exists."}</h2>
+                  <span>
+                    {loginFirstMode
+                      ? "Sign back in, issue one runtime, then prove one approval-to-receipt loop. Nothing broader matters yet."
+                      : "Use the same tenant and browser key when possible. Recovery by email stays available if the device key is missing."}
+                  </span>
+                </div>
+                {!loginFirstMode ? (
+                  <>
+                    <div className="account-entry-note account-reset-note-neutral">
+                      <strong>Return flow</strong>
+                      <span>Use <code>/login</code> when you already have a workspace. Keep signup for net-new operators.</span>
+                    </div>
+                    <div className="account-entry-actions">
+                      <a className="product-button product-button-ghost" href="/login#identity-access">Go to login</a>
+                      <a className="product-button product-button-ghost" href="/docs/launch-hosts">Launch host guide</a>
+                    </div>
+                    <div className="account-entry-status-stack">
+                      <article className="account-entry-mini-card">
+                        <span>What unlocks next</span>
+                        <strong>Runtime bootstrap</strong>
+                        <p>Issue one shared Action Wallet runtime only after the account boundary is real.</p>
+                      </article>
+                      <article className="account-entry-mini-card">
+                        <span>Then</span>
+                        <strong>One proof loop</strong>
+                        <p>Seed one approval, get one receipt, and keep recourse visible before widening scope.</p>
+                      </article>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="account-entry-note account-reset-note-neutral">
+                      <strong>What unlocks next</strong>
+                      <span>Create the workspace, issue one runtime bundle, then close one hosted approval with one receipt before you think about anything broader.</span>
+                    </div>
+                    <div className="account-entry-status-stack">
+                      <article className="account-entry-mini-card">
+                        <span>Auth mode</span>
+                        <strong>{authMode?.publicSignupEnabled !== false ? "Public signup is live" : "Pre-provisioned only"}</strong>
+                        <p>Email code creates the workspace. Passkey is the fast return path from this browser later.</p>
+                      </article>
+                      <article className="account-entry-mini-card">
+                        <span>Status</span>
+                        <strong>{statusMessage || "Ready to create the account."}</strong>
+                        <p>Stay here until the account boundary is issued.</p>
+                      </article>
+                    </div>
+                  </>
+                )}
+              </aside>
+            </section>
+          ) : (
+            <section className="account-entry-live">
+              <section className="account-entry-panel account-entry-panel-primary" id="runtime-bootstrap">
+                <div className="account-entry-panel-head">
+                  <p>Workspace ready</p>
+                  <h2>The authority boundary is live.</h2>
+                  <span>Keep the next move narrow: issue one runtime, pick one host, and finish one governed action with a receipt and recourse.</span>
+                </div>
+                <div className="account-entry-runtime-grid">
+                  <article className="account-entry-mini-card">
+                    <span>Workspace</span>
+                    <strong>{buyer.tenantId}</strong>
+                    <p>{buyer.email} · {buyer.role}</p>
+                  </article>
+                  <article className="account-entry-mini-card">
+                    <span>Runtime</span>
+                    <strong>{hasRuntime ? formatApiKeyHandle(bootstrapBundle.bootstrap.apiKey.keyId, "Issued") : "Pending"}</strong>
+                    <p>{hasRuntime ? "Shared Action Wallet bundle is ready." : "Issue the runtime next."}</p>
+                  </article>
+                  <article className="account-entry-mini-card">
+                    <span>Proof loop</span>
+                    <strong>{hasProofLoop ? `${firstPaidCallState.history.length} started` : "Not started"}</strong>
+                    <p>{hasProofLoop ? "Receipt and recourse attach to the same action." : "Seed one approval and finish one governed action."}</p>
+                  </article>
+                </div>
+                <div className="account-entry-actions">
+                  {!hasRuntime ? (
+                    <button className="product-button product-button-solid" disabled={busyState !== ""} onClick={() => void handleRuntimeBootstrap()}>
+                      {busyState === "bootstrap" ? "Issuing runtime..." : "Issue runtime bundle"}
+                    </button>
+                  ) : !hostedApprovalReady ? (
+                    <button
+                      className="product-button product-button-solid"
+                      disabled={busyState !== "" || !buyer?.tenantId}
+                      onClick={() => void handleCreateFirstHostedApproval()}
+                    >
+                      {busyState === "seed_approval" ? "Creating approval..." : "Create hosted approval"}
+                    </button>
+                  ) : (
+                    <a
+                      className="product-button product-button-solid"
+                      href={focusedHostedApprovalUrl || approvalSurfaceHref}
+                      {...(focusedHostedApprovalUrl ? { target: "_blank", rel: "noreferrer" } : {})}
+                    >
+                      Reopen hosted approval
+                    </a>
+                  )}
+                  <a className="product-button product-button-ghost" href={selectedHostTrack.href}>
+                    {selectedHostTrack.guideLabel}
+                  </a>
+                </div>
+              </section>
+
+              <section className="account-entry-panel account-entry-panel-secondary" id="proof-loop">
+                <div className="account-entry-panel-head">
+                  <p>Keep the first proof loop visible</p>
+                  <h2>Do not widen scope yet.</h2>
+                  <span>One host, one hosted approval, one receipt, and one visible recourse path. That is the only bar right now.</span>
+                </div>
+                <div className="account-entry-runtime-grid">
+                  <article className="account-entry-mini-card">
+                    <span>Host</span>
+                    <strong>{selectedHostTrack.label}</strong>
+                    <p>{selectedHostTrack.success}</p>
+                  </article>
+                  <article className="account-entry-mini-card">
+                    <span>Approval</span>
+                    <strong>{latestHostedApprovalId || "Pending"}</strong>
+                    <p>{humanizeLabel(focusedHostedApprovalState, "Pending")}</p>
+                  </article>
+                  <article className="account-entry-mini-card">
+                    <span>Receipt</span>
+                    <strong>{focusedFirstPaidReceiptId || "Pending"}</strong>
+                    <p>{focusedFirstPaidRecourseLabel}</p>
+                  </article>
+                </div>
+                <div className="account-entry-actions">
+                  <a className="product-button product-button-ghost" href={focusedReceiptSurfaceHrefResolved}>
+                    {focusedFirstPaidReceiptId ? "Open focused receipt" : "Open receipts"}
+                  </a>
+                  <a className="product-button product-button-ghost" href={focusedDisputeSurfaceHrefResolved}>
+                    {focusedFirstPaidDisputeId ? "Open dispute" : "Open recourse"}
+                  </a>
+                  <button className="product-button product-button-ghost" disabled={busyState !== ""} onClick={() => void handleLogout()}>
+                    {busyState === "logout" ? "Signing out..." : "Sign out"}
+                  </button>
+                </div>
+              </section>
+            </section>
           )}
-        </section>
-      </section>
+        </main>
+
+        <footer className="account-entry-footer">
+          <strong>Nooterra</strong>
+          <span>Create the workspace, issue one runtime, and prove one governed action before you widen the surface.</span>
+        </footer>
+      </div>
     );
   }
 
@@ -15737,6 +15759,19 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
 
     async function syncRemoteInboxReadState() {
       if (!String(runtime?.tenantId ?? "").trim() || !onboardingState?.buyer) return;
+      if (typeof window !== "undefined") {
+        const pathname = window.location.pathname;
+        const params = new URLSearchParams(window.location.search);
+        const standaloneSecureRoute =
+          pathname === "/account" ||
+          pathname === "/signup" ||
+          pathname === "/login" ||
+          (
+            params.get("experience") === "app" &&
+            (pathname === "/workspace" || pathname === "/onboarding")
+          );
+        if (standaloneSecureRoute) return;
+      }
       try {
         const out = await fetchTenantConsumerInboxState(runtime);
         if (cancelled) return;

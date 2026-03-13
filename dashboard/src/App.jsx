@@ -129,18 +129,15 @@ export default function App() {
     const rawPath = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     const wantsManagedOnboarding = params.get("experience") === "app";
-    const hash = window.location.hash || "#identity-access";
-    if (rawPath === "/workspace") {
-      window.history.replaceState({}, "", `/account${hash}`);
-      return;
-    }
-    if (rawPath === "/signup" || rawPath === "/login") {
-      const search = window.location.search || "";
-      window.history.replaceState({}, "", `/account${search}${hash}`);
+    const step = params.get("step");
+    const normalizedSearch = step ? `?step=${encodeURIComponent(step)}` : "";
+    const hash = window.location.hash || "#account-create";
+    if (rawPath === "/workspace" || rawPath === "/account") {
+      window.history.replaceState({}, "", `/signup${normalizedSearch}${hash}`);
       return;
     }
     if (rawPath === "/onboarding" && wantsManagedOnboarding) {
-      window.history.replaceState({}, "", `/account${hash}`);
+      window.history.replaceState({}, "", `/signup${normalizedSearch}${hash}`);
     }
   }, [route.mode]);
   const hasManagedRuntime = hasManagedRuntimeSession();
