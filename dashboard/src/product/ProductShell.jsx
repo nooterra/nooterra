@@ -5561,6 +5561,289 @@ curl -X POST "$NOOTERRA_BASE_URL/v1/action-intents" \\
   };
   const onboardingSourceMessage = onboardingSource ? onboardingSourceMessages[onboardingSource] ?? null : null;
 
+  if (accountFirstMode) {
+    const secureIntakeSteps = [
+      {
+        label: "01",
+        title: "Create the workspace",
+        detail: "Issue the operator identity and passkey first. No runtime or host setup shows up before that."
+      },
+      {
+        label: "02",
+        title: "Unlock the runtime",
+        detail: "Bootstrap one shared Action Wallet boundary once the account is real."
+      },
+      {
+        label: "03",
+        title: "Close one proof loop",
+        detail: "Use one host, one approval, and one receipt before you widen scope."
+      }
+    ];
+    const unlockCards = [
+      {
+        title: "Runtime bundle",
+        detail: "The bootstrap key and MCP bundle appear only after the workspace exists."
+      },
+      {
+        title: "One launch host",
+        detail: "Claude MCP, OpenClaw, or Codex can all prove the same authority loop."
+      },
+      {
+        title: "Receipt and recourse",
+        detail: "The first live action ends with a receipt and a dispute path from the same record."
+      }
+    ];
+
+    return (
+      <div className="workspace-intake">
+        <section className="workspace-intake-hero">
+          <div className="workspace-intake-copy">
+            <p className="product-kicker">Secure Workspace Setup</p>
+            <h1>Create the workspace before the agent gets to act.</h1>
+            <p className="product-lead">
+              Start with one operator, one workspace, and one revocable trust boundary. After that, the same page unlocks runtime bootstrap, hosted approval, and the first receipt.
+            </p>
+            {onboardingSourceMessage ? (
+              <div className="product-inline-note accent">
+                <strong>{onboardingSourceMessage.label}</strong>
+                <span>{onboardingSourceMessage.title} {onboardingSourceMessage.body}</span>
+              </div>
+            ) : null}
+            <div className="workspace-intake-actions">
+              <a className="product-button product-button-ghost" href={docsLinks.hostQuickstart}>
+                Read launch host guide
+              </a>
+              <a className="product-button product-button-ghost" href="/product">
+                Back to product
+              </a>
+            </div>
+            <div className="workspace-intake-steprail">
+              {secureIntakeSteps.map((step) => (
+                <article key={`workspace_intake_step:${step.label}`} className="workspace-intake-step">
+                  <span>{step.label}</span>
+                  <strong>{step.title}</strong>
+                  <p>{step.detail}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <aside className="workspace-intake-panel" id="identity-access">
+            <div className="workspace-intake-panel-head">
+              <p>Workspace account</p>
+              <h2>{authPlaneUnavailable ? "Secure setup is paused." : "Create the account once."}</h2>
+              <span>
+                {authPlaneUnavailable
+                  ? "The public site stays live, but account creation fails closed until the auth plane returns."
+                  : "Use a passkey as the primary path. Recovery email stays available when the same device key is missing later."}
+              </span>
+            </div>
+
+            {authPlaneUnavailable ? (
+              <>
+                <div className="product-inline-note bad">
+                  <strong>Hosted onboarding is unavailable.</strong>
+                  <span>{authPlaneError}</span>
+                </div>
+                <div className="workspace-intake-unavailable">
+                  <div className="workspace-intake-unavailable-card">
+                    <strong>1. Check live status</strong>
+                    <p>Confirm whether this is a Railway outage, DNS drift, or a broader control-plane incident.</p>
+                  </div>
+                  <div className="workspace-intake-unavailable-card">
+                    <strong>2. Keep the same details ready</strong>
+                    <p>Return to this exact page once the auth plane is healthy and complete the account handoff without changing hosts.</p>
+                  </div>
+                  <div className="workspace-intake-unavailable-card">
+                    <strong>3. Use support only if status stays red</strong>
+                    <p>Support is for persistent outages, not transient startup blips.</p>
+                  </div>
+                </div>
+                <div className="workspace-intake-actions">
+                  <a className="product-button product-button-solid" href="/status">View live status</a>
+                  <a className="product-button product-button-ghost" href="/support">Contact support</a>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="workspace-intake-statusbar">
+                  <div className="workspace-intake-status">
+                    <span>Account mode</span>
+                    <strong>Passkey first</strong>
+                    <small>Email OTP remains the recovery path.</small>
+                  </div>
+                  <div className="workspace-intake-status">
+                    <span>Current session</span>
+                    <strong>No workspace yet</strong>
+                    <small>The public site stays anonymous until the account is issued.</small>
+                  </div>
+                  <div className="workspace-intake-status">
+                    <span>Saved key</span>
+                    <strong>{storedPasskey ? "Detected" : "Missing"}</strong>
+                    <small>
+                      {storedPasskey
+                        ? `${storedPasskey.label || "Current browser"} for ${storedPasskey.email}`
+                        : "A saved browser passkey appears here when the same workspace returns later."}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="workspace-intake-formgrid">
+                  <section className="workspace-intake-formcard workspace-intake-formcard-primary">
+                    <div className="product-section-head compact">
+                      <p>New workspace</p>
+                      <h3>Create the secure workspace.</h3>
+                    </div>
+                    <p className="product-card-body-copy">
+                      This is the only setup step users should really feel. Create the workspace identity now, then the runtime and proof loop unlock in the same place.
+                    </p>
+                    {authMode?.publicSignupEnabled !== false ? (
+                      <>
+                        <div className="product-form-grid">
+                          <label>
+                            <span>Work email</span>
+                            <input
+                              value={signupForm.email}
+                              onChange={(event) => setSignupForm((previous) => ({ ...previous, email: event.target.value }))}
+                              placeholder="founder@company.com"
+                            />
+                          </label>
+                          <label>
+                            <span>Company</span>
+                            <input
+                              value={signupForm.company}
+                              onChange={(event) => setSignupForm((previous) => ({ ...previous, company: event.target.value }))}
+                              placeholder="Acme AI"
+                            />
+                          </label>
+                          <label>
+                            <span>Full name</span>
+                            <input
+                              value={signupForm.fullName}
+                              onChange={(event) => setSignupForm((previous) => ({ ...previous, fullName: event.target.value }))}
+                              placeholder="Founder Name"
+                            />
+                          </label>
+                          <label>
+                            <span>Tenant slug (optional)</span>
+                            <input
+                              value={signupForm.tenantId}
+                              onChange={(event) => setSignupForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                              placeholder="acme_ai"
+                            />
+                          </label>
+                        </div>
+                        <div className="workspace-intake-actions">
+                          <button className="product-button product-button-solid" disabled={passkeySignupDisabled} onClick={() => void handlePasskeySignup()}>
+                            {busyState === "passkey_signup" ? "Creating workspace..." : "Create Workspace + Save Passkey"}
+                          </button>
+                        </div>
+                        {signupValidationError ? <div className="product-inline-note warn">{signupValidationError}</div> : null}
+                      </>
+                    ) : (
+                      <div className="product-inline-note bad">
+                        Public signup is disabled on this control plane. Use the returning workspace path with an existing tenant and saved browser passkey.
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="workspace-intake-formcard workspace-intake-formcard-secondary">
+                    <div className="product-section-head compact">
+                      <p>Return to workspace</p>
+                      <h3>Use the saved device key.</h3>
+                    </div>
+                    <p className="product-card-body-copy">
+                      Returning operators should feel one move too: enter the workspace, prove the browser passkey, and step back into runtime and receipts.
+                    </p>
+                    <div className="product-form-grid">
+                      <label>
+                        <span>Existing tenant</span>
+                        <input
+                          value={loginForm.tenantId}
+                          onChange={(event) => setLoginForm((previous) => ({ ...previous, tenantId: event.target.value }))}
+                          placeholder="tenant_acme"
+                        />
+                      </label>
+                      <label>
+                        <span>Sign-in email</span>
+                        <input
+                          value={loginForm.email}
+                          onChange={(event) => setLoginForm((previous) => ({ ...previous, email: event.target.value }))}
+                          placeholder="founder@company.com"
+                        />
+                      </label>
+                      <label className="wide">
+                        <span>Device label</span>
+                        <input
+                          value={passkeyForm.label}
+                          onChange={(event) => setPasskeyForm((previous) => ({ ...previous, label: event.target.value }))}
+                          placeholder="This browser"
+                        />
+                      </label>
+                    </div>
+                    <div className="workspace-intake-actions">
+                      <button className="product-button product-button-ghost" disabled={passkeyLoginDisabled} onClick={() => void handlePasskeyLogin()}>
+                        {busyState === "passkey_login" ? "Signing in..." : "Sign In With Saved Passkey"}
+                      </button>
+                    </div>
+                    {loginIdentityError ? <div className="product-inline-note warn">{loginIdentityError}</div> : null}
+                    <details className="product-details">
+                      <summary>Recover by email</summary>
+                      <div className="product-inline-note warn">
+                        Recovery is for a new browser, lost device key, or registry mismatch. Use the same tenant and sign-in email above, then request and verify a six-digit code.
+                      </div>
+                      <div className="product-form-grid">
+                        <label className="wide">
+                          <span>Recovery code</span>
+                          <input
+                            value={loginForm.code}
+                            onChange={(event) => setLoginForm((previous) => ({ ...previous, code: event.target.value }))}
+                            inputMode="numeric"
+                            placeholder="123456"
+                          />
+                        </label>
+                      </div>
+                      <div className="workspace-intake-actions">
+                        <button className="product-button product-button-ghost" disabled={requestOtpDisabled} onClick={() => void handleRequestOtp()}>
+                          {busyState === "otp" ? "Issuing..." : "Request Recovery Code"}
+                        </button>
+                        <button className="product-button product-button-ghost" disabled={verifyOtpDisabled} onClick={() => void handleVerifyOtp()}>
+                          {busyState === "verify" ? "Verifying..." : "Use Recovery Code"}
+                        </button>
+                      </div>
+                      {recoveryCodeError ? <div className="product-inline-note warn">{recoveryCodeError}</div> : null}
+                    </details>
+                  </section>
+                </div>
+              </>
+            )}
+
+            <div className="product-inline-note">{statusMessage}</div>
+          </aside>
+        </section>
+
+        <section className="workspace-intake-next">
+          <div className="workspace-intake-next-head">
+            <p className="product-kicker">What unlocks next</p>
+            <h2>After the account exists, the rest of the loop becomes short and obvious.</h2>
+            <p className="product-lead">
+              Do not think about the whole dashboard. First issue the account. Then bootstrap one runtime, pick one host, and close one approval-to-receipt path.
+            </p>
+          </div>
+          <div className="workspace-intake-next-grid">
+            {unlockCards.map((card, index) => (
+              <article key={`workspace_unlock:${card.title}`} className="workspace-intake-next-card">
+                <span>{`0${index + 1}`}</span>
+                <strong>{card.title}</strong>
+                <p>{card.detail}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="product-page">
       <section className="product-page-top product-onboarding-top">
@@ -15515,88 +15798,88 @@ export default function ProductShell({ mode = "home", runId = null, requestedPat
       <div className="product-orb product-orb-b" aria-hidden="true" />
       <div className="product-gridwash" aria-hidden="true" />
 
-      <header className="product-nav-shell">
-        <nav className="product-nav" aria-label="Primary">
-          <a className="product-brand" href="/">
-            <span className="product-brand-mark"><ShieldCheck size={16} /></span>
-            <span>
-              <strong>Nooterra</strong>
-              <small>{isStandaloneOnboarding ? "Secure Account Setup" : "Agent Control Layer"}</small>
-            </span>
-          </a>
-          <div className="product-nav-links">
-            {isStandaloneOnboarding ? (
-              <>
-                <a className={linkToneForMode(mode, "/product")} href="/product">Product</a>
-                <a className={linkToneForMode(mode, "/pricing")} href="/pricing">Pricing</a>
-                <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
-                <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a>
-                <a href={docsLinks.home}>Docs</a>
-              </>
-            ) : (
-              <>
-                <a className={linkToneForMode(mode, "/")} href="/">Overview</a>
-                {hasManagedRuntime ? (
-                  <a className={linkToneForMode(mode, "/inbox")} href="/inbox">
-                    <span className="product-nav-link-label">Inbox</span>
-                    {inboxBadgeCount > 0 ? (
-                      <span className="product-nav-notice" aria-label={inboxBadgeLabel}>
-                        {inboxBadgeCount > 9 ? "9+" : inboxBadgeCount}
-                      </span>
-                    ) : null}
-                  </a>
-                ) : null}
-                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/approvals")} href="/approvals">Approvals</a> : null}
-                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/wallet")} href="/wallet">Wallet</a> : null}
-                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a> : null}
-                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/receipts")} href="/receipts">Receipts</a> : null}
-                {hasManagedRuntime ? <a className={linkToneForMode(mode, "/disputes")} href="/disputes">Disputes</a> : null}
-                <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
-                <a href={docsLinks.home}>Docs</a>
-              </>
-            )}
-          </div>
-          <div className="product-nav-actions">
-            <a className="product-button product-button-ghost" href={isStandaloneOnboarding ? "/support" : ossLinks.repo}>
-              {isStandaloneOnboarding ? "Support" : "GitHub"}
+      {isStandaloneOnboarding ? (
+        <header className="workspace-shell-header">
+          <div className="workspace-shell-bar">
+            <a className="product-brand" href="/">
+              <span className="product-brand-mark"><ShieldCheck size={16} /></span>
+              <span>
+                <strong>Nooterra</strong>
+                <small>Secure Workspace Setup</small>
+              </span>
             </a>
-            <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : (isStandaloneOnboarding ? "/pricing" : "/onboarding")}>
-              {onboardingState?.buyer ? "Open Action Wallet" : (isStandaloneOnboarding ? "View pricing" : "Get started")}
-            </a>
+            <div className="workspace-shell-links">
+              <a href="/product">Product</a>
+              <a href="/docs">Docs</a>
+              <a href="/support">Support</a>
+            </div>
           </div>
-        </nav>
-      </header>
+        </header>
+      ) : (
+        <header className="product-nav-shell">
+          <nav className="product-nav" aria-label="Primary">
+            <a className="product-brand" href="/">
+              <span className="product-brand-mark"><ShieldCheck size={16} /></span>
+              <span>
+                <strong>Nooterra</strong>
+                <small>Agent Control Layer</small>
+              </span>
+            </a>
+            <div className="product-nav-links">
+              <a className={linkToneForMode(mode, "/")} href="/">Overview</a>
+              {hasManagedRuntime ? (
+                <a className={linkToneForMode(mode, "/inbox")} href="/inbox">
+                  <span className="product-nav-link-label">Inbox</span>
+                  {inboxBadgeCount > 0 ? (
+                    <span className="product-nav-notice" aria-label={inboxBadgeLabel}>
+                      {inboxBadgeCount > 9 ? "9+" : inboxBadgeCount}
+                    </span>
+                  ) : null}
+                </a>
+              ) : null}
+              {hasManagedRuntime ? <a className={linkToneForMode(mode, "/approvals")} href="/approvals">Approvals</a> : null}
+              {hasManagedRuntime ? <a className={linkToneForMode(mode, "/wallet")} href="/wallet">Wallet</a> : null}
+              {hasManagedRuntime ? <a className={linkToneForMode(mode, "/integrations")} href="/integrations">Integrations</a> : null}
+              {hasManagedRuntime ? <a className={linkToneForMode(mode, "/receipts")} href="/receipts">Receipts</a> : null}
+              {hasManagedRuntime ? <a className={linkToneForMode(mode, "/disputes")} href="/disputes">Disputes</a> : null}
+              <a className={linkToneForMode(mode, "/developers")} href="/developers">Developers</a>
+              <a href={docsLinks.home}>Docs</a>
+            </div>
+            <div className="product-nav-actions">
+              <a className="product-button product-button-ghost" href={ossLinks.repo}>GitHub</a>
+              <a className="product-button product-button-solid" href={onboardingState?.buyer ? "/approvals" : "/onboarding"}>
+                {onboardingState?.buyer ? "Open Action Wallet" : "Get started"}
+              </a>
+            </div>
+          </nav>
+        </header>
+      )}
 
       <main className="product-main">
         {showRuntimeBar ? <RuntimeBar config={runtime} setConfig={setRuntime} onboardingState={onboardingState} /> : null}
         {page}
       </main>
 
-      <footer className="product-footer">
-        <div>
+      {isStandaloneOnboarding ? (
+        <footer className="workspace-shell-footer">
           <strong>Nooterra</strong>
-          <span>{isStandaloneOnboarding ? "Create the account, issue one runtime, and prove one governed action before you widen the surface." : "Approvals, scoped authority, receipts, disputes, and recourse for AI actions that matter."}</span>
-        </div>
-        <div className="product-footer-links">
-          {isStandaloneOnboarding ? (
-            <>
-              <a href="/product">Product</a>
-              <a href="/pricing">Pricing</a>
-              <a href="/developers">Developers</a>
-              <a href={docsLinks.quickstart}>Quickstart</a>
-              <a href={docsLinks.home}>Docs</a>
-            </>
-          ) : (
-            <>
-              <a href={docsLinks.quickstart}>Quickstart</a>
-              <a href="/approvals">Approvals</a>
-              <a href="/developers">Developers</a>
-              <a href="/receipts">Receipts</a>
-              <a href={docsLinks.home}>Docs</a>
-            </>
-          )}
-        </div>
-      </footer>
+          <span>Create the workspace, issue one runtime, and prove one governed action before you widen the surface.</span>
+        </footer>
+      ) : (
+        <footer className="product-footer">
+          <div>
+            <strong>Nooterra</strong>
+            <span>Approvals, scoped authority, receipts, disputes, and recourse for AI actions that matter.</span>
+          </div>
+          <div className="product-footer-links">
+            <a href={docsLinks.quickstart}>Quickstart</a>
+            <a href="/approvals">Approvals</a>
+            <a href="/developers">Developers</a>
+            <a href="/receipts">Receipts</a>
+            <a href={docsLinks.home}>Docs</a>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
