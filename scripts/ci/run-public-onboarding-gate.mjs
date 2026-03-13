@@ -190,7 +190,7 @@ export async function runPublicOnboardingGate(args, { requestJsonFn = requestJso
   }
 
   if (args.websiteBaseUrl) {
-    const onboardingPage = await requestPageFn(`${args.websiteBaseUrl}/onboarding?experience=app#identity-access`);
+    const onboardingPage = await requestPageFn(`${args.websiteBaseUrl}/account#identity-access`);
     const onboardingHtmlOk =
       onboardingPage.ok &&
       onboardingPage.contentType.includes("text/html") &&

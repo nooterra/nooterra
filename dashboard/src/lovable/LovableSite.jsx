@@ -68,9 +68,9 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
     id: "onboarding",
     label: "Onboarding app",
     description: "Account creation and first wallet issuance entry point.",
-    path: "/onboarding?experience=app",
+    path: "/account#identity-access",
     type: "html",
-    needle: "Create the account."
+    needle: "Create the account first."
   },
   {
     id: "support",
