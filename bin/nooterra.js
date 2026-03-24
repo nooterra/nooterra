@@ -197,6 +197,12 @@ function main() {
     return runNodeScript("scripts/worker-builder/tool-installer.mjs", ["--list"]);
   }
 
+  if (cmd === "teach") {
+    // nooterra teach "Worker Name" "knowledge..."
+    const teachArgs = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--teach", teachArgs]);
+  }
+
   // --- Setup & auth ---
 
   if (cmd === "setup") {

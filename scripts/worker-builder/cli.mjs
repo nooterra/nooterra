@@ -219,6 +219,7 @@ async function handleCommand(cmd, args, rl) {
     case '/run': return runWorker(args);
     case '/stop': return stopWorker(args);
     case '/templates': return showTemplates(rl);
+    case '/teach': return teachWorker(args, rl);
     case '/dashboard': case '/dash': return showDashboard();
     case '/logs': return showLogs(args);
     case '/schedule': return showScheduleHelp(args);
@@ -242,6 +243,8 @@ function showHelp() {
   ${c.gold}/new${c.reset} [description]     Create a new worker
   ${c.gold}/workers${c.reset}               List all workers
   ${c.gold}/run${c.reset} <name>            Run a worker (live progress)
+  ${c.gold}/teach${c.reset} <name> <info>   Give a worker company knowledge
+  ${c.gold}/templates${c.reset}             Quick start templates
   ${c.gold}/stop${c.reset} <name>           Stop a worker
   ${c.gold}/delegate${c.reset}              Delegate between workers
   ${c.gold}/schedule${c.reset}              Schedule recurring runs
@@ -615,6 +618,109 @@ function showDelegateHelp(args) {
 `);
 }
 
+// ── Teach Worker ────────────────────────────────────────────────────────────
+async function teachWorker(args, rl) {
+  if (!args?.trim()) {
+    console.log(`
+  ${c.bold}Teach a worker${c.reset} — give it company knowledge
+
+  ${c.gold}/teach <worker> "your info here"${c.reset}     Add text knowledge
+  ${c.gold}/teach <worker> https://...${c.reset}           Add from URL
+  ${c.gold}/teach <worker> ~/file.txt${c.reset}            Add from file
+  ${c.gold}/teach <worker> --list${c.reset}                See what it knows
+  ${c.gold}/teach <worker> --clear${c.reset}               Remove all knowledge
+
+  Examples:
+    /teach "Price Monitor" "Competitor list: Acme Corp, Globex, Initech"
+    /teach "Support Bot" https://company.com/faq
+    /teach "Support Bot" "Our refund policy is 30 days no questions asked"
+`);
+    return;
+  }
+
+  // Parse: first token is worker name (possibly quoted), rest is the knowledge
+  let workerName, knowledge;
+  const quoteMatch = args.match(/^"([^"]+)"\s+(.*)/s);
+  if (quoteMatch) {
+    workerName = quoteMatch[1];
+    knowledge = quoteMatch[2].trim();
+  } else {
+    const parts = args.split(/\s+/);
+    workerName = parts[0];
+    knowledge = parts.slice(1).join(' ').trim();
+  }
+
+  // Find the worker
+  const workers = listWorkers();
+  const match = workers.find(w =>
+    (w.charter?.name || '').toLowerCase().includes(workerName.toLowerCase()) || w.id === workerName
+  );
+  if (!match) {
+    console.log(`\n  ${c.red}✗${c.reset} Worker "${workerName}" not found. Type /workers to see all.\n`);
+    return;
+  }
+
+  try {
+    const { KnowledgeStore, addKnowledgeFromInput } = await import('./worker-knowledge.mjs');
+    const store = new KnowledgeStore(match.id);
+
+    if (knowledge === '--list') {
+      const items = store.getItems();
+      const stats = store.getStats();
+      if (items.length === 0) {
+        console.log(`\n  ${c.dim}${match.charter?.name} has no knowledge yet. Teach it something!${c.reset}\n`);
+        return;
+      }
+      console.log(`\n  ${c.bold}Knowledge: ${match.charter?.name}${c.reset} (${stats.itemCount} items, ${(stats.totalChars / 1024).toFixed(1)}KB)\n`);
+      for (const item of items.slice(0, 15)) {
+        const preview = (item.content || '').split('\n')[0].slice(0, 60);
+        console.log(`    ${c.dim}${item.type}${c.reset}  ${item.label || 'untitled'}  ${c.dim}${preview}...${c.reset}`);
+      }
+      console.log('');
+      return;
+    }
+
+    if (knowledge === '--clear') {
+      store.clear();
+      console.log(`\n  ${c.green}✓${c.reset} Cleared all knowledge for ${match.charter?.name}.\n`);
+      return;
+    }
+
+    if (!knowledge) {
+      // Interactive: ask for knowledge
+      console.log(`\n  ${c.bold}What should ${match.charter?.name} know?${c.reset}`);
+      console.log(`  ${c.dim}Type text, paste a URL, or enter a file path. Type 'done' when finished.${c.reset}\n`);
+
+      let added = 0;
+      while (true) {
+        const input = await ask(rl, `  ${c.gold}>${c.reset} `);
+        if (!input.trim() || input.trim().toLowerCase() === 'done') break;
+        const result = await addKnowledgeFromInput(store, input.trim());
+        if (result.success) {
+          console.log(`  ${c.green}✓${c.reset} Added: ${result.label} (${result.chars} chars)`);
+          added++;
+        } else {
+          console.log(`  ${c.red}✗${c.reset} ${result.error}`);
+        }
+      }
+      console.log(`\n  ${c.green}✓${c.reset} ${added} item${added !== 1 ? 's' : ''} added to ${match.charter?.name}.\n`);
+      return;
+    }
+
+    // Add the knowledge directly
+    const result = await addKnowledgeFromInput(store, knowledge);
+    if (result.success) {
+      const stats = store.getStats();
+      console.log(`\n  ${c.green}✓${c.reset} Taught ${match.charter?.name}: ${result.label} (${result.chars} chars)`);
+      console.log(`  ${c.dim}Total knowledge: ${stats.itemCount} items, ${(stats.totalChars / 1024).toFixed(1)}KB${c.reset}\n`);
+    } else {
+      console.log(`\n  ${c.red}✗${c.reset} ${result.error}\n`);
+    }
+  } catch (err) {
+    console.log(`\n  ${c.red}✗${c.reset} ${err.message}\n`);
+  }
+}
+
 // ── Instant Worker Creation ─────────────────────────────────────────────────
 async function instantCreateWorker(rl, description) {
   const context = instantCreate(description);
@@ -753,6 +859,9 @@ async function main() {
       case '--schedule': showScheduleHelp(flagArg); return;
       case '--run':
         await runWorker(flagArg);
+        return;
+      case '--teach':
+        await teachWorker(flagArg, null);
         return;
       case '--new':
         // New worker flow needs the REPL — fall through below

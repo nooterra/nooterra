@@ -512,6 +512,17 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
   // Build system prompt with memory context
   let systemPrompt = buildSystemPrompt(charter);
 
+  // Inject knowledge — company docs, FAQs, policies the user has taught this worker
+  try {
+    const { KnowledgeStore } = await import('./worker-knowledge.mjs');
+    const knowledge = new KnowledgeStore(worker.id);
+    const knowledgeContext = knowledge.buildContext(200000); // Up to 200K chars
+    if (knowledgeContext) {
+      systemPrompt += '\n\n' + knowledgeContext;
+      console.log(`[exec] Loaded ${knowledge.getStats().itemCount} knowledge items (${knowledge.getStats().totalChars} chars)`);
+    }
+  } catch {}
+
   // Inject memory into system prompt if worker has prior context
   const memoryKeys = Object.keys(memory);
   if (memoryKeys.length > 0) {
@@ -519,7 +530,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
     systemPrompt += `\n\nYou have memory from previous runs:\n${memoryContext}\n\nUse this context to inform your work. Update your memory by noting important findings in your response.`;
   }
 
-  // Discover tools from MCP servers
+  // Discover tools
   const availableTools = await buildToolDefs(mcpManager, charter);
 
   // Add memory tools so the AI can save/retrieve context
