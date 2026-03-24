@@ -15,7 +15,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-import { createConversation, processInput, CONVERSATION_STATES } from './worker-builder-core.mjs';
+import { createConversation, processInput, instantCreate, WORKER_TEMPLATES, CONVERSATION_STATES } from './worker-builder-core.mjs';
 import { createWorker, listWorkers, loadWorker, findWorkerByName, WORKER_STATUS } from './worker-persistence.mjs';
 import {
   PROVIDERS, isProviderConfigured, getDefaultProvider, setDefaultProvider,
@@ -218,6 +218,7 @@ async function handleCommand(cmd, args, rl) {
     case '/auth': return runOnboarding(rl);
     case '/run': return runWorker(args);
     case '/stop': return stopWorker(args);
+    case '/templates': return showTemplates(rl);
     case '/dashboard': case '/dash': return showDashboard();
     case '/logs': return showLogs(args);
     case '/schedule': return showScheduleHelp(args);
@@ -614,6 +615,92 @@ function showDelegateHelp(args) {
 `);
 }
 
+// ── Instant Worker Creation ─────────────────────────────────────────────────
+async function instantCreateWorker(rl, description) {
+  const context = instantCreate(description);
+  const charter = buildCharterFromContext(context);
+  const provider = getDefaultProvider() || 'chatgpt';
+  const providerDef = PROVIDERS[provider] || PROVIDERS.openai;
+
+  // Show what we inferred
+  console.log(`\n  ${c.bold}${c.green}⚡ Instant worker:${c.reset}\n`);
+  printCharter(charter);
+  console.log('');
+
+  const capNames = (charter.capabilities || []).map(cap => cap.name || cap.id).join(', ');
+  const scheduleStr = charter.schedule ? (charter.schedule.type === 'interval' ? `every ${charter.schedule.value}` : charter.schedule.type === 'cron' ? `cron: ${charter.schedule.value}` : charter.schedule.type) : 'on demand';
+
+  console.log(`  ${c.dim}Provider: ${providerDef.name} · Schedule: ${scheduleStr} · Tools: ${capNames || 'none'}${c.reset}\n`);
+  console.log(`  ${c.bold}Deploy this worker?${c.reset} ${c.dim}(yes / edit / cancel)${c.reset}\n`);
+
+  const answer = await ask(rl, `  ${c.gold}>${c.reset} `);
+  const trimmed = (answer || '').trim().toLowerCase();
+
+  if (/^(y|yes|go|deploy|ship|create|do it|ok)/.test(trimmed)) {
+    const worker = createWorker(charter, {
+      provider, model: providerDef.defaultModel,
+      triggers: context.schedule?.type !== 'trigger' ? [{
+        type: TRIGGER_TYPES.SCHEDULE, config: { schedule: context.schedule }
+      }] : []
+    });
+    console.log(`\n  ${c.green}✓${c.reset} ${c.bold}${worker.charter.name}${c.reset} deployed!`);
+    console.log(`  ${c.dim}Run it: /run ${worker.charter.name}${c.reset}\n`);
+    return worker;
+  }
+
+  if (/^(edit|change|modify|tweak)/.test(trimmed)) {
+    // Fall through to full conversation mode
+    return createWorkerFlow(rl, description);
+  }
+
+  console.log(`\n  ${c.dim}Cancelled.${c.reset}\n`);
+  return null;
+}
+
+// ── Template Picker ────────────────────────────────────────────────────────
+async function showTemplates(rl) {
+  console.log(`\n  ${c.bold}Quick Start Templates${c.reset}\n`);
+  console.log(`  ${c.dim}Pick a template to deploy in seconds:${c.reset}\n`);
+
+  for (let i = 0; i < WORKER_TEMPLATES.length; i++) {
+    const t = WORKER_TEMPLATES[i];
+    console.log(`    ${c.gold}${i + 1}${c.reset}  ${t.icon} ${c.bold}${t.name}${c.reset}`);
+    console.log(`       ${c.dim}${t.description}${c.reset}`);
+  }
+
+  console.log(`\n    ${c.gold}0${c.reset}  ${c.dim}Cancel${c.reset}\n`);
+
+  const choice = await ask(rl, `  ${c.gold}>${c.reset} `);
+  const num = parseInt((choice || '').trim(), 10);
+
+  if (num > 0 && num <= WORKER_TEMPLATES.length) {
+    const template = WORKER_TEMPLATES[num - 1];
+    const charter = buildCharterFromContext(template.context);
+    const provider = getDefaultProvider() || 'chatgpt';
+    const providerDef = PROVIDERS[provider] || PROVIDERS.openai;
+
+    console.log('');
+    printCharter(charter);
+    console.log(`\n  ${c.bold}Deploy ${template.name}?${c.reset} ${c.dim}(yes / edit / cancel)${c.reset}\n`);
+
+    const answer = await ask(rl, `  ${c.gold}>${c.reset} `);
+    if (/^(y|yes|go|deploy|ship)/.test((answer || '').trim().toLowerCase())) {
+      const worker = createWorker(charter, {
+        provider, model: providerDef.defaultModel,
+        triggers: template.context.schedule?.type !== 'trigger' ? [{
+          type: TRIGGER_TYPES.SCHEDULE, config: { schedule: template.context.schedule }
+        }] : []
+      });
+      console.log(`\n  ${c.green}✓${c.reset} ${c.bold}${worker.charter.name}${c.reset} deployed!`);
+      console.log(`  ${c.dim}Run it: /run ${worker.charter.name}${c.reset}\n`);
+      return worker;
+    }
+  }
+
+  console.log(`\n  ${c.dim}Cancelled.${c.reset}\n`);
+  return null;
+}
+
 // ── Natural Language Detection ──────────────────────────────────────────────
 function looksLikeWorkerRequest(input) {
   const lower = input.toLowerCase();
@@ -728,16 +815,16 @@ async function main() {
         return;
       }
 
-      // Natural language → worker creation
+      // Natural language → instant worker creation (one sentence → working worker)
       if (looksLikeWorkerRequest(trimmed)) {
-        await createWorkerFlow(rl, trimmed);
+        await instantCreateWorker(rl, trimmed);
         doPrompt();
         return;
       }
 
-      // Anything else — try as worker creation anyway
-      console.log(`\n  ${c.cyan}Nooterra:${c.reset} I'll help you create a worker for that.\n`);
-      await createWorkerFlow(rl, trimmed);
+      // Anything else — try instant mode
+      console.log(`\n  ${c.cyan}Nooterra:${c.reset} I'll create a worker for that.\n`);
+      await instantCreateWorker(rl, trimmed);
       doPrompt();
     });
   }

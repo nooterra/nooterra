@@ -293,8 +293,8 @@ export function inferCapabilities(taskDescription) {
   const desc = taskDescription.toLowerCase();
   const inferred = [];
 
-  // Browsing keywords
-  if (/browse|website|web page|scrape|url|http|click|form|screenshot/.test(desc)) {
+  // Browsing keywords — also catch monitoring/price tasks that imply web access
+  if (/browse|website|web page|scrape|url|http|click|form|screenshot|price|competitor|amazon|ebay|linkedin|twitter|reddit|news|blog|article|review/.test(desc)) {
     inferred.push("browser");
   }
 
@@ -313,7 +313,7 @@ export function inferCapabilities(taskDescription) {
   }
 
   // Development keywords
-  if (/github|repo|issue|pull request|pr|commit|branch/.test(desc)) {
+  if (/github|\brepo(?:sitory)?\b|issue|pull request|pull_request|\bpr\b|commit|branch|merge/.test(desc)) {
     inferred.push("github");
   }
   if (/file|folder|directory|read file|write file|local/.test(desc)) {
@@ -348,7 +348,7 @@ export function inferCapabilities(taskDescription) {
   }
 
   // E-commerce keywords
-  if (/shopify|product|inventory|order|store/.test(desc)) {
+  if (/shopify|inventory|fulfillment|e-?commerce/.test(desc)) {
     inferred.push("shopify");
   }
 

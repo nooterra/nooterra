@@ -17,7 +17,7 @@ import WorkersScreen from './WorkersScreen.mjs';
 import DashboardScreen from './DashboardScreen.mjs';
 import ExecutionView from './ExecutionView.mjs';
 
-import { createConversation, processInput, CONVERSATION_STATES } from '../worker-builder-core.mjs';
+import { createConversation, processInput, instantCreate, WORKER_TEMPLATES, CONVERSATION_STATES } from '../worker-builder-core.mjs';
 import { createWorker, listWorkers, WORKER_STATUS } from '../worker-persistence.mjs';
 import {
   PROVIDERS, getDefaultProvider, setDefaultProvider,
@@ -419,9 +419,19 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
         return;
       }
       case '/new':
-        addMessage('nooterra', 'What kind of worker do you want to create?');
+        addMessage('nooterra', 'What kind of worker do you want to create? Just describe it in one sentence.');
         setConversation(createConversation());
         return;
+      case '/templates': {
+        const lines = WORKER_TEMPLATES.map((t, i) =>
+          `  ${i + 1}. ${t.icon} **${t.name}** — ${t.description}`
+        );
+        addMessage('system',
+          `Quick Start Templates:\n\n${lines.join('\n')}\n\n` +
+          `Type the number to deploy, or describe your own worker.`
+        );
+        return;
+      }
       case '/run':
         if (!args) { addMessage('system', 'Usage: /run <worker name>'); return; }
         await handleRunWorker(args);
@@ -646,11 +656,38 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
 
     // Worker creation conversation
     if (conversation) {
+      // Handle instant mode confirmation
+      if (conversation._instant) {
+        const lower = trimmed.toLowerCase();
+        if (/^(y|yes|go|deploy|ship|create|do it|ok)/.test(lower)) {
+          const { context, charter, prov, pd } = conversation;
+          const worker = createWorker(charter, {
+            provider: prov, model: pd.defaultModel,
+            triggers: context.schedule?.type !== 'trigger' ? [{
+              type: TRIGGER_TYPES.SCHEDULE, config: { schedule: context.schedule }
+            }] : []
+          });
+          addMessage('success', `${worker.charter.name} deployed!`);
+          addMessage('system', `Run it: /run ${worker.charter.name}`);
+          setConversation(null);
+        } else if (/^(edit|change|modify|tweak)/.test(lower)) {
+          // Switch to full conversation mode
+          const conv = createConversation();
+          setConversation(conv);
+          const result = processInput(conv, conversation.context.taskDescription);
+          addMessage('nooterra', result.message);
+        } else {
+          addMessage('system', 'Cancelled.');
+          setConversation(null);
+        }
+        return;
+      }
+
+      // Regular conversation flow
       const result = processInput(conversation, trimmed);
       addMessage('nooterra', result.message);
       if (conversation.state === CONVERSATION_STATES.COMPLETE || result.deployed) {
         const charter = buildCharterFromContext(conversation.context);
-        // Use provider from conversation if selected, otherwise default
         const prov = conversation.context.provider || getDefaultProvider() || 'chatgpt';
         const pd = PROVIDERS[prov] || PROVIDERS.openai;
         const worker = createWorker(charter, {
@@ -666,13 +703,26 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
       return;
     }
 
-    // Detect intent: worker creation request or general chat?
+    // Detect intent: worker creation request → instant mode, or general chat
     if (looksLikeWorkerRequest(trimmed)) {
-      const conv = createConversation();
-      setConversation(conv);
-      const result = processInput(conv, trimmed);
-      addMessage('nooterra', result.message);
-      if (conv.state === CONVERSATION_STATES.COMPLETE) setConversation(null);
+      // Instant mode: infer everything from one sentence
+      const context = instantCreate(trimmed);
+      const charter = buildCharterFromContext(context);
+      const prov = getDefaultProvider() || 'chatgpt';
+      const pd = PROVIDERS[prov] || PROVIDERS.openai;
+
+      const capNames = (charter.capabilities || []).map(c => c.name || c.id).join(', ');
+      addMessage('nooterra',
+        `⚡ **${charter.name}**\n` +
+        `Purpose: ${charter.purpose}\n` +
+        `Tools: ${capNames || 'none'}\n` +
+        `Can do: ${charter.canDo.slice(0, 3).join(', ')}\n` +
+        `Never do: ${charter.neverDo.slice(0, 2).join(', ')}\n\n` +
+        `Say **yes** to deploy, **edit** to customize, or **cancel**.`
+      );
+
+      // Store for next input
+      setConversation({ _instant: true, context, charter, prov, pd });
     } else {
       // General chat — call the AI
       await handleChat(trimmed);

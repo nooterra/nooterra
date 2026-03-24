@@ -272,6 +272,16 @@ export function inferSchedule(taskDescription) {
     return { type: "cron", value: "0 9 * * 1" }; // Monday 9 AM
   }
 
+  // Monitoring/watching tasks default to hourly
+  if (/monitor|watch|track|alert|check|scan/.test(desc)) {
+    return { type: "interval", value: "1h" };
+  }
+
+  // Morning tasks
+  if (/morning|every morning/.test(desc)) {
+    return { type: "cron", value: "0 8 * * *" };
+  }
+
   // Trigger-based (default for most tasks)
   if (/when|if|trigger|on/.test(desc)) {
     return { type: "trigger", value: "on_demand" };

@@ -781,10 +781,233 @@ function calculateProgress(conversation) {
   return Math.round((currentIndex / (stateOrder.length - 1)) * 100);
 }
 
+/**
+ * Instant worker creation — one sentence in, working worker out.
+ *
+ * This is the "just do it" mode. The user says "monitor my competitor's prices"
+ * and we infer EVERYTHING: name, capabilities, rules, schedule. No questions.
+ *
+ * Returns a complete conversation context ready for buildCharterFromContext().
+ */
+export function instantCreate(description) {
+  const context = {
+    taskDescription: description,
+    capabilities: [],
+    capabilityConfigs: {},
+    canDo: [],
+    askFirst: [],
+    neverDo: [],
+    schedule: null,
+    budget: null,
+    notifications: { channels: ['app'], events: ['approval_needed', 'task_complete', 'error'] },
+    workerName: null
+  };
+
+  // Infer capabilities
+  const inferredCaps = inferCapabilities(description);
+  context.capabilities = inferredCaps.map(cap => ({ ...cap, confirmed: true }));
+
+  // If no capabilities detected, default to browser (most useful general-purpose tool)
+  if (context.capabilities.length === 0) {
+    const allCaps = getAllCapabilities();
+    const browser = allCaps.find(c => c.id === 'browser');
+    if (browser) context.capabilities.push({ ...browser, confirmed: true });
+  }
+
+  // Infer schedule
+  context.schedule = inferSchedule(description);
+
+  // Infer rules
+  const rules = inferCharterRules(description, context.capabilities);
+  context.canDo = rules.canDo;
+  context.askFirst = rules.askFirst;
+  context.neverDo = rules.neverDo;
+
+  // Generate a name from the description
+  context.workerName = generateWorkerName(description);
+
+  return context;
+}
+
+/**
+ * Generate a worker name from a task description.
+ * Produces short, memorable names like "Price Monitor" or "Inbox Triage".
+ */
+function generateWorkerName(description) {
+  const desc = description.toLowerCase();
+
+  // Pattern: "monitor X" → "X Monitor"
+  const monitorMatch = desc.match(/monitor\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+(?:and|for|on|every|daily|hourly).*)?$/);
+  if (monitorMatch) {
+    const subject = monitorMatch[1].replace(/['"]/g, '').trim();
+    return titleCase(subject) + ' Monitor';
+  }
+
+  // Pattern: "check X" → "X Checker"
+  const checkMatch = desc.match(/check\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+(?:and|for|on|every|daily|hourly).*)?$/);
+  if (checkMatch) {
+    const subject = checkMatch[1].replace(/['"]/g, '').trim();
+    return titleCase(subject) + ' Checker';
+  }
+
+  // Pattern: "send X" → "X Sender"
+  const sendMatch = desc.match(/send\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+(?:to|via|through|every).*)?$/);
+  if (sendMatch) {
+    const subject = sendMatch[1].replace(/['"]/g, '').trim();
+    return titleCase(subject) + ' Sender';
+  }
+
+  // Pattern: "track X" → "X Tracker"
+  const trackMatch = desc.match(/track\s+(?:my\s+)?(?:the\s+)?(.+?)(?:\s+(?:and|for|on|every).*)?$/);
+  if (trackMatch) {
+    const subject = trackMatch[1].replace(/['"]/g, '').trim();
+    return titleCase(subject) + ' Tracker';
+  }
+
+  // Pattern: verb + object → "Object Verb-er"
+  const verbMatch = desc.match(/^(?:i want to |i need to |please |can you )?(\w+)\s+(?:my\s+)?(?:the\s+)?(?:for\s+)?(.+?)(?:\s+(?:every|daily|hourly|and|on\s+\w+).*)?$/);
+  if (verbMatch) {
+    const verb = verbMatch[1];
+    const object = verbMatch[2].replace(/['"]/g, '').replace(/\s+(on|from|in|at|to|via|through)\s+.*$/, '').trim();
+    // Common verb→noun mappings
+    const nounMap = {
+      summarize: 'Summarizer', organize: 'Organizer', analyze: 'Analyzer',
+      process: 'Processor', automate: 'Automator', manage: 'Manager',
+      schedule: 'Scheduler', clean: 'Cleaner', sort: 'Sorter',
+      filter: 'Filter', forward: 'Forwarder', respond: 'Responder',
+      notify: 'Notifier', report: 'Reporter', review: 'Reviewer',
+      scrape: 'Scraper', collect: 'Collector', aggregate: 'Aggregator',
+      watch: 'Watcher', alert: 'Alerter', backup: 'Backup',
+      sync: 'Sync', update: 'Updater', draft: 'Drafter',
+    };
+    const suffix = nounMap[verb] || titleCase(verb) + 'er';
+    const shortObj = object.split(/\s+/).slice(0, 3).join(' ');
+    return titleCase(shortObj) + ' ' + suffix;
+  }
+
+  // Fallback: first 3-4 meaningful words + "Worker"
+  const words = description.replace(/^(i want to |i need |please |can you |create a |make a |build a )/i, '')
+    .split(/\s+/).filter(w => w.length > 2).slice(0, 3);
+  return words.length > 0 ? titleCase(words.join(' ')) : 'My Worker';
+}
+
+function titleCase(str) {
+  return str.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Worker templates — pre-built charters for common use cases.
+ * Users can pick a template and customize from there.
+ */
+export const WORKER_TEMPLATES = [
+  {
+    id: 'price-monitor',
+    name: 'Price Monitor',
+    description: 'Track prices on websites and alert you when they change',
+    icon: '💰',
+    context: {
+      taskDescription: 'Monitor product prices on specified websites and send alerts when prices drop',
+      capabilities: [{ id: 'browser', name: 'Web Browser', icon: '🌐', confirmed: true }],
+      canDo: ['Browse specified websites', 'Extract prices from pages', 'Send price alerts'],
+      askFirst: ['Make purchases'],
+      neverDo: ['Browse websites not in the allowed list', 'Share pricing data externally'],
+      schedule: { type: 'interval', value: '1h' },
+      notifications: { channels: ['app'], events: ['approval_needed', 'task_complete', 'error'] },
+      workerName: 'Price Monitor'
+    }
+  },
+  {
+    id: 'inbox-triage',
+    name: 'Inbox Triage',
+    description: 'Read your email, categorize messages, and forward urgent ones',
+    icon: '📧',
+    context: {
+      taskDescription: 'Read incoming emails, categorize by urgency, and forward urgent messages to Slack',
+      capabilities: [
+        { id: 'email', name: 'Email (Gmail/IMAP)', icon: '📧', confirmed: true },
+        { id: 'slack', name: 'Slack', icon: '💬', confirmed: true }
+      ],
+      canDo: ['Read emails', 'Categorize messages', 'Forward urgent messages to Slack'],
+      askFirst: ['Reply to emails', 'Archive messages'],
+      neverDo: ['Delete emails permanently', 'Share email content externally'],
+      schedule: { type: 'interval', value: '15m' },
+      notifications: { channels: ['slack'], events: ['approval_needed', 'task_complete', 'error'] },
+      workerName: 'Inbox Triage'
+    }
+  },
+  {
+    id: 'standup-summarizer',
+    name: 'Standup Summarizer',
+    description: 'Read team standup messages and create a daily summary',
+    icon: '📋',
+    context: {
+      taskDescription: 'Read standup messages from Slack, summarize what everyone is working on, and post a digest',
+      capabilities: [{ id: 'slack', name: 'Slack', icon: '💬', confirmed: true }],
+      canDo: ['Read messages from standup channels', 'Create summary posts', 'Tag team members'],
+      askFirst: ['Send direct messages'],
+      neverDo: ['Post to channels not in the allowed list', 'Share private conversations'],
+      schedule: { type: 'cron', value: '0 10 * * 1-5' },
+      notifications: { channels: ['slack'], events: ['task_complete', 'error'] },
+      workerName: 'Standup Summarizer'
+    }
+  },
+  {
+    id: 'competitor-watcher',
+    name: 'Competitor Watcher',
+    description: 'Monitor competitor websites for changes and new content',
+    icon: '🔍',
+    context: {
+      taskDescription: 'Monitor competitor websites for new products, pricing changes, and blog posts',
+      capabilities: [{ id: 'browser', name: 'Web Browser', icon: '🌐', confirmed: true }],
+      canDo: ['Browse competitor websites', 'Extract content and pricing', 'Send change alerts'],
+      askFirst: [],
+      neverDo: ['Create accounts on competitor sites', 'Scrape customer data'],
+      schedule: { type: 'cron', value: '0 8 * * *' },
+      notifications: { channels: ['app'], events: ['task_complete', 'error'] },
+      workerName: 'Competitor Watcher'
+    }
+  },
+  {
+    id: 'github-reviewer',
+    name: 'PR Reviewer',
+    description: 'Review pull requests and leave comments on code quality',
+    icon: '🔀',
+    context: {
+      taskDescription: 'Review new pull requests on GitHub, check for code quality issues, and leave review comments',
+      capabilities: [{ id: 'github', name: 'GitHub', icon: '🔀', confirmed: true }],
+      canDo: ['Read repository contents', 'Read pull requests', 'Leave review comments'],
+      askFirst: ['Approve pull requests', 'Request changes'],
+      neverDo: ['Merge pull requests', 'Delete branches', 'Modify repository settings'],
+      schedule: { type: 'interval', value: '30m' },
+      notifications: { channels: ['app'], events: ['task_complete', 'error'] },
+      workerName: 'PR Reviewer'
+    }
+  },
+  {
+    id: 'social-monitor',
+    name: 'Social Monitor',
+    description: 'Track mentions of your brand across the web',
+    icon: '📡',
+    context: {
+      taskDescription: 'Search the web for mentions of your brand and products, alert on negative sentiment',
+      capabilities: [{ id: 'browser', name: 'Web Browser', icon: '🌐', confirmed: true }],
+      canDo: ['Search websites and social media', 'Analyze sentiment', 'Send alerts'],
+      askFirst: ['Post responses to mentions'],
+      neverDo: ['Post content without approval', 'Share internal data publicly'],
+      schedule: { type: 'interval', value: '2h' },
+      notifications: { channels: ['app'], events: ['task_complete', 'error'] },
+      workerName: 'Social Monitor'
+    }
+  },
+];
+
 export default {
   createConversation,
   processInput,
   generateResponse,
   getConversationState,
+  instantCreate,
+  generateWorkerName,
+  WORKER_TEMPLATES,
   CONVERSATION_STATES
 };
