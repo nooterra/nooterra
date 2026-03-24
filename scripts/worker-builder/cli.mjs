@@ -361,7 +361,7 @@ async function runWorker(nameOrId) {
     return;
   }
 
-  console.log(`\n  ${c.dim}Running ${match.charter.name}...${c.reset}\n`);
+  console.log(`\n  ${c.bold}Running ${match.charter.name}...${c.reset}\n`);
 
   try {
     const { runWorkerExecution } = await import('./worker-daemon.mjs');
@@ -382,7 +382,45 @@ async function runWorker(nameOrId) {
       }
     };
 
-    const result = await runWorkerExecution(match, mcpManager, notificationBus, credential);
+    // Live activity feed — show users what's happening in real time
+    const runStart = Date.now();
+    const activityFeed = {
+      start: (d) => {},
+      thinking: (d) => {
+        const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+        console.log(`  ${c.dim}${elapsed}s${c.reset}  ${c.dim}Thinking... (round ${(d?.round || 0) + 1})${c.reset}`);
+      },
+      toolCall: (d) => {
+        const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+        const argsPreview = d?.args ? JSON.stringify(d.args).slice(0, 60) : '';
+        console.log(`  ${c.dim}${elapsed}s${c.reset}  ${c.gold}🔧 ${d?.name}${c.reset}${argsPreview ? c.dim + '(' + argsPreview + ')' + c.reset : ''}`);
+      },
+      toolResult: (d) => {
+        const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+        const dur = d?.durationMs ? `${d.durationMs}ms` : '';
+        const preview = d?.preview ? d.preview.slice(0, 60).replace(/\n/g, ' ') : '';
+        console.log(`  ${c.dim}${elapsed}s${c.reset}  ${c.green}✓ ${d?.name}${c.reset} ${c.dim}→ ${d?.chars || 0} chars ${dur}${c.reset}`);
+      },
+      charterCheck: (d) => {
+        if (d?.verdict === 'neverDo') {
+          console.log(`  ${c.dim}     ${c.reset}  ${c.red}🛡️ BLOCKED: ${d.rule}${c.reset}`);
+        } else if (d?.verdict === 'askFirst') {
+          console.log(`  ${c.dim}     ${c.reset}  ${c.gold}🛡️ Needs approval: ${d.rule}${c.reset}`);
+        }
+      },
+      memorySave: (d) => {
+        const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+        console.log(`  ${c.dim}${elapsed}s${c.reset}  ${c.cyan}💾 Memory saved: ${d?.key}${c.reset}`);
+      },
+      response: (d) => {},  // Will show full response at the end
+      complete: (d) => {
+        const elapsed = ((Date.now() - runStart) / 1000).toFixed(1);
+        const ok = d?.success !== false;
+        console.log(`  ${c.dim}${elapsed}s${c.reset}  ${ok ? c.green + '✅' : c.red + '❌'}${c.reset} ${ok ? 'Complete' : 'Failed'} — ${d?.rounds || 0} round${d?.rounds !== 1 ? 's' : ''}, ${d?.toolCallCount || 0} tool calls`);
+      },
+    };
+
+    const result = await runWorkerExecution(match, mcpManager, notificationBus, credential, { activityFeed });
 
     if (result.response) {
       console.log(hr());

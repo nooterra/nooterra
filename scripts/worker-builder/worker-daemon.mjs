@@ -493,13 +493,22 @@ function saveReceipt(receipt) {
  *  6. Generate and persist a receipt
  *  7. Return a result object for recordWorkerRun
  */
-async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
+async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey, options = {}) {
   const charter = worker.charter;
   const provider = worker.provider || 'openai';
   const providerDef = PROVIDERS[provider] || PROVIDERS.openai;
   const model = worker.model || providerDef.defaultModel;
   const taskId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const startTime = Date.now();
+
+  // Activity feed — live progress reporting
+  const activity = options.activityFeed || null;
+  const emit = (type, data) => {
+    if (activity && typeof activity[type] === 'function') {
+      try { activity[type](data); } catch {}
+    }
+  };
+  emit('start', { workerName: charter.name, taskId });
 
   // Load worker memory — context from previous runs
   let memory = {};
@@ -563,8 +572,10 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
 
   // Agentic loop — keep going while the AI wants to use tools
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    emit('thinking', { round });
     const aiResponse = await callProvider(provider, apiKey, model, systemPrompt, messages, availableTools);
     finalContent = aiResponse.content;
+    if (aiResponse.content) emit('response', { content: aiResponse.content, round });
 
     executionLog.push({
       round,
@@ -585,6 +596,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
 
     for (const tc of aiResponse.toolCalls) {
       totalToolCalls++;
+      emit('toolCall', { name: tc.name, args: tc.args, round });
 
       // Handle memory save (internal tool, always allowed)
       if (tc.name === '__save_memory') {
@@ -597,6 +609,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
           else mem.memory[key] = value;
           if (mem.save) mem.save();
           toolResults.push({ id: tc.id, name: tc.name, result: `Saved to memory: ${key}` });
+          emit('memorySave', { key });
           console.log(`[exec] Memory saved: ${key}`);
         } catch (memErr) {
           toolResults.push({ id: tc.id, name: tc.name, result: `Memory save failed: ${memErr.message}` });
@@ -606,6 +619,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
 
       // Classify against charter
       const classification = classifyAction(tc.name, tc.args, charter);
+      emit('charterCheck', { tool: tc.name, verdict: classification.verdict, rule: classification.rule });
 
       if (classification.verdict === 'neverDo') {
         // BLOCKED — log and return error to AI
@@ -644,6 +658,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
       if (toolDef && toolDef._builtIn) {
         // BUILT-IN TOOL — execute directly, no MCP needed
         let lastErr = null;
+        const toolStartTime = Date.now();
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (attempt > 0) {
@@ -657,6 +672,7 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
             // Truncate very long results to avoid blowing up context
             const truncated = resultStr.length > 8000 ? resultStr.slice(0, 8000) + '\n\n[... truncated, showing first 8000 chars]' : resultStr;
             toolResults.push({ id: tc.id, name: tc.name, result: truncated });
+            emit('toolResult', { name: tc.name, chars: resultStr.length, durationMs: Date.now() - (toolStartTime || Date.now()), preview: resultStr.slice(0, 100) });
             console.log(`[exec] Built-in tool ${tc.name} executed (${resultStr.length} chars)`);
             lastErr = null;
             break;
@@ -779,6 +795,8 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
 
   // Persist receipt
   saveReceipt(receipt);
+
+  emit('complete', { taskId, success: receipt.success, duration, toolCallCount: totalToolCalls, rounds: executionLog.length });
 
   return {
     taskId,
