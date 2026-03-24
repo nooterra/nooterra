@@ -14,7 +14,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const VERSION = '0.3.0';
+let VERSION = '0.3.0';
+try {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+  VERSION = pkg.version || VERSION;
+} catch {}
 const RUNS_DIR = path.join(os.homedir(), '.nooterra', 'runs');
 
 function countReceipts() {

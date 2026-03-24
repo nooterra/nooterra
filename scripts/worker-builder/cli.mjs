@@ -25,7 +25,12 @@ import {
 import { buildCharterFromContext, generateCharterSummary } from './charter-compiler.mjs';
 import { TRIGGER_TYPES } from './trigger-engine.mjs';
 
-const VERSION = '0.4.0';
+// Read version from package.json to keep it consistent
+let VERSION = '0.4.0';
+try {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  VERSION = pkg.version || VERSION;
+} catch {}
 const NOOTERRA_DIR = path.join(os.homedir(), '.nooterra');
 const RUNS_DIR = path.join(NOOTERRA_DIR, 'runs');
 
@@ -624,11 +629,37 @@ function looksLikeWorkerRequest(input) {
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
   const argv = process.argv.slice(2);
-  const isNewFlag = argv.includes('--new');
-  const isWorkersList = argv.includes('--workers');
 
   // Ensure base directory exists
   fs.mkdirSync(NOOTERRA_DIR, { recursive: true });
+
+  // ── Non-interactive flag commands (no banner, no REPL) ─────────────────
+  const flagIdx = argv.findIndex(a => a.startsWith('--'));
+  if (flagIdx >= 0) {
+    const flag = argv[flagIdx];
+    const flagArg = argv.slice(flagIdx + 1).join(' ').trim();
+
+    switch (flag) {
+      case '--workers': showWorkers(); return;
+      case '--dashboard': case '--dash': showDashboard(); return;
+      case '--approvals': showApprovals(); return;
+      case '--cost': showCost(); return;
+      case '--health': showHealth(); return;
+      case '--logs': showLogs(flagArg); return;
+      case '--schedule': showScheduleHelp(flagArg); return;
+      case '--run':
+        await runWorker(flagArg);
+        return;
+      case '--new':
+        // New worker flow needs the REPL — fall through below
+        break;
+      default:
+        // Unknown flag — fall through to interactive mode
+        break;
+    }
+  }
+
+  const isNewFlag = argv.includes('--new');
 
   const rl = createInterface({
     input: process.stdin,
@@ -639,13 +670,6 @@ async function main() {
   // Show banner
   clearScreen();
   printBanner();
-
-  // --workers flag: just list and exit
-  if (isWorkersList) {
-    showWorkers();
-    rl.close();
-    return;
-  }
 
   // Check if we need onboarding
   const hasProvider = getConfiguredProviders().length > 0;

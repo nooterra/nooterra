@@ -148,24 +148,28 @@ function main() {
     return runNodeScript("scripts/worker-builder/cli.mjs", ["--workers"]);
   }
 
+  if (cmd === "run") {
+    const workerName = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--run", workerName]);
+  }
+
   if (cmd === "test") {
-    // Dry-run a worker
     const workerName = argv.slice(1).join(' ');
     return runNodeScript("scripts/worker-builder/test-worker.mjs", [workerName]);
   }
 
   if (cmd === "logs") {
     const workerName = argv.slice(1).join(' ');
-    return runNodeScript("scripts/worker-builder/worker-logs.mjs", [workerName]);
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--logs", workerName]);
   }
 
   if (cmd === "dashboard" || cmd === "dash") {
-    return runNodeScript("scripts/worker-builder/tui.mjs", ["--dashboard"]);
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--dashboard"]);
   }
 
   if (cmd === "schedule") {
-    const sub = argv[1] ? String(argv[1]) : "list";
-    return runNodeScript("scripts/worker-builder/cli.mjs", ["--schedule", sub, ...argv.slice(2)]);
+    const sub = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--schedule", sub]);
   }
 
   if (cmd === "approvals") {
