@@ -217,6 +217,11 @@ function main() {
 
   // --- Runtime ---
 
+  if (cmd === "daemon") {
+    const sub = argv[1] ? String(argv[1]) : "status";
+    return runNodeScript("scripts/worker-builder/daemon-service.mjs", [sub, ...argv.slice(2)]);
+  }
+
   if (cmd === "runtime") {
     if (String(argv[1] ?? "").trim() === "first-run") {
       return runNodeScript("scripts/runtime/first-run.mjs", argv.slice(2));
