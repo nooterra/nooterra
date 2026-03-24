@@ -22,6 +22,10 @@ Workers:
   nooterra logs <name>      View execution logs
   nooterra schedule         Manage recurring runs
 
+Tools:
+  nooterra add <tool>       Add a tool (slack, github, email, etc)
+  nooterra tools            List available tools and status
+
 Monitoring:
   nooterra dashboard        Real-time system dashboard
   nooterra approvals        Pending approval queue
@@ -182,6 +186,15 @@ function main() {
 
   if (cmd === "health") {
     return runNodeScript("scripts/worker-builder/cli.mjs", ["--health"]);
+  }
+
+  if (cmd === "add") {
+    const tool = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/tool-installer.mjs", tool ? [tool] : ["--list"]);
+  }
+
+  if (cmd === "tools") {
+    return runNodeScript("scripts/worker-builder/tool-installer.mjs", ["--list"]);
   }
 
   // --- Setup & auth ---

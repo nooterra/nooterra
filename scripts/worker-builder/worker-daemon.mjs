@@ -379,33 +379,57 @@ function safeParse(str) {
 }
 
 /**
- * Build a list of tool definitions from connected MCP servers for this worker.
+ * Build a list of tool definitions for this worker.
+ *
+ * Priority: built-in tools first (always work), then MCP tools (if connected).
+ * Built-in tools use direct HTTP calls — no MCP server needed.
  */
 async function buildToolDefs(mcpManager, charter) {
   const tools = [];
-  if (!mcpManager) return tools;
 
-  // capabilities can be strings ('slack') or objects ({id: 'slack'})
-  const capIds = (charter.capabilities || []).map(c => typeof c === 'string' ? c : c.id).filter(Boolean);
+  // 1. Load built-in tools first — these ALWAYS work
+  try {
+    const { getAvailableTools } = await import('./built-in-tools.mjs');
+    const builtInTools = getAvailableTools(charter.capabilities);
+    for (const t of builtInTools) {
+      tools.push({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters || { type: 'object', properties: {} },
+        _builtIn: true  // Marks this for direct execution (no MCP)
+      });
+    }
+    if (builtInTools.length > 0) {
+      console.log(`[exec] Loaded ${builtInTools.length} built-in tools: ${builtInTools.map(t => t.name).join(', ')}`);
+    }
+  } catch (err) {
+    console.log(`[exec] Could not load built-in tools: ${err.message}`);
+  }
 
-  for (const capId of capIds) {
-    try {
-      const status = mcpManager.getStatus(capId);
-      if (!status || !status.connected) continue;
+  // 2. Try MCP tools (optional enhancement on top of built-ins)
+  if (mcpManager) {
+    const capIds = (charter.capabilities || []).map(c => typeof c === 'string' ? c : c.id).filter(Boolean);
 
-      const result = await mcpManager.listTools(capId);
-      const serverTools = result?.tools || result || [];
-      for (const t of serverTools) {
-        tools.push({
-          name: t.name,
-          description: t.description || `Tool from ${capId}`,
-          parameters: t.inputSchema || t.parameters || { type: 'object', properties: {} },
-          _serverId: capId
-        });
+    for (const capId of capIds) {
+      try {
+        const status = mcpManager.getStatus(capId);
+        if (!status || !status.connected) continue;
+
+        const result = await mcpManager.listTools(capId);
+        const serverTools = result?.tools || result || [];
+        for (const t of serverTools) {
+          // Don't add MCP tool if we already have a built-in with the same name
+          if (tools.find(existing => existing.name === t.name)) continue;
+          tools.push({
+            name: t.name,
+            description: t.description || `Tool from ${capId}`,
+            parameters: t.inputSchema || t.parameters || { type: 'object', properties: {} },
+            _serverId: capId
+          });
+        }
+      } catch (err) {
+        // MCP not connected — that's fine, we have built-in tools
       }
-    } catch (err) {
-      // MCP server not connected — that's fine, worker runs without tools
-      console.log(`[exec] MCP server "${capId}" not connected — worker will run without this tool`);
     }
   }
 
@@ -569,10 +593,40 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
         continue;
       }
 
-      // canDo — execute via MCP if we have a connected server, otherwise tell the AI
+      // canDo — execute the tool
       const toolDef = availableTools.find(t => t.name === tc.name);
-      if (toolDef && toolDef._serverId) {
-        // Retry with exponential backoff (up to 3 attempts)
+
+      if (toolDef && toolDef._builtIn) {
+        // BUILT-IN TOOL — execute directly, no MCP needed
+        let lastErr = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+              await new Promise(r => setTimeout(r, delay));
+              console.log(`[exec] Retrying ${tc.name} (attempt ${attempt + 1})...`);
+            }
+            const { executeTool } = await import('./built-in-tools.mjs');
+            const result = await executeTool(tc.name, tc.args || {});
+            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+            // Truncate very long results to avoid blowing up context
+            const truncated = resultStr.length > 8000 ? resultStr.slice(0, 8000) + '\n\n[... truncated, showing first 8000 chars]' : resultStr;
+            toolResults.push({ id: tc.id, name: tc.name, result: truncated });
+            console.log(`[exec] Built-in tool ${tc.name} executed (${resultStr.length} chars)`);
+            lastErr = null;
+            break;
+          } catch (toolErr) {
+            lastErr = toolErr;
+            if (toolErr.message?.includes('not allowed') || toolErr.message?.includes('blocked')) break;
+          }
+        }
+        if (lastErr) {
+          const errMsg = `Tool "${tc.name}" failed: ${lastErr.message}. Try a different approach.`;
+          toolResults.push({ id: tc.id, name: tc.name, result: errMsg, error: true });
+          console.error(`[exec] Built-in tool ${tc.name} failed: ${lastErr.message}`);
+        }
+      } else if (toolDef && toolDef._serverId) {
+        // MCP TOOL — execute via MCP server
         let lastErr = null;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -589,7 +643,6 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
             break;
           } catch (mcpErr) {
             lastErr = mcpErr;
-            // Don't retry on auth errors or missing tools
             if (mcpErr.message?.includes('not found') || mcpErr.message?.includes('auth')) break;
           }
         }
@@ -599,9 +652,10 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
           console.error(`[exec] MCP tool ${tc.name} failed: ${lastErr.message}`);
         }
       } else {
-        // No MCP server for this tool — tell the AI to adapt
-        const noServerMsg = `Tool "${tc.name}" is not connected. Available tools: ${availableTools.filter(t => t._serverId).map(t => t.name).join(', ') || 'none'}. Describe what you would do or use available tools.`;
-        toolResults.push({ id: tc.id, name: tc.name, result: noServerMsg, unavailable: true });
+        // Unknown tool — tell the AI what's available
+        const available = availableTools.map(t => t.name).join(', ');
+        const noToolMsg = `Tool "${tc.name}" not found. Available tools: ${available || 'none'}. Use one of these instead.`;
+        toolResults.push({ id: tc.id, name: tc.name, result: noToolMsg, unavailable: true });
       }
     }
 
