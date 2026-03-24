@@ -631,6 +631,23 @@ async function instantCreateWorker(rl, description) {
   const scheduleStr = charter.schedule ? (charter.schedule.type === 'interval' ? `every ${charter.schedule.value}` : charter.schedule.type === 'cron' ? `cron: ${charter.schedule.value}` : charter.schedule.type) : 'on demand';
 
   console.log(`  ${c.dim}Provider: ${providerDef.name} · Schedule: ${scheduleStr} · Tools: ${capNames || 'none'}${c.reset}\n`);
+
+  // Pre-flight: warn about capabilities that need connections
+  const caps = charter.capabilities || [];
+  const warnings = [];
+  for (const cap of caps) {
+    const id = cap.id || cap;
+    // These need tokens/auth
+    if (['slack', 'email', 'github', 'discord', 'stripe', 'shopify', 'postgres', 'notion', 'googleSheets', 'calendar'].includes(id)) {
+      warnings.push(`  ${c.gold}⚡${c.reset} ${cap.name || id} needs setup — run /connect ${id} after deploy`);
+    }
+  }
+  if (warnings.length > 0) {
+    console.log(`  ${c.bold}Setup needed after deploy:${c.reset}`);
+    for (const w of warnings) console.log(w);
+    console.log('');
+  }
+
   console.log(`  ${c.bold}Deploy this worker?${c.reset} ${c.dim}(yes / edit / cancel)${c.reset}\n`);
 
   const answer = await ask(rl, `  ${c.gold}>${c.reset} `);
@@ -644,7 +661,7 @@ async function instantCreateWorker(rl, description) {
       }] : []
     });
     console.log(`\n  ${c.green}✓${c.reset} ${c.bold}${worker.charter.name}${c.reset} deployed!`);
-    console.log(`  ${c.dim}Run it: /run ${worker.charter.name}${c.reset}\n`);
+    console.log(`  ${c.dim}Want to test it? Type: /run ${worker.charter.name}${c.reset}\n`);
     return worker;
   }
 

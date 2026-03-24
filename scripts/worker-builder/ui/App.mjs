@@ -352,7 +352,16 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
       chatHistory.current.push({ role: 'assistant', content: response });
       addMessage('nooterra', response);
     } catch (err) {
-      addMessage('nooterra', `I couldn't process that: ${err.message}. Try /help for commands.`);
+      const msg = err.message || '';
+      if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('invalid_api_key')) {
+        addMessage('error', `API key expired or invalid. Run /auth to reconnect.`);
+      } else if (msg.includes('429') || msg.includes('rate_limit') || msg.includes('insufficient_quota')) {
+        addMessage('error', `Rate limited or quota exceeded. Wait a moment or switch providers with /auth.`);
+      } else if (msg.includes('ECONNREFUSED') || msg.includes('ETIMEDOUT') || msg.includes('fetch failed')) {
+        addMessage('error', `Can't reach the AI provider. Check your internet connection.`);
+      } else {
+        addMessage('error', `Something went wrong: ${msg.slice(0, 100)}. Try /help.`);
+      }
     }
     setLoading(false);
   }, [addMessage]);
@@ -668,7 +677,7 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
             }] : []
           });
           addMessage('success', `${worker.charter.name} deployed!`);
-          addMessage('system', `Run it: /run ${worker.charter.name}`);
+          addMessage('system', `Test it now: /run ${worker.charter.name}`);
           setConversation(null);
         } else if (/^(edit|change|modify|tweak)/.test(lower)) {
           // Switch to full conversation mode
@@ -712,12 +721,19 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
       const pd = PROVIDERS[prov] || PROVIDERS.openai;
 
       const capNames = (charter.capabilities || []).map(c => c.name || c.id).join(', ');
+      const needsSetup = (charter.capabilities || [])
+        .filter(c => ['slack', 'email', 'github', 'discord', 'stripe', 'shopify', 'postgres', 'notion', 'googleSheets', 'calendar'].includes(c.id))
+        .map(c => c.name || c.id);
+      const setupNote = needsSetup.length > 0
+        ? `\n⚡ After deploy, connect: ${needsSetup.join(', ')} (use /connect)`
+        : '';
       addMessage('nooterra',
         `⚡ **${charter.name}**\n` +
         `Purpose: ${charter.purpose}\n` +
         `Tools: ${capNames || 'none'}\n` +
         `Can do: ${charter.canDo.slice(0, 3).join(', ')}\n` +
-        `Never do: ${charter.neverDo.slice(0, 2).join(', ')}\n\n` +
+        `Never do: ${charter.neverDo.slice(0, 2).join(', ')}` +
+        setupNote + `\n\n` +
         `Say **yes** to deploy, **edit** to customize, or **cancel**.`
       );
 

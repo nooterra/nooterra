@@ -49,14 +49,14 @@ export const ERROR_CODES = {
 const ERROR_MESSAGES = {
   [ERROR_CODES.PROVIDER_NOT_CONFIGURED]: {
     title: 'AI Provider Not Connected',
-    message: 'You need to connect an AI provider (like OpenAI or Anthropic) first.',
-    hint: 'Run /provider connect to set up your AI provider.',
+    message: 'You need to connect an AI provider first.',
+    hint: 'Run /auth to connect ChatGPT, OpenAI, Anthropic, or another provider.',
     recoverable: true
   },
   [ERROR_CODES.PROVIDER_AUTH_FAILED]: {
     title: 'Authentication Failed',
     message: 'Your API key was rejected by the provider.',
-    hint: 'Check that your API key is correct and has not expired.',
+    hint: 'Your key may have expired or been revoked. Run /auth to reconnect.',
     recoverable: true
   },
   [ERROR_CODES.PROVIDER_RATE_LIMITED]: {
@@ -104,9 +104,9 @@ const ERROR_MESSAGES = {
     recoverable: true
   },
   [ERROR_CODES.CAPABILITY_NOT_CONNECTED]: {
-    title: 'Capability Not Connected',
-    message: 'This capability needs to be connected first.',
-    hint: 'Use /capability connect <name> to set it up.',
+    title: 'Tool Not Connected',
+    message: 'This tool needs to be connected before the worker can use it.',
+    hint: 'Run /connect <tool> to set it up (e.g., /connect slack <token>).',
     recoverable: true
   },
   [ERROR_CODES.CAPABILITY_AUTH_FAILED]: {

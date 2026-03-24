@@ -160,7 +160,7 @@ export async function generateResponse(conversation, userInput = null) {
 function handleInitialInput(conversation, userInput) {
   const input = userInput.trim();
   
-  if (input.length < 10) {
+  if (input.length < 5) {
     return {
       message: "Tell me more! What do you want this worker to do? The more detail you give, the better I can help.",
       question: { type: "text", placeholder: "e.g., Monitor my inbox and forward urgent emails to Slack" },
@@ -195,7 +195,7 @@ function handleInitialInput(conversation, userInput) {
 
   // Proactive message that LEADS the user
   let message = `Here's what I'm thinking for this worker:\n\n`;
-  message += `Tools needed:\n${capList}\n\n`;
+  message += `This worker will use:\n${capList}\n\n`;
 
   if (suggestions) {
     message += `Other tools available: ${suggestions}\n\n`;
@@ -448,6 +448,20 @@ function getConfiguredProviderIds() {
   }
 }
 
+const PROVIDER_DISPLAY_NAMES = {
+  chatgpt: 'ChatGPT',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  openrouter: 'OpenRouter',
+  groq: 'Groq',
+  local: 'Ollama (local)',
+  google: 'Google Gemini'
+};
+
+function providerDisplayName(id) {
+  return PROVIDER_DISPLAY_NAMES[id] || id;
+}
+
 /**
  * Start provider selection
  */
@@ -461,7 +475,7 @@ function startProviderSelection(conversation) {
   }
 
   // If multiple, ask which one
-  const providerList = configuredProviders.map((id, i) => `  ${i + 1}. ${id}`).join('\n');
+  const providerList = configuredProviders.map((id, i) => `  ${i + 1}. ${providerDisplayName(id)}`).join('\n');
   return {
     message: `Which AI should this worker use?\n\n${providerList}\n\n(Type the number or name)`,
     question: { type: 'text', placeholder: 'e.g., 1 or chatgpt' },
@@ -491,7 +505,7 @@ function handleProviderSelection(conversation, userInput) {
   }
 
   // Not recognized — ask again
-  const providerList = configuredProviders.map((id, i) => `  ${i + 1}. ${id}`).join('\n');
+  const providerList = configuredProviders.map((id, i) => `  ${i + 1}. ${providerDisplayName(id)}`).join('\n');
   return {
     message: `I didn't recognize that. Pick one:\n\n${providerList}`,
     question: { type: 'text' },
@@ -515,7 +529,7 @@ function startDefiningRules(conversation) {
 
   // Ask about restrictions
   return {
-    message: "Almost there! Is there anything this worker should NEVER do?\n\n" +
+    message: "Is there anything this worker should NEVER do?\n\n" +
              "For example:\n" +
              "  • Never delete anything\n" +
              "  • Never contact specific people\n" +
@@ -542,8 +556,8 @@ function handleRulesInput(conversation, userInput) {
     }
   }
 
-  // Check if task involves money
-  if (/spend|buy|purchase|pay|cost|price|budget|money|\$/.test(conversation.context.taskDescription)) {
+  // Check if task involves spending money (not just monitoring prices)
+  if (/\bspend\b|\bbuy\b|\bpurchase\b|\bpay\b|\bbudget\b|\bmoney\b|\$\d/.test(conversation.context.taskDescription.toLowerCase())) {
     return {
       message: "This worker might spend money. What's the budget?\n\n" +
                "Examples:\n" +
@@ -555,8 +569,70 @@ function handleRulesInput(conversation, userInput) {
     };
   }
 
-  // Skip budget, go to notifications
-  return askAboutNotifications(conversation);
+  // Go to schedule confirmation
+  return askAboutSchedule(conversation);
+}
+
+/**
+ * Ask about schedule (confirm or change the inferred schedule)
+ */
+function askAboutSchedule(conversation) {
+  const schedule = conversation.context.schedule;
+  const display = formatSchedule(schedule);
+  return {
+    message: `Schedule: ${display} (inferred from your description). Change it? (keep / change)`,
+    question: { type: 'text', placeholder: 'keep or change' },
+    state: CONVERSATION_STATES.SETTING_SCHEDULE
+  };
+}
+
+/**
+ * Handle schedule input
+ */
+function handleScheduleInput(conversation, userInput) {
+  const input = userInput.trim().toLowerCase();
+
+  if (/keep|ok|fine|yes|good|looks good/.test(input)) {
+    return askAboutNotifications(conversation);
+  }
+
+  if (/change|new|different|set/.test(input)) {
+    return {
+      message: "What schedule should this worker use?\n\n" +
+               "Examples:\n" +
+               "  • Every 15m\n" +
+               "  • Every 1h\n" +
+               "  • Every day at 9am\n" +
+               "  • On demand",
+      question: { type: 'text', placeholder: 'e.g., every 1h' },
+      state: CONVERSATION_STATES.SETTING_SCHEDULE
+    };
+  }
+
+  // Try to parse as a schedule value directly
+  const parsed = inferSchedule(input) || inferSchedule('every ' + input);
+  if (parsed && parsed.type !== 'trigger') {
+    conversation.context.schedule = parsed;
+    return askAboutNotifications(conversation);
+  }
+
+  // If it looks like a raw interval/cron, store it
+  if (/\d+\s*(m|h|min|hr|hour|minute|day|week)/.test(input)) {
+    const valMatch = input.match(/(\d+\s*(?:m|h|min|hr|hour|minute|day|week)\w*)/);
+    conversation.context.schedule = { type: 'interval', value: valMatch ? valMatch[1] : input };
+    return askAboutNotifications(conversation);
+  }
+
+  if (/on demand|manual|trigger/.test(input)) {
+    conversation.context.schedule = { type: 'trigger', value: null };
+    return askAboutNotifications(conversation);
+  }
+
+  return {
+    message: "I didn't understand that schedule. Try something like 'every 1h', 'every day at 9am', or 'on demand'.",
+    question: { type: 'text' },
+    state: CONVERSATION_STATES.SETTING_SCHEDULE
+  };
 }
 
 /**
@@ -594,7 +670,7 @@ function handleBudgetInput(conversation, userInput) {
     };
   }
 
-  return askAboutNotifications(conversation);
+  return askAboutSchedule(conversation);
 }
 
 /**
@@ -708,6 +784,36 @@ function handleReviewInput(conversation, userInput) {
       question: { type: "text" },
       state: CONVERSATION_STATES.REVIEWING_CHARTER
     };
+  }
+
+  // Handle edit choice by number
+  const editNum = input.match(/^(\d)$/);
+  if (editNum) {
+    const choice = parseInt(editNum[1], 10);
+    switch (choice) {
+      case 1:
+        return {
+          message: "What capabilities should this worker have?",
+          question: { type: "text", placeholder: "e.g., email, slack, browser" },
+          state: CONVERSATION_STATES.CLARIFYING_TASK
+        };
+      case 2:
+        return startDefiningRules(conversation);
+      case 3:
+        return askAboutSchedule(conversation);
+      case 4:
+        return {
+          message: "What should the budget be?\n\nExamples:\n  • $100/month\n  • No budget",
+          question: { type: "text", placeholder: "e.g., $100/month" },
+          state: CONVERSATION_STATES.SETTING_BUDGET
+        };
+      case 5:
+        return {
+          message: "What should I call this worker?",
+          question: { type: "text", placeholder: "e.g., Price Monitor" },
+          state: CONVERSATION_STATES.NAMING_WORKER
+        };
+    }
   }
 
   if (/start over|reset|cancel/.test(input)) {
