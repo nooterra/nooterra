@@ -139,10 +139,11 @@ export function inferCharterRules(taskDescription, capabilities) {
     // Capability-specific inferences
     switch (cap.id) {
       case "browser":
-        rules.canDo.push("Browse specified websites");
+        rules.canDo.push("Browse websites and fetch web pages");
+        rules.canDo.push("Search the web for information");
         rules.canDo.push("Extract content from pages");
-        rules.askFirst.push("Fill forms or submit data");
-        rules.neverDo.push("Browse websites not in the allowed list");
+        rules.canDo.push("Use web_fetch and web_search tools freely");
+        rules.askFirst.push("Fill forms or submit data on websites");
         break;
 
       case "slack":
@@ -210,6 +211,11 @@ export function inferCharterRules(taskDescription, capabilities) {
         rules.askFirst.push("Modify inventory levels");
         rules.askFirst.push("Fulfill orders");
         rules.neverDo.push("Delete products");
+        break;
+
+      case "webSearch":
+        rules.canDo.push("Search the web for information");
+        rules.canDo.push("Use web_search tool freely");
         break;
     }
   }

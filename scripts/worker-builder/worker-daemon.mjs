@@ -103,6 +103,12 @@ function buildSystemPrompt(charter) {
 function classifyAction(toolName, toolArgs, charter) {
   const actionDesc = `${toolName} ${JSON.stringify(toolArgs)}`.toLowerCase();
 
+  // Built-in read-only tools are always safe — no approval needed
+  const SAFE_TOOLS = ['web_fetch', 'web_search', 'read_file', 'send_notification', '__save_memory'];
+  if (SAFE_TOOLS.includes(toolName)) {
+    return { verdict: 'canDo', rule: `built-in safe tool: ${toolName}` };
+  }
+
   // Check neverDo first — strictest
   for (const rule of charter.neverDo || []) {
     const keywords = rule.toLowerCase().split(/\s+/);
@@ -270,7 +276,35 @@ async function callProvider(provider, apiKey, model, systemPrompt, messages, too
 
 async function callChatGPTCodex(accessToken, model, systemPrompt, messages, tools, baseUrl) {
   // Codex Responses API uses instructions + input (not messages), requires stream: true, store: false
-  const input = messages.map(m => ({ role: m.role, content: m.content }));
+  // Format: user/assistant messages as {role, content}, tool results as {type: 'function_call_output', call_id, output}
+  // Assistant tool_calls become {type: 'function_call', name, arguments, call_id}
+  const input = [];
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      // Tool result → function_call_output
+      input.push({
+        type: 'function_call_output',
+        call_id: m.tool_call_id,
+        output: m.content || ''
+      });
+    } else if (m.role === 'assistant' && m.tool_calls?.length > 0) {
+      // Assistant with tool calls → emit function_call items
+      if (m.content) {
+        input.push({ role: 'assistant', content: m.content });
+      }
+      for (const tc of m.tool_calls) {
+        input.push({
+          type: 'function_call',
+          name: tc.function?.name || tc.name,
+          arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || tc.args || {}),
+          call_id: tc.id
+        });
+      }
+    } else {
+      // Regular user/assistant/system message
+      input.push({ role: m.role, content: m.content || '' });
+    }
+  }
   const body = {
     model: model || 'gpt-5.3-codex',
     instructions: systemPrompt,
@@ -683,21 +717,23 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
         }))
       });
     } else {
-      // OpenAI format
-      messages.push({
+      // OpenAI / Codex format
+      // IMPORTANT: content must be a string (not null) for Codex Responses API
+      const assistantMsg = {
         role: 'assistant',
-        content: aiResponse.content || null,
+        content: aiResponse.content || '',
         tool_calls: aiResponse.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
           function: { name: tc.name, arguments: JSON.stringify(tc.args) }
         }))
-      });
+      };
+      messages.push(assistantMsg);
       for (const tr of toolResults) {
         messages.push({
           role: 'tool',
           tool_call_id: tr.id,
-          content: tr.result
+          content: tr.result || ''
         });
       }
     }
