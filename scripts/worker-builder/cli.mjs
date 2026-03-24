@@ -25,7 +25,7 @@ import {
 import { buildCharterFromContext, generateCharterSummary } from './charter-compiler.mjs';
 import { TRIGGER_TYPES } from './trigger-engine.mjs';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const NOOTERRA_DIR = path.join(os.homedir(), '.nooterra');
 const RUNS_DIR = path.join(NOOTERRA_DIR, 'runs');
 
@@ -213,6 +213,13 @@ async function handleCommand(cmd, args, rl) {
     case '/auth': return runOnboarding(rl);
     case '/run': return runWorker(args);
     case '/stop': return stopWorker(args);
+    case '/dashboard': case '/dash': return showDashboard();
+    case '/logs': return showLogs(args);
+    case '/schedule': return showScheduleHelp(args);
+    case '/approvals': return showApprovals();
+    case '/cost': return showCost();
+    case '/health': return showHealth();
+    case '/delegate': return showDelegateHelp(args);
     case '/quit': case '/exit': case '/q':
       console.log(`\n  ${c.dim}Goodbye.${c.reset}\n`);
       process.exit(0);
@@ -225,12 +232,24 @@ function showHelp() {
   console.log(`
   ${c.bold}Commands${c.reset}
 
+  ${c.gold}Workers${c.reset}
   ${c.gold}/new${c.reset} [description]     Create a new worker
   ${c.gold}/workers${c.reset}               List all workers
-  ${c.gold}/run${c.reset} <name>            Run a worker now
+  ${c.gold}/run${c.reset} <name>            Run a worker (live progress)
   ${c.gold}/stop${c.reset} <name>           Stop a worker
-  ${c.gold}/status${c.reset}                System status
-  ${c.gold}/receipts${c.reset}              Recent receipts
+  ${c.gold}/delegate${c.reset}              Delegate between workers
+  ${c.gold}/schedule${c.reset}              Schedule recurring runs
+
+  ${c.gold}Monitoring${c.reset}
+  ${c.gold}/dashboard${c.reset}             Real-time system dashboard
+  ${c.gold}/status${c.reset}                Quick status overview
+  ${c.gold}/logs${c.reset} <name>           Execution logs for a worker
+  ${c.gold}/receipts${c.reset}              Recent execution receipts
+  ${c.gold}/approvals${c.reset}             Pending approval queue
+  ${c.gold}/cost${c.reset}                  Provider cost tracking
+  ${c.gold}/health${c.reset}                Provider health & circuit breakers
+
+  ${c.gold}Setup${c.reset}
   ${c.gold}/auth${c.reset}                  Change AI provider
   ${c.gold}/help${c.reset}                  Show this help
   ${c.gold}/quit${c.reset}                  Exit
@@ -381,6 +400,213 @@ function stopWorker(nameOrId) {
     return;
   }
   console.log(`\n  ${c.dim}Worker stopping is not yet implemented for local workers.${c.reset}\n`);
+}
+
+function showDashboard() {
+  const provider = getDefaultProvider();
+  const providerDef = provider ? PROVIDERS[provider] : null;
+  const workers = listWorkers();
+  const running = workers.filter(w => w.status === 'running').length;
+  const receipts = countReceipts();
+  const mem = process.memoryUsage();
+  const heapMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
+
+  console.log(`\n  ${c.bold}${c.gold}⬡  NOOTERRA DASHBOARD${c.reset}\n`);
+  console.log(hr());
+
+  // Provider
+  console.log(`\n  ${c.bold}PROVIDERS${c.reset}`);
+  if (providerDef) {
+    console.log(`    ${c.green}✓${c.reset} ${providerDef.name} (${providerDef.defaultModel}) ${c.dim}— primary${c.reset}`);
+  } else {
+    console.log(`    ${c.red}✗${c.reset} No provider connected`);
+  }
+
+  // Workers
+  console.log(`\n  ${c.bold}WORKERS${c.reset}`);
+  if (workers.length === 0) {
+    console.log(`    ${c.dim}No workers. Type /new to create one.${c.reset}`);
+  } else {
+    for (const w of workers.slice(0, 8)) {
+      const status = w.status === 'running' ? `${c.green}● running${c.reset}` :
+                     w.status === 'error' ? `${c.red}✗ error${c.reset}` :
+                     `${c.dim}○ idle${c.reset}`;
+      const runs = w.stats?.totalRuns || 0;
+      console.log(`    ${status}  ${w.charter?.name || w.id}  ${c.dim}${runs} runs${c.reset}`);
+    }
+  }
+
+  // System
+  console.log(`\n  ${c.bold}SYSTEM${c.reset}`);
+  console.log(`    Workers: ${workers.length} total${running > 0 ? `, ${running} running` : ''}`);
+  console.log(`    Receipts: ${receipts}`);
+  console.log(`    Heap: ${heapMB}MB`);
+  console.log(`    Node: ${process.version}`);
+  console.log('');
+}
+
+function showLogs(nameOrId) {
+  if (!nameOrId?.trim()) {
+    console.log(`\n  ${c.dim}Usage: /logs <worker name>${c.reset}\n`);
+    return;
+  }
+  const workers = listWorkers();
+  const match = workers.find(w =>
+    (w.charter?.name || '').toLowerCase().includes(nameOrId.trim().toLowerCase()) || w.id === nameOrId.trim()
+  );
+  if (!match) {
+    console.log(`\n  ${c.red}✗${c.reset} Worker "${nameOrId.trim()}" not found.\n`);
+    return;
+  }
+  try {
+    const runsDir = path.join(os.homedir(), '.nooterra', 'runs');
+    const files = fs.readdirSync(runsDir).filter(f => f.endsWith('.json'));
+    const receipts = files.map(f => {
+      try { return JSON.parse(fs.readFileSync(path.join(runsDir, f), 'utf8')); } catch { return null; }
+    }).filter(r => r && r.workerId === match.id)
+      .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))
+      .slice(0, 15);
+
+    console.log(`\n  ${c.bold}Logs: ${match.charter?.name}${c.reset} (${receipts.length} runs)\n`);
+    if (receipts.length === 0) {
+      console.log(`  ${c.dim}No runs yet. Use /run ${match.charter?.name}${c.reset}\n`);
+      return;
+    }
+    for (const r of receipts) {
+      const ok = r.success ? `${c.green}✓${c.reset}` : `${c.red}✗${c.reset}`;
+      const time = r.completedAt ? new Date(r.completedAt).toLocaleString() : '';
+      const dur = r.duration ? `${r.duration}ms` : '';
+      const tools = r.toolCallCount || 0;
+      console.log(`    ${ok} ${time}  ${c.dim}${dur}  ${tools} tools${c.reset}`);
+    }
+    console.log('');
+  } catch {
+    console.log(`\n  ${c.dim}No logs found.${c.reset}\n`);
+  }
+}
+
+function showScheduleHelp(args) {
+  if (!args?.trim() || args.trim() === 'list') {
+    try {
+      const schedFile = path.join(os.homedir(), '.nooterra', 'schedules.json');
+      if (fs.existsSync(schedFile)) {
+        const data = JSON.parse(fs.readFileSync(schedFile, 'utf8'));
+        const schedules = data.schedules || [];
+        if (schedules.length > 0) {
+          console.log(`\n  ${c.bold}Schedules${c.reset}\n`);
+          for (const s of schedules) {
+            const icon = s.paused ? `${c.gold}⏸${c.reset}` : `${c.green}●${c.reset}`;
+            console.log(`    ${icon} ${s.workerName || s.workerId} — ${c.gold}${s.cron}${c.reset}${s.paused ? ` ${c.dim}(paused)${c.reset}` : ''}`);
+          }
+          console.log('');
+          return;
+        }
+      }
+    } catch {}
+    console.log(`\n  ${c.dim}No schedules. Workers with triggers auto-run via the daemon.${c.reset}\n`);
+    return;
+  }
+  console.log(`
+  ${c.bold}Schedule${c.reset}
+
+  ${c.gold}/schedule list${c.reset}                       List all schedules
+  ${c.gold}/schedule <worker> every 5m${c.reset}          Every 5 minutes
+  ${c.gold}/schedule <worker> daily 9am${c.reset}         Daily at 9 AM
+  ${c.gold}/schedule <worker> weekdays 9am${c.reset}      Weekdays at 9 AM
+  ${c.gold}/schedule pause <id>${c.reset}                 Pause a schedule
+  ${c.gold}/schedule delete <id>${c.reset}                Delete a schedule
+`);
+}
+
+function showApprovals() {
+  try {
+    const appDir = path.join(os.homedir(), '.nooterra', 'approvals');
+    if (!fs.existsSync(appDir)) {
+      console.log(`\n  ${c.dim}No pending approvals.${c.reset}\n`);
+      return;
+    }
+    const files = fs.readdirSync(appDir).filter(f => f.endsWith('.json'));
+    const pending = files.map(f => {
+      try { return JSON.parse(fs.readFileSync(path.join(appDir, f), 'utf8')); } catch { return null; }
+    }).filter(a => a && a.status === 'pending');
+
+    if (pending.length === 0) {
+      console.log(`\n  ${c.dim}No pending approvals.${c.reset}\n`);
+      return;
+    }
+
+    console.log(`\n  ${c.bold}Pending Approvals${c.reset} (${pending.length})\n`);
+    for (const a of pending) {
+      const age = a.requestedAt
+        ? `${Math.round((Date.now() - new Date(a.requestedAt).getTime()) / 60000)}m ago`
+        : '';
+      console.log(`    ${c.gold}⚡${c.reset} ${a.workerName || 'Worker'}: ${(a.description || a.action || '').slice(0, 50)}`);
+      console.log(`      ${c.dim}${age} — /approve ${a.id} or /deny ${a.id}${c.reset}`);
+    }
+    console.log('');
+  } catch {
+    console.log(`\n  ${c.dim}No pending approvals.${c.reset}\n`);
+  }
+}
+
+function showCost() {
+  try {
+    const healthFile = path.join(os.homedir(), '.nooterra', 'provider-health.json');
+    if (fs.existsSync(healthFile)) {
+      const health = JSON.parse(fs.readFileSync(healthFile, 'utf8'));
+      console.log(`\n  ${c.bold}Cost Summary${c.reset}\n`);
+      for (const [pid, data] of Object.entries(health)) {
+        const name = PROVIDERS[pid]?.name || pid;
+        const cost = data.totalCost ? `$${data.totalCost.toFixed(4)}` : '$0.00';
+        const calls = data.totalCalls || 0;
+        console.log(`    ${name}: ${c.gold}${cost}${c.reset} (${calls} calls)`);
+      }
+      console.log('');
+      return;
+    }
+  } catch {}
+  console.log(`\n  ${c.dim}No cost data yet. Run some workers first.${c.reset}\n`);
+}
+
+function showHealth() {
+  try {
+    const healthFile = path.join(os.homedir(), '.nooterra', 'provider-health.json');
+    if (fs.existsSync(healthFile)) {
+      const health = JSON.parse(fs.readFileSync(healthFile, 'utf8'));
+      console.log(`\n  ${c.bold}Provider Health${c.reset}\n`);
+      for (const [pid, data] of Object.entries(health)) {
+        const name = PROVIDERS[pid]?.name || pid;
+        const cb = data.circuitBreaker || 'CLOSED';
+        const icon = cb === 'CLOSED' ? `${c.green}✓${c.reset}` : cb === 'OPEN' ? `${c.red}✗${c.reset}` : `${c.gold}⚡${c.reset}`;
+        const label = cb === 'CLOSED' ? 'healthy' : cb === 'OPEN' ? 'down' : 'testing';
+        const latency = data.p95Latency ? `p95: ${data.p95Latency}ms` : '';
+        console.log(`    ${icon} ${name}: ${label} ${c.dim}${latency}${c.reset}`);
+      }
+      console.log('');
+      return;
+    }
+  } catch {}
+  console.log(`\n  ${c.dim}No health data yet. Run some workers first.${c.reset}\n`);
+}
+
+function showDelegateHelp(args) {
+  console.log(`
+  ${c.bold}Worker Delegation${c.reset}
+
+  Delegate tasks from one worker to another during execution.
+  Workers can call __delegate_to_worker as a tool.
+
+  ${c.gold}/delegate <from> to <to> "<task>"${c.reset}
+
+  Example:
+    /delegate "sales lead" to "Price Monitor" "check competitor pricing"
+
+  Features:
+    ${c.dim}•${c.reset} Transitive trust with attenuation (delegations inherit constraints)
+    ${c.dim}•${c.reset} Max depth of 3 to prevent infinite loops
+    ${c.dim}•${c.reset} Full audit trail of all delegations
+    ${c.dim}•${c.reset} Results flow back to parent worker
+`);
 }
 
 // ── Natural Language Detection ──────────────────────────────────────────────

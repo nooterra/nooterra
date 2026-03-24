@@ -17,6 +17,18 @@ Getting started:
   nooterra workers          List all workers
 
 Workers:
+  nooterra run <name>       Run a worker now (with live progress)
+  nooterra test <name>      Dry-run a worker
+  nooterra logs <name>      View execution logs
+  nooterra schedule         Manage recurring runs
+
+Monitoring:
+  nooterra dashboard        Real-time system dashboard
+  nooterra approvals        Pending approval queue
+  nooterra cost             Provider cost tracking
+  nooterra health           Provider health & circuit breakers
+
+Daemon:
   nooterra runtime daemon start    Start the worker daemon
   nooterra runtime daemon status   Check daemon status
   nooterra runtime daemon stop     Stop the daemon
@@ -145,6 +157,27 @@ function main() {
   if (cmd === "logs") {
     const workerName = argv.slice(1).join(' ');
     return runNodeScript("scripts/worker-builder/worker-logs.mjs", [workerName]);
+  }
+
+  if (cmd === "dashboard" || cmd === "dash") {
+    return runNodeScript("scripts/worker-builder/tui.mjs", ["--dashboard"]);
+  }
+
+  if (cmd === "schedule") {
+    const sub = argv[1] ? String(argv[1]) : "list";
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--schedule", sub, ...argv.slice(2)]);
+  }
+
+  if (cmd === "approvals") {
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--approvals"]);
+  }
+
+  if (cmd === "cost") {
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--cost"]);
+  }
+
+  if (cmd === "health") {
+    return runNodeScript("scripts/worker-builder/cli.mjs", ["--health"]);
   }
 
   // --- Setup & auth ---

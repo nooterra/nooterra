@@ -1078,6 +1078,27 @@ export async function stopDaemon() {
   await daemon.stop();
 }
 
+/**
+ * Streaming execution wrapper.
+ *
+ * Drop-in enhancement alongside `runWorkerExecution`. Returns a streaming
+ * executor with real-time token events, stall detection, circuit breaking,
+ * heartbeats, cancellation, and detailed receipts.
+ *
+ * Usage:
+ *   const executor = await executeWorkerStreaming(worker, mcpManager, notificationBus, apiKey);
+ *   executor.on('execution:token', ({ token }) => process.stdout.write(token));
+ *   const receipt = await executor.start();
+ */
+export async function executeWorkerStreaming(worker, mcpManager, notificationBus, apiKey) {
+  const { createStreamingExecutor } = await import('./streaming-executor.mjs');
+  return createStreamingExecutor(worker, {
+    mcpManager,
+    notificationBus,
+    apiKey
+  });
+}
+
 // Export execution internals for testing
 export {
   buildSystemPrompt,
@@ -1097,7 +1118,8 @@ export default {
   stopDaemon,
   buildSystemPrompt,
   classifyAction,
-  runWorkerExecution
+  runWorkerExecution,
+  executeWorkerStreaming
 };
 
 // CLI entry point

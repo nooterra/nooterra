@@ -14,6 +14,8 @@ import WelcomeBox from './WelcomeBox.mjs';
 import CommandPalette, { COMMANDS } from './CommandPalette.mjs';
 import { renderMessage } from './Messages.mjs';
 import WorkersScreen from './WorkersScreen.mjs';
+import DashboardScreen from './DashboardScreen.mjs';
+import ExecutionView from './ExecutionView.mjs';
 
 import { createConversation, processInput, CONVERSATION_STATES } from '../worker-builder-core.mjs';
 import { createWorker, listWorkers, WORKER_STATUS } from '../worker-persistence.mjs';
@@ -499,6 +501,134 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
         }
         return;
       }
+      case '/dashboard': case '/dash': setView('dashboard'); return;
+      case '/schedule': {
+        if (!args) {
+          addMessage('system', [
+            'Schedule recurring worker runs:',
+            '',
+            '  /schedule <worker> every 5m       Every 5 minutes',
+            '  /schedule <worker> every 2h       Every 2 hours',
+            '  /schedule <worker> daily 9am      Daily at 9 AM',
+            '  /schedule <worker> weekdays 9am   Weekdays at 9 AM',
+            '  /schedule list                    List all schedules',
+            '  /schedule pause <id>              Pause a schedule',
+            '  /schedule delete <id>             Delete a schedule',
+          ].join('\n'));
+          return;
+        }
+        if (args === 'list') {
+          try {
+            const { createScheduler } = await import('../worker-scheduler.mjs');
+            const sched = createScheduler();
+            const all = sched.list();
+            if (all.length === 0) { addMessage('system', 'No schedules.'); return; }
+            const lines = all.map(s =>
+              `  ${s.paused ? icons.warning : icons.success} ${s.workerName || s.workerId} — ${s.cron}${s.paused ? ' (paused)' : ''}`
+            );
+            addMessage('system', `Schedules:\n${lines.join('\n')}`);
+          } catch { addMessage('system', 'Scheduler not available yet.'); }
+          return;
+        }
+        addMessage('system', 'Scheduler integration coming soon. Workers with schedules auto-run via the daemon.');
+        return;
+      }
+      case '/approvals': case '/approve': case '/deny': {
+        try {
+          const { createApprovalEngine } = await import('../approval-engine.mjs');
+          const engine = createApprovalEngine();
+          if (cmd === '/approve' && args) {
+            engine.respond(args, 'approved', 'tui-user');
+            addMessage('success', `Approved: ${args}`);
+            return;
+          }
+          if (cmd === '/deny' && args) {
+            engine.respond(args, 'denied', 'tui-user');
+            addMessage('success', `Denied: ${args}`);
+            return;
+          }
+          const pending = engine.getPending();
+          if (pending.length === 0) {
+            addMessage('system', 'No pending approvals.');
+          } else {
+            const lines = pending.map(a =>
+              `  ${icons.warning} ${a.workerName || 'Worker'}: ${(a.description || a.action || '').slice(0, 50)}\n    /approve ${a.id}  or  /deny ${a.id}`
+            );
+            addMessage('system', `Pending approvals:\n${lines.join('\n\n')}`);
+          }
+        } catch { addMessage('system', 'Approval engine not available yet.'); }
+        return;
+      }
+      case '/cost': {
+        try {
+          const { createProviderRouter } = await import('../provider-fallback.mjs');
+          const router = createProviderRouter();
+          const summary = router.getCostSummary();
+          const lines = Object.entries(summary).map(([p, data]) =>
+            `  ${PROVIDERS[p]?.name || p}: $${(data.totalCost || 0).toFixed(4)} (${data.calls || 0} calls)`
+          );
+          addMessage('system', lines.length > 0 ? `Cost summary:\n${lines.join('\n')}` : 'No cost data yet.');
+        } catch { addMessage('system', 'Cost tracking not available yet. Run some workers first.'); }
+        return;
+      }
+      case '/health': {
+        try {
+          const { createProviderRouter } = await import('../provider-fallback.mjs');
+          const router = createProviderRouter();
+          const status = router.getStatus();
+          const lines = Object.entries(status).map(([p, data]) => {
+            const cb = data.circuitBreaker || 'CLOSED';
+            const latency = data.p95Latency ? `${data.p95Latency}ms` : '-';
+            const icon = cb === 'CLOSED' ? icons.success : cb === 'OPEN' ? icons.failure : icons.warning;
+            return `  ${icon} ${PROVIDERS[p]?.name || p}: ${cb} (p95: ${latency}, ${data.successRate || 100}% success)`;
+          });
+          addMessage('system', lines.length > 0 ? `Provider health:\n${lines.join('\n')}` : 'No health data yet.');
+        } catch { addMessage('system', 'Provider health tracking not available yet.'); }
+        return;
+      }
+      case '/logs': {
+        if (!args) { addMessage('system', 'Usage: /logs <worker name>'); return; }
+        const workers = listWorkers();
+        const match = workers.find(w =>
+          (w.charter?.name || '').toLowerCase().includes(args.toLowerCase()) || w.id === args
+        );
+        if (!match) { addMessage('error', `Worker "${args}" not found.`); return; }
+        try {
+          const runsDir = path.join(os.homedir(), '.nooterra', 'runs');
+          const files = fs.readdirSync(runsDir).filter(f => f.endsWith('.json'));
+          const receipts = files.map(f => {
+            try { return JSON.parse(fs.readFileSync(path.join(runsDir, f), 'utf8')); } catch { return null; }
+          }).filter(r => r && r.workerId === match.id).sort((a, b) =>
+            (b.completedAt || '').localeCompare(a.completedAt || '')
+          ).slice(0, 10);
+          if (receipts.length === 0) {
+            addMessage('system', `No logs for ${match.charter?.name}. Run it first with /run ${match.charter?.name}`);
+          } else {
+            const lines = receipts.map(r => {
+              const ok = r.success ? icons.success : icons.failure;
+              const time = r.completedAt ? new Date(r.completedAt).toLocaleString() : '';
+              return `  ${ok} ${time} — ${r.duration || 0}ms, ${r.toolCallCount || 0} tools`;
+            });
+            addMessage('system', `Logs for ${match.charter?.name} (${receipts.length} runs):\n${lines.join('\n')}`);
+          }
+        } catch (err) { addMessage('error', `Failed to load logs: ${err.message}`); }
+        return;
+      }
+      case '/delegate': {
+        if (!args) {
+          addMessage('system', [
+            'Delegate a task from one worker to another:',
+            '',
+            '  /delegate <from-worker> to <to-worker> "<task>"',
+            '',
+            'Example:',
+            '  /delegate "sales lead" to "Price Monitor" "check competitor pricing"',
+          ].join('\n'));
+          return;
+        }
+        addMessage('system', 'Delegation engine integration coming soon. Workers can delegate via the __delegate_to_worker tool during execution.');
+        return;
+      }
       case '/clear': setMessages([]); return;
       case '/quit': case '/exit': case '/q': exit(); return;
       default: addMessage('system', `Unknown: ${cmd}. Type /help.`);
@@ -572,11 +702,13 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
             onBack: () => setView('chat'),
             onSelect: (w) => { setView('chat'); handleRunWorker(w.charter?.name || w.id); }
           })
-        : view === 'help'
-          ? React.createElement(HelpScreen, { onBack: () => setView('chat') })
-          : view === 'receipts'
-            ? React.createElement(ReceiptsScreen, { onBack: () => setView('chat') })
-            : React.createElement(Box, { flexDirection: 'column' },
+        : view === 'dashboard'
+          ? React.createElement(DashboardScreen, { onBack: () => setView('chat') })
+          : view === 'help'
+            ? React.createElement(HelpScreen, { onBack: () => setView('chat') })
+            : view === 'receipts'
+              ? React.createElement(ReceiptsScreen, { onBack: () => setView('chat') })
+              : React.createElement(Box, { flexDirection: 'column' },
                 // Messages
                 ...messages.slice(-maxMessages).map(msg => renderMessage(msg)),
                 // Loading
