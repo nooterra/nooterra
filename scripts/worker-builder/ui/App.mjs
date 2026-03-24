@@ -715,7 +715,7 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
     // Detect intent: worker creation request → instant mode, or general chat
     if (looksLikeWorkerRequest(trimmed)) {
       // Instant mode: infer everything from one sentence
-      const context = instantCreate(trimmed);
+      const context = await instantCreate(trimmed);
       const charter = buildCharterFromContext(context);
       const prov = getDefaultProvider() || 'chatgpt';
       const pd = PROVIDERS[prov] || PROVIDERS.openai;

@@ -161,7 +161,7 @@ const BUILT_IN_TOOLS = {
   // =========================================================================
   web_search: {
     name: 'web_search',
-    description: 'Search the web using DuckDuckGo. Returns top results with title, URL, and snippet.',
+    description: 'Search the web. Uses Brave Search API (if key available), DuckDuckGo, or Google as fallback. Returns top results with title, URL, and snippet.',
     parameters: {
       type: 'object',
       properties: {
@@ -175,63 +175,191 @@ const BUILT_IN_TOOLS = {
       const { query, num_results = 8 } = args;
       if (!query) throw new Error('query is required');
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30_000);
+      const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      const errors = [];
 
-      try {
-        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'User-Agent': 'Nooterra-Worker/1.0 (https://nooterra.com)',
-            'Accept': 'text/html',
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: `q=${encodeURIComponent(query)}`,
-          redirect: 'follow',
-          signal: controller.signal
-        });
+      // -----------------------------------------------------------------
+      // Strategy 1: Brave Search API (most reliable, needs key)
+      // -----------------------------------------------------------------
+      async function searchBrave() {
+        const braveKey = readCredential('brave-search-token.txt') || process.env.BRAVE_API_KEY;
+        if (!braveKey) return null; // no key, skip silently
 
-        const html = await response.text();
-        const results = [];
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        try {
+          const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${num_results}`;
+          const response = await fetch(url, {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Encoding': 'gzip',
+              'X-Subscription-Token': braveKey
+            },
+            signal: controller.signal
+          });
 
-        // Parse DuckDuckGo HTML results
-        // Results live in <div class="result ..."> blocks
-        const resultBlocks = html.split(/class="result\s/);
-
-        for (let i = 1; i < resultBlocks.length && results.length < num_results; i++) {
-          const block = resultBlocks[i];
-
-          // Title + URL from result__a
-          const titleMatch = block.match(/class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/);
-          if (!titleMatch) continue;
-
-          let resultUrl = titleMatch[1];
-          const title = stripHtml(titleMatch[2]).trim();
-
-          // DuckDuckGo wraps URLs in a redirect — extract the real URL
-          const uddgMatch = resultUrl.match(/uddg=([^&]+)/);
-          if (uddgMatch) {
-            resultUrl = decodeURIComponent(uddgMatch[1]);
+          if (!response.ok) {
+            throw new Error(`Brave API ${response.status}: ${await response.text()}`);
           }
 
-          // Snippet from result__snippet
-          const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|span|td)/);
-          const snippet = snippetMatch ? stripHtml(snippetMatch[1]).trim() : '';
+          const data = await response.json();
+          const webResults = data.web?.results || [];
+          return webResults.slice(0, num_results).map(r => ({
+            title: r.title || '',
+            url: r.url || '',
+            snippet: r.description || ''
+          }));
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
 
-          if (title && resultUrl) {
+      // -----------------------------------------------------------------
+      // Strategy 2: DuckDuckGo HTML scrape (free, no key)
+      // -----------------------------------------------------------------
+      async function searchDuckDuckGo() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        try {
+          // Use lite.duckduckgo.com — simpler HTML, less likely to CAPTCHA
+          const url = `https://lite.duckduckgo.com/lite/`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'User-Agent': BROWSER_UA,
+              'Accept': 'text/html',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `q=${encodeURIComponent(query)}`,
+            redirect: 'follow',
+            signal: controller.signal
+          });
+
+          const html = await response.text();
+          const results = [];
+
+          // Lite version: extract all external https links with their text
+          const linkMatches = [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
+
+          for (const match of linkMatches) {
+            if (results.length >= num_results) break;
+            const resultUrl = match[1];
+            const title = stripHtml(match[2]).trim();
+
+            // Skip DuckDuckGo internal links and empty titles
+            if (!title || title.length < 3) continue;
+            if (resultUrl.includes('duckduckgo.com')) continue;
+            if (resultUrl.includes('duck.co')) continue;
+
+            // Try to get a snippet — look for text after this link
+            const afterLink = html.slice(html.indexOf(match[0]) + match[0].length, html.indexOf(match[0]) + match[0].length + 500);
+            const snippetMatch = afterLink.match(/<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/);
+            const snippet = snippetMatch ? stripHtml(snippetMatch[1]).trim() : '';
+
             results.push({ title, url: resultUrl, snippet });
           }
-        }
 
-        if (results.length === 0) {
-          return JSON.stringify({ query, results: [], note: 'No results found. Try a different query.' });
+          return results.length > 0 ? results : null;
+        } finally {
+          clearTimeout(timeout);
         }
-
-        return JSON.stringify({ query, results }, null, 2);
-      } finally {
-        clearTimeout(timeout);
       }
+
+      // -----------------------------------------------------------------
+      // Strategy 3: Google HTML scrape (fallback)
+      // -----------------------------------------------------------------
+      async function searchGoogle() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        try {
+          const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${num_results}&hl=en`;
+          const response = await fetch(url, {
+            headers: {
+              'User-Agent': BROWSER_UA,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': 'https://www.google.com/'
+            },
+            redirect: 'follow',
+            signal: controller.signal
+          });
+
+          const html = await response.text();
+          const results = [];
+
+          // Google results are in <div class="g"> blocks
+          // Each contains an <a href="URL"> and <h3> for the title
+          const gBlocks = html.split(/<div class="g"/);
+
+          for (let i = 1; i < gBlocks.length && results.length < num_results; i++) {
+            const block = gBlocks[i];
+
+            // Extract the first <a href="..."> that points to an external URL
+            const linkMatch = block.match(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>/);
+            if (!linkMatch) continue;
+            const resultUrl = linkMatch[1];
+
+            // Skip Google's own links
+            if (resultUrl.includes('google.com/search') || resultUrl.includes('accounts.google.com')) continue;
+
+            // Extract title from <h3>
+            const h3Match = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
+            const title = h3Match ? stripHtml(h3Match[1]).trim() : '';
+
+            // Extract snippet — Google uses various containers, look for common patterns
+            let snippet = '';
+            // Try data-sncf attribute spans (common in modern Google)
+            const snipMatch = block.match(/<span[^>]*class="[^"]*"[^>]*>([\s\S]*?)<\/span>\s*<\/div>\s*<\/div>/);
+            if (snipMatch) {
+              snippet = stripHtml(snipMatch[1]).trim();
+            }
+            // Fallback: grab text after the URL display line
+            if (!snippet) {
+              const emMatch = block.match(/<em>([\s\S]*?)<\/em>/);
+              if (emMatch) snippet = stripHtml(emMatch[1]).trim();
+            }
+
+            if (title && resultUrl) {
+              results.push({ title, url: resultUrl, snippet });
+            }
+          }
+
+          return results.length > 0 ? results : null;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // Execute the search chain: Brave -> DuckDuckGo -> Google
+      // -----------------------------------------------------------------
+      const strategies = [
+        { name: 'Brave Search API', fn: searchBrave },
+        { name: 'DuckDuckGo', fn: searchDuckDuckGo },
+        { name: 'Google', fn: searchGoogle }
+      ];
+
+      for (const strategy of strategies) {
+        try {
+          const results = await strategy.fn();
+          if (results && results.length > 0) {
+            return JSON.stringify({ query, source: strategy.name, results }, null, 2);
+          }
+          // null or empty means this strategy had no results, try next
+        } catch (err) {
+          errors.push(`${strategy.name}: ${err.message}`);
+        }
+      }
+
+      // All strategies failed or returned empty
+      return JSON.stringify({
+        query,
+        results: [],
+        error: 'All search engines failed or returned no results.',
+        details: errors.length > 0 ? errors : ['DuckDuckGo and Google returned 0 results. Try a more specific query.'],
+        hint: 'For reliable results, add a Brave Search API key: save it to ~/.nooterra/credentials/brave-search-token.txt or set BRAVE_API_KEY env. Free tier at https://brave.com/search/api/'
+      }, null, 2);
     }
   },
 

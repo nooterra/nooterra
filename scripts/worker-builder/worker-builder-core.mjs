@@ -895,7 +895,7 @@ function calculateProgress(conversation) {
  *
  * Returns a complete conversation context ready for buildCharterFromContext().
  */
-export function instantCreate(description) {
+export async function instantCreate(description) {
   const context = {
     taskDescription: description,
     capabilities: [],
@@ -923,14 +923,30 @@ export function instantCreate(description) {
   // Infer schedule
   context.schedule = inferSchedule(description);
 
-  // Infer rules
-  const rules = inferCharterRules(description, context.capabilities);
-  context.canDo = rules.canDo;
-  context.askFirst = rules.askFirst;
-  context.neverDo = rules.neverDo;
+  // Check if this matches a guided setup profile (better rules for known worker types)
+  let profileUsed = null;
+  try {
+    const { detectWorkerType, WORKER_PROFILES } = await import('./guided-setup.mjs');
+    const workerType = detectWorkerType(description);
+    if (workerType && WORKER_PROFILES[workerType]) {
+      const profile = WORKER_PROFILES[workerType];
+      profileUsed = workerType;
+      context.canDo = profile.charter_overrides.canDo;
+      context.askFirst = profile.charter_overrides.askFirst;
+      context.neverDo = profile.charter_overrides.neverDo;
+      // Use profile name if it's better
+      context.workerName = profile.name;
+    }
+  } catch {}
 
-  // Generate a name from the description
-  context.workerName = generateWorkerName(description);
+  // Fallback: infer rules from description if no profile matched
+  if (!profileUsed) {
+    const rules = inferCharterRules(description, context.capabilities);
+    context.canDo = rules.canDo;
+    context.askFirst = rules.askFirst;
+    context.neverDo = rules.neverDo;
+    context.workerName = generateWorkerName(description);
+  }
 
   return context;
 }

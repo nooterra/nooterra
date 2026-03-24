@@ -224,7 +224,7 @@ const TOOLS = [
 async function handleCreateWorker({ description }) {
   if (!description) throw new Error('description is required');
 
-  const context = instantCreate(description);
+  const context = await instantCreate(description);
   const charter = buildCharterFromContext(context);
   const worker = createWorker(charter, {
     provider: null,

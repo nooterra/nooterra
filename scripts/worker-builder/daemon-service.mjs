@@ -567,6 +567,76 @@ export function uninstallService() {
 }
 
 // ---------------------------------------------------------------------------
+// Schedule Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert an interval string like "1h", "30m", "5s", "1d" to a cron expression.
+ * Falls back to every-hour if unrecognized.
+ */
+function intervalToCron(value) {
+  const match = value.match(/^(\d+)(s|m|h|d)$/);
+  if (!match) return '0 * * * *'; // fallback: every hour
+
+  const num = parseInt(match[1], 10);
+  const unit = match[2];
+
+  switch (unit) {
+    case 'm': {
+      // "every N minutes"
+      if (num <= 0 || num > 59) return '0 * * * *';
+      return `*/${num} * * * *`;
+    }
+    case 'h': {
+      // "every N hours"
+      if (num <= 0 || num > 23) return '0 0 * * *';
+      return `0 */${num} * * *`;
+    }
+    case 'd': {
+      // "every N days" — run at midnight
+      if (num === 1) return '0 0 * * *';
+      // cron can't do "every N days" natively; approximate with day-of-month step
+      return `0 0 */${num} * *`;
+    }
+    case 's': {
+      // Cron can't go below 1 minute; clamp to every minute
+      return '* * * * *';
+    }
+    default:
+      return '0 * * * *';
+  }
+}
+
+/**
+ * Extract a cron expression from a worker trigger.
+ * Handles { type: 'interval', value: '1h' } and { type: 'cron', value: '0 9 * * *' }.
+ */
+function triggerToCron(schedule) {
+  if (!schedule) return null;
+  if (schedule.type === 'cron') return schedule.value;
+  if (schedule.type === 'interval') return intervalToCron(schedule.value);
+  return null;
+}
+
+/**
+ * Collect all schedule triggers from a worker.
+ * Returns array of { trigger, cronExpr }.
+ */
+function getWorkerSchedules(worker) {
+  const results = [];
+  if (!worker.triggers || !Array.isArray(worker.triggers)) return results;
+
+  for (const trigger of worker.triggers) {
+    if (trigger.type !== 'schedule') continue;
+    const schedule = trigger.config?.schedule;
+    if (!schedule) continue;
+    const cronExpr = triggerToCron(schedule);
+    if (cronExpr) results.push({ trigger, cronExpr });
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Daemon Child Entry Point
 // ---------------------------------------------------------------------------
 
@@ -579,38 +649,183 @@ export async function runDaemonChild() {
   log(`Daemon child started, PID ${process.pid}`);
 
   await runWithAutoRestart(async ({ onWorkerCountChange }) => {
-    // Dynamic import to avoid circular deps at module load time
-    const { WorkerDaemon } = await import('./worker-daemon.mjs');
+    // Dynamic imports to avoid circular deps at module load time
+    const { runWorkerExecution } = await import('./worker-daemon.mjs');
+    const { createScheduler } = await import('./worker-scheduler.mjs');
+    const { listWorkers, loadWorker, recordWorkerRun } = await import('./worker-persistence.mjs');
+    const { createNotifier, NOTIFICATION_EVENTS } = await import('./notification-delivery.mjs');
+    const { loadCredentials } = await import('./provider-auth.mjs');
+    const { getConnectionManager } = await import('./mcp-integration.mjs');
+    const { getNotificationBus } = await import('./notification-bus.mjs');
 
-    const daemon = new WorkerDaemon();
+    const notifier = createNotifier();
+    const mcpManager = getConnectionManager();
+    const notificationBus = getNotificationBus();
 
-    // Track worker count for heartbeat
-    const origStart = daemon.startWorker?.bind(daemon);
-    const origStop = daemon.stopWorker?.bind(daemon);
-    let workerCount = 0;
+    // Track which workers have registered schedules: scheduleId -> workerId
+    const registeredSchedules = new Map();
+    // Track known worker IDs to detect new ones
+    const knownWorkerIds = new Set();
 
-    if (origStart) {
-      daemon.startWorker = async (...args) => {
-        const result = await origStart(...args);
-        workerCount++;
-        onWorkerCountChange(workerCount);
-        return result;
-      };
+    // ── Executor: called by the scheduler when a schedule fires ──────────
+
+    async function executeScheduledWorker(workerId, _task) {
+      const worker = loadWorker(workerId);
+      if (!worker) {
+        log(`[scheduler] Worker ${workerId} not found on disk, skipping execution`);
+        return;
+      }
+
+      if (worker.status === 'paused' || worker.status === 'archived') {
+        log(`[scheduler] Worker ${worker.charter?.name || workerId} is ${worker.status}, skipping`);
+        return;
+      }
+
+      log(`[scheduler] Executing worker: ${worker.charter?.name || workerId}`);
+
+      // Resolve API key for this worker's provider
+      const provider = worker.provider || 'openai';
+      let apiKey;
+      try {
+        apiKey = loadCredentials(provider);
+      } catch (err) {
+        log(`[scheduler] No API key for provider "${provider}": ${err.message}`);
+        await notifier.send({
+          event: NOTIFICATION_EVENTS.WORKER_ERROR,
+          worker: worker.charter?.name || workerId,
+          title: 'Scheduled run failed — no API key',
+          message: `Provider "${provider}" has no configured API key. Run "nooterra auth" to set one up.`,
+          urgency: 'high',
+        });
+        return;
+      }
+
+      let result;
+      try {
+        result = await runWorkerExecution(worker, mcpManager, notificationBus, apiKey);
+      } catch (err) {
+        log(`[scheduler] Worker ${workerId} execution crashed: ${err.message}`);
+        await notifier.send({
+          event: NOTIFICATION_EVENTS.WORKER_ERROR,
+          worker: worker.charter?.name || workerId,
+          title: 'Scheduled run crashed',
+          message: `Error: ${err.message}`,
+          urgency: 'high',
+        });
+        // Record the failure
+        try { recordWorkerRun(workerId, { success: false, duration: 0 }); } catch {}
+        return;
+      }
+
+      // Record the run
+      try {
+        recordWorkerRun(workerId, {
+          success: result.success,
+          taskId: result.taskId,
+          duration: result.duration,
+        });
+      } catch (err) {
+        log(`[scheduler] Failed to record run for ${workerId}: ${err.message}`);
+      }
+
+      // Send notification with result summary
+      const eventType = result.success
+        ? NOTIFICATION_EVENTS.WORKER_COMPLETE
+        : NOTIFICATION_EVENTS.WORKER_ERROR;
+      const urgency = result.success ? 'low' : 'medium';
+      const summary = result.response
+        ? result.response.slice(0, 300) + (result.response.length > 300 ? '...' : '')
+        : '(no response)';
+
+      await notifier.send({
+        event: eventType,
+        worker: worker.charter?.name || workerId,
+        title: result.success ? 'Scheduled run completed' : 'Scheduled run failed',
+        message: `Duration: ${(result.duration / 1000).toFixed(1)}s | Task: ${result.taskId}\n${summary}`,
+        urgency,
+      });
+
+      log(`[scheduler] Worker ${worker.charter?.name || workerId} finished — success=${result.success} duration=${result.duration}ms`);
     }
-    if (origStop) {
-      daemon.stopWorker = async (...args) => {
-        const result = await origStop(...args);
-        workerCount = Math.max(0, workerCount - 1);
-        onWorkerCountChange(workerCount);
-        return result;
-      };
+
+    // ── Create the scheduler with our executor ───────────────────────────
+
+    const scheduler = createScheduler({
+      executor: executeScheduledWorker,
+      runMissed: true,
+    });
+
+    // ── Register a single worker's schedules ─────────────────────────────
+
+    function registerWorkerSchedules(worker) {
+      const schedules = getWorkerSchedules(worker);
+      if (schedules.length === 0) return 0;
+
+      let count = 0;
+      for (const { trigger, cronExpr } of schedules) {
+        try {
+          const sch = scheduler.schedule(worker.id, cronExpr, trigger.id || 'default', {
+            label: `${worker.charter?.name || worker.id} — ${cronExpr}`,
+          });
+          registeredSchedules.set(sch.id, worker.id);
+          count++;
+          log(`[scheduler] Registered schedule for "${worker.charter?.name || worker.id}": ${cronExpr} (schedule ${sch.id})`);
+        } catch (err) {
+          log(`[scheduler] Failed to register schedule for ${worker.id}: ${err.message}`);
+        }
+      }
+      return count;
     }
 
-    await daemon.start();
-    onWorkerCountChange(daemon.workers?.size || daemon.workerCount || 0);
+    // ── Load all workers and register their schedules ────────────────────
 
-    // Keep alive forever — the daemon's internal loop handles scheduling
-    await new Promise(() => {});
+    function syncWorkers() {
+      const workers = listWorkers();
+      let newCount = 0;
+
+      for (const worker of workers) {
+        if (knownWorkerIds.has(worker.id)) continue;
+
+        knownWorkerIds.add(worker.id);
+        const registered = registerWorkerSchedules(worker);
+        if (registered > 0) newCount += registered;
+      }
+
+      onWorkerCountChange(knownWorkerIds.size);
+      return newCount;
+    }
+
+    // ── Initial load ─────────────────────────────────────────────────────
+
+    const initialSchedules = syncWorkers();
+    log(`[scheduler] Initial sync: ${knownWorkerIds.size} workers, ${initialSchedules} schedules registered`);
+
+    // Start the scheduler tick loop
+    await scheduler.start();
+    log('[scheduler] Scheduler started');
+
+    // ── Poll for new workers every 60 seconds ────────────────────────────
+
+    const workerPollTimer = setInterval(() => {
+      try {
+        const added = syncWorkers();
+        if (added > 0) {
+          log(`[scheduler] Detected new workers, registered ${added} new schedules (total workers: ${knownWorkerIds.size})`);
+        }
+      } catch (err) {
+        log(`[scheduler] Worker poll error: ${err.message}`);
+      }
+    }, 60_000);
+
+    // Keep alive forever — clean up on process exit
+    await new Promise((_resolve, _reject) => {
+      const cleanup = () => {
+        clearInterval(workerPollTimer);
+        scheduler.stop();
+        log('[scheduler] Scheduler stopped');
+      };
+      process.once('beforeExit', cleanup);
+    });
   });
 }
 

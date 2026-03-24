@@ -522,9 +522,25 @@ function showLogs(nameOrId) {
     for (const r of receipts) {
       const ok = r.success ? `${c.green}✓${c.reset}` : `${c.red}✗${c.reset}`;
       const time = r.completedAt ? new Date(r.completedAt).toLocaleString() : '';
-      const dur = r.duration ? `${r.duration}ms` : '';
+      const dur = r.duration ? `${(r.duration / 1000).toFixed(1)}s` : '';
       const tools = r.toolCallCount || 0;
-      console.log(`    ${ok} ${time}  ${c.dim}${dur}  ${tools} tools${c.reset}`);
+      const rounds = r.executionLog?.length || 0;
+      const blocked = r.blockedActions?.length || 0;
+
+      // Summarize tool names used
+      const toolNames = [...new Set(
+        (r.executionLog || []).flatMap(l => (l.toolCalls || []).map(tc => tc.name)).filter(Boolean)
+      )].join(', ');
+
+      console.log(`    ${ok} ${time}  ${c.dim}${dur}  ${rounds} round${rounds !== 1 ? 's' : ''}  ${tools} tool${tools !== 1 ? 's' : ''}${c.reset}`);
+      if (toolNames) console.log(`      ${c.dim}Tools: ${toolNames}${c.reset}`);
+      if (blocked > 0) console.log(`      ${c.red}${blocked} action${blocked !== 1 ? 's' : ''} blocked${c.reset}`);
+
+      // Show response preview
+      if (r.response) {
+        const preview = r.response.split('\n').find(l => l.trim())?.trim().slice(0, 70);
+        if (preview) console.log(`      ${c.dim}${preview}${preview.length >= 70 ? '...' : ''}${c.reset}`);
+      }
     }
     console.log('');
   } catch {
@@ -761,7 +777,7 @@ async function teachWorker(args, rl) {
 
 // ── Instant Worker Creation ─────────────────────────────────────────────────
 async function instantCreateWorker(rl, description) {
-  const context = instantCreate(description);
+  const context = await instantCreate(description);
   const charter = buildCharterFromContext(context);
   const provider = getDefaultProvider() || 'chatgpt';
   const providerDef = PROVIDERS[provider] || PROVIDERS.openai;
