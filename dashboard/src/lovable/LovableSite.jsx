@@ -16,10 +16,12 @@ import { docsLinks, ossLinks } from "../site/config/links.js";
 
 const PUBLIC_ONBOARDING_HREF = "/onboarding";
 const PUBLIC_SIGNUP_HREF = "/signup#account-create";
-const PUBLIC_LOGIN_HREF = "/login#account-create";
-const MANAGED_ONBOARDING_HREF = "/signup#account-create";
-const PRODUCT_ONBOARDING_HREF = "/signup#account-create";
-const PRICING_ONBOARDING_HREF = "/signup#account-create";
+const PUBLIC_LOGIN_HREF = "/login#identity-access";
+const MANAGED_ONBOARDING_HREF = buildManagedAccountHref({ flow: "signup", source: "site", hash: "account-create" });
+const MANAGED_LOGIN_HREF = buildManagedAccountHref({ flow: "login", source: "site", hash: "identity-access" });
+const PUBLIC_DEMO_HREF = "/demo";
+const PRODUCT_ONBOARDING_HREF = buildManagedOnboardingHref("product");
+const PRICING_ONBOARDING_HREF = buildManagedOnboardingHref("pricing");
 const SITE_DOC_ROUTES = {
   home: "/docs",
   quickstart: "/docs/quickstart",
@@ -28,13 +30,13 @@ const SITE_DOC_ROUTES = {
   api: "/docs/api",
   security: "/docs/security",
   ops: "/docs/ops",
-  claudeDesktop: "/docs/claude-desktop",
+  claudeDesktop: "/docs/claude",
   openClaw: "/docs/openclaw",
   codex: "/docs/codex",
-  localEnvironment: "/docs/local-environment",
-  hostQuickstart: "/docs/launch-hosts",
-  designPartnerKit: "/docs/partner-kit",
-  launchChecklist: "/docs/launch-checklist",
+  localEnvironment: "/docs/setup",
+  hostQuickstart: "/docs/hosts",
+  designPartnerKit: "/docs/partners",
+  launchChecklist: "/docs/launch",
   incidents: "/docs/incidents",
   support: "/support"
 };
@@ -43,18 +45,26 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
   {
     id: "home",
     label: "Homepage",
-    description: "Main entry point and first Action Wallet CTA.",
+    description: "Main entry point and first governed-worker CTA.",
     path: "/",
     type: "html",
-    needle: "Give agents wallets, not unchecked permissions."
+    needle: "Hire AI workers"
   },
   {
     id: "product",
     label: "Product",
-    description: "Public product narrative and wallet overview.",
+    description: "Public product narrative and governed-worker overview.",
     path: "/product",
     type: "html",
-    needle: "Action Wallet is the operating account for AI agents."
+    needle: "actually do real work"
+  },
+  {
+    id: "demo",
+    label: "Demo walkthrough",
+    description: "Public walkthrough with worker data.",
+    path: "/demo",
+    type: "html",
+    needle: "Sample flow"
   },
   {
     id: "pricing",
@@ -67,18 +77,18 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
   {
     id: "onboarding",
     label: "Onboarding app",
-    description: "Account creation and first wallet issuance entry point.",
-    path: "/signup#account-create",
+    description: "Workspace creation and first governed-worker setup entry point.",
+    path: "/signup?experience=app#account-create",
     type: "html",
-    needle: "Create the account first."
+    needle: "Create your workspace."
   },
   {
     id: "support",
     label: "Support route",
-    description: "Public escalation path into the right trust surface.",
+    description: "Public escalation path into the right product page.",
     path: "/support",
     type: "html",
-    needle: "Support should route users into the right trust surface fast"
+    needle: "Get to the right path fast."
   },
   {
     id: "auth_proxy",
@@ -90,7 +100,16 @@ const PUBLIC_STATUS_CHECKS = Object.freeze([
 ]);
 
 function buildManagedOnboardingHref(source) {
-  return PUBLIC_SIGNUP_HREF;
+  return buildManagedAccountHref({ flow: "signup", source, hash: "account-create" });
+}
+
+function buildManagedAccountHref({ flow = "signup", source = "", hash = "account-create" } = {}) {
+  const params = new URLSearchParams();
+  params.set("experience", "app");
+  const normalizedSource = String(source ?? "").trim();
+  if (normalizedSource) params.set("source", normalizedSource);
+  const normalizedHash = String(hash ?? "").trim().replace(/^#?/, "");
+  return `/${String(flow ?? "signup").trim() || "signup"}?${params.toString()}${normalizedHash ? `#${normalizedHash}` : ""}`;
 }
 
 function FadeIn({ children, delay = 0, className = "" }) {
@@ -113,20 +132,18 @@ function SiteNav() {
 
   const navLinks = [
     { label: "Product", href: "/product" },
-    { label: "Pricing", href: "/pricing" },
+    { label: "Demo", href: "/demo" },
     { label: "Developers", href: "/developers" },
-    { label: "Wallet", href: "/wallet" },
-    { label: "Approvals", href: "/approvals" },
-    { label: "Receipts", href: "/receipts" },
-    { label: "Disputes", href: "/disputes" },
-    { label: "Integrations", href: "/integrations" }
+    { label: "Pricing", href: "/pricing" },
+    { label: "Docs", href: "/docs" },
+    { label: "Security", href: "/security" }
   ];
   const primaryOnboardingHref =
     pathname === "/product"
       ? PRODUCT_ONBOARDING_HREF
       : pathname === "/pricing"
         ? PRICING_ONBOARDING_HREF
-        : PUBLIC_SIGNUP_HREF;
+        : buildManagedOnboardingHref("site_nav");
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#080b10]/80 backdrop-blur-xl">
@@ -151,8 +168,14 @@ function SiteNav() {
           ))}
         </div>
 
-        <div className="hidden lg:block">
-            <a
+        <div className="hidden items-center gap-3 lg:flex">
+          <a
+            href={MANAGED_LOGIN_HREF}
+            className="inline-flex items-center gap-2 rounded-md border border-white/10 px-4 py-2 text-sm font-medium text-stone-200 transition-all duration-200 hover:bg-white/5"
+          >
+            Sign in
+          </a>
+          <a
             href={primaryOnboardingHref}
             className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
           >
@@ -185,6 +208,13 @@ function SiteNav() {
               </a>
             ))}
             <a
+              href={MANAGED_LOGIN_HREF}
+              onClick={() => setMobileOpen(false)}
+              className="block text-base text-stone-300 transition-colors hover:text-stone-100"
+            >
+              Sign in
+            </a>
+            <a
               href={primaryOnboardingHref}
               onClick={() => setMobileOpen(false)}
               className="mt-2 inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-4 py-2 text-sm font-medium text-[#0b0f14]"
@@ -206,18 +236,18 @@ function SiteFooter() {
           <div className="col-span-2 md:col-span-1">
             <span className="text-lg text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Nooterra</span>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-stone-400">
-              The operating account for AI agents.
+              Worker accounts for consequential AI actions.
             </p>
           </div>
           <div>
             <h4 className="mb-4 text-xs font-medium uppercase tracking-[0.24em] text-stone-500">Product</h4>
             <div className="space-y-3">
-              <a href="/product" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Overview</a>
+              <a href="/" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Overview</a>
+              <a href="/product" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Product</a>
+              <a href="/demo" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Demo walkthrough</a>
               <a href="/pricing" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Pricing</a>
-              <a href="/wallet" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Action Wallet</a>
-              <a href="/approvals" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Approvals</a>
-              <a href="/receipts" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Receipts</a>
-              <a href="/disputes" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Disputes</a>
+              <a href={MANAGED_ONBOARDING_HREF} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Get started free</a>
+              <a href={MANAGED_LOGIN_HREF} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Sign in</a>
             </div>
           </div>
           <div>
@@ -226,7 +256,7 @@ function SiteFooter() {
               <a href="/developers" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Documentation</a>
               <a href="/integrations" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Integrations</a>
               <a href="/docs/api" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">API Reference</a>
-              <a href={SITE_DOC_ROUTES.designPartnerKit} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Partner kit</a>
+              <a href="/docs" className="block text-sm text-stone-300 transition-colors hover:text-stone-100">Docs</a>
               <a href={ossLinks.repo} className="block text-sm text-stone-300 transition-colors hover:text-stone-100">GitHub</a>
             </div>
           </div>
@@ -243,7 +273,7 @@ function SiteFooter() {
         </div>
         <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 md:flex-row">
           <p className="text-xs text-stone-500">© 2026 Nooterra. All rights reserved.</p>
-          <p className="text-xs text-stone-500">Authority, approvals, receipts, and recourse for machine action.</p>
+          <p className="text-xs text-stone-500">Identity, approvals, receipts, and recovery for AI workers.</p>
         </div>
       </div>
     </footer>
@@ -263,6 +293,116 @@ function SiteLayout({ children }) {
 function looksLikeHtmlDocument(value) {
   const normalized = String(value ?? "").trim().toLowerCase();
   return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function normalizeStatusPathname(value) {
+  if (typeof window === "undefined") return "";
+  try {
+    return new URL(String(value ?? "/"), window.location.origin).pathname || "/";
+  } catch {
+    return "";
+  }
+}
+
+async function probePublicHtmlRoute(check, { timeoutMs = 8000, intervalMs = 250 } = {}) {
+  if (typeof window === "undefined" || !window.document?.body) {
+    return {
+      ...check,
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      detail: "Browser route checks require a live document body"
+    };
+  }
+  return new Promise((resolve) => {
+    const iframe = window.document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.style.position = "fixed";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    iframe.style.border = "0";
+
+    const expectedPathname = normalizeStatusPathname(check.path);
+    let settled = false;
+    let intervalId = null;
+    let timeoutId = null;
+    let lastState = {
+      actualPathname: "",
+      bodyText: "",
+      readyState: "",
+      contentType: "text/html"
+    };
+
+    const cleanup = () => {
+      if (intervalId !== null) window.clearInterval(intervalId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      iframe.remove();
+    };
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({
+        ...check,
+        actualPathname: lastState.actualPathname,
+        contentType: lastState.contentType,
+        ...result
+      });
+    };
+
+    const readFrameState = () => {
+      try {
+        const frameWindow = iframe.contentWindow;
+        const frameDocument = iframe.contentDocument;
+        lastState = {
+          actualPathname: String(frameWindow?.location?.pathname ?? "").trim(),
+          bodyText: String(frameDocument?.body?.innerText ?? ""),
+          readyState: String(frameDocument?.readyState ?? ""),
+          contentType: String(frameDocument?.contentType ?? "text/html").toLowerCase()
+        };
+        const pathnameMatches = !expectedPathname || lastState.actualPathname === expectedPathname;
+        const needleMatches = !check.needle || lastState.bodyText.includes(check.needle);
+        if (lastState.readyState === "complete" && pathnameMatches && needleMatches) {
+          finish({
+            status: "ok",
+            statusLabel: "Operational",
+            detail: "Rendered branded route correctly in a browser frame"
+          });
+        }
+      } catch (error) {
+        finish({
+          status: "unavailable",
+          statusLabel: "Unavailable",
+          detail: String(error?.message ?? "Route probe failed")
+        });
+      }
+    };
+
+    iframe.addEventListener("load", () => {
+      readFrameState();
+      if (!settled) intervalId = window.setInterval(readFrameState, intervalMs);
+    });
+
+    timeoutId = window.setTimeout(() => {
+      const detail =
+        lastState.actualPathname && expectedPathname && lastState.actualPathname !== expectedPathname
+          ? `Resolved to ${lastState.actualPathname} instead of ${expectedPathname}`
+          : check.needle && !lastState.bodyText.includes(check.needle)
+            ? "Rendered unexpected page content"
+            : "Timed out waiting for branded route content";
+      finish({
+        status: "degraded",
+        statusLabel: "Degraded",
+        detail
+      });
+    }, timeoutMs);
+
+    window.document.body.append(iframe);
+    iframe.src = check.path;
+  });
 }
 
 function classifyPublicJsonFailure(response, body, contentType) {
@@ -334,9 +474,12 @@ function derivePublicStatusVerdict(results) {
 
 async function runPublicStatusCheck(check) {
   try {
+    if (check.type === "html") {
+      return probePublicHtmlRoute(check);
+    }
     const response = await fetch(check.path, {
       headers: {
-        accept: check.type === "json" ? "application/json" : "text/html,application/xhtml+xml"
+        accept: "application/json"
       }
     });
     const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
@@ -377,40 +520,6 @@ async function runPublicStatusCheck(check) {
         };
       }
     }
-    if (!response.ok) {
-      return {
-        ...check,
-        status: "unavailable",
-        statusLabel: "Unavailable",
-        detail: `Returned ${response.status}`,
-        contentType
-      };
-    }
-    if (!contentType.includes("text/html") || !looksLikeHtmlDocument(body)) {
-      return {
-        ...check,
-        status: "degraded",
-        statusLabel: "Degraded",
-        detail: "Returned non-HTML content",
-        contentType
-      };
-    }
-    if (check.needle && !body.includes(check.needle)) {
-      return {
-        ...check,
-        status: "degraded",
-        statusLabel: "Degraded",
-        detail: "Rendered unexpected page content",
-        contentType
-      };
-    }
-    return {
-      ...check,
-      status: "ok",
-      statusLabel: "Operational",
-      detail: "Rendered branded route correctly",
-      contentType
-    };
   } catch (error) {
     return {
       ...check,
@@ -463,10 +572,10 @@ function StatusPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Status</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Live route health should be visible.
+                Service status and route health.
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                This page checks the managed website the same way a real user does: public pages, onboarding entry, and the same-origin auth proxy that powers hosted signup.
+                Check website routes and auth status before you send someone into the product.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -479,7 +588,7 @@ function StatusPage() {
                   Refresh checks <RotateCcw size={16} />
                 </button>
                 <a href={SITE_DOC_ROUTES.launchChecklist} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  Launch checklist <ArrowUpRight size={15} />
+                  Launch guide <ArrowUpRight size={15} />
                 </a>
               </div>
             </FadeIn>
@@ -560,7 +669,7 @@ function StatusPage() {
                 If the auth plane is unreachable, onboarding should pause cleanly, point users to support, and never pretend account creation is still live.
               </p>
               <a href={SITE_DOC_ROUTES.incidents} className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
-                Incident path <ArrowUpRight size={14} />
+                Incident response <ArrowUpRight size={14} />
               </a>
             </div>
           </FadeIn>
@@ -571,7 +680,7 @@ function StatusPage() {
                 One visible escalation path
               </h3>
               <p className="mt-4 text-sm leading-relaxed text-stone-400">
-                Users should not need to guess whether the problem is the website, onboarding, approvals, or a live receipt. Support should be the visible next step.
+                People do not have to guess whether the problem is the website, onboarding, approvals, or a live receipt. Support is the next visible step.
               </p>
               <a href="/support" className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
                 Open support <ArrowUpRight size={14} />
@@ -588,8 +697,8 @@ function SupportPage() {
   const supportTracks = [
     {
       eyebrow: "Activation",
-      title: "Account creation or first wallet issue",
-      body: "If signup, passkey setup, or first wallet issuance fails, start with the app onboarding flow instead of guessing which internal service broke.",
+      title: "Account creation or first worker issue",
+      body: "If signup, passkey setup, or first worker creation fails, start with the app onboarding flow instead of guessing which internal service broke.",
       href: MANAGED_ONBOARDING_HREF,
       ctaLabel: "Open onboarding"
     },
@@ -643,10 +752,10 @@ function SupportPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Support</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Support should route users into the right trust surface fast.
+                Get to the right path fast.
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                Nooterra support is not a generic inbox. If something breaks, the right move depends on whether the problem is activation, live authority, proof, or platform routing.
+                Support points people to the page that owns the problem: onboarding, approvals, receipts, disputes, or status.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -666,7 +775,7 @@ function SupportPage() {
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Fastest route</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    Start from the artifact, not the symptom.
+                    Start from the page that owns the action.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
@@ -678,14 +787,14 @@ function SupportPage() {
                   <div className="lovable-rail-index">01</div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-stone-100">If a real action already happened, go to the receipt.</p>
-                    <p className="mt-1 text-sm leading-relaxed text-stone-400">Receipts and disputes carry the canonical evidence, outcome, and recourse path.</p>
+                    <p className="mt-1 text-sm leading-relaxed text-stone-400">Receipts and disputes hold the evidence, outcome, and recovery path in one place.</p>
                   </div>
                 </div>
                 <div className="lovable-rail-row">
                   <div className="lovable-rail-index">02</div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-stone-100">If onboarding is broken, use the app onboarding route.</p>
-                    <p className="mt-1 text-sm leading-relaxed text-stone-400">That path is where account creation, passkeys, and first wallet issuance should recover or fail closed.</p>
+                    <p className="mt-1 text-sm leading-relaxed text-stone-400">That path is where account creation, passkeys, and first worker-runtime issuance should recover or fail closed.</p>
                   </div>
                 </div>
                 <div className="lovable-rail-row">
@@ -726,7 +835,7 @@ function SupportPage() {
             <div className="mb-8 max-w-3xl">
               <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Known failure paths</p>
               <h2 className="mt-3 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Common support routes already have pages.
+                Known failure paths already have a home.
               </h2>
               <p className="mt-4 text-sm leading-relaxed text-stone-400">
                 Expired links, revoked authority, failed verification, and unsupported hosts should each land on a dedicated page instead of dropping people into a generic shell.
@@ -779,14 +888,14 @@ function SecurityPage() {
     {
       eyebrow: "Auth plane",
       title: "Hosted onboarding fails closed",
-      body: "If the auth plane or same-origin proxy is unavailable, onboarding should stop cleanly and point people to status and support instead of pretending signup still works.",
+      body: "If secure sign-in or the same-origin proxy is unavailable, onboarding stops cleanly and points people to status and support instead of pretending signup still works.",
       href: buildManagedOnboardingHref("security"),
-      ctaLabel: "Create workspace"
+      ctaLabel: "Get started free"
     },
     {
       eyebrow: "Runtime",
       title: "Live actions leave receipts and disputes",
-      body: "The system of record is the action artifact chain, not a best-effort log line or payment event living somewhere else.",
+      body: "The system of record is the approval, evidence, and receipt trail, not a best-effort log line or payment event living somewhere else.",
       href: "/receipts",
       ctaLabel: "View receipts"
     }
@@ -803,10 +912,10 @@ function SecurityPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Security</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Security for Nooterra means bounded authority.
+                Security starts with scoped authority.
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                The product is secure when machine action is scoped, approvals are inspectable, route drift is visible, and every consequential action leaves a deterministic record with recourse.
+                The system is trustworthy when actions are scoped, approvals are visible, route drift is caught early, and every consequential action leaves a record you can verify later.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -826,7 +935,7 @@ function SecurityPage() {
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Core posture</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    The system should fail closed before it fails silently.
+                    Better to stop the action than trust the wrong state.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
@@ -883,7 +992,7 @@ function PrivacyPage() {
     },
     {
       label: "Public route boundary",
-      body: "The website should explain the data boundary before people sign in, so users know which pages are marketing, which are docs, and which are live trust surfaces."
+      body: "The public site separates marketing, docs, and live product surfaces before anyone signs in."
     }
   ];
 
@@ -898,16 +1007,16 @@ function PrivacyPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Privacy</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                The public site should explain the data boundary before people enter the product.
+                Know what data belongs to the product.
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                Nooterra stores identity and action artifacts because an Action Wallet needs authority, proof, and recourse. This route exists so that boundary is visible before any sign-in flow starts.
+                Nooterra stores identity and action artifacts because governed workers need authority, proof, and recovery. Review the data boundary before you create a workspace.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
                 <a href={buildManagedOnboardingHref("privacy")} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                  Create workspace <ArrowRight size={16} />
+                  Get started free <ArrowRight size={16} />
                 </a>
                 <a href="/support" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                   Support path <ArrowUpRight size={15} />
@@ -949,6 +1058,12 @@ function PrivacyPage() {
 
 function HomePage() {
   const onboardingHref = buildManagedOnboardingHref("home");
+  const walkthroughSteps = [
+    { label: "Describe", value: "\"Monitor competitor prices and alert me on Slack\"", detail: "Natural language · Nooterra figures out what tools and rules the worker needs" },
+    { label: "Configure", value: "Browser + Slack connected, hourly schedule set", detail: "One question at a time · capabilities inferred · guardrails auto-generated" },
+    { label: "Deploy", value: "Price Monitor is live and running 24/7", detail: "Real daemon · triggers on schedule · escalates when rules say so" },
+    { label: "Receipt", value: "3 price drops detected, Slack alerts sent", detail: "Every action logged · full audit trail · dispute anything" }
+  ];
   return (
     <SiteLayout>
       <section className="relative flex min-h-[90vh] items-center overflow-hidden">
@@ -957,38 +1072,62 @@ function HomePage() {
         <div className="lovable-orb lovable-orb-b" />
         <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
           <FadeIn>
-            <p className="mb-8 text-sm uppercase tracking-[0.2em] text-stone-500">Action Wallet</p>
+            <p className="mb-8 text-sm uppercase tracking-[0.2em] text-stone-500">Governed AI workers</p>
           </FadeIn>
           <FadeIn delay={0.1}>
             <h1
               className="max-w-5xl text-balance text-5xl leading-[0.95] tracking-tight text-stone-100 sm:text-6xl md:text-7xl lg:text-8xl xl:text-[6.5rem]"
               style={{ fontFamily: "var(--lovable-font-serif)" }}
             >
-              Give agents wallets,
+              Hire AI workers
               <br />
-              <span className="text-[#d2b06f]">not unchecked permissions.</span>
+              <span className="text-[#d2b06f]">you can actually trust.</span>
             </h1>
           </FadeIn>
           <FadeIn delay={0.2}>
             <p className="mt-8 max-w-2xl text-lg leading-relaxed text-stone-400 md:text-xl">
-              Nooterra gives AI agents operating accounts for real-world action. Set limits, ask for approval when it matters, and end every consequential action with a readable receipt.
+              Describe any job in plain language. Nooterra builds the worker, connects the tools, sets the guardrails, and runs it 24/7.
+              You approve what matters. Every action gets a receipt.
             </p>
           </FadeIn>
           <FadeIn delay={0.24}>
             <div className="mt-6 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">For builders, finance, and operators</span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Start with buy + cancel/recover</span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Claude MCP + OpenClaw first</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Any AI provider</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Runs forever</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Any job you can describe</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">Built-in guardrails</span>
             </div>
           </FadeIn>
           <FadeIn delay={0.3}>
             <div className="mt-12 flex flex-wrap gap-4">
               <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                Create your first Action Wallet <ArrowRight size={16} />
+                Get started free <ArrowRight size={16} />
               </a>
-              <a href="/product" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                Explore the product
+              <a href={PUBLIC_DEMO_HREF} className="inline-flex items-center gap-2 rounded-md border border-[#d2b06f]/30 bg-[#d2b06f]/10 px-6 py-3 text-sm font-medium text-[#f3ddae] transition-all duration-200 hover:bg-[#d2b06f]/15">
+                See the walkthrough <ArrowUpRight size={15} />
               </a>
+            </div>
+          </FadeIn>
+          <FadeIn delay={0.36}>
+            <div className="mt-10 overflow-hidden rounded-2xl border border-white/10 bg-[#10151c] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">At a glance</p>
+                  <p className="mt-1 text-sm text-stone-300">One worker, one approval, one receipt.</p>
+                </div>
+                <a href={PUBLIC_DEMO_HREF} className="inline-flex items-center gap-2 text-sm font-medium text-[#d2b06f] transition-colors hover:text-[#e2c994]">
+                  Open demo <ArrowUpRight size={15} />
+                </a>
+              </div>
+              <div className="grid gap-px bg-white/10 lg:grid-cols-4">
+                {walkthroughSteps.map((item) => (
+                  <div key={item.label} className="bg-[#0d1218] px-5 py-5">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{item.label}</p>
+                    <p className="mt-3 text-sm font-medium leading-relaxed text-stone-100">{item.value}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-stone-400">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </FadeIn>
         </div>
@@ -997,23 +1136,23 @@ function HomePage() {
       <section className="border-t border-white/10">
         <div className="mx-auto grid max-w-7xl items-start gap-16 px-6 py-24 lg:grid-cols-2 lg:gap-24 lg:px-8 lg:py-32">
           <FadeIn>
-            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">What is Nooterra</p>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">What Nooterra is</p>
             <h2 className="text-3xl leading-tight text-stone-100 md:text-4xl lg:text-5xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              The operating account
+              Describe any job.
               <br />
-              <em className="not-italic text-[#d2b06f]">for AI agents.</em>
+              <em className="not-italic text-[#d2b06f]">Get a worker that runs forever.</em>
             </h2>
           </FadeIn>
           <FadeIn delay={0.15}>
             <div className="space-y-6 leading-relaxed text-stone-300">
               <p className="text-lg">
-                An agent wants to buy something, cancel something, issue a refund, or change a system. That is where most AI products stop being fun and start becoming risky.
+                "Monitor my competitors." "Triage my inbox." "Process refunds under $100 automatically." Say what you need in plain English. Nooterra asks the right questions, connects the right tools, and deploys a worker that actually does it.
               </p>
               <p>
-                Nooterra sits between the agent and the consequence. It checks the rules, routes approval if needed, issues bounded authority, and records what actually happened.
+                The worker runs 24/7 with hard guardrails — what it can do, what needs your approval, what it can never touch. Every action creates a receipt. Anything can be disputed.
               </p>
               <p className="text-stone-500">
-                It is host-first by design. The agent stays where it already runs. Nooterra shows up when trust, proof, or recourse is needed.
+                Use any AI provider. Connect any tools via MCP. Your imagination is the limit — from serious enterprise ops to side projects.
               </p>
             </div>
           </FadeIn>
@@ -1024,33 +1163,33 @@ function HomePage() {
         <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
           <FadeIn>
             <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">How it works</p>
-            <h2 className="mb-16 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>One clear loop, every time.</h2>
+            <h2 className="mb-16 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>One clear path every time.</h2>
           </FadeIn>
           <div className="overflow-hidden rounded-lg bg-white/10 lg:grid lg:grid-cols-4 lg:gap-px">
             {[
               {
                 icon: Shield,
                 step: "01",
-                title: "Request",
-                desc: "The agent asks to do something real. Nooterra turns that into an explicit action request instead of a hidden tool call."
+                title: "Describe",
+                desc: "Tell Nooterra what you want done. It asks one question at a time until the worker has purpose, tools, and guardrails."
               },
               {
                 icon: FileCheck,
                 step: "02",
-                title: "Decide",
-                desc: "Rules run in code, not vibes. Approve automatically, ask a human, or block the action outright."
+                title: "Deploy",
+                desc: "The worker goes live with a charter: what it can do, what it asks first, what it never does. Runs 24/7 on your schedule."
               },
               {
-                icon: FileCheck,
+                icon: Clock,
                 step: "03",
-                title: "Act",
-                desc: "If approved, Nooterra issues bounded authority and the host completes the action through the allowed path."
+                title: "Approve",
+                desc: "When the worker hits a boundary, you get a notification. Approve from Slack, terminal, web, or mobile with one click."
               },
               {
                 icon: RotateCcw,
                 step: "04",
-                title: "Explain",
-                desc: "Every important action ends with a receipt. If the result is wrong, there is a dispute and recovery path."
+                title: "Receipt",
+                desc: "Every action produces a readable record. Dispute anything. Full audit trail. Real recourse."
               }
             ].map((item, index) => (
               <FadeIn key={item.step} delay={index * 0.1}>
@@ -1072,20 +1211,21 @@ function HomePage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why teams use it</p>
               <h2 className="mb-6 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                One product.
+                One system
                 <br />
-                <span className="text-[#d2b06f]">Three buyers.</span>
+                <span className="text-[#d2b06f]">for builders, operators, and finance.</span>
               </h2>
               <p className="leading-relaxed text-stone-400">
-                Developers want one SDK call instead of rebuilding approvals and receipts. Operators want one place to intervene. Finance wants a readable record and a kill switch.
+              Builders want one integration instead of rebuilding policy, approvals, receipts, and operator controls. Operators want one place to review and step in.
+              Finance and security want a record they can actually trust later.
               </p>
             </FadeIn>
           </div>
           <div className="lg:col-span-3">
             <div className="mb-6 rounded-lg border border-white/10 bg-[#11161e] p-6">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">Launch scope</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">What people are building</p>
               <p className="mt-3 text-sm leading-relaxed text-stone-300">
-                Start narrow and make it undeniable: <span className="text-stone-100">buy</span> and <span className="text-stone-100">cancel/recover</span> on <span className="text-stone-100">Claude MCP</span> and <span className="text-stone-100">OpenClaw</span>, with the same runtime available through API, CLI, and Codex.
+                Competitor price monitors. Inbox triage bots. Automated refund processors. Security audit runners. Customer onboarding assistants. Content moderators. If you can describe the job, Nooterra can run it — with guardrails, approvals, and receipts built in.
               </p>
             </div>
             <div className="grid gap-6 sm:grid-cols-3">
@@ -1094,7 +1234,7 @@ function HomePage() {
                   <p className="text-xs font-medium uppercase tracking-wider text-[#d2b06f]">Builders</p>
                   <h3 className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Ship faster</h3>
                   <p className="mt-3 text-sm leading-relaxed text-stone-300">
-                    Give an agent one tool for approvals, receipts, and disputes instead of building a finance and trust stack from scratch.
+                    Add one integration for identity, authority, approvals, and receipts instead of building a trust stack from scratch.
                   </p>
                 </div>
               </FadeIn>
@@ -1103,7 +1243,7 @@ function HomePage() {
                   <p className="text-xs font-medium uppercase tracking-wider text-[#d2b06f]">Operators</p>
                   <h3 className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Stay in control</h3>
                   <p className="mt-3 text-sm leading-relaxed text-stone-300">
-                    Review, revoke, refund, dispute, or freeze agent action from one place instead of chasing logs across hosts and vendors.
+                    Review, revoke, pause, dispute, or freeze worker action from one place instead of chasing logs across hosts and vendors.
                   </p>
                 </div>
               </FadeIn>
@@ -1112,7 +1252,7 @@ function HomePage() {
                   <p className="text-xs font-medium uppercase tracking-wider text-[#d2b06f]">Finance & security</p>
                   <h3 className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>Trust the record</h3>
                   <p className="mt-3 text-sm leading-relaxed text-stone-300">
-                    Every consequential action ends with a receipt, evidence trail, and recourse path that someone can actually understand later.
+                    See what was requested, what was approved, what happened, and what can still be reversed.
                   </p>
                 </div>
               </FadeIn>
@@ -1127,17 +1267,14 @@ function HomePage() {
             <h2 className="mb-6 text-4xl text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
               Start with one action.
               <br />
-              <span className="text-[#d2b06f]">Expand from there.</span>
+              <span className="text-[#d2b06f]">Prove the loop. Expand from there.</span>
             </h2>
             <p className="mx-auto mb-10 max-w-xl text-stone-400">
-              The first win is simple: one hosted approval, one bounded action, one receipt. After that, teams can widen authority with confidence.
+              The first win is simple: one worker, one approval, one scoped action, one receipt. Once that path is stable, you can widen authority with confidence.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                Create your first Action Wallet <ArrowRight size={16} />
-              </a>
-              <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                Explore developers
+                Get started free <ArrowRight size={16} />
               </a>
             </div>
           </FadeIn>
@@ -1159,23 +1296,24 @@ function ProductPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Product</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                One operating account
+                AI workers that
                 <br />
-                <span className="text-[#d2b06f]">for every consequential agent action.</span>
+                <span className="text-[#d2b06f]">actually do real work.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                Action Wallet gives AI agents a clear way to ask, wait, act, and explain. Builders add one runtime. Operators keep a kill switch. Finance gets a receipt someone can read later.
+                Describe any job. Nooterra deploys a worker with the right AI, the right tools, and hard guardrails.
+                It runs 24/7, notifies you when it needs approval, and proves everything it did.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
               <div className="mt-10 flex flex-wrap gap-4">
                 <a href={PRODUCT_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                  Create your first Action Wallet <ArrowRight size={16} />
+                  Get started free <ArrowRight size={16} />
                 </a>
-                <a href="/pricing" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  See pricing
-                </a>
-              </div>
+              <a href={PUBLIC_DEMO_HREF} className="inline-flex items-center gap-2 rounded-md border border-[#d2b06f]/30 bg-[#d2b06f]/10 px-6 py-3 text-sm font-medium text-[#f3ddae] transition-all duration-200 hover:bg-[#d2b06f]/15">
+                See the walkthrough <ArrowUpRight size={15} />
+              </a>
+            </div>
             </FadeIn>
           </div>
 
@@ -1185,18 +1323,18 @@ function ProductPage() {
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">What ships today</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    Narrow scope. Real consequence.
+                    Broad workers. Hard guardrails.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
-                  Action Wallet v1
+                  Universal worker runtime
                 </div>
               </div>
               <div className="space-y-3">
                 {[
-                  { title: "Actions", body: "Buy plus cancel or recover, where money and trust actually matter." },
-                  { title: "Hosts", body: "Claude MCP and OpenClaw first, with the same runtime available through Codex, CLI, and API." },
-                  { title: "Outcome", body: "Every important action ends in approval, receipt, and recourse instead of an invisible tool call." }
+                  { title: "Create", body: "Describe the job in plain language. Nooterra asks the right questions, infers what tools are needed, and generates a charter with guardrails." },
+                  { title: "Run", body: "Workers run 24/7 as daemons with schedules, webhooks, and file watchers. Use CLI, web dashboard, or API — same worker everywhere." },
+                  { title: "Trust", body: "Every action produces a receipt. Approvals happen when they matter. Anything can be disputed, reversed, or frozen." }
                 ].map((item, index) => (
                   <div key={item.title} className="lovable-rail-row">
                     <div className="lovable-rail-index">0{index + 1}</div>
@@ -1217,14 +1355,14 @@ function ProductPage() {
           <FadeIn>
             <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">What the product does</p>
             <h2 className="mb-16 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              Turn a risky agent action into a controlled product loop.
+              Turn risky agent execution into accountable work.
             </h2>
           </FadeIn>
           <div className="grid gap-5 lg:grid-cols-4">
             {[
               {
-                title: "Action Wallet",
-                body: "Give the agent a bounded operating account instead of naked permissions and hidden side effects."
+                title: "Worker runtime",
+                body: "Give the worker a durable identity, owner, policy envelope, and budget instead of a loose bundle of tools and secrets."
               },
               {
                 title: "Approvals",
@@ -1261,7 +1399,7 @@ function ProductPage() {
               The same product serves the people building, approving, and trusting the action.
             </h2>
             <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">
-              Developers want one integration point. Operators want a live control surface. Finance and security want a durable record with a clear stop button. Action Wallet is valuable because it satisfies all three at once.
+              Developers want one integration point. Operators want one place to review and step in. Finance and security want a durable record with a clear stop button. The governed worker layer is valuable because it satisfies all three at once.
             </p>
           </FadeIn>
           <div className="grid gap-4">
@@ -1299,10 +1437,267 @@ function ProductPage() {
               </div>
               <div className="flex flex-wrap gap-4">
                 <a href={PRODUCT_ONBOARDING_HREF} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                  Create workspace <ArrowRight size={16} />
+                  Get started free <ArrowRight size={16} />
                 </a>
-                <a href="/developers" className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  Explore developers <ArrowUpRight size={15} />
+              <a href={PUBLIC_DEMO_HREF} className="inline-flex items-center gap-2 rounded-md border border-[#d2b06f]/30 bg-[#d2b06f]/10 px-6 py-3 text-sm font-medium text-[#f3ddae] transition-all duration-200 hover:bg-[#d2b06f]/15">
+                See the walkthrough <ArrowUpRight size={15} />
+              </a>
+            </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
+function DemoPage() {
+  const demoScenarios = [
+    {
+      id: "claude_recovery",
+      label: "Claude recovery",
+      title: "Recover from Claude MCP",
+      intro: "One worker asks to cancel a duplicate subscription, a manager approves it, and the same run closes with a receipt plus a recovery path.",
+      onboardingHref: buildManagedOnboardingHref("demo_claude_recovery"),
+      docsHref: docsLinks.claudeDesktopQuickstart,
+      docsLabel: "Claude quickstart",
+      overview: [
+        { label: "Worker", value: "Finance Ops Worker", body: "Owned by Midtown Growth. Budget capped at $250/month. Rules allow supervised vendor action with hosted review." },
+        { label: "Host", value: "Claude MCP", body: "The model stays in Claude. Nooterra only steps in when the action needs budget, approval, or proof." },
+        { label: "Action", value: "Cancel duplicate analytics subscription and recover credit", body: "The worker gathers vendor context first. Hosted approval opens because the team wants a human on the first recovery action." },
+        { label: "Outcome", value: "Receipt verified. Recovery path still open.", body: "The worker acts after approval, and the operator can still unwind or dispute the result if the vendor never follows through." }
+      ],
+      rail: [
+        { state: "Issued", title: "Worker account exists before the action", body: "Identity, owner, limits, and recovery path are already attached before the host tries anything consequential." },
+        { state: "Pending", title: "Hosted approval opens for a real person", body: "The request leaves the host and lands on a clean review surface with policy context, amount, and evidence requirements." },
+        { state: "Executed", title: "The action closes with evidence and receipt", body: "Execution only happens after the grant is valid. The receipt keeps the exact run, approval, and proof chain readable." },
+        { state: "Recoverable", title: "Operators still have a path back", body: "Dispute, refund, retry, and quarantine stay in the same record instead of becoming a support-ticket scavenger hunt." }
+      ],
+      artifactStats: [
+        { label: "Host", value: "Claude MCP", body: "Launch host with the cleanest first approval path." },
+        { label: "Approval state", value: "Waiting for Alex Chen", body: "The first recovery action still requires a manager because the saved rule is not in place yet." },
+        { label: "Receipt ID", value: "rcpt_demo_20260318_001", body: "Deterministic sample data, matching the real receipt flow." }
+      ]
+    },
+    {
+      id: "openclaw_cancel",
+      label: "OpenClaw recovery",
+      title: "Cancel and recover from OpenClaw",
+      intro: "OpenClaw handles the shell. Nooterra keeps the cancellation, refund, receipt, and recovery path tied to one worker record.",
+      onboardingHref: buildManagedOnboardingHref("demo_openclaw_cancel"),
+      docsHref: docsLinks.openClawQuickstart,
+      docsLabel: "OpenClaw guide",
+      overview: [
+        { label: "Worker", value: "Ops Recovery Worker", body: "Owned by Northstar Ops. Recovery pack enabled. Budget is irrelevant here; proof and recourse are the real product." },
+        { label: "Host", value: "OpenClaw", body: "The shell is more autonomous, but approval, receipt, and dispute still stay on the same hosted Nooterra surfaces." },
+        { label: "Action", value: "Cancel duplicate analytics subscription and recover credit", body: "The worker submits vendor evidence, asks for approval, and binds the refund path to the same run." },
+        { label: "Outcome", value: "Refund promised. Receipt linked. Recourse still open.", body: "The action is successful only because the recovery record is readable later, not because the model said it was done." }
+      ],
+      rail: [
+        { state: "Issued", title: "Action policy is already attached", body: "The worker gets permission for this vendor action before the shell starts improvising around vendor state." },
+        { state: "Review", title: "Evidence lands before the operator decides", body: "The hosted approval surface shows the subscription, the duplicate signal, and the requested recovery amount." },
+        { state: "Executed", title: "Cancellation and refund promise stay tied together", body: "The receipt captures both the reversal and the vendor promise so finance can validate what happened later." },
+        { state: "Recoverable", title: "Dispute stays available if the refund never lands", body: "Recourse remains a first-class path when a vendor claims compliance but the money never returns." }
+      ],
+      artifactStats: [
+        { label: "Host", value: "OpenClaw", body: "More autonomous shell, same approval boundary." },
+        { label: "Approval state", value: "Evidence submitted for review", body: "The operator sees the duplicate charge context before authorizing recovery." },
+        { label: "Receipt ID", value: "rcpt_demo_20260318_014", body: "The receipt links cancellation, refund promise, and dispute eligibility in one record." }
+      ]
+    },
+    {
+      id: "api_refund",
+      label: "API refund lane",
+      title: "Direct API refund flow",
+      intro: "For builders who want the shortest scriptable path: open approval, submit evidence, finalize, and fetch the receipt over API.",
+      onboardingHref: buildManagedOnboardingHref("demo_api_refund"),
+      docsHref: docsLinks.codexEngineeringQuickstart,
+      docsLabel: "API / CLI quickstart",
+      overview: [
+        { label: "Worker", value: "Support Recovery Worker", body: "Owned by Meridian Support. Refund and dispute evidence packs are preconfigured for scriptable workflows." },
+        { label: "Host", value: "REST API", body: "No special shell. The runtime still has identity, approval, evidence, receipt, and dispute semantics." },
+        { label: "Action", value: "Recover $89 duplicate charge", body: "The client opens approval, attaches counterparty evidence, then finalizes the same grant into one receipt." },
+        { label: "Outcome", value: "Receipt fetched over API. Counterparty evidence preserved.", body: "The API path is useful because it lands on the same receipt and dispute surfaces as every other host." }
+      ],
+      rail: [
+        { state: "Issued", title: "Scriptable worker runtime exists first", body: "The API path starts from the same managed worker runtime as Claude, OpenClaw, and Codex." },
+        { state: "Pending", title: "Approval URL is still a hosted human surface", body: "Even the shortest HTTP path must hand humans into the same hosted approval page when a rule requires review." },
+        { state: "Executed", title: "Finalize only after evidence is bound", body: "The grant stays incomplete until the counterparty evidence bundle matches the approval and execution context." },
+        { state: "Recoverable", title: "Receipts stay aligned across channels", body: "Fetching the receipt over API does not create a second truth. It resolves the same worker record." }
+      ],
+      artifactStats: [
+        { label: "Host", value: "REST API", body: "Shortest integration path, same managed runtime underneath." },
+        { label: "Approval state", value: "Approved through hosted review URL", body: "The human decision still lives on the same Nooterra approval surface." },
+        { label: "Receipt ID", value: "rcpt_demo_20260318_021", body: "Counterparty evidence and finalization outcome stay attached to one deterministic record." }
+      ]
+    }
+  ];
+  const [activeScenarioId, setActiveScenarioId] = useState("claude_recovery");
+  const activeScenario = demoScenarios.find((scenario) => scenario.id === activeScenarioId) ?? demoScenarios[0];
+
+  return (
+    <SiteLayout>
+      <section className="relative flex min-h-[76vh] items-end overflow-hidden">
+        <div className="lovable-grid absolute inset-0 opacity-[0.03]" />
+        <div className="lovable-orb lovable-orb-a" />
+        <div className="lovable-orb lovable-orb-b" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
+          <div>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Public demo</p>
+              <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                See one worker go
+                <br />
+                <span className="text-[#d2b06f]">from request to receipt.</span>
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
+                Preview one worker flow with sample data before you create a workspace.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.11}>
+              <div className="mt-8 flex flex-wrap gap-3">
+                {demoScenarios.map((scenario) => {
+                  const isActive = scenario.id === activeScenario.id;
+                  return (
+                    <button
+                      key={scenario.id}
+                      type="button"
+                      onClick={() => setActiveScenarioId(scenario.id)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all duration-200 ${
+                        isActive
+                          ? "border-[#d2b06f]/40 bg-[#d2b06f]/12 text-[#f3ddae]"
+                          : "border-white/10 bg-white/5 text-stone-300 hover:bg-white/10"
+                      }`}
+                    >
+                      {scenario.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </FadeIn>
+            <FadeIn delay={0.15}>
+              <div className="mt-10 flex flex-wrap gap-4">
+                <a href={activeScenario.onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Get started free <ArrowRight size={16} />
+                </a>
+                <a href={activeScenario.docsHref} className="inline-flex items-center gap-2 rounded-md border border-[#d2b06f]/30 bg-[#d2b06f]/10 px-6 py-3 text-sm font-medium text-[#f3ddae] transition-all duration-200 hover:bg-[#d2b06f]/15">
+                  {activeScenario.docsLabel} <ArrowUpRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+            <FadeIn delay={0.2}>
+              <p className="mt-5 max-w-2xl text-sm leading-relaxed text-stone-500">{activeScenario.intro}</p>
+            </FadeIn>
+          </div>
+
+          <FadeIn delay={0.2} className="self-end">
+            <div className="lovable-panel lovable-panel-strong">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Scenario</p>
+                  <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {activeScenario.title}
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
+                  Example
+                </div>
+              </div>
+              <div className="space-y-3">
+                {activeScenario.rail.map((item, index) => (
+                  <div key={item.title} className="lovable-rail-row">
+                    <div className="lovable-rail-index">0{index + 1}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-stone-100">{item.title}</p>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-stone-400">
+                          {item.state}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Preview</p>
+            <h2 className="mb-16 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              What the flow looks like.
+              <br />
+              <span className="text-[#d2b06f]">The same steps happen after setup.</span>
+            </h2>
+          </FadeIn>
+          <div className="grid gap-5 lg:grid-cols-4">
+            {activeScenario.overview.map((item, index) => (
+              <FadeIn key={item.label} delay={0.08 * index}>
+                <div className="lovable-panel h-full">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{item.label}</p>
+                  <h3 className="mt-3 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {item.value}
+                  </h3>
+                  <p className="mt-4 text-sm leading-relaxed text-stone-400">{item.body}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto grid max-w-7xl gap-16 px-6 py-24 lg:grid-cols-[1.1fr,0.9fr] lg:px-8 lg:py-32">
+          <FadeIn>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why this matters</p>
+            <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              Show the workflow
+              <br />
+              <span className="text-[#d2b06f]">before asking for setup.</span>
+            </h2>
+            <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">
+              A preview gives operators, finance, and builders the same mental model before anyone creates a workspace or opens the docs.
+            </p>
+          </FadeIn>
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+            {activeScenario.artifactStats.map((stat, index) => (
+              <FadeIn key={stat.label} delay={0.08 * index}>
+                <div className="lovable-stat-card">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{stat.label}</p>
+                  <p className="mt-3 text-xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                    {stat.value}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-400">{stat.body}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-[#0b0f14]">
+        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+          <FadeIn>
+            <div className="lovable-panel lovable-cta-band flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Next step</p>
+                <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+                  Turn the fake run into a real one.
+                </h2>
+                <p className="mt-4 max-w-2xl text-stone-400">
+                  Create a workspace, connect one supported host, and prove the same loop with a real approval and a real receipt.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <a href={activeScenario.onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                  Get started free <ArrowRight size={16} />
+                </a>
+                <a href={activeScenario.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
+                  {activeScenario.docsLabel} <ArrowUpRight size={15} />
                 </a>
               </div>
             </div>
@@ -1317,42 +1712,42 @@ function PricingPage() {
   const builderOnboardingHref = PRICING_ONBOARDING_HREF;
   const tiers = [
     {
-      title: "Builder",
-      eyebrow: "Free",
-      body: "Best for teams learning the loop, wiring hosts, and proving the product before money or live approvals matter.",
+      title: "Free",
+      eyebrow: "Local",
+      body: "Create unlimited workers on your machine. Your API keys, your data, no cloud required.",
       points: [
-        "Sandbox Action Wallets",
-        "API, CLI, and host integrations",
-        "Simulated approvals and receipts",
-        "Limited live beta usage"
+        "Unlimited local workers",
+        "Connect any AI provider",
+        "Full charter and governance",
+        "Runs on your machine"
       ],
-      cta: { label: "Start free", href: builderOnboardingHref },
+      cta: { label: "Download free", href: builderOnboardingHref },
       featured: false
     },
     {
-      title: "Growth",
-      eyebrow: "Usage-based",
-      body: "Best for teams putting agents into production and paying for real governed actions instead of paying for seats first.",
+      title: "Pro",
+      eyebrow: "$29/month",
+      body: "Workers that run in the cloud, 24/7. Approvals from anywhere. Perfect for solo builders and small teams.",
       points: [
-        "Live hosted approvals",
-        "Receipts and disputes",
-        "Wallet limits and saved rules",
-        "Shared team controls"
+        "Cloud-hosted workers",
+        "Mobile and Slack approvals",
+        "Webhook integrations",
+        "Usage-based compute"
       ],
-      cta: { label: "Talk to us", href: "/support" },
+      cta: { label: "Start Pro trial", href: builderOnboardingHref },
       featured: true
     },
     {
-      title: "Enterprise",
-      eyebrow: "Custom",
-      body: "Best for companies rolling out agent action across teams, systems, and operators with stronger controls and longer retention.",
+      title: "Team",
+      eyebrow: "$99/month",
+      body: "Shared workers across your team. Audit logs, SSO, and controls that make compliance happy.",
       points: [
+        "Shared worker dashboard",
+        "Team approval workflows",
         "SSO and admin controls",
-        "Advanced policy and emergency controls",
-        "Audit retention and support",
-        "Guided onboarding"
+        "Audit logs and retention"
       ],
-      cta: { label: "Book the enterprise path", href: "/support" },
+      cta: { label: "Talk to us", href: builderOnboardingHref },
       featured: false
     }
   ];
@@ -1368,12 +1763,12 @@ function PricingPage() {
             <FadeIn>
               <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Pricing</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Free to build.
+                Free to start.
                 <br />
-                <span className="text-[#d2b06f]">Paid to run real governed actions.</span>
+                <span className="text-[#d2b06f]">Scale when you're ready.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                The product should be cheap to try and serious in production. Teams should not pay before they have seen one approval, one receipt, and one clear reason to trust the loop.
+                Create unlimited workers on your machine for free. Your API keys, your data, no cloud required. Upgrade when you need 24/7 hosting or team features.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -1394,18 +1789,18 @@ function PricingPage() {
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Pricing philosophy</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    Keep exploration cheap. Charge when trust matters.
+                    Your machine first. Our cloud when you're ready.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
-                  Beta posture
+                  No lock-in
                 </div>
               </div>
               <div className="space-y-3">
                 {[
-                  { title: "Builders should get to first value fast", body: "No enterprise sales wall before the first Action Wallet works." },
-                  { title: "Production usage should pay for itself", body: "Teams pay when live approvals, receipts, and recourse become part of real operations." },
-                  { title: "Enterprise work deserves an enterprise path", body: "SSO, stronger controls, and guided rollout belong in a higher-trust motion." }
+                  { title: "Free means actually free", body: "Local workers with your API keys. No credit card. No usage limits." },
+                  { title: "Cloud is opt-in", body: "Only pay when you want 24/7 hosting, mobile approvals, or team features." },
+                  { title: "Portable by design", body: "Export your workers anytime. Your charters and data stay yours." }
                 ].map((item, index) => (
                   <div key={item.title} className="lovable-rail-row">
                     <div className="lovable-rail-index">0{index + 1}</div>
@@ -1426,7 +1821,7 @@ function PricingPage() {
           <FadeIn>
             <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Plans</p>
             <h2 className="mb-16 text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              One product. Three ways to grow into it.
+              Three plans for the same product.
             </h2>
           </FadeIn>
           <div className="grid gap-5 lg:grid-cols-3">
@@ -1465,16 +1860,16 @@ function PricingPage() {
           <FadeIn>
             <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">How teams start</p>
             <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              The first sale should feel like onboarding, not procurement theater.
+              The first paid step feels like product value, not procurement theater.
             </h2>
             <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">
-              Builders and agent teams should be able to issue a workspace, connect one host, and prove the first approval-to-receipt loop quickly. Once the product touches real money or real operations, that same loop becomes the enterprise entry point.
+              Builders and operator teams can create a workspace, connect one host, and prove the first approval-to-receipt flow quickly. Once the product touches real money or real operations, that same flow becomes the enterprise entry point.
             </p>
           </FadeIn>
           <div className="grid gap-4">
             {[
-              { title: "Builder motion", body: "Self-serve onboarding, fast docs, and one first real action from Claude, OpenClaw, Codex, CLI, or API." },
-              { title: "Operator motion", body: "Shared control surface, live approvals, and a record that makes sense to someone outside the model loop." },
+              { title: "Builder motion", body: "Self-serve onboarding, fast docs, and one first governed action from Claude, OpenClaw, Codex, CLI, or API." },
+              { title: "Operator motion", body: "Shared controls, live approvals, and a record that makes sense to someone outside the model loop." },
               { title: "Enterprise motion", body: "Admin controls, stronger rollout support, and a clean path into security, finance, and ops review." }
             ].map((item, index) => (
               <FadeIn key={item.title} delay={0.1 * index}>
@@ -1500,7 +1895,7 @@ function DevelopersPage() {
     {
       id: "mcp",
       label: "Claude MCP",
-      desc: "Give Claude one tool for real-world action. Nooterra handles the approval, receipt, and dispute loop around it.",
+      desc: "Give Claude one tool for real-world action. Nooterra handles approvals, receipts, and recovery around it.",
       docsHref: docsLinks.claudeDesktopQuickstart,
       docsLabel: "Claude quickstart",
       code: `# Install the Nooterra MCP server
@@ -1522,7 +1917,7 @@ npx @nooterra/mcp-server init
     {
       id: "openclaw",
       label: "OpenClaw",
-      desc: "Drop Nooterra into OpenClaw and keep the hard parts off your plate: approval routing, receipts, and recourse.",
+      desc: "Drop Nooterra into OpenClaw and keep approvals, receipts, and recourse consistent.",
       docsHref: docsLinks.openClawQuickstart,
       docsLabel: "OpenClaw quickstart",
       code: `import { NooterraClaw } from "@nooterra/openclaw";
@@ -1532,32 +1927,34 @@ const claw = new NooterraClaw({
 });
 
 const result = await claw.execute({
-  action: "purchase",
-  amount: 49.99,
-  currency: "USD",
+  action: "cancel_recover",
+  summary: "Cancel the duplicate analytics subscription and recover credit",
   vendor: "example.com",
 });`
     },
     {
       id: "cli",
       label: "CLI",
-      desc: "Bootstrap the runtime from your terminal and prove the same hosted approval and receipt flow without building a UI first.",
+      desc: "Create and manage workers from your terminal. The full power of Nooterra in a conversational interface.",
       docsHref: docsLinks.codexEngineeringQuickstart,
-      docsLabel: "CLI / Codex guide",
-      code: `# Reuse an existing workspace
-NOOTERRA_TENANT_ID=tenant_example \\
-npm run quickstart:action-wallet:first-approval
+      docsLabel: "CLI guide",
+      code: `# Install Nooterra
+npm install -g nooterra
 
-# Or create one on the fly
-NOOTERRA_SIGNUP_EMAIL=founder@example.com \\
-NOOTERRA_SIGNUP_COMPANY="Nooterra" \\
-NOOTERRA_SIGNUP_NAME="Founding User" \\
-npm run quickstart:action-wallet:first-approval`
+# Create your first worker interactively
+nooterra
+
+# Or create directly
+nooterra new
+
+# Manage running workers
+nooterra workers
+nooterra runtime daemon status`
     },
     {
       id: "api",
       label: "REST API",
-      desc: "Call the same runtime directly over HTTP when you want the simplest possible integration surface.",
+      desc: "Call the same runtime directly over HTTP when you want the shortest integration path.",
       docsHref: docsLinks.api,
       docsLabel: "API reference",
       code: `# Open one hosted approval through the onboarding path
@@ -1568,7 +1965,7 @@ curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/s
     "hostTrack": "codex"
   }'
 
-# Then close the same governed loop with one receipt
+# Then close the same approval path with one receipt
 curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/first-paid-call \\
   -H "Authorization: Bearer $NOOTERRA_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -1605,16 +2002,18 @@ curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/f
     <SiteLayout>
       <section className="flex min-h-[60vh] items-end">
         <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
-          <FadeIn>
-            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Developers</p>
-            <h1 className="max-w-3xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              Add an Action Wallet in minutes.
-            </h1>
+            <FadeIn>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Developers</p>
+              <h1 className="max-w-3xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
+              Build with Nooterra
+              <br />
+              <span className="text-[#d2b06f]">in 5 minutes.</span>
+              </h1>
             <p className="mt-6 max-w-2xl text-lg text-stone-400">
-              Give your agent one runtime for approvals, receipts, and disputes. Pick the host or interface you already use and keep the trust layer consistent.
+              CLI, MCP, REST API, or framework — pick your integration path. Same worker runtime, same guardrails, same receipts everywhere.
             </p>
             <p className="mt-4 max-w-2xl text-sm leading-relaxed text-stone-500">
-              Launch support is intentionally narrow: Claude MCP and OpenClaw first, with the same Action Wallet runtime available through Codex, CLI, and direct API.
+              npm install -g nooterra → nooterra new → your worker is running.
             </p>
           </FadeIn>
         </div>
@@ -1649,14 +2048,14 @@ curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/f
                   <p className="mt-3 text-sm leading-relaxed text-[#d2b06f]">{activeTrack.success}</p>
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                    Create workspace <ArrowRight size={16} />
-                  </a>
+                <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-5 py-2.5 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
+                    Get started free <ArrowRight size={16} />
+                </a>
                   <a href={active.docsHref} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
                     {active.docsLabel} <ArrowUpRight size={15} />
                   </a>
                   <a href={SITE_DOC_ROUTES.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-5 py-2.5 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                    Partner kit <ArrowUpRight size={15} />
+                    Design partner guide <ArrowUpRight size={15} />
                   </a>
                 </div>
               </div>
@@ -1683,10 +2082,10 @@ curl -X POST https://api.nooterra.ai/v1/tenants/$NOOTERRA_TENANT_ID/onboarding/f
               <div>
                 <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Next step</p>
                 <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                  Start with one real action.
+                  Prove the first loop.
                 </h2>
                 <p className="mt-4 max-w-2xl text-stone-400">
-                  Use onboarding to create the workspace, issue the runtime, and run one approval-to-receipt loop. That is the bar. Everything else comes after.
+                  Create the workspace, connect one host, and run one approval-to-receipt flow. That is the bar. Everything else comes after.
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
@@ -1709,18 +2108,18 @@ function IntegrationsPage() {
   const onboardingHref = buildManagedOnboardingHref("integrations");
   const integrations = [
     {
-      name: "Claude MCP",
-      desc: "Native Model Context Protocol integration. Claude gains governed authority to take real-world actions through Nooterra.",
+      name: "MCP host",
+      desc: "Native Model Context Protocol integration. Compatible hosts can take real-world actions through Nooterra with approvals, receipts, and recovery built in.",
       status: "Available",
       href: docsLinks.claudeDesktopQuickstart,
-      ctaLabel: "Claude quickstart"
+      ctaLabel: "MCP quickstart"
     },
     {
-      name: "OpenClaw",
-      desc: "Drop-in provider for the OpenClaw agent framework. Approval, receipts, and recourse without changing execution logic.",
+      name: "Framework runtime",
+      desc: "Drop a governed worker into a more agentic framework shell without changing the approval, receipt, and recourse model.",
       status: "Available",
       href: docsLinks.openClawQuickstart,
-      ctaLabel: "OpenClaw guide"
+      ctaLabel: "Framework guide"
     },
     {
       name: "REST API",
@@ -1731,14 +2130,14 @@ function IntegrationsPage() {
     },
     {
       name: "CLI",
-      desc: "Manage policies, inspect receipts, and configure wallets from your terminal. Scriptable and CI/CD friendly.",
+      desc: "Manage budgets, inspect receipts, and configure worker controls from your terminal. Scriptable and CI/CD friendly.",
       status: "Available",
       href: docsLinks.codexEngineeringQuickstart,
       ctaLabel: "CLI guide"
     },
     {
       name: "Codex",
-      desc: "Use the same Action Wallet flow inside Codex and other engineering shells without rebuilding approvals or receipts.",
+      desc: "Use the same governed-worker flow inside Codex and other engineering shells without rebuilding approvals or receipts.",
       status: "Available",
       href: docsLinks.codexEngineeringQuickstart,
       ctaLabel: "Codex guide"
@@ -1757,12 +2156,12 @@ function IntegrationsPage() {
           <FadeIn>
             <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Integrations</p>
             <h1 className="max-w-3xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-              Connect where
+              Connect the hosts
               <br />
-              <span className="text-[#d2b06f]">agents already run.</span>
+              <span className="text-[#d2b06f]">you already use.</span>
             </h1>
             <p className="mt-6 max-w-2xl text-lg text-stone-400">
-              Nooterra is host-first by design. It fits into the shells, frameworks, and workflows teams already use instead of forcing everyone into a new destination app.
+              Bring the runtime you already use. MCP hosts, frameworks, Codex, CLI, web, and direct API should all reuse the same governed-worker contract.
             </p>
           </FadeIn>
         </div>
@@ -1774,16 +2173,16 @@ function IntegrationsPage() {
             <div className="mb-10 grid gap-4 md:grid-cols-3">
               {[
                 {
-                  title: "Install one host",
-                  body: "Start with Claude MCP, OpenClaw, Codex, or direct API. One working host beats a wide but shaky matrix."
+                  title: "Install one runtime",
+                  body: "Start with one runtime you trust. One working runtime beats a wide but shaky matrix."
                 },
                 {
-                  title: "Reach hosted approval",
-                  body: "The first real proof point is not setup. It is a live approval opening on a page a user can actually review."
+                  title: "Open a real approval",
+                  body: "The first proof point is not setup. It is a live approval opening on a page a real user can review."
                 },
                 {
-                  title: "Close with receipt",
-                  body: "A successful integration ends with a readable receipt and a clear recourse trail, not just a green terminal line."
+                  title: "End with a real receipt",
+                  body: "A successful integration ends with a readable receipt and a clear recovery path, not just a green terminal line."
                 }
               ].map((item) => (
                 <div key={item.title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
@@ -1793,10 +2192,10 @@ function IntegrationsPage() {
               ))}
             </div>
             <div className="mb-10 rounded-2xl border border-white/10 bg-white/[0.04] p-6">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">What launch means right now</p>
-              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-300">
-                Launch stays intentionally narrow: two actions, two launch hosts, one trust loop. The point is not broad compatibility. The point is a clean path from intent to receipt.
-              </p>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">What launch means right now</p>
+                <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-300">
+                Public beta stays intentionally narrow: one public action family, two launch hosts, one clean path from request to receipt.
+                </p>
             </div>
           </FadeIn>
           <div className="overflow-hidden rounded-lg bg-white/10 lg:grid lg:grid-cols-3 lg:gap-px">
@@ -1829,10 +2228,10 @@ function IntegrationsPage() {
               <div>
                 <p className="mb-3 text-xs uppercase tracking-[0.2em] text-stone-500">Install once</p>
                 <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                  Same runtime. Every host.
+                  One contract across every host.
                 </h2>
-                  <p className="mt-4 max-w-2xl text-stone-400">
-                  Claude, OpenClaw, Codex, CLI, or direct API. The interface changes. The Action Wallet contract does not.
+                <p className="mt-4 max-w-2xl text-stone-400">
+                  MCP hosts, framework shells, Codex, CLI, or direct API. The shell changes. The approval, receipt, and recovery model does not.
                 </p>
               </div>
               <div className="flex flex-wrap gap-4">
@@ -1840,10 +2239,10 @@ function IntegrationsPage() {
                   Set up runtime <ArrowRight size={16} />
                 </a>
                 <a href={SITE_DOC_ROUTES.hostQuickstart} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  Launch host guide <ArrowUpRight size={15} />
+                  Hosts guide <ArrowUpRight size={15} />
                 </a>
                 <a href={SITE_DOC_ROUTES.designPartnerKit} className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5">
-                  Partner onboarding kit <ArrowUpRight size={15} />
+                  Design partner guide <ArrowUpRight size={15} />
                 </a>
               </div>
             </div>
@@ -1864,16 +2263,16 @@ function OnboardingPage() {
 
   const activationSteps = [
     {
-      title: "Create the runtime identity",
-      body: "Issue the workspace, operator identity, and API key that Action Wallet uses to bind approvals, receipts, and disputes."
+      title: "Say what you need",
+      body: "\"I want a worker that monitors my inbox and forwards urgent emails to Slack.\" Nooterra takes it from there — one question at a time."
     },
     {
-      title: "Connect one host",
-      body: "Start with Claude MCP, OpenClaw, Codex, CLI, or API. One host path should feel boring before you widen the surface."
+      title: "Approve the charter",
+      body: "Review what the worker can do, what it asks first, and what it can never touch. Connect your AI provider and tools. Deploy in one click."
     },
     {
-      title: "Complete one real action",
-      body: "Open a hosted approval, finish the run, and close the loop with a receipt plus recourse instead of a shell-only success state."
+      title: "Worker runs forever",
+      body: "Your worker operates 24/7 on schedule, webhooks, or file watches. Get notified when it needs you. Every action produces a receipt."
     }
   ];
 
@@ -1904,7 +2303,7 @@ function OnboardingPage() {
     },
     {
       title: "OpenClaw",
-      body: "Use the same Action Wallet contract inside an agent framework and keep approval, receipt, and recourse on Nooterra surfaces.",
+      body: "Use the same approval, receipt, and recovery flow inside a more agentic shell.",
       href: docsLinks.openClawQuickstart,
       ctaLabel: "OpenClaw guide"
     },
@@ -1925,14 +2324,14 @@ function OnboardingPage() {
         <div className="relative mx-auto grid max-w-7xl gap-14 px-6 py-24 lg:grid-cols-[minmax(0,1fr),24rem] lg:px-8 lg:py-32">
           <div>
             <FadeIn>
-              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Onboarding</p>
+              <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Get started</p>
               <h1 className="max-w-4xl text-4xl leading-tight text-stone-100 md:text-5xl lg:text-6xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                Create the account.
+                Create your first worker
                 <br />
-                Run the first action.
+                <span className="text-[#d2b06f]">in under 5 minutes.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-400">
-                This is the shortest path from curiosity to a live Action Wallet. Create the workspace, connect one host, and close the first loop with approval, receipt, and recourse.
+                Describe what you need. Nooterra builds the worker, connects the tools, and deploys it. Your first worker will be running before you finish your coffee.
               </p>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -1941,15 +2340,21 @@ function OnboardingPage() {
                   href={PUBLIC_SIGNUP_HREF}
                   className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90"
                 >
-                  Create workspace <ArrowRight size={16} />
+                  Get started free <ArrowRight size={16} />
                 </a>
                 <a
                   href={SITE_DOC_ROUTES.hostQuickstart}
                   className="inline-flex items-center gap-2 rounded-md border border-white/15 px-6 py-3 text-sm font-medium text-stone-100 transition-all duration-200 hover:bg-white/5"
                 >
-                  Launch host guide <ArrowUpRight size={15} />
+                  Hosts guide <ArrowUpRight size={15} />
                 </a>
               </div>
+              <p className="mt-4 text-sm text-stone-500">
+                Already issued the workspace?{" "}
+                <a href={PUBLIC_LOGIN_HREF} className="text-stone-300 transition-colors hover:text-stone-100">
+                  Sign in and keep the same approval and receipt trail.
+                </a>
+              </p>
             </FadeIn>
           </div>
 
@@ -1990,7 +2395,7 @@ function OnboardingPage() {
                 The activation bar is simple.
               </h2>
               <p className="mt-6 max-w-2xl leading-relaxed text-stone-400">
-              The onboarding flow should not dump people into a blank shell. It should create the account, point them at one host, and make the first approval and receipt path obvious.
+              The onboarding flow creates the account, points people at one host, and makes the first approval and receipt path obvious.
               </p>
           </FadeIn>
           <div className="grid gap-4">
@@ -2010,6 +2415,7 @@ function OnboardingPage() {
       </section>
 
       <section id="identity-access" className="border-t border-white/10 bg-[#0b0f14]">
+        <span id="account-create" aria-hidden="true" />
         <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
           <FadeIn>
             <div className="lovable-panel lovable-cta-band">
@@ -2026,7 +2432,7 @@ function OnboardingPage() {
                 <div className="rounded-2xl border border-white/10 bg-[#0d1218] p-5">
                   <div className="flex items-center gap-3">
                     <Lock className="h-4 w-4 text-[#d2b06f]" />
-                    <p className="text-sm font-medium text-stone-100">Managed auth plane</p>
+                    <p className="text-sm font-medium text-stone-100">Secure sign-in</p>
                   </div>
                 <p className="mt-3 text-sm leading-relaxed text-stone-400">
                     Work email, company, and operator identity. No giant admin project before the first useful action.
@@ -2088,6 +2494,9 @@ function AccountEntryPage({
   primaryHref,
   secondaryLabel,
   secondaryHref,
+  alternateIntro,
+  alternateLabel,
+  alternateHref,
   steps,
   noteTitle,
   noteBody
@@ -2122,6 +2531,14 @@ function AccountEntryPage({
                   {secondaryLabel} <ArrowUpRight size={15} />
                 </a>
               </div>
+              {alternateHref && alternateLabel ? (
+                <p className="mt-4 text-sm text-stone-500">
+                  {alternateIntro ? `${alternateIntro} ` : ""}
+                  <a href={alternateHref} className="text-stone-300 transition-colors hover:text-stone-100">
+                    {alternateLabel}
+                  </a>
+                </p>
+              ) : null}
             </FadeIn>
           </div>
 
@@ -2157,7 +2574,7 @@ function AccountEntryPage({
       <section className="border-t border-white/10">
         <div className="mx-auto grid max-w-7xl gap-16 px-6 py-24 lg:grid-cols-[1.1fr,0.9fr] lg:px-8 lg:py-32">
           <FadeIn>
-            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why accounts exist</p>
+            <p className="mb-4 text-xs uppercase tracking-[0.2em] text-stone-500">Why accounts matter</p>
             <h2 className="text-3xl text-stone-100 md:text-4xl" style={{ fontFamily: "var(--lovable-font-serif)" }}>
               {noteTitle}
             </h2>
@@ -2168,8 +2585,8 @@ function AccountEntryPage({
               <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">What you get</p>
               <ul className="mt-4 space-y-3 text-sm leading-relaxed text-stone-300">
                 <li>Workspace identity tied to every approval, receipt, and dispute.</li>
-                <li>One runtime boundary for Claude, OpenClaw, Codex, CLI, and API.</li>
-                <li>Hosted trust surfaces that can be revoked, audited, and reopened later.</li>
+                <li>One runtime boundary for MCP hosts, framework shells, Codex, CLI, and API.</li>
+                <li>Hosted approval, receipt, and dispute pages that can be revoked, audited, and reopened later.</li>
               </ul>
             </div>
           </FadeIn>
@@ -2193,7 +2610,7 @@ function TrustEntryPage({
   ctaLabel = "Open onboarding",
   onboardingHref = MANAGED_ONBOARDING_HREF,
   supportHref = SITE_DOC_ROUTES.hostQuickstart,
-  supportLabel = "Launch host guide"
+  supportLabel = "Hosts guide"
 }) {
   return (
     <SiteLayout>
@@ -2226,13 +2643,13 @@ function TrustEntryPage({
             <div className="lovable-panel lovable-panel-strong">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Decision rail</p>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">How it works</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    What this surface controls.
+                    What this page handles.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
-                  Live trust layer
+                  Live product
                 </div>
               </div>
               <div className="space-y-3">
@@ -2316,11 +2733,11 @@ function TrustEntryPage({
                   Real surface. Real controls.
                 </h2>
                 <p className="mt-4 max-w-2xl text-stone-400">
-                  Once your workspace is issued, this route becomes the live Action Wallet surface. Until then, we show the product clearly instead of dumping you into an empty shell.
+                  Once your workspace is issued, this route becomes the live governed-worker surface. Until then, we show the product clearly instead of dumping you into an empty shell.
                 </p>
               </div>
               <a href={onboardingHref} className="inline-flex items-center gap-2 rounded-md bg-[#d2b06f] px-6 py-3 text-sm font-medium text-[#0b0f14] transition-all duration-200 hover:opacity-90">
-                Create workspace <ArrowRight size={16} />
+                Get started free <ArrowRight size={16} />
               </a>
             </div>
           </FadeIn>
@@ -2369,13 +2786,13 @@ function ResourcePage({
             <div className="lovable-panel lovable-panel-strong">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Why this page exists</p>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">Quick orientation</p>
                   <h2 className="mt-2 text-2xl text-stone-100" style={{ fontFamily: "var(--lovable-font-serif)" }}>
-                    One clear route for one clear question.
+                    Start here.
                   </h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#d2b06f]">
-                  First-class route
+                  Docs
                 </div>
               </div>
               <div className="space-y-3">
@@ -2496,6 +2913,7 @@ function FailStatePage({
 
 export default function LovableSite({ mode = "home" }) {
   if (mode === "product") return <ProductPage />;
+  if (mode === "demo") return <DemoPage />;
   if (mode === "pricing") return <PricingPage />;
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "integrations") return <IntegrationsPage />;
@@ -2504,19 +2922,22 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <AccountEntryPage
         eyebrow="Sign up"
-        title="Create the workspace before the agent gets to act."
-        summary="The public site should explain the account step clearly, then hand off into the secure runtime setup without dropping people straight into an older internal shell."
-        primaryLabel="Continue to secure account setup"
-        primaryHref={MANAGED_ONBOARDING_HREF}
-        secondaryLabel="Why this account exists"
-        secondaryHref={PUBLIC_ONBOARDING_HREF}
+        title="Create your workspace. Deploy your first worker."
+        summary="One workspace holds all your workers, approvals, and receipts. Takes 30 seconds."
+        primaryLabel="Create workspace"
+        primaryHref={buildManagedAccountHref({ flow: "signup", source: "public_signup", hash: "account-create" })}
+        secondaryLabel="See how it works"
+        secondaryHref={PUBLIC_DEMO_HREF}
+        alternateIntro="Already issued the workspace?"
+        alternateLabel="Sign in instead."
+        alternateHref={PUBLIC_LOGIN_HREF}
         steps={[
           { title: "Create the workspace identity", body: "Start with work email, company, and operator identity so approvals, receipts, and disputes already have a real owner." },
-          { title: "Issue the runtime", body: "Bootstrap one Action Wallet runtime boundary instead of scattering keys and permissions across hosts." },
+          { title: "Issue the runtime", body: "Bootstrap one governed-worker runtime boundary instead of scattering keys and permissions across hosts." },
           { title: "Prove one live action", body: "Seed one approval, finish one run, and end with one real receipt before broadening scope." }
         ]}
-        noteTitle="A real Action Wallet needs a real workspace."
-        noteBody="Browsing docs and product pages should stay anonymous. The moment the system starts issuing approvals, receipts, and revocable authority, it needs an account boundary that can be audited and controlled."
+        noteTitle="A real governed worker needs a real workspace."
+        noteBody="Browse the product without signing in. Create a workspace when you are ready to issue approvals, receipts, and revocable authority."
       />
     );
   }
@@ -2525,18 +2946,21 @@ export default function LovableSite({ mode = "home" }) {
       <AccountEntryPage
         eyebrow="Sign in"
         title="Return to the same workspace, approvals, and receipts."
-        summary="Login should feel like a clean continuation of the branded site, then hand off into the secure account flow only when it is time to authenticate."
+        summary="Sign-in continues the public site, then hands off into the secure account flow only when it is time to authenticate."
         primaryLabel="Continue to secure sign-in"
-        primaryHref={MANAGED_ONBOARDING_HREF}
-        secondaryLabel="Open support"
+        primaryHref={buildManagedAccountHref({ flow: "login", source: "public_login", hash: "identity-access" })}
+        secondaryLabel="Need help recovering access"
         secondaryHref={SITE_DOC_ROUTES.support}
+        alternateIntro="Need a new workspace first?"
+        alternateLabel="Create one here."
+        alternateHref={PUBLIC_SIGNUP_HREF}
         steps={[
-          { title: "Open the managed auth plane", body: "Use the secure auth flow for the workspace instead of trying to sign in from a dead-end public form." },
-          { title: "Return to your runtime", body: "Resume the same Action Wallet account, host bindings, and trust surfaces you used before." },
-          { title: "Pick up the loop", body: "Go back to approval, receipt, dispute, or runtime bootstrap without losing the current artifact chain." }
+          { title: "Open secure sign-in", body: "Use the secure workspace sign-in flow instead of a dead-end public form." },
+          { title: "Return to your runtime", body: "Resume the same worker, host bindings, and approval pages you used before." },
+          { title: "Pick up the loop", body: "Go back to approval, receipt, dispute, or runtime bootstrap without losing the current record." }
         ]}
         noteTitle="Accounts are for real actions, not for reading the site."
-        noteBody="People should be able to learn the product without signing in. They only need an account when the system starts binding authority, runtime state, and receipts to a real operator and workspace."
+        noteBody="Browse first. Sign in when you need the same workspace, approvals, and receipts."
       />
     );
   }
@@ -2544,19 +2968,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs"
-        title="Documentation with the website as the index, not a dead-end redirect."
-        summary="Every major public route should explain itself first, then hand users into the deeper docs where the runtime details live."
+        title="Docs for your first live action."
+        summary="Set up a host, open approval, inspect the receipt, and go deeper only when you need API or ops detail."
         primaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
-        secondaryCta={{ label: "View architecture", href: SITE_DOC_ROUTES.architecture }}
+        secondaryCta={{ label: "See the walkthrough", href: PUBLIC_DEMO_HREF }}
         proofPoints={[
-          { title: "Browse by job", body: "Quickstart, architecture, integrations, API, security, and ops each get their own route and context." },
-          { title: "Keep the jump short", body: "The website explains what the doc set is for before sending users into the full reference surface." },
-          { title: "Make the next click obvious", body: "Every route should present one clear primary doc path instead of a generic docs redirect." }
+          { title: "Start with a real task", body: "Begin with quickstart, the hosts guide, or the API docs depending on what you need to prove first." },
+          { title: "Read by job", body: "Quickstart, integrations, API, security, and ops each answer a different question." },
+          { title: "Move toward the live action", body: "Each page gets you closer to a real approval, receipt, and recovery flow." }
         ]}
         sections={[
           { eyebrow: "Start", title: "Quickstart", body: "Get from zero to your first real action with the smallest possible loop.", href: "/docs/quickstart", ctaLabel: "Open quickstart" },
-          { eyebrow: "Build", title: "Architecture", body: "Understand the control plane, artifact chain, and runtime boundaries before you widen scope.", href: "/docs/architecture", ctaLabel: "View architecture" },
-          { eyebrow: "Run", title: "Operations", body: "Launch checklist, cutover, incidents, and operator runbooks for real production usage.", href: "/docs/ops", ctaLabel: "Open ops docs" }
+          { eyebrow: "Connect", title: "Integrations", body: "See the supported hosts and how they land on the same approval, receipt, and dispute loop.", href: "/docs/integrations", ctaLabel: "View integrations" },
+          { eyebrow: "Reference", title: "API", body: "Read the launch-scoped lifecycle and object model when you need the real contract.", href: "/docs/api", ctaLabel: "Open API docs" }
         ]}
       />
     );
@@ -2565,19 +2989,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Quickstart"
-        title="Start with one real action, not a giant setup ritual."
-        summary="The quickstart should get a builder or operator to the first approval and receipt path with the fewest moving parts possible."
-        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_quickstart") }}
-        secondaryCta={{ label: "Open engineering guide", href: docsLinks.codexEngineeringQuickstart }}
+        title="Quickstart"
+        summary="Go from zero to approval, receipt, and recovery with the smallest possible loop. If you want the shape first, open the walkthrough."
+        primaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_quickstart") }}
+        secondaryCta={{ label: "See the walkthrough", href: PUBLIC_DEMO_HREF }}
         proofPoints={[
-          { title: "One runtime", body: "Bootstrap the workspace once, then reuse the same trust contract across hosts." },
-          { title: "One live loop", body: "Install, approval, receipt, dispute. Nothing else matters until that path is boring." },
-          { title: "One artifact chain", body: "The quickstart should leave users with a real approval URL and a real receipt, not a shell-only success message." }
+          { title: "One runtime", body: "Bootstrap the workspace once, then reuse the same worker flow across hosts." },
+          { title: "One live loop", body: "Install, approval, receipt, dispute. Nothing else matters until that path is stable." },
+          { title: "One record", body: "Leave with a real approval URL and a real receipt, not a shell-only success message." }
         ]}
         sections={[
           { eyebrow: "Hosted", title: "Managed onboarding", body: "Use the public onboarding rail if you want the website to issue the runtime for you.", href: buildManagedOnboardingHref("docs_quickstart"), ctaLabel: "Start onboarding" },
-          { eyebrow: "CLI", title: "Codex / CLI quickstart", body: "The fastest engineering path is still the Action Wallet first-governed-action script.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" },
-          { eyebrow: "Hosts", title: "Launch host guide", body: "Pick the supported host path you want to prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" }
+          { eyebrow: "CLI", title: "Codex / CLI quickstart", body: "Use the script once you are ready to run the live loop.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" },
+          { eyebrow: "Hosts", title: "Hosts guide", body: "Pick the supported host path you want to prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open hosts guide" }
         ]}
       />
     );
@@ -2586,19 +3010,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Architecture"
-        title="Understand the control plane before you trust it."
-        summary="Architecture should explain what Nooterra governs, what it does not, and how proofs, receipts, and recourse remain bound to each action."
+        title="How Nooterra works."
+        summary="See what Nooterra governs, what stays in the host, and how approvals, receipts, and recovery stay bound to the same action."
         primaryCta={{ label: "API surface", href: SITE_DOC_ROUTES.api }}
-        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        secondaryCta={{ label: "Launch guide", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
           { title: "Policy, not prompts", body: "The system makes decisions through explicit rules and bounded grants, not hidden prompt state." },
-          { title: "Evidence, not vibes", body: "Receipts, verifier results, and disputes are attached to the same artifact chain." },
+          { title: "Evidence, not vibes", body: "Receipts, verifier results, and disputes stay attached to the same record." },
           { title: "Recourse, not dead history", body: "The system is only trustworthy if the same run can later be challenged and unwound." }
         ]}
         sections={[
-          { eyebrow: "Control plane", title: "Architecture", body: "Read the full control-plane description and artifact lineage.", href: docsLinks.architecture, ctaLabel: "View docs" },
+          { eyebrow: "Architecture", title: "System overview", body: "Read the full system description and artifact lineage.", href: docsLinks.architecture, ctaLabel: "View docs" },
           { eyebrow: "Reference", title: "API surface", body: "See the launch-scoped lifecycle as a real contract, not a loose set of endpoints.", href: "/docs/api", ctaLabel: "API docs" },
-          { eyebrow: "Ops", title: "Launch checklist", body: "Translate the architecture into concrete launch gates and operator controls.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Launch checklist" }
+          { eyebrow: "Ops", title: "Launch guide", body: "Translate the architecture into concrete launch gates and operator controls.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open launch guide" }
         ]}
       />
     );
@@ -2607,18 +3031,18 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Integrations"
-        title="Every channel should reuse the same trust contract."
-        summary="Claude MCP, OpenClaw, Codex, CLI, and direct API should all resolve into the same approval, receipt, and dispute surfaces."
+        title="Host integrations"
+        summary="MCP hosts, framework runtimes, Codex, CLI, and direct API can all reuse the same approval, receipt, and dispute surfaces."
         primaryCta={{ label: "Launch hosts", href: SITE_DOC_ROUTES.hostQuickstart }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_integrations") }}
+        secondaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_integrations") }}
         proofPoints={[
           { title: "Host-native in front", body: "The agent experience stays inside the host until trust, proof, or recourse is needed." },
-          { title: "Hosted trust surfaces", body: "Approval, wallet, receipt, and dispute stay canonical even when the initiating host changes." },
-          { title: "Parity over breadth", body: "One boring first-run loop per channel matters more than a long unsupported matrix." }
+          { title: "Hosted product pages", body: "Approval, budget, receipt, and dispute stay aligned even when the initiating host changes." },
+          { title: "Parity over breadth", body: "One repeatable first-run path per channel matters more than a long unsupported matrix." }
         ]}
         sections={[
-          { eyebrow: "Claude", title: "Claude MCP", body: "Best first host when you want the clearest approval handoff.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "Claude quickstart" },
-          { eyebrow: "Framework", title: "OpenClaw", body: "Use the same Action Wallet loop inside a more agentic shell.", href: docsLinks.openClawQuickstart, ctaLabel: "OpenClaw guide" },
+          { eyebrow: "MCP", title: "MCP hosts", body: "Use the same governed-worker loop inside host-native tools.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "MCP quickstart" },
+          { eyebrow: "Framework", title: "Framework runtimes", body: "Reuse the same governed-worker loop inside a more agentic shell.", href: docsLinks.openClawQuickstart, ctaLabel: "Framework guide" },
           { eyebrow: "Engineering", title: "Codex / CLI / API", body: "For builders who want the shortest path from install to the first real action.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Engineering guide" }
         ]}
       />
@@ -2628,19 +3052,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / API"
-        title="The API should feel like one product, not a bag of endpoints."
-        summary="Action Wallet becomes trustworthy when the lifecycle is explicit: intent, approval, grant, evidence, receipt, and dispute."
+        title="One lifecycle. Clear contracts."
+        summary="The API is explicit: intent, approval, grant, evidence, receipt, and dispute."
         primaryCta={{ label: "Run quickstart", href: docsLinks.codexEngineeringQuickstart }}
-        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        secondaryCta={{ label: "Launch guide", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
-          { title: "Deterministic writes", body: "The contract should fail closed on missing evidence, mismatched scope, or non-JSON control-plane drift." },
-          { title: "Canonical links", body: "Hosted approval, receipt, and dispute surfaces should resolve consistently from every channel." },
-          { title: "Idempotent state", body: "The API should make repeated retries safe and auditable instead of ambiguous." }
+          { title: "Deterministic writes", body: "The contract fails closed on missing evidence, mismatched scope, or malformed API responses." },
+          { title: "Canonical links", body: "Hosted approval, receipt, and dispute surfaces resolve consistently from every channel." },
+          { title: "Idempotent state", body: "Repeated retries stay safe and auditable instead of ambiguous." }
         ]}
         sections={[
-          { eyebrow: "Lifecycle", title: "Action Wallet v1", body: "Read the full launch-scoped lifecycle and object model.", href: docsLinks.api, ctaLabel: "View lifecycle" },
+          { eyebrow: "Lifecycle", title: "Governed worker lifecycle", body: "Read the lifecycle and object model for governed runs, approvals, receipts, and disputes.", href: docsLinks.api, ctaLabel: "View lifecycle" },
           { eyebrow: "Quickstart", title: "First real action", body: "Use the quickstart script to exercise the same API flow end to end.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Run quickstart" },
-          { eyebrow: "Ops", title: "Launch checklist", body: "See what the API must prove before you trust it in production.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" }
+          { eyebrow: "Ops", title: "Launch guide", body: "See what the API must prove before you trust it in production.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open launch guide" }
         ]}
       />
     );
@@ -2649,19 +3073,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Security"
-        title="Security should explain the boundaries, not just claim them."
-        summary="Nooterra is only credible if the public docs explain fail-closed behavior, scoped authority, operator controls, and the ways the system blocks unsafe state drift."
+        title="Security model"
+        summary="Understand fail-closed behavior, scoped authority, and operator controls in plain language."
         primaryCta={{ label: "Security overview", href: "/security" }}
-        secondaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        secondaryCta={{ label: "Launch guide", href: SITE_DOC_ROUTES.launchChecklist }}
         proofPoints={[
-          { title: "Fail closed by default", body: "Missing artifacts, route drift, or mismatched bindings should stop the action, not silently succeed." },
+          { title: "Fail closed by default", body: "Missing artifacts, route drift, or mismatched bindings stop the action instead of silently succeeding." },
           { title: "Scoped authority", body: "Hosts get bounded grants, not vague permission to act however they like." },
           { title: "Operator backstops", body: "Kill switches, quarantine, and dispute resolution are part of the product, not an afterthought." }
         ]}
         sections={[
           { eyebrow: "Model", title: "Security model", body: "Read the full trust boundaries and runtime constraints.", href: docsLinks.security, ctaLabel: "Open model" },
           { eyebrow: "Ops", title: "Operations", body: "See how production controls and incident response connect to the security posture.", href: docsLinks.ops, ctaLabel: "Ops docs" },
-          { eyebrow: "Policy", title: "Launch checklist", body: "Use the launch list as the concrete security bar for go-live.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Launch checklist" }
+          { eyebrow: "Policy", title: "Launch guide", body: "Use the launch guide as the concrete security bar for go-live.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open launch guide" }
         ]}
       />
     );
@@ -2670,19 +3094,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Operations"
-        title="Operator pages should lead to runbooks, not leave you guessing."
-        summary="The ops surface is part of the product. Launch checklists, incidents, cutover, and host success gates should be discoverable from the website too."
-        primaryCta={{ label: "Launch checklist", href: SITE_DOC_ROUTES.launchChecklist }}
+        title="Operations"
+        summary="Runbooks for launch, incidents, cutover, and day-to-day operator work."
+        primaryCta={{ label: "Launch guide", href: SITE_DOC_ROUTES.launchChecklist }}
         secondaryCta={{ label: "Open status", href: "/status" }}
         proofPoints={[
-          { title: "Readiness before launch", body: "Synthetic smokes and onboarding gates should catch route drift before a user does." },
+          { title: "Readiness before launch", body: "Synthetic smokes and onboarding gates catch route drift before a user does." },
           { title: "Rescue before scale", body: "Operators need quarantine, revoke, refund, and dispute resolution before the product broadens." },
-          { title: "Cutover with evidence", body: "Prod claims should be backed by machine-readable reports, not gut feel." }
+          { title: "Cutover with evidence", body: "Production claims are backed by machine-readable reports, not gut feel." }
         ]}
         sections={[
           { eyebrow: "Runbooks", title: "Operations", body: "Daily runbook, health loops, and launch readiness details.", href: docsLinks.ops, ctaLabel: "Open ops" },
-          { eyebrow: "Launch", title: "Checklist", body: "The go-live bar for the first product loop.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open checklist" },
-          { eyebrow: "Incidents", title: "Incident response", body: "What happens when a run, host, or money lane goes sideways.", href: SITE_DOC_ROUTES.incidents, ctaLabel: "Open incident docs" }
+          { eyebrow: "Launch", title: "Launch guide", body: "What must be true before the first release is live.", href: SITE_DOC_ROUTES.launchChecklist, ctaLabel: "Open launch guide" },
+          { eyebrow: "Incidents", title: "Incident response", body: "What happens when a run, host, or money lane goes sideways.", href: SITE_DOC_ROUTES.incidents, ctaLabel: "Open incident response" }
         ]}
       />
     );
@@ -2690,20 +3114,20 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "docs_launch_hosts") {
     return (
       <ResourcePage
-        eyebrow="Docs / Launch hosts"
-        title="Every supported host should land on the same approval, receipt, and dispute loop."
-        summary="The launch host guide is the public index for proving Claude MCP, OpenClaw, and engineering-shell integrations against one Action Wallet runtime."
-        primaryCta={{ label: "Open Claude quickstart", href: docsLinks.claudeDesktopQuickstart }}
+        eyebrow="Docs / Hosts"
+        title="Hosts"
+        summary="MCP hosts, framework runtimes, and engineering-shell paths should all prove the same governed-worker loop."
+        primaryCta={{ label: "Open MCP quickstart", href: docsLinks.claudeDesktopQuickstart }}
         secondaryCta={{ label: "View integrations", href: "/integrations" }}
         proofPoints={[
-          { title: "Claude MCP first", body: "The cleanest host handoff still matters most for proving the trust layer." },
-          { title: "Framework parity second", body: "OpenClaw and engineering shells should reuse the same approval URL, receipt link, and dispute route." },
-          { title: "One runtime everywhere", body: "Hosts change. The authority contract and artifact chain should not." }
+          { title: "Host parity", body: "The cleanest host handoff still matters most for proving the product." },
+          { title: "Framework parity", body: "Framework runtimes and engineering shells should reuse the same approval URL, receipt link, and dispute route." },
+          { title: "One runtime everywhere", body: "Hosts change. The authority contract and proof trail do not." }
         ]}
         sections={[
-          { eyebrow: "Launch", title: "Claude MCP", body: "The primary host for the simplest install-to-approval proof loop.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "Open Claude quickstart" },
-          { eyebrow: "Framework", title: "OpenClaw", body: "The supported framework path for proving host-native parity.", href: docsLinks.openClawQuickstart, ctaLabel: "Open OpenClaw guide" },
-          { eyebrow: "Engineering", title: "Codex / CLI / API", body: "Use the same managed Action Wallet flow from scripts and shells.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" }
+          { eyebrow: "MCP", title: "MCP hosts", body: "A direct host path for the simplest install-to-approval loop.", href: docsLinks.claudeDesktopQuickstart, ctaLabel: "Open MCP quickstart" },
+          { eyebrow: "Framework", title: "Framework runtimes", body: "A framework path for proving host-native parity.", href: docsLinks.openClawQuickstart, ctaLabel: "Open framework guide" },
+          { eyebrow: "Engineering", title: "Codex / CLI / API", body: "Use the same managed governed-worker flow from scripts and shells.", href: docsLinks.codexEngineeringQuickstart, ctaLabel: "Open engineering guide" }
         ]}
       />
     );
@@ -2711,19 +3135,19 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "docs_partner_kit") {
     return (
       <ResourcePage
-        eyebrow="Docs / Partner kit"
-        title="Design partners should get one disciplined onboarding pack, not tribal knowledge."
-        summary="The partner kit is the public handoff for what a launch partner needs to run a first real action, what evidence to expect, and how to escalate problems."
-        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_partner_kit") }}
-        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
+        eyebrow="Docs / Design partners"
+        title="Design partner guide"
+        summary="Everything a launch partner needs to run one real action, understand the evidence, and know where to escalate issues."
+        primaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_partner_kit") }}
+        secondaryCta={{ label: "Hosts guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
-          { title: "Fast first value", body: "Partners should reach one hosted approval and one receipt quickly." },
+          { title: "Fast first value", body: "Partners reach one hosted approval and one receipt quickly." },
           { title: "Sharp expectations", body: "What is supported, what is not, and where to escalate must be visible before the first run." },
-          { title: "Shared language", body: "Hosts, receipts, disputes, and operator rescue should be explained the same way everywhere." }
+          { title: "Shared language", body: "Hosts, receipts, disputes, and operator rescue are explained the same way everywhere." }
         ]}
         sections={[
-          { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: buildManagedOnboardingHref("docs_partner_kit"), ctaLabel: "Create workspace" },
-          { eyebrow: "Hosts", title: "Launch host guide", body: "Choose the exact host path the partner will prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Activation", title: "Onboarding", body: "Issue the runtime and point partners at one supported host.", href: buildManagedOnboardingHref("docs_partner_kit"), ctaLabel: "Get started free" },
+          { eyebrow: "Hosts", title: "Hosts guide", body: "Choose the exact host path the partner will prove first.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open hosts guide" },
           { eyebrow: "Runbook", title: "Support and escalation", body: "Use the same support and operator path when something breaks.", href: SITE_DOC_ROUTES.support, ctaLabel: "Open support path" }
         ]}
       />
@@ -2733,18 +3157,18 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Claude MCP"
-        title="Claude should reach its first approval without leaving people guessing."
-        summary="This is the cleanest launch host. Install the MCP server, seed one Action Wallet request, and prove the approval-to-receipt loop before expanding anywhere else."
-        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_claude_desktop") }}
-        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
+        title="Claude MCP quickstart"
+        summary="Install the MCP server, seed one worker-account request, and prove the approval-to-receipt loop before expanding anywhere else."
+        primaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_claude_desktop") }}
+        secondaryCta={{ label: "Hosts guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
           { title: "Host-native first", body: "Claude stays in front until trust, proof, or recourse needs a hosted Nooterra surface." },
-          { title: "One approval path", body: "The first success bar is a hosted approval URL that resolves cleanly back into the same wallet, receipt, and dispute chain." },
-          { title: "No shell theater", body: "The quickstart should leave a real receipt, not just a completed local command." }
+          { title: "One approval path", body: "The first success bar is a hosted approval URL that resolves cleanly back into the same budget, receipt, and dispute chain." },
+          { title: "Real result", body: "End with a real receipt, not just a completed local command." }
         ]}
         sections={[
           { eyebrow: "Setup", title: "Create the workspace", body: "Issue the managed account first so the approval and receipt surfaces already exist when Claude asks to act.", href: buildManagedOnboardingHref("docs_claude_desktop"), ctaLabel: "Start onboarding" },
-          { eyebrow: "Launch", title: "Launch host guide", body: "See where Claude sits in the supported host matrix and how it shares the same runtime contract as every other channel.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
+          { eyebrow: "Hosts", title: "Hosts guide", body: "See where Claude sits in the supported host matrix and how it shares the same runtime contract as every other channel.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open hosts guide" },
           { eyebrow: "Reference", title: "API lifecycle", body: "The Claude flow still resolves into the same ActionIntent, ApprovalRequest, ExecutionGrant, receipt, and dispute chain.", href: SITE_DOC_ROUTES.api, ctaLabel: "Open API docs" }
         ]}
       />
@@ -2754,19 +3178,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / OpenClaw"
-        title="OpenClaw should prove host-native parity, not invent a second product."
-        summary="Use the OpenClaw path when you want a more agentic shell, but keep approvals, receipts, and disputes on the same Action Wallet contract."
-        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_openclaw") }}
-        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
+        title="OpenClaw quickstart"
+        summary="Use the OpenClaw path when you want a more agentic shell, but keep approvals, receipts, and disputes on the same hosted flow."
+        primaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_openclaw") }}
+        secondaryCta={{ label: "Hosts guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         proofPoints={[
-          { title: "Same runtime underneath", body: "The host gets freedom in the shell, not freedom from the Action Wallet rules and artifacts." },
-          { title: "Hosted trust surfaces stay canonical", body: "Approvals, receipts, and disputes still belong to Nooterra even when the initiating shell is more autonomous." },
-          { title: "Parity beats novelty", body: "The point of OpenClaw is to prove the same loop survives a more agentic environment." }
+          { title: "Same runtime underneath", body: "The host gets freedom in the shell, not freedom from the worker-account rules and artifacts." },
+          { title: "Hosted product pages stay aligned", body: "Approvals, receipts, and disputes still belong to Nooterra even when the initiating shell is more autonomous." },
+          { title: "Keep the flow consistent", body: "OpenClaw is useful only if the same approval, receipt, and recovery flow survives a more agentic environment." }
         ]}
         sections={[
           { eyebrow: "Setup", title: "Managed onboarding", body: "Start with the same workspace and runtime identity used by Claude, Codex, CLI, and direct API flows.", href: buildManagedOnboardingHref("docs_openclaw"), ctaLabel: "Start onboarding" },
-          { eyebrow: "Hosts", title: "Launch host guide", body: "Compare OpenClaw against the other supported channels and keep the scope disciplined.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
-          { eyebrow: "Reference", title: "Developers", body: "OpenClaw is still a builder path, so the developer page should stay close at hand while you prove the first governed action.", href: "/developers", ctaLabel: "View developers" }
+          { eyebrow: "Hosts", title: "Hosts guide", body: "Compare OpenClaw against the other supported channels and keep the first rollout narrow.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open hosts guide" },
+          { eyebrow: "Reference", title: "Developers", body: "Use the developer page when you need the runtime, SDK, and host-pack details behind the OpenClaw flow.", href: "/developers", ctaLabel: "View developers" }
         ]}
       />
     );
@@ -2775,19 +3199,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Codex / CLI / API"
-        title="The shortest engineering path should still leave a real approval and receipt."
-        summary="This route is for builders who want the direct scriptable flow. Use it to prove the same managed Action Wallet loop from Codex, CLI, or raw API calls."
-        primaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_codex") }}
+        title="CLI and API quickstart"
+        summary="Use the direct scriptable flow to prove the same managed worker-account loop from Codex, CLI, or raw API calls."
+        primaryCta={{ label: "Get started free", href: buildManagedOnboardingHref("docs_codex") }}
         secondaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
         proofPoints={[
           { title: "Scriptable end to end", body: "Bootstrap, seed approval, and verify the hosted links without needing the UI to fake success for you." },
-          { title: "Fail closed on route drift", body: "The quickstart should stop immediately if the public API returns HTML, stale links, or incomplete artifacts." },
+          { title: "Fail closed on route drift", body: "Stop immediately if the public API returns HTML, stale links, or incomplete artifacts." },
           { title: "Same receipts, same disputes", body: "CLI and API users should land on the same receipt and recourse surfaces as every other host." }
         ]}
         sections={[
-          { eyebrow: "Quickstart", title: "First governed action", body: "Run the direct engineering loop and make sure it returns approval, run, and receipt links that all resolve on the public site.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
-          { eyebrow: "Launch", title: "Launch host guide", body: "Codex, CLI, and API are part of the launch matrix even when they are not the most polished public shell.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open host guide" },
-          { eyebrow: "Environment", title: "Local environment", body: "When you need the repo and runtime details, use the local environment guide instead of digging through random files.", href: SITE_DOC_ROUTES.localEnvironment, ctaLabel: "Open local guide" }
+          { eyebrow: "Quickstart", title: "First live action", body: "Run the direct engineering path and make sure it returns approval, run, and receipt links that all resolve on the public site.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
+          { eyebrow: "Hosts", title: "Hosts guide", body: "Codex, CLI, and API are supported channels even when they are not the most polished public surface.", href: SITE_DOC_ROUTES.hostQuickstart, ctaLabel: "Open hosts guide" },
+          { eyebrow: "Environment", title: "Local environment", body: "When you need the repo and runtime details, use the local environment guide.", href: SITE_DOC_ROUTES.localEnvironment, ctaLabel: "Open local guide" }
         ]}
       />
     );
@@ -2796,19 +3220,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Docs / Local environment"
-        title="Set up the repo once, then get back to proving the live loop."
-        summary="The local environment route exists for engineers who need the repo and runtime details without leaving the branded site for a dead external docs domain."
+        title="Local setup"
+        summary="Run Nooterra locally, then prove the first approval and receipt."
         primaryCta={{ label: "Open developers", href: "/developers" }}
         secondaryCta={{ label: "Open quickstart", href: SITE_DOC_ROUTES.quickstart }}
         proofPoints={[
-          { title: "Local is a means, not the product", body: "The point of local setup is still to reach a real approval, receipt, and dispute loop as quickly as possible." },
-          { title: "One repo, one runtime", body: "Use the documented setup path instead of wandering through internal files and deployment clutter." },
-          { title: "Keep public docs coherent", body: "Even engineering-heavy pages should feel like part of the same website and not bounce users to another domain." }
+          { title: "Local setup should feel familiar", body: "Use the same approval, receipt, and dispute loop you expect in production." },
+          { title: "One repo, one runtime", body: "Use the documented setup path instead of chasing setup details across the repo." },
+          { title: "One docs flow", body: "Engineering-heavy pages should still feel like part of one product." }
         ]}
         sections={[
-          { eyebrow: "Build", title: "Developers", body: "Start from the developer page if you need the public-facing overview of channels, SDKs, and support surfaces.", href: "/developers", ctaLabel: "Open developers" },
-          { eyebrow: "Run", title: "Quickstart", body: "Once the repo is ready, go straight into the first governed action loop instead of staying in setup mode.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
-          { eyebrow: "Ops", title: "Operations", body: "If the local environment differs from production behavior, the ops docs are where the live gates and recovery rules live.", href: SITE_DOC_ROUTES.ops, ctaLabel: "Open ops docs" }
+          { eyebrow: "Build", title: "Developers", body: "Start here if you want the public overview of channels, SDKs, and support surfaces.", href: "/developers", ctaLabel: "Open developers" },
+          { eyebrow: "Run", title: "Quickstart", body: "Once the repo is ready, go straight to the first live action.", href: SITE_DOC_ROUTES.quickstart, ctaLabel: "Open quickstart" },
+          { eyebrow: "Ops", title: "Operations", body: "Use the ops docs when production behavior and recovery rules matter.", href: SITE_DOC_ROUTES.ops, ctaLabel: "Open ops docs" }
         ]}
       />
     );
@@ -2816,20 +3240,20 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "docs_launch_checklist") {
     return (
       <ResourcePage
-        eyebrow="Docs / Launch checklist"
-        title="A production claim should map to a concrete release bar."
-        summary="This route turns the launch checklist into a public website page first, then hands off into the full runbook when deeper operator detail is needed."
+        eyebrow="Docs / Launch"
+        title="Launch checklist"
+        summary="What must be true before the first release is live."
         primaryCta={{ label: "Open status", href: "/status" }}
-        secondaryCta={{ label: "Create workspace", href: buildManagedOnboardingHref("docs_launch_checklist") }}
+        secondaryCta={{ label: "See the walkthrough", href: PUBLIC_DEMO_HREF }}
         proofPoints={[
-          { title: "Route health first", body: "Public routes and same-origin control-plane paths should be green before any launch claim." },
-          { title: "Proof loop second", body: "Install, approval, receipt, and dispute should work on live hosts before broad rollout." },
+          { title: "Route health first", body: "Public routes and same-origin auth paths are green before any launch claim." },
+          { title: "Proof loop second", body: "Install, approval, receipt, and dispute work on live hosts before broad rollout." },
           { title: "Operator controls third", body: "Kill switches, quarantine, and recourse must exist before scale." }
         ]}
         sections={[
-          { eyebrow: "Website", title: "Public route smoke", body: "The live website has to prove each public route is branded, intentional, and wired correctly.", href: "/status", ctaLabel: "Open status" },
-          { eyebrow: "Runtime", title: "First real action", body: "The real product bar is still the first live approval-to-receipt loop.", href: buildManagedOnboardingHref("docs_launch_checklist"), ctaLabel: "Create workspace" },
-          { eyebrow: "Docs", title: "Operations", body: "Dive into the full operator checklist and cutover docs if you need the full detail.", href: docsLinks.ops, ctaLabel: "Open ops docs" }
+          { eyebrow: "Website", title: "Public route smoke", body: "The live website should prove each public route is branded and wired correctly.", href: "/status", ctaLabel: "Open status" },
+          { eyebrow: "Runtime", title: "First real action", body: "The launch bar is the first live approval-to-receipt loop.", href: buildManagedOnboardingHref("docs_launch_checklist"), ctaLabel: "Get started free" },
+          { eyebrow: "Docs", title: "Operations", body: "Open the operator docs if you need the full detail.", href: docsLinks.ops, ctaLabel: "Open ops docs" }
         ]}
       />
     );
@@ -2837,20 +3261,20 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "docs_incidents") {
     return (
       <ResourcePage
-        eyebrow="Docs / Incidents"
-        title="When something goes wrong, the support path should already exist."
-        summary="Incident response is part of the product. This route gives operators, partners, and builders a clear first stop before they dive into the full runbook."
+        eyebrow="Docs / Incident response"
+        title="Incident response"
+        summary="What to do when approvals, receipts, or payment flows go wrong."
         primaryCta={{ label: "Open support", href: "/support" }}
         secondaryCta={{ label: "Open status", href: "/status" }}
         proofPoints={[
-          { title: "One escalation path", body: "Users should know where to go when approvals, receipts, or disputes drift." },
-          { title: "Keep the artifact chain intact", body: "Incident handling should preserve grants, receipts, verifier results, and disputes." },
-          { title: "Operator action is part of trust", body: "Rescue, revoke, refund, quarantine, and kill switches are all public trust commitments." }
+          { title: "One escalation path", body: "Know where to go when approvals, receipts, or disputes drift." },
+          { title: "Keep the record intact", body: "Incident handling preserves grants, receipts, verifier results, and disputes." },
+          { title: "Recovery is part of the product", body: "Rescue, revoke, refund, quarantine, and kill switches stay available when things go wrong." }
         ]}
         sections={[
-          { eyebrow: "Rescue", title: "Operator controls", body: "The operator console is the first place incidents become actionable.", href: "/status", ctaLabel: "Open status" },
-          { eyebrow: "Recourse", title: "Disputes", body: "Challenge and unwind the bad action without losing the underlying record.", href: "/disputes", ctaLabel: "Open disputes" },
-          { eyebrow: "Support", title: "Public support path", body: "Use the website support route for the visible escalation path.", href: "/support", ctaLabel: "Open support" }
+          { eyebrow: "Rescue", title: "Status and controls", body: "The status page is the first place incidents become actionable.", href: "/status", ctaLabel: "Open status" },
+          { eyebrow: "Recourse", title: "Disputes", body: "Challenge and unwind the bad action without losing the record.", href: "/disputes", ctaLabel: "Open disputes" },
+          { eyebrow: "Support", title: "Support", body: "Use Support for the visible escalation path.", href: "/support", ctaLabel: "Open support" }
         ]}
       />
     );
@@ -2868,19 +3292,19 @@ export default function LovableSite({ mode = "home" }) {
     return (
       <ResourcePage
         eyebrow="Terms"
-        title="Product boundaries should be visible before users sign in."
-        summary="This page is the public route for what the first product actually is: host-first Action Wallet, launch-scoped hosts, and explicit recourse instead of vague automation claims."
+        title="See the product boundary before you sign in."
+        summary="These terms cover governed AI workers, connected capabilities, approval surfaces, and the audit and recovery boundaries around consequential AI actions."
         primaryCta={{ label: "Open docs hub", href: "/docs" }}
         secondaryCta={{ label: "Developers", href: "/developers" }}
         proofPoints={[
-          { title: "Launch scope is narrow", body: "Buy plus cancel/recover on the supported host/runtime paths." },
-          { title: "The website is not the whole product", body: "Host-native interaction, hosted trust surfaces, and the underlying Action Wallet flow all matter." },
+          { title: "Authority is bounded", body: "Workers only act within explicit limits, connected capability boundaries, and current approval state." },
+          { title: "More than the marketing site", body: "Host-native interaction, hosted approval pages, and the underlying governed-worker flow all matter." },
           { title: "Recourse is part of the promise", body: "Users should understand that approvals, receipts, and disputes are core, not optional." }
         ]}
         sections={[
           { eyebrow: "Scope", title: "Developers", body: "See the actual launch channels and runtime entry points.", href: "/developers", ctaLabel: "View developers" },
-          { eyebrow: "Surfaces", title: "Trust pages", body: "Approvals, receipts, disputes, and wallet are the public trust layer.", href: "/wallet", ctaLabel: "View trust pages" },
-          { eyebrow: "Reference", title: "Docs", body: "Full reference, launch checklist, and architecture beyond the marketing layer.", href: "/docs", ctaLabel: "Open docs" }
+          { eyebrow: "Surfaces", title: "Live product pages", body: "Approvals, receipts, disputes, and wallet are the public-facing product surfaces.", href: "/wallet", ctaLabel: "View product pages" },
+          { eyebrow: "Reference", title: "Docs", body: "Full reference, launch guidance, and architecture beyond the marketing layer.", href: "/docs", ctaLabel: "Open docs" }
         ]}
       />
     );
@@ -2898,10 +3322,10 @@ export default function LovableSite({ mode = "home" }) {
         proofBody="Approval links should fail closed when the time window is over. The host must ask again so the user can re-confirm consequence, amount, and current context."
         reasonCode="EXPIRED_LINK"
         primaryCta={{ label: "Issue a fresh approval", href: MANAGED_ONBOARDING_HREF }}
-        secondaryCta={{ label: "Launch host guide", href: SITE_DOC_ROUTES.hostQuickstart }}
+        secondaryCta={{ label: "Hosts guide", href: SITE_DOC_ROUTES.hostQuickstart }}
         steps={[
-          { eyebrow: "Reopen", title: "Request again", body: "Seed a new hosted approval from onboarding or the initiating host instead of retrying the expired link.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Open onboarding" },
-          { eyebrow: "Resume", title: "Return to the host", body: "Claude, OpenClaw, or Codex should create a fresh approval request when the user resumes the task.", href: "/integrations", ctaLabel: "View integrations" },
+          { eyebrow: "Reopen", title: "Request again", body: "Seed a new hosted approval from onboarding or the initiating runtime instead of retrying the expired link.", href: MANAGED_ONBOARDING_HREF, ctaLabel: "Open onboarding" },
+          { eyebrow: "Resume", title: "Return to the runtime", body: "The initiating runtime creates a fresh approval request when the user resumes the task.", href: "/integrations", ctaLabel: "View integrations" },
           { eyebrow: "Understand", title: "Read the trust model", body: "Why expired links exist and how the approval window is enforced.", href: "/docs/security", ctaLabel: "Security docs" }
         ]}
       />
@@ -2916,10 +3340,10 @@ export default function LovableSite({ mode = "home" }) {
         proofTitle="Revoked means the system no longer trusts the grant."
         proofBody="A revoked grant should immediately remove the host’s right to continue. That keeps the system deterministic when a user changes their mind or an operator intervenes."
         reasonCode="GRANT_REVOKED"
-        primaryCta={{ label: "Return to wallet", href: "/wallet" }}
+        primaryCta={{ label: "Return to controls", href: "/wallet" }}
         secondaryCta={{ label: "Open dispute guidance", href: "/disputes" }}
         steps={[
-          { eyebrow: "Inspect", title: "Check authority state", body: "Open the wallet and confirm which host, rule, or one-time grant was revoked.", href: "/wallet", ctaLabel: "Open wallet" },
+          { eyebrow: "Inspect", title: "Check authority state", body: "Open the controls view and confirm which host, rule, or one-time grant was revoked.", href: "/wallet", ctaLabel: "Open controls" },
           { eyebrow: "Recover", title: "Create a new bounded grant", body: "If the action is still needed, reopen the approval flow rather than trying to reuse the revoked authority.", href: "/approvals", ctaLabel: "Open approvals" },
           { eyebrow: "Escalate", title: "Use recourse when needed", body: "If a revoked grant still led to a bad outcome, move directly into receipt and dispute handling.", href: "/disputes", ctaLabel: "Open disputes" }
         ]}
@@ -2950,16 +3374,16 @@ export default function LovableSite({ mode = "home" }) {
       <FailStatePage
         eyebrow="Unsupported host"
         title="This host is outside the launch support envelope."
-        summary="Nooterra Action Wallet launches with a narrow host matrix. If this action came from a different shell, use a supported channel or the direct API/CLI path."
+        summary="Nooterra launches with a narrow host matrix. If this action came from a different shell, use a supported channel or the direct API/CLI path."
         proofTitle="Launch support is intentionally narrow."
-        proofBody="The runtime should be boring before it gets broad. Unsupported-host messaging should make the current boundary explicit and give the user a supported path forward."
+        proofBody="The runtime needs to be stable before it gets broad. Unsupported-host messaging makes the current boundary explicit and gives the user a supported path forward."
         reasonCode="UNSUPPORTED_HOST"
         primaryCta={{ label: "Choose a supported host", href: "/integrations" }}
         secondaryCta={{ label: "Engineering quickstart", href: docsLinks.codexEngineeringQuickstart }}
         steps={[
-          { eyebrow: "Supported now", title: "Use launch hosts", body: "Claude MCP and OpenClaw are the first-class launch hosts for the guided approval loop.", href: "/integrations", ctaLabel: "View host matrix" },
-          { eyebrow: "Builders", title: "Fallback to API or CLI", body: "Codex, CLI, and direct HTTP all use the same Action Wallet flow even if the shell is not a launch-native host.", href: "/developers", ctaLabel: "Developer routes" },
-          { eyebrow: "Scope", title: "Read the launch boundary", body: "Understand which channels are live now and which are coming later.", href: "/docs/integrations", ctaLabel: "Integration docs" }
+          { eyebrow: "Supported now", title: "Use a connected runtime", body: "Start from the runtime you already use and keep the governed-worker loop intact.", href: "/integrations", ctaLabel: "View host matrix" },
+          { eyebrow: "Builders", title: "Fallback to API or CLI", body: "Codex, CLI, and direct HTTP all use the same worker flow even if the shell is not a dedicated host integration.", href: "/developers", ctaLabel: "Developer routes" },
+          { eyebrow: "Scope", title: "Read the integration boundary", body: "Understand which channels are polished now and which are still rough edges.", href: "/docs/integrations", ctaLabel: "Integration docs" }
         ]}
       />
     );
@@ -2967,14 +3391,14 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "wallet") {
     return (
       <TrustEntryPage
-        eyebrow="Action Wallet"
-        title="One wallet for every consequential AI action."
-        summary="Start with a one-time approval, save a preference when it helps, or set durable rules later. Action Wallet sits between agent intent and real-world consequence."
-        proofTitle="The operating account for machine action."
-        proofBody="The wallet is where people decide what an agent may do, how far that authority goes, when a human must approve, and how they can intervene later if the result is wrong."
+        eyebrow="Authority"
+        title="One governed worker layer for consequential AI action."
+        summary="Start with a one-time approval, save a preference when it helps, or set durable rules later. The governed worker layer sits between agent intent and real-world consequence."
+        proofTitle="The authority boundary for machine action."
+        proofBody="This page is where people decide what an agent may do, how far that authority goes, when a human must approve, and how they can intervene later if the result is wrong."
         rail={[
           { title: "Issue authority", state: "scoped", body: "Approve one action, remember a preference, or create a reusable rule with clear limits." },
-          { title: "Attach it to the right host", state: "revocable", body: "Claude, OpenClaw, Codex, CLI, and API all run through the same wallet instead of five separate control systems." },
+          { title: "Attach it to the right runtime", state: "revocable", body: "TUI, web, API, and connected hosts all run through the same governed-worker contract instead of separate control systems." },
           { title: "Carry limits forward", state: "enforced", body: "Budgets, approvals, dispute windows, and revocation rights stay attached to the action." }
         ]}
         bullets={[
@@ -2982,14 +3406,14 @@ export default function LovableSite({ mode = "home" }) {
           { title: "Remember what matters", body: "Repeated approvals can become saved preferences after the user sees the product work." },
           { title: "Shared control later", body: "Teams can layer in thresholds, hosts, budgets, and delegated scope on top of the same runtime." }
         ]}
-        artifactTitle="A wallet should read like an authority ledger."
-        artifactBody="The live wallet is where users see active hosts, pending grants, revocations, and the exact limits attached to future actions. It should feel closer to a control ledger than a settings page."
+        artifactTitle="This page should read like an authority ledger."
+        artifactBody="The live budget and authority page is where users see active hosts, pending grants, revocations, and the exact limits attached to future actions. It should read more like a control ledger than a settings page."
         artifactStats={[
           { label: "Authority", value: "One-time, remembered, durable", body: "Users can start simple and grow into stronger controls without changing the underlying model." },
-          { label: "Hosts", value: "Claude, OpenClaw, Codex", body: "Every runtime uses the same grant and receipt model, so trust does not fork by host." },
+          { label: "Hosts", value: "MCP, frameworks, Codex", body: "Every runtime uses the same grant and receipt model, so trust does not fork by host." },
           { label: "Controls", value: "Limits, revokes, windows", body: "Real constraints stay attached to actions instead of hiding in prompts or tribal knowledge." }
         ]}
-        ctaLabel="Set up Action Wallet"
+        ctaLabel="Set up worker"
         onboardingHref={buildManagedOnboardingHref("wallet")}
       />
     );
@@ -3008,12 +3432,12 @@ export default function LovableSite({ mode = "home" }) {
           { title: "Resume only if state still matches", state: "gated", body: "The host resumes only when approval, expiry, and evidence requirements still line up." }
         ]}
         bullets={[
-          { title: "Plain language first", body: "People should not need operator jargon to understand what the agent wants permission to do." },
+          { title: "Plain language first", body: "People do not need operator jargon to understand what the agent wants permission to do." },
           { title: "One-time before durable", body: "Approve one thing first, then save the pattern later if it becomes useful." },
           { title: "Fail closed", body: "Missing context, missing evidence, or mismatched scope means the action does not proceed." }
         ]}
         artifactTitle="Approval is the handoff between autonomy and authority."
-        artifactBody="This page should behave like a serious sign-off surface. It explains the action, the cost or consequence, whether the decision is one-time or repeatable, and what can be challenged later if the outcome looks wrong."
+        artifactBody="This page behaves like a serious sign-off surface. It explains the action, the cost or consequence, whether the decision is one-time or repeatable, and what can be challenged later if the outcome looks wrong."
         artifactStats={[
           { label: "Decisioning", value: "Approve, ask, block", body: "The user sees whether the action can proceed now, needs review, or is stopped outright." },
           { label: "Binding", value: "Scope + expiry + proof", body: "Approval creates a scoped grant with a real time window and explicit evidence expectations." },
@@ -3033,9 +3457,9 @@ export default function LovableSite({ mode = "home" }) {
         proofTitle="A receipt is where trust becomes durable."
         proofBody="If an agent buys, cancels, refunds, or changes something real, users need one place to confirm the outcome, the proof returned, and whether recourse is still available."
         rail={[
-          { title: "Show what happened", state: "canonical", body: "Intent, approval, grant, execution, and amount all resolve to the same record." },
-          { title: "Show why it is trusted", state: "deterministic", body: "The verifier result and evidence trail should be visible without opening raw payloads." },
-          { title: "Keep recourse close", state: "actionable", body: "If something looks wrong, the user should be one click away from the dispute path." }
+          { title: "Show what happened", state: "complete", body: "Intent, approval, grant, execution, and amount all resolve to the same record." },
+          { title: "Show why it is trusted", state: "deterministic", body: "The verifier result and evidence trail stay visible without opening raw payloads." },
+          { title: "Keep recourse close", state: "actionable", body: "If something looks wrong, the dispute path stays one click away." }
         ]}
         bullets={[
           { title: "Bound to the action", body: "Approval, grant, evidence, amount, and final state remain attached to the same run." },
@@ -3045,7 +3469,7 @@ export default function LovableSite({ mode = "home" }) {
         artifactTitle="Receipts are where AI actions become understandable."
         artifactBody="The live receipt vault should make it obvious what happened, why the runtime trusted it, what proof came back, and whether the recourse window is still open. That is the product surface people come back to later."
         artifactStats={[
-          { label: "Artifact chain", value: "Intent -> grant -> evidence", body: "Each completed action can be reconstructed without chasing logs across systems." },
+          { label: "Proof trail", value: "Intent -> grant -> evidence", body: "Each completed action can be reconstructed without chasing logs across systems." },
           { label: "Human legibility", value: "Outcome, proof, amount", body: "The receipt should answer the questions people actually have after an action completes." },
           { label: "Recourse", value: "Refunds, disputes, reversals", body: "Receipts are live records with follow-on rights, not inert history." }
         ]}
@@ -3075,7 +3499,7 @@ export default function LovableSite({ mode = "home" }) {
         artifactTitle="A dispute should preserve the evidence chain, not break it."
         artifactBody="Users need a visible route from receipt to challenge to resolution, including timing expectations and likely next steps. Operators need enough state to unwind a bad action without losing the underlying artifacts or host context."
         artifactStats={[
-          { label: "Entry point", value: "Receipt-linked", body: "The challenge begins from the same artifact chain that authorized and finalized the action." },
+          { label: "Entry point", value: "Receipt-linked", body: "The challenge begins from the same record that authorized and finalized the action." },
           { label: "Operator tools", value: "Refund, revoke, quarantine", body: "Real recourse requires real interventions, not just a support form." },
           { label: "Outcome", value: "Resolved with lineage", body: "The resolution becomes part of the permanent history of that run." }
         ]}
