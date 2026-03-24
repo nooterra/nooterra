@@ -136,6 +136,17 @@ function main() {
     return runNodeScript("scripts/worker-builder/cli.mjs", ["--workers"]);
   }
 
+  if (cmd === "test") {
+    // Dry-run a worker
+    const workerName = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/test-worker.mjs", [workerName]);
+  }
+
+  if (cmd === "logs") {
+    const workerName = argv.slice(1).join(' ');
+    return runNodeScript("scripts/worker-builder/worker-logs.mjs", [workerName]);
+  }
+
   // --- Setup & auth ---
 
   if (cmd === "setup") {

@@ -23,7 +23,7 @@ const DAEMON_STATUS_FILE = path.join(os.homedir(), '.nooterra', 'daemon-status.j
 const DAEMON_PID_FILE = path.join(os.homedir(), '.nooterra', 'daemon.pid');
 const RUN_HISTORY_DIR = path.join(os.homedir(), '.nooterra', 'runs');
 const DEFAULT_INTERVAL_MS = 5000;
-const MAX_TOOL_ROUNDS = 10;
+const MAX_TOOL_ROUNDS = 25; // Allow complex multi-step workflows
 
 // ---------------------------------------------------------------------------
 // Execution Engine
@@ -443,17 +443,46 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
   const taskId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const startTime = Date.now();
 
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt(charter);
+  // Load worker memory — context from previous runs
+  let memory = {};
+  try {
+    const { WorkerMemory } = await import('./worker-memory.mjs');
+    const mem = new WorkerMemory(worker.id);
+    memory = mem.getAll ? mem.getAll() : (mem.memory || {});
+  } catch {}
+
+  // Build system prompt with memory context
+  let systemPrompt = buildSystemPrompt(charter);
+
+  // Inject memory into system prompt if worker has prior context
+  const memoryKeys = Object.keys(memory);
+  if (memoryKeys.length > 0) {
+    const memoryContext = memoryKeys.map(k => `- ${k}: ${JSON.stringify(memory[k])}`).join('\n');
+    systemPrompt += `\n\nYou have memory from previous runs:\n${memoryContext}\n\nUse this context to inform your work. Update your memory by noting important findings in your response.`;
+  }
 
   // Discover tools from MCP servers
   const availableTools = await buildToolDefs(mcpManager, charter);
+
+  // Add memory tools so the AI can save/retrieve context
+  availableTools.push({
+    name: '__save_memory',
+    description: 'Save a key-value pair to persistent memory for future runs. Use this to remember important findings, state, or context.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Memory key (e.g., "last_checked_email_id", "competitor_prices")' },
+        value: { type: 'string', description: 'Value to remember' }
+      },
+      required: ['key', 'value']
+    }
+  });
 
   // Conversation messages (start with the task trigger)
   const messages = [
     {
       role: 'user',
-      content: `Execute your purpose: ${charter.purpose}\n\nPerform your scheduled task now. Use your available tools if needed, otherwise respond with a status update.`
+      content: `Execute your purpose: ${charter.purpose}\n\nPerform your scheduled task now. Use your available tools if needed. Save important findings to memory with __save_memory so you remember them next time.`
     }
   ];
 
@@ -487,6 +516,24 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
 
     for (const tc of aiResponse.toolCalls) {
       totalToolCalls++;
+
+      // Handle memory save (internal tool, always allowed)
+      if (tc.name === '__save_memory') {
+        try {
+          const { WorkerMemory } = await import('./worker-memory.mjs');
+          const mem = new WorkerMemory(worker.id);
+          const key = tc.args?.key || 'default';
+          const value = tc.args?.value || '';
+          if (mem.set) mem.set(key, value);
+          else mem.memory[key] = value;
+          if (mem.save) mem.save();
+          toolResults.push({ id: tc.id, name: tc.name, result: `Saved to memory: ${key}` });
+          console.log(`[exec] Memory saved: ${key}`);
+        } catch (memErr) {
+          toolResults.push({ id: tc.id, name: tc.name, result: `Memory save failed: ${memErr.message}` });
+        }
+        continue;
+      }
 
       // Classify against charter
       const classification = classifyAction(tc.name, tc.args, charter);
@@ -525,19 +572,35 @@ async function runWorkerExecution(worker, mcpManager, notificationBus, apiKey) {
       // canDo — execute via MCP if we have a connected server, otherwise tell the AI
       const toolDef = availableTools.find(t => t.name === tc.name);
       if (toolDef && toolDef._serverId) {
-        try {
-          const mcpResult = await mcpManager.callTool(toolDef._serverId, tc.name, tc.args);
-          const resultStr = typeof mcpResult === 'string' ? mcpResult : JSON.stringify(mcpResult);
-          toolResults.push({ id: tc.id, name: tc.name, result: resultStr });
-          console.log(`[exec] Tool ${tc.name} executed via MCP server ${toolDef._serverId}`);
-        } catch (mcpErr) {
-          const errMsg = `Tool execution error: ${mcpErr.message}`;
+        // Retry with exponential backoff (up to 3 attempts)
+        let lastErr = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+              await new Promise(r => setTimeout(r, delay));
+              console.log(`[exec] Retrying ${tc.name} (attempt ${attempt + 1})...`);
+            }
+            const mcpResult = await mcpManager.callTool(toolDef._serverId, tc.name, tc.args);
+            const resultStr = typeof mcpResult === 'string' ? mcpResult : JSON.stringify(mcpResult);
+            toolResults.push({ id: tc.id, name: tc.name, result: resultStr });
+            console.log(`[exec] Tool ${tc.name} executed via MCP server ${toolDef._serverId}`);
+            lastErr = null;
+            break;
+          } catch (mcpErr) {
+            lastErr = mcpErr;
+            // Don't retry on auth errors or missing tools
+            if (mcpErr.message?.includes('not found') || mcpErr.message?.includes('auth')) break;
+          }
+        }
+        if (lastErr) {
+          const errMsg = `Tool "${tc.name}" failed after retries: ${lastErr.message}. Try a different approach.`;
           toolResults.push({ id: tc.id, name: tc.name, result: errMsg, error: true });
-          console.error(`[exec] MCP tool ${tc.name} failed: ${mcpErr.message}`);
+          console.error(`[exec] MCP tool ${tc.name} failed: ${lastErr.message}`);
         }
       } else {
-        // No MCP server for this tool — tell the AI
-        const noServerMsg = `Tool "${tc.name}" is not connected to an MCP server. Describe what you would do instead.`;
+        // No MCP server for this tool — tell the AI to adapt
+        const noServerMsg = `Tool "${tc.name}" is not connected. Available tools: ${availableTools.filter(t => t._serverId).map(t => t.name).join(', ') || 'none'}. Describe what you would do or use available tools.`;
         toolResults.push({ id: tc.id, name: tc.name, result: noServerMsg, unavailable: true });
       }
     }
