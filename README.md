@@ -18,8 +18,7 @@
   <a href="https://nooterra.ai/docs"><img src="https://img.shields.io/badge/docs-nooterra.ai-6366f1" alt="Docs"></a>
 </p>
 
-<!-- TODO: Uncomment once demo.gif is generated with VHS -->
-<!-- <p align="center"><img src=".github/assets/demo.gif" width="640" alt="Nooterra demo"></p> -->
+<p align="center"><img src=".github/assets/demo.gif" width="640" alt="Nooterra demo"></p>
 
 <br>
 
