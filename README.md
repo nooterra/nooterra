@@ -120,7 +120,7 @@ nooterra daemon status      # Health check
 nooterra daemon install     # Auto-start on login (macOS/Linux)
 ```
 
-Cron schedules, webhook triggers, file watchers, email polling, or continuous operation. Crash recovery with exponential backoff. Workers keep running after you close the terminal.
+Cron schedules, webhook triggers, or continuous operation. Crash recovery with exponential backoff. Workers keep running after you close the terminal.
 
 ### Any AI Provider
 
@@ -147,7 +147,7 @@ Swap providers anytime. Workers keep their identity, knowledge, and charter.
 | `github_api` | Repos, issues, PRs |
 | `send_email` | Send emails via SMTP |
 
-Connect more with `nooterra add <tool>` &mdash; Stripe, Notion, Google Sheets, and [20+ integrations](https://docs.nooterra.com/capabilities).
+Connect more with `nooterra add <tool>` &mdash; [see all capabilities](https://nooterra.ai/docs/capabilities).
 
 ### Live Activity Feed
 
