@@ -1,7 +1,7 @@
 {
   "name": "nooterra",
   "version": "0.2.8",
-  "description": "Nooterra kernel CLI and local control-plane tooling",
+  "description": "AI workers for consequential work — governed, approved, audited",
   "license": "Apache-2.0",
   "private": false,
   "type": "module",

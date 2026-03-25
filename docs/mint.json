@@ -1,0 +1,102 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Nooterra",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5",
+    "anchors": {
+      "from": "#6366F1",
+      "to": "#8B5CF6"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/nooterra/nooterra"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Install",
+    "url": "https://docs.nooterra.com/getting-started"
+  },
+  "tabs": [
+    {
+      "name": "Reference",
+      "url": "reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/nooterra/nooterra"
+    },
+    {
+      "name": "Discord",
+      "icon": "discord",
+      "url": "https://discord.gg/nooterra"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "getting-started",
+        "creating-workers",
+        "charters"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "capabilities",
+        "approvals",
+        "scheduling",
+        "providers"
+      ]
+    },
+    {
+      "group": "Architecture",
+      "pages": [
+        "ARCHITECTURE",
+        "TRUST",
+        "CONFIG"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/claude-desktop",
+        "integrations/openclaw",
+        "integrations/mcp-servers"
+      ]
+    },
+    {
+      "group": "Reference",
+      "pages": [
+        "reference/cli",
+        "reference/charter-schema",
+        "reference/capability-registry",
+        "reference/api"
+      ]
+    },
+    {
+      "group": "Community",
+      "pages": [
+        "DEVELOPMENT",
+        "RELEASING"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/nooterra/nooterra",
+    "discord": "https://discord.gg/nooterra",
+    "twitter": "https://twitter.com/nooterra"
+  }
+}

@@ -1,10 +1,24 @@
-# Nooterra
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/banner-light.svg">
+    <img alt="Nooterra" src=".github/assets/banner-dark.svg" width="560">
+  </picture>
+</p>
 
-[![CI](https://github.com/nooterra/nooterra/actions/workflows/tests.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/tests.yml)
-[![npm](https://img.shields.io/npm/v/nooterra)](https://www.npmjs.com/package/nooterra)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+<p align="center">
+  <b>AI workers for consequential work.</b><br>
+  Create workers in plain English. They run 24/7 with guardrails, approvals, and audit trails.
+</p>
 
-**AI workers that actually do things.** Create workers in plain English, teach them your business, and let them run 24/7 with guardrails.
+<p align="center">
+  <a href="https://github.com/nooterra/nooterra/actions/workflows/tests.yml"><img src="https://github.com/nooterra/nooterra/actions/workflows/tests.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/nooterra"><img src="https://img.shields.io/npm/v/nooterra" alt="npm"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
+</p>
+
+<!-- TODO: Replace with actual demo GIF once generated with VHS -->
+<!-- <p align="center"><img src=".github/assets/demo.gif" width="600" alt="Nooterra demo"></p> -->
 
 ## Quick Start
 
@@ -13,176 +27,74 @@ npm install -g nooterra
 nooterra
 ```
 
-That's it. Describe what you need and a worker deploys in seconds:
+Describe what you need. A governed worker deploys in seconds:
 
 ```
-> monitor competitor prices on acme.com
+> I need a support worker that handles billing questions, looks up
+  customers in Stripe, and drafts refund replies
 
-  ⚡ Competitor Prices Monitor
-    Tools: Web Browser
-    Can do: Browse websites, Search the web
-    Schedule: Every 1h
-    Deploy? (yes)
+  Customer Support Worker
+    Tools: Email, Stripe, Slack
+    Can do: Read emails, Look up billing, Draft replies
+    Ask first: Issue refunds, Make promises about features
+    Never do: Share customer data, Make up information
+    Schedule: Continuous
 
-> yes
-  ✓ Competitor Prices Monitor deployed!
+  Deploy? yes
+
+  Worker deployed. Run: nooterra run "Customer Support Worker"
 ```
 
-## What Can Workers Do?
+## How It Works
 
-Workers use real tools to do real work:
+**You describe the work.** Nooterra infers the tools, rules, and schedule.
 
-```
-> /run Competitor Prices Monitor
+**Workers follow a charter.** Every worker has explicit authority boundaries &mdash; what it can do autonomously, what needs your approval, and what it must never do. Enforced at runtime, not just in the prompt.
 
-  0.0s  Thinking... (round 1)
-  2.1s  🔧 web_fetch (https://acme.com/pricing)
-  3.8s  ✓ web_fetch → 2341 chars
-  3.9s  🔧 web_search ("acme corp pricing changes")
-  4.3s  ✓ web_search → 1204 chars
-  6.1s  💾 Memory saved: acme_pricing_snapshot
-  6.2s  ✅ Done — 2 rounds, 2 tools
+**Sensitive actions need approval.** When a worker wants to issue a refund or send an external email, it pauses and routes to you. Approve from your terminal, Slack, or a webhook. The worker waits.
 
-  Acme Corp pricing as of today:
-  - Starter: $29/mo (unchanged)
-  - Pro: $79/mo (was $99 — price DROP detected!)
-```
+**Everything is logged.** Every action, every tool call, every decision &mdash; recorded with full audit trails. You see exactly what happened and why.
 
-## Key Features
+## Features
 
-### One-Sentence Workers
-Describe any job in plain English. Nooterra infers the name, tools, rules, and schedule.
-
-```sh
-nooterra
-> make me a customer support bot      # Detects profile, sets up charter
-> sales assistant to find leads        # Browser + email capabilities
-> summarize our team standups          # Slack integration
-```
-
-### Teach Your Business
-Give workers company knowledge — FAQs, policies, product info:
-
-```sh
-nooterra teach "Support Bot" "Our refund policy is 30 days no questions asked"
-nooterra teach "Support Bot" https://company.com/faq
-nooterra teach "Support Bot" ~/Documents/product-guide.pdf
-```
-
-### Real Tools, Zero Config
-Workers come with built-in tools that work immediately:
-
-| Tool | What It Does | Config |
-|------|-------------|--------|
-| `web_fetch` | Fetch any webpage, extract text/links/JSON | None |
-| `web_search` | Search the web via DuckDuckGo/Brave | None |
-| `read_file` / `write_file` | Read and write files | None |
-| `slack_send` / `slack_read` | Send and read Slack messages | `nooterra add slack` |
-| `github_api` | GitHub repos, issues, PRs | `nooterra add github` |
-| `send_email` | Send emails via SMTP | `nooterra add email` |
-
-```sh
-nooterra add slack        # Paste token, validated, done
-nooterra add github       # Paste token, validated, done
-nooterra tools            # See what's connected
-```
-
-### Guardrails (Charter)
-Every worker has a charter — what it can do, what needs approval, what it must never do:
+### Guardrails That Are Actually Enforced
 
 ```yaml
-name: Customer Support Bot
 canDo:
   - Read customer emails
-  - Send helpful replies
   - Look up FAQ answers
+  - Search the web
 askFirst:
   - Issue refunds
-  - Make promises about features
+  - Send external communications
 neverDo:
   - Share customer data between customers
   - Make up information
+  - Delete records
 ```
 
-### Run 24/7
-Workers run in the background, even after you close the terminal:
+Not prompt instructions. Runtime-enforced action classification. `neverDo` actions are blocked regardless of what the model says. Unknown actions default to requiring approval.
 
-```sh
-nooterra daemon start     # Start background daemon
-nooterra daemon status    # Check health
-nooterra daemon install   # Auto-start on login (macOS/Linux)
-nooterra daemon stop      # Stop daemon
-```
+### Approvals Built In
 
-### Live Activity Feed
-See exactly what your workers are doing in real time:
+Workers pause on sensitive actions and route them to you with full context &mdash; the draft, the source data, and the reasoning. Approve, edit, or reject in seconds.
 
-```sh
-nooterra run "Price Monitor"
-nooterra logs "Price Monitor"
-nooterra dashboard
-```
-
-### Notifications
-Get alerted when workers find things:
-
-- Desktop notifications (macOS — works immediately)
+- Terminal prompts
 - Slack messages
-- Email alerts
 - Webhooks
+- Auto-approve after repeated identical approvals
 
-## All Commands
-
-```sh
-# Create & manage
-nooterra                      # Interactive TUI
-nooterra new                  # Create a worker
-nooterra workers              # List workers
-nooterra templates            # Quick start templates
-nooterra teach <worker> <info> # Teach company knowledge
-
-# Run & monitor
-nooterra run <worker>         # Run with live activity
-nooterra test <worker>        # Dry run
-nooterra logs <worker>        # Execution history
-nooterra dashboard            # System dashboard
-
-# Tools
-nooterra add <tool>           # Connect a tool
-nooterra tools                # List tool status
-
-# Daemon
-nooterra daemon start         # Run workers 24/7
-nooterra daemon status        # Check health
-nooterra daemon install       # Auto-start on login
-
-# Advanced
-nooterra approvals            # Pending approval queue
-nooterra cost                 # Provider cost tracking
-nooterra health               # Provider health
-```
-
-## Templates
-
-Get started in seconds with pre-built workers:
-
-| Template | What It Does |
-|----------|-------------|
-| Price Monitor | Track prices on websites, alert on changes |
-| Inbox Triage | Read email, categorize, forward urgent to Slack |
-| Standup Summarizer | Summarize team standup messages daily |
-| Competitor Watcher | Monitor competitor sites for changes |
-| PR Reviewer | Review pull requests, comment on quality |
-| Social Monitor | Track brand mentions across the web |
+### Runs 24/7
 
 ```sh
-nooterra
-> /templates
+nooterra daemon start       # Background daemon with crash recovery
+nooterra daemon status      # Health check
+nooterra daemon install     # Auto-start on login (macOS/Linux)
 ```
 
-## AI Providers
+Cron schedules, webhook triggers, file watchers, email polling, or continuous operation. Workers keep running after you close the terminal.
 
-Works with any AI provider:
+### Any AI Provider
 
 | Provider | Setup |
 |----------|-------|
@@ -194,64 +106,111 @@ Works with any AI provider:
 | Groq (fast, free tier) | API key |
 | Ollama (local, free) | No key needed |
 
-## MCP Server
+Swap providers anytime. Workers keep their identity, knowledge, and rules.
 
-Use Nooterra from Claude Code, Codex, Cursor, or any MCP client:
+### Real Tools, Zero Config
+
+| Tool | What It Does |
+|------|-------------|
+| `web_fetch` | Fetch any webpage, extract text/links/JSON |
+| `web_search` | Search the web via DuckDuckGo/Brave |
+| `read_file` / `write_file` | Read and write local files |
+| `slack_send` / `slack_read` | Send and read Slack messages |
+| `github_api` | Repos, issues, PRs |
+| `send_email` | Send emails via SMTP |
+
+Connect more with `nooterra add <tool>` &mdash; Stripe, Notion, Google Sheets, and 20+ integrations.
+
+### Live Activity Feed
+
+```
+  0.0s  Thinking... (round 1)
+  2.1s  web_fetch (https://acme.com/pricing)
+  3.8s  web_fetch -> 2341 chars
+  3.9s  Charter: canDo rule matched
+  4.1s  web_search ("acme pricing changes")
+  5.2s  Done -- 2 rounds, 2 tools, $0.003
+```
+
+Every execution is recorded. View logs, costs, and audit trails anytime.
+
+## Install
+
+### npm (recommended)
+
+```sh
+npm install -g nooterra
+```
+
+### Homebrew
+
+```sh
+brew install nooterra/tap/nooterra
+```
+
+### curl
+
+```sh
+curl -fsSL https://nooterra.com/install.sh | sh
+```
+
+### From source
+
+```sh
+git clone https://github.com/nooterra/nooterra.git
+cd nooterra && npm ci
+node bin/nooterra.js
+```
+
+## Worker Templates
+
+Get started fast with pre-built worker types:
+
+| Template | What It Does |
+|----------|-------------|
+| Customer Support | Handle inbound questions, look up accounts, draft replies |
+| Sales Assistant | Research leads, draft outreach, track competitors |
+| Data Monitor | Watch websites for changes, alert on differences |
+| Content Writer | Research topics, write drafts, check for quality |
+| Meeting Assistant | Summarize discussions, extract action items |
+| HR Onboarding | Answer questions, share checklists, send welcome messages |
+
+## MCP Integration
+
+Use Nooterra from Claude Desktop, Cursor, or any MCP client:
 
 ```json
 {
   "mcpServers": {
     "nooterra": {
-      "command": "node",
-      "args": ["./scripts/worker-builder/mcp-server.mjs"]
+      "command": "npx",
+      "args": ["-y", "nooterra", "mcp"]
     }
   }
 }
 ```
 
-Then in your AI tool: *"Create a nooterra worker that monitors competitor prices"*
+## Documentation
 
-## Architecture
+Full docs at [docs.nooterra.com](https://docs.nooterra.com)
 
-```
-scripts/worker-builder/
-├── cli.mjs                  # TUI + CLI interface
-├── worker-builder-core.mjs  # Conversation engine + instant creation
-├── worker-daemon.mjs        # AI execution engine (multi-round agentic loop)
-├── built-in-tools.mjs       # 10 real working tools (fetch, search, slack, etc)
-├── daemon-service.mjs       # Persistent background daemon
-├── worker-knowledge.mjs     # /teach knowledge store
-├── guided-setup.mjs         # 6 worker type profiles
-├── activity-feed.mjs        # Live execution progress
-├── notification-delivery.mjs # Desktop, Slack, email, webhook
-├── mcp-server.mjs           # MCP server for AI tool integration
-├── tool-installer.mjs       # nooterra add <tool>
-├── charter-compiler.mjs     # Charter generation + validation
-├── provider-auth.mjs        # AI provider auth (OAuth, API keys)
-├── worker-scheduler.mjs     # Cron scheduler
-├── approval-engine.mjs      # Multi-channel approvals
-├── worker-delegation.mjs    # Worker-to-worker delegation
-├── execution-lanes.mjs      # Parallel execution
-├── provider-fallback.mjs    # Circuit breakers + failover
-├── streaming-executor.mjs   # Real-time streaming execution
-└── ui/                      # Ink (React) TUI components
-```
+- [Getting Started](https://docs.nooterra.com/getting-started)
+- [Creating Workers](https://docs.nooterra.com/creating-workers)
+- [Charters & Guardrails](https://docs.nooterra.com/charters)
+- [Approvals](https://docs.nooterra.com/approvals)
+- [AI Providers](https://docs.nooterra.com/providers)
+- [CLI Reference](https://docs.nooterra.com/reference/cli)
 
-## Development
+## Community
 
-```sh
-git clone https://github.com/nooterra/nooterra.git
-cd nooterra
-npm ci
-node bin/nooterra.js
-```
+- [GitHub Discussions](https://github.com/nooterra/nooterra/discussions)
+- [Discord](https://discord.gg/nooterra)
+- [Twitter](https://twitter.com/nooterra)
 
-## Links
+## Contributing
 
-- [nooterra.ai](https://nooterra.ai)
-- [Documentation](https://nooterra.ai/docs)
-- [Security](./SECURITY.md)
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-Apache-2.0
+[Apache-2.0](./LICENSE)

@@ -1,0 +1,79 @@
+# Termstage demo script
+# Generate: termstage render demo.yaml -o demo.svg
+# Install: pipx install termstage
+title: "nooterra"
+theme: dark
+width: 80
+steps:
+  - type: command
+    value: "npm install -g nooterra"
+    delay: 50
+
+  - type: output
+    value: |
+      added 1 package in 2s
+
+  - type: command
+    value: "nooterra"
+    delay: 50
+
+  - type: output
+    value: |2
+
+       ███╗   ██╗ ██████╗  ██████╗ ████████╗███████╗██████╗ ██████╗  █████╗
+       ████╗  ██║██╔═══██╗██╔═══██╗╚══██╔══╝██╔════╝██╔══██╗██╔══██╗██╔══██╗
+       ██╔██╗ ██║██║   ██║██║   ██║   ██║   █████╗  ██████╔╝██████╔╝███████║
+       ██║╚██╗██║██║   ██║██║   ██║   ██║   ██╔══╝  ██╔══██╗██╔══██╗██╔══██║
+       ██║ ╚████║╚██████╔╝╚██████╔╝   ██║   ███████╗██║  ██║██║  ██║██║  ██║
+       ╚═╝  ╚═══╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+
+       v0.2.8 · AI workers you can actually trust
+
+       ⬡ ChatGPT · no workers · 0 receipts
+
+  - type: command
+    value: "I need a support worker that handles billing, looks up Stripe, drafts refund replies"
+    prompt: "  > "
+    delay: 30
+
+  - type: output
+    value: |2
+
+        ⚡ Instant worker:
+
+        ╭──────────────────────────────────────────────╮
+        │  Customer Support Worker                      │
+        │                                               │
+        │  Can do:                                      │
+        │    ✓ Read customer emails                     │
+        │    ✓ Look up billing in Stripe                │
+        │    ✓ Draft reply messages                     │
+        │    ✓ Search FAQ and knowledge base            │
+        │                                               │
+        │  Ask first:                                   │
+        │    ⚡ Issue refunds                            │
+        │    ⚡ Send external communications             │
+        │    ⚡ Make promises about features             │
+        │                                               │
+        │  Never do:                                    │
+        │    ✗ Share customer data between customers    │
+        │    ✗ Make up information                      │
+        │    ✗ Delete records                           │
+        ╰──────────────────────────────────────────────╯
+
+        Provider: ChatGPT · Schedule: continuous · Tools: Email, Stripe, Slack
+
+        Deploy this worker? (yes / edit / cancel)
+
+  - type: command
+    value: "yes"
+    prompt: "  > "
+    delay: 80
+
+  - type: output
+    value: |2
+
+        ✓ Customer Support Worker deployed!
+
+        Run:  nooterra run "Customer Support Worker"
+        Logs: nooterra logs "Customer Support Worker"

@@ -1,9 +1,0 @@
-Epic Key,Summary,Description,Owner,Priority,Labels
-STLD-E2401,Policy Runtime Enforcement,"Enforce a canonical policy decision point (`allow`,`challenge`,`deny`,`escalate`) across all paid action paths with deterministic outputs and fail-closed behavior.",Backend Platform,Highest,"trust-os,policy-runtime,enforcement"
-STLD-E2402,Execution Binding + Evidence + Receipts,"Bind policy/request fingerprints to decisions and settlement outputs, then export deterministic `ReceiptBundle.v1` artifacts verifiable offline.",Backend Platform + Protocol,Highest,"trust-os,execution-binding,evidence,receipts"
-STLD-E2403,Dispute Court + Reversal Engine,"Implement deterministic dispute lifecycle, verdict issuance, and replay-safe release/refund/reversal application.",Backend Platform + API,Highest,"trust-os,disputes,reversal,settlement"
-STLD-E2404,Operator Inbox + Controls,"Deliver operator review workflows for challenged/escalated actions and emergency controls with signed audit trails.",Frontend + Backend,Highest,"trust-os,operator-controls,inbox,governance"
-STLD-E2405,Rail Adapter Hardening,"Productionize one rail adapter lane under Trust OS enforcement with deterministic settlement and conformance gates.",Integrations,Highest,"trust-os,adapters,conformance"
-STLD-E2406,Vertical Policy Profiles,"Ship profile schema/hashing plus CLI simulation and three starter profiles for core buyer workflows.",Product + Protocol + CLI,High,"trust-os,profiles,cli,verticals"
-STLD-E2407,QA Conformance + Release Gates,"Lock release quality with abuse-path regressions, deterministic E2E coverage, and mandatory release workflow gates.",QA + DevOps + Security,High,"trust-os,qa,release-gates,determinism"
-STLD-E2408,Adoption Enablement + Launch Readiness,"Convert Trust OS v1 completion into adoption via quickstart success, reference blueprints, and measurable activation/pilot funnel instrumentation.",PM + DevEx + GTM,High,"trust-os,adoption,devex,launch"
