@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { ossLinks } from "../site/config/links.js";
 
-const DOCS_EXTERNAL = "https://docs.nooterra.com";
+const DOCS_EXTERNAL = "https://docs.nooterra.ai";
 const DOCS_GETTING_STARTED = DOCS_EXTERNAL + "/getting-started";
 const DISCORD_HREF = "https://discord.gg/nooterra";
 const MANAGED_ONBOARDING_HREF = buildManagedAccountHref({ flow: "signup", source: "site", hash: "account-create" });

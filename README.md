@@ -15,7 +15,7 @@
   <a href="https://github.com/nooterra/nooterra/actions/workflows/tests.yml"><img src="https://github.com/nooterra/nooterra/actions/workflows/tests.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/nooterra"><img src="https://img.shields.io/npm/v/nooterra" alt="npm"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
-  <a href="https://nooterra.ai/docs"><img src="https://img.shields.io/badge/docs-nooterra.ai-6366f1" alt="Docs"></a>
+  <a href="https://docs.nooterra.ai"><img src="https://img.shields.io/badge/docs-nooterra.ai-6366f1" alt="Docs"></a>
 </p>
 
 <!-- <p align="center"><img src=".github/assets/demo.gif" width="640" alt="Nooterra demo"></p> -->
@@ -147,7 +147,7 @@ Swap providers anytime. Workers keep their identity, knowledge, and charter.
 | `github_api` | Repos, issues, PRs |
 | `send_email` | Send emails via SMTP |
 
-Connect more with `nooterra add <tool>` &mdash; [see all capabilities](https://nooterra.ai/docs/capabilities).
+Connect more with `nooterra add <tool>` &mdash; [see all capabilities](https://docs.nooterra.ai/capabilities).
 
 ### Live Activity Feed
 
@@ -296,14 +296,14 @@ nooterra health               # Provider health + circuit breakers
 
 ## Documentation
 
-Full docs at **[nooterra.ai/docs](https://nooterra.ai/docs)**
+Full docs at **[nooterra.ai/docs](https://docs.nooterra.ai)**
 
-- [Getting Started](https://nooterra.ai/docs/getting-started) &mdash; Install to first worker in 5 minutes
-- [Creating Workers](https://nooterra.ai/docs/creating-workers) &mdash; Conversational flow, instant mode, templates
-- [Charters & Guardrails](https://nooterra.ai/docs/charters) &mdash; canDo / askFirst / neverDo
-- [Approvals](https://nooterra.ai/docs/approvals) &mdash; Multi-channel approval flows
-- [AI Providers](https://nooterra.ai/docs/providers) &mdash; Setup for all 7 providers
-- [CLI Reference](https://nooterra.ai/docs/reference/cli) &mdash; Every command
+- [Getting Started](https://docs.nooterra.ai/getting-started) &mdash; Install to first worker in 5 minutes
+- [Creating Workers](https://docs.nooterra.ai/creating-workers) &mdash; Conversational flow, instant mode, templates
+- [Charters & Guardrails](https://docs.nooterra.ai/charters) &mdash; canDo / askFirst / neverDo
+- [Approvals](https://docs.nooterra.ai/approvals) &mdash; Multi-channel approval flows
+- [AI Providers](https://docs.nooterra.ai/providers) &mdash; Setup for all 7 providers
+- [CLI Reference](https://docs.nooterra.ai/reference/cli) &mdash; Every command
 
 <br>
 
