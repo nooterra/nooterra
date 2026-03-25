@@ -1,4 +1,9 @@
-# Nooterra Architecture (v0)
+---
+title: "Architecture"
+description: "System architecture: layers, components, and how they connect."
+---
+
+# Architecture
 
 Nooterra is a **trust fabric + runtime + ledger** for autonomous work.
 

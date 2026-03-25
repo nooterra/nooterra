@@ -1,4 +1,9 @@
-# Trust (v0.4)
+---
+title: “Trust Layer”
+description: “Tamper-evident audit, evidence chains, and cryptographic verification.”
+---
+
+# Trust Layer
 
 Nooterra’s trust layer is a “privacy-respecting black box”: an append-only, tamper-evident event log with signer policy, plus minimal evidence references and a deterministic claims workflow.
 

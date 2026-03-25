@@ -1,4 +1,9 @@
-# Getting Started with Nooterra
+---
+title: "Getting Started"
+description: "Install Nooterra and create your first AI worker in under 5 minutes."
+---
+
+# Getting Started
 
 Create your first AI worker in under 5 minutes.
 

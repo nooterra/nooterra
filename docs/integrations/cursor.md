@@ -1,62 +1,43 @@
-# Cursor Public Quickstart (No Repo Clone)
+---
+title: "Cursor"
+description: "Use Nooterra workers from Cursor via MCP."
+---
 
-Use this when you want a public user to connect Cursor to Nooterra MCP from npm.
+# Cursor
 
-Prereqs:
+Use Nooterra as an MCP server in Cursor. Create and manage workers while you code.
 
-- Cursor installed
-- Node.js 20.x
+## Setup
 
-## 1) Run setup
-
-Interactive path:
-
-```bash
-npx -y nooterra@latest setup
-```
-
-Choose:
-
-1. `host`: `cursor`
-2. setup mode: `quick`
-3. wallet mode (`managed` recommended first)
-4. OTP login/signup
-5. run smoke when prompted
-
-Non-interactive path:
+1. Install Nooterra:
 
 ```bash
-npx -y nooterra@latest setup \
-  --non-interactive \
-  --host cursor \
-  --base-url https://api.nooterra.ai \
-  --tenant-id tenant_default \
-  --nooterra-api-key 'sk_live_xxx.yyy' \
-  --wallet-mode managed \
-  --wallet-bootstrap remote \
-  --profile-id engineering-spend \
-  --smoke
+npm install -g nooterra
 ```
 
-## 2) Activate Cursor
+2. Open Cursor Settings (Cmd+, or Ctrl+,) and go to **MCP Servers**.
 
-Restart Cursor after setup writes MCP config.
+3. Add a new server with this configuration:
 
-## 3) Verify tool wiring
+```json
+{
+  "nooterra": {
+    "command": "npx",
+    "args": ["-y", "nooterra", "mcp"]
+  }
+}
+```
 
-In Cursor agent chat, run:
+4. Restart Cursor.
 
-- `Use the MCP tool nooterra_about with empty arguments and return only JSON.`
+## Usage
 
-Expected result: JSON payload with Nooterra service metadata.
+In Cursor's AI chat, you can now reference Nooterra tools:
 
-## 4) First paid check
+- "Create a nooterra worker that reviews my PRs"
+- "List my nooterra workers"
+- "Run my Data Monitor worker"
 
-Run:
+## First-time Setup
 
-- `Use tool nooterra_call with tool=nooterra.weather_current_paid and arguments={"city":"Chicago","unit":"f"}. Return only JSON.`
-
-Expected result:
-
-- successful paid call
-- response includes Nooterra policy/decision/settlement metadata
+The first time Nooterra runs via MCP, it uses whatever provider credentials you've configured. If you haven't set up a provider yet, run `nooterra` in your terminal first to complete onboarding.

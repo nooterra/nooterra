@@ -1,3 +1,8 @@
+---
+title: "Development"
+description: "Local development setup, running tests, and contributing."
+---
+
 # Development
 
 Prereqs:

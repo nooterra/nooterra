@@ -1,3 +1,8 @@
+---
+title: "Approvals"
+description: "Human-in-the-loop approval system: channels, auto-approve, timeouts."
+---
+
 # Approvals
 
 When a worker attempts an action that matches an `askFirst` rule in its charter, execution pauses and an approval request is sent. The worker does not proceed until a human approves or denies the request.

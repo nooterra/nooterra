@@ -1,3 +1,8 @@
+---
+title: "Charters"
+description: "How worker permissions work: canDo, askFirst, and neverDo rules explained."
+---
+
 # Charters
 
 A charter is the governance document for a worker. It defines exactly what a worker can do, what requires human approval, and what is forbidden. Every worker has one.

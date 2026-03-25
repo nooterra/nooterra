@@ -1,3 +1,8 @@
+---
+title: "Capabilities"
+description: "All available tools and integrations: Slack, Email, GitHub, Browser, and more."
+---
+
 # Capabilities
 
 Capabilities are the tools and integrations available to workers. Each capability is backed by an MCP (Model Context Protocol) server that provides the actual tool implementations.

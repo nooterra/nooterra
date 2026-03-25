@@ -1,3 +1,8 @@
+---
+title: "Scheduling"
+description: "Run workers manually, on cron schedules, via webhooks, or 24/7 as a daemon."
+---
+
 # Scheduling
 
 Workers can run manually, on a schedule, or continuously via the background daemon.

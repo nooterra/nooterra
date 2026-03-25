@@ -1,103 +1,67 @@
-# Claude Desktop Public Quickstart (Action Wallet v1)
+---
+title: "Claude Desktop"
+description: "Use Nooterra workers from Claude Desktop via MCP."
+---
 
-Use this when you want the shortest path from npm setup to a hosted approval page in Claude Desktop.
+# Claude Desktop
 
-Execution model: Claude or its connected adapter executes the external action after approval. Nooterra only handles approval, scoped grants, evidence submission, receipts, and disputes.
+Use Nooterra as an MCP server in Claude Desktop. Create and manage workers directly from Claude.
 
-Launch v1 on this channel supports only:
+## Setup
 
-- `buy`
-- `cancel/recover`
-
-Prereqs:
-
-- Claude Desktop installed and signed in
-- Node.js 20.x
-
-## The exact Action Wallet activation loop
-
-Claude MCP uses the same launch loop as every other supported path:
-
-1. `Runtime bootstrap`
-2. `Request first approval`
-3. `Open receipt`
-4. `Open dispute`
-
-## 1) Runtime bootstrap
-
-Interactive path:
+1. Install Nooterra:
 
 ```bash
-npx -y nooterra@latest setup
+npm install -g nooterra
 ```
 
-Choose:
+2. Open Claude Desktop settings and add to your MCP config:
 
-1. `host`: `claude`
-2. setup mode: `quick`
-3. sign in or create account
-4. let setup write Claude Desktop MCP config
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-## 2) Activate Claude Desktop
-
-Restart Claude Desktop after setup writes MCP config.
-
-## 2) Request first approval
-
-In Claude Desktop, run:
-
-- `Use Nooterra to create a buy action intent, request approval, and return only JSON with approvalUrl, actionIntentId, and requestId.`
-
-Expected result:
-
-- a Nooterra-hosted approval URL
-- stable `actionIntentId` and `requestId`
-- no unsupported host, booking, or marketplace prompt
-
-Stop here first. This is the launch proof path.
-
-## 3) Fetch the approved grant
-
-After opening the approval URL and making a decision, run:
-
-- `Use Nooterra to check the approval status for requestId <requestId>. If it is approved, fetch the execution grant and return only JSON.`
-
-Expected result:
-
-- approval state changes from `pending`
-- approved run returns an execution grant Claude can use for the host-side execution step
-
-Continuation helper:
-
-```bash
-NOOTERRA_TENANT_ID=tenant_example \
-NOOTERRA_API_KEY=sk_live_example.secret \
-NOOTERRA_REQUEST_ID=apr_example \
-NOOTERRA_EXECUTION_GRANT_ID=agrant_example \
-NOOTERRA_RECEIPT_ID=rcpt_example \
-npm run quickstart:action-wallet:continuation
+```json
+{
+  "mcpServers": {
+    "nooterra": {
+      "command": "npx",
+      "args": ["-y", "nooterra", "mcp"]
+    }
+  }
+}
 ```
 
-Webhook continuation (managed auth plane) is optional in launch and uses:
+3. Restart Claude Desktop.
 
-- `approval.required`
-- `information.required`
-- `receipt.ready`
-- `run.update`
-- `dispute.update`
+## Usage
 
-## 4) Finalize and fetch the receipt
+Once connected, you can ask Claude to:
 
-After Claude or the connected adapter completes the external action, run:
+- **"Create a nooterra worker that monitors competitor prices"** -- creates a new worker with inferred charter
+- **"List my nooterra workers"** -- shows all workers and their status
+- **"Run my Price Monitor worker"** -- executes a worker and shows results
+- **"What can my Support Worker do?"** -- shows the worker's charter rules
+- **"Teach my Support Worker about our refund policy"** -- adds knowledge
 
-- `Use Nooterra to submit host-captured evidence if needed, finalize the host-completed run, and fetch the receipt. Return only JSON with receiptId, settlement status, and dispute state.`
+## Available Tools
 
-Expected result:
+The MCP server exposes these tools to Claude:
 
-- finalization returns a receipt id that can be opened on the hosted receipt page
+| Tool | What it does |
+|------|-------------|
+| `create_worker` | Create a new worker from a description |
+| `list_workers` | List all workers with status |
+| `run_worker` | Execute a worker and return results |
+| `get_worker` | Get worker details and charter |
+| `teach_worker` | Add knowledge to a worker |
+| `list_templates` | Show available worker templates |
 
-## 5) Open dispute
+## Troubleshooting
 
-If the receipt needs follow-up, run:
+**Claude doesn't see Nooterra tools:**
+- Make sure you restarted Claude Desktop after editing the config
+- Check that `npx nooterra mcp` works in your terminal
+- Verify Node.js 20+ is installed: `node --version`
 
-- `Use Nooterra to open or look up the dispute case for receiptId <receiptId> and return only JSON with disputeId and dispute state.`
+**Worker creation fails:**
+- Run `nooterra` in your terminal first to set up a provider (the MCP server uses the same credentials)

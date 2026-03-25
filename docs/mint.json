@@ -7,30 +7,41 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#6366F1",
-    "light": "#818CF8",
-    "dark": "#4F46E5",
+    "primary": "#d2b06f",
+    "light": "#e2c994",
+    "dark": "#b89a5a",
     "anchors": {
-      "from": "#6366F1",
-      "to": "#8B5CF6"
+      "from": "#d2b06f",
+      "to": "#b89a5a"
+    },
+    "background": {
+      "dark": "#09090b"
+    }
+  },
+  "font": {
+    "headings": {
+      "family": "Inter",
+      "weight": 600
+    },
+    "body": {
+      "family": "Inter",
+      "weight": 400
     }
   },
   "topbarLinks": [
     {
       "name": "GitHub",
       "url": "https://github.com/nooterra/nooterra"
+    },
+    {
+      "name": "nooterra.ai",
+      "url": "https://nooterra.ai"
     }
   ],
   "topbarCtaButton": {
-    "name": "Install",
-    "url": "https://docs.nooterra.com/getting-started"
+    "name": "Get started",
+    "url": "/getting-started"
   },
-  "tabs": [
-    {
-      "name": "Reference",
-      "url": "reference"
-    }
-  ],
   "anchors": [
     {
       "name": "GitHub",
@@ -62,17 +73,10 @@
       ]
     },
     {
-      "group": "Architecture",
-      "pages": [
-        "ARCHITECTURE",
-        "TRUST",
-        "CONFIG"
-      ]
-    },
-    {
       "group": "Integrations",
       "pages": [
         "integrations/claude-desktop",
+        "integrations/cursor",
         "integrations/openclaw",
         "integrations/mcp-servers"
       ]
@@ -87,16 +91,23 @@
       ]
     },
     {
-      "group": "Community",
+      "group": "Architecture",
       "pages": [
-        "DEVELOPMENT",
-        "RELEASING"
+        "ARCHITECTURE",
+        "TRUST",
+        "CONFIG"
+      ]
+    },
+    {
+      "group": "Contributing",
+      "pages": [
+        "DEVELOPMENT"
       ]
     }
   ],
   "footerSocials": {
     "github": "https://github.com/nooterra/nooterra",
     "discord": "https://discord.gg/nooterra",
-    "twitter": "https://twitter.com/nooterra"
+    "x": "https://twitter.com/nooterra"
   }
 }

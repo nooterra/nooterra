@@ -1,137 +1,33 @@
-# OpenClaw Public Quickstart (Action Wallet v1)
+---
+title: "OpenClaw"
+description: "Use Nooterra workers from OpenClaw IDE."
+---
 
-Use this when you want the shortest path from npm setup to a hosted approval page in OpenClaw.
+# OpenClaw
 
-Execution model: OpenClaw or its connected adapter executes the external action after approval. Nooterra only handles approval, scoped grants, evidence submission, receipts, and disputes.
+Nooterra integrates with OpenClaw as a plugin, exposing worker management tools directly in the IDE.
 
-Launch v1 on this channel supports only:
+## Setup
 
-- `buy`
-- `cancel/recover`
-
-Prereqs:
-
-- Node.js 20.x (install is fail-fast if you use a different major)
-
-## The exact Action Wallet activation loop
-
-OpenClaw uses the same launch loop as Claude MCP and Codex:
-
-1. `Runtime bootstrap`
-2. `Request first approval`
-3. `Open receipt`
-4. `Open dispute`
-
-## 1) Runtime bootstrap
-
-Follow OpenClaw docs:
-
-- https://docs.openclaw.ai/install/index
-- https://docs.openclaw.ai/start/wizard
-
-Then run onboarding:
+1. Install Nooterra:
 
 ```bash
-openclaw onboard --install-daemon
-openclaw doctor
+npm install -g nooterra
 ```
 
-If `openclaw` is not on PATH yet, use the npx fallback:
+2. In OpenClaw, go to **Extensions** and search for "Nooterra".
 
-```bash
-npx -y openclaw@latest onboard --install-daemon
-```
+3. Install the Nooterra extension. It reads the `openclaw.plugin.json` from the Nooterra package automatically.
 
-## 2) Run Nooterra setup from npm
+## Usage
 
-Interactive path (recommended):
+Once installed, Nooterra tools are available in OpenClaw's AI context:
 
-```bash
-npx -y nooterra@latest setup
-```
+- Create workers from descriptions
+- Run workers and see results inline
+- Manage worker charters
+- View execution logs
 
-Choose:
+## Configuration
 
-1. `host`: `openclaw`
-2. setup mode: `quick`
-3. sign in or create account
-4. let setup write the OpenClaw MCP config
-
-## 2) Request first approval
-
-Run:
-
-```bash
-openclaw doctor
-openclaw agent --local --agent main --session-id nooterra-smoke --message "Use Nooterra to create a buy action intent, request approval, and return only JSON with approvalUrl, actionIntentId, and requestId." --json
-```
-
-Expected result:
-
-- a Nooterra-hosted approval URL
-- stable action and approval ids
-- no unsupported marketplace or booking flow
-
-If your TUI is in a channel-bound session (`whatsapp:*`, `telegram:*`), switch to `main` first:
-
-```bash
-openclaw tui --session main
-```
-
-Stop here first. This is the launch proof path.
-
-## 3) Fetch the approved grant
-
-After opening the approval URL and making a decision, continue with:
-
-- `Use Nooterra to check the approval status for requestId <requestId>. If it is approved, fetch the execution grant and return only JSON.`
-
-Expected result:
-
-- approval state changes from `pending`
-- approved run returns an execution grant OpenClaw can use for the host-side execution step
-
-Continuation helper:
-
-```bash
-NOOTERRA_TENANT_ID=tenant_example \
-NOOTERRA_API_KEY=sk_live_example.secret \
-NOOTERRA_REQUEST_ID=apr_example \
-NOOTERRA_EXECUTION_GRANT_ID=agrant_example \
-NOOTERRA_RECEIPT_ID=rcpt_example \
-npm run quickstart:action-wallet:continuation
-```
-
-Webhook continuation (managed auth plane) is optional in launch and uses:
-
-- `approval.required`
-- `information.required`
-- `receipt.ready`
-- `run.update`
-- `dispute.update`
-
-## 4) Finalize and fetch the receipt
-
-After OpenClaw or the connected adapter completes the external action, run:
-
-- `Use Nooterra to submit host-captured evidence if needed, finalize the host-completed run, and fetch the receipt. Return only JSON with receiptId, settlement status, and dispute state.`
-
-Expected result:
-
-- finalization returns a hosted receipt path and a dispute path
-
-## 5) Open dispute
-
-If the receipt needs follow-up, continue with:
-
-- `Use Nooterra to open or look up the dispute case for receiptId <receiptId> and return only JSON with disputeId and dispute state.`
-
-## Notes for operators
-
-- Public users do not need to clone the Nooterra repo.
-- Public users should not need bootstrap/admin keys in the default setup path.
-- Public path is valid only after publishing a package version that includes the current setup flow.
-- For OpenClaw skill packaging and publish flow, see:
-  - `docs/integrations/openclaw/nooterra-mcp-skill/SKILL.md`
-  - `docs/integrations/openclaw/nooterra-mcp-skill/skill.json`
-  - `docs/integrations/openclaw/CLAWHUB_PUBLISH_CHECKLIST.md`
+The OpenClaw plugin uses the same credentials stored in `~/.nooterra/credentials/`. Set up a provider by running `nooterra` in your terminal first.

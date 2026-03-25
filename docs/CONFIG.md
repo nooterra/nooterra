@@ -1,4 +1,9 @@
-# Nooterra Configuration (Runtime)
+---
+title: “Configuration”
+description: “Runtime configuration, environment variables, and deployment settings.”
+---
+
+# Configuration
 
 This repo is intentionally “ops-first”: **safe defaults**, explicit hardening toggles, and predictable failure modes.
 

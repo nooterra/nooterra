@@ -1,3 +1,8 @@
+---
+title: "Creating Workers"
+description: "Three ways to create workers: conversational flow, instant mode, and templates."
+---
+
 # Creating Workers
 
 There are three ways to create a worker: conversational flow, instant mode, and templates.

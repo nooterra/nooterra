@@ -1,3 +1,8 @@
+---
+title: "AI Providers"
+description: "Set up ChatGPT, OpenAI, Anthropic, Gemini, OpenRouter, Groq, or Ollama."
+---
+
 # AI Providers
 
 Nooterra supports multiple AI providers. Each worker uses one provider to power its reasoning and tool use. You can swap providers at any time without losing your workers, charters, knowledge, or execution history.
