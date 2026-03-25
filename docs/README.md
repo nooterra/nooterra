@@ -1,58 +1,39 @@
-# Nooterra Documentation Index
+# Nooterra Documentation
 
-This root docs index is for GitBook sync setups using project directory `docs`.
+## Getting Started
 
-Launch v1 is the host-first Action Wallet for `buy` and `cancel/recover` through `Claude MCP` and `OpenClaw`.
-If a doc implies a first-party assistant shell, booking, BYO payment rails, or unsupported hosts, treat that as Phase 1.5+ unless the doc is linked below.
-If you are working from Codex, use the same Action Wallet runtime through the API or CLI path; Codex is an engineering shell on the same contract, not a separate certified launch channel.
+- [Quick Start](./QUICKSTART.md) - Install and create your first worker
+- [Overview](./OVERVIEW.md) - What Nooterra is and how it works
+- [Domain Model](./DOMAIN_MODEL.md) - Core concepts (workers, charters, capabilities)
 
-For curated public docs, start here:
+## Guides
 
-- [Action Wallet v1 PRD](./PRD.md)
-- [Action Wallet v1 freeze](./spec/ACTION_WALLET_V1_FREEZE.md)
-- [Homepage copy draft](./marketing/action-wallet-homepage-copy-2026-03-09.md)
-- [Product surfaces + user stories](./plans/2026-03-09-action-wallet-v1-surfaces-and-user-stories.md)
-- [First 10 kickoff tickets](./plans/2026-03-09-action-wallet-v1-first-10-ticket-packet.md)
-- [Host quickstart](./QUICKSTART_MCP_HOSTS.md)
-- [Claude Desktop quickstart](./integrations/claude-desktop/PUBLIC_QUICKSTART.md)
-- [OpenClaw quickstart](./integrations/openclaw/PUBLIC_QUICKSTART.md)
-- [Codex engineering quickstart](./integrations/codex/ENGINEERING_QUICKSTART.md)
-- [Nooterra Docs home](./gitbook/README.md)
-- [Quickstart: Agent Bootstrap](./QUICKSTART_AGENT_BOOTSTRAP.md)
-- [Quickstart: Profiles CLI](./QUICKSTART_PROFILES.md)
-- [Core Primitives](./gitbook/core-primitives.md)
-- [API Reference](./gitbook/api-reference.md)
-- [Conformance](./gitbook/conformance.md)
-- [Closepacks](./gitbook/closepacks.md)
-- [Guides](./gitbook/guides.md)
-- [Naming conventions](./NAMING.md)
-- [Brand guidelines](./BRAND_GUIDELINES.md)
-- [Security Model](./gitbook/security-model.md)
-- [FAQ](./gitbook/faq.md)
+- [SDK Quick Start (JavaScript)](./QUICKSTART_SDK.md)
+- [SDK Quick Start (Python)](./QUICKSTART_SDK_PYTHON.md)
+- [MCP Host Integration](./QUICKSTART_MCP_HOSTS.md)
 
-## Fastest onboarding path
+## Architecture
 
-Use the same Action Wallet activation loop everywhere:
+- [Architecture](./ARCHITECTURE.md)
+- [PRD](./PRD.md)
+- [Trust Model](./TRUST.md)
+- [Threat Model](./THREAT_MODEL.md)
 
-1. **Runtime bootstrap**
-   Run `nooterra setup`, choose `quick`, and connect the runtime for `claude` or `openclaw`.
-   If you are working from Codex, reuse the same runtime values through the API or CLI path.
-2. **Request first approval**
-   From the host or shell, create an action intent and request a hosted approval.
-3. **Open receipt**
-   After approval and host-side execution, submit evidence if needed, finalize, and open the hosted receipt.
-4. **Open dispute**
-   If something is wrong, open the dispute from the same receipt or run context.
+## Operations
 
-If you are testing from Codex instead of a launch host, reuse the same runtime values through the API or CLI examples in the developers page and docs. The approval, receipt, and dispute surfaces stay identical.
+- [Production Deployment](./ops/PRODUCTION_DEPLOYMENT_CHECKLIST.md)
+- [Runbook](./RUNBOOK.md)
+- [On-Call Playbook](./ONCALL_PLAYBOOK.md)
+- [Alerts](./ALERTS.md)
+- [SLOs](./SLO.md)
 
-```bash
-npm run mcp:probe
-```
+## Integrations
 
-Reference docs:
+- [OpenClaw](./integrations/openclaw/)
+- [Codex](./integrations/codex/)
 
-- `docs/QUICKSTART_MCP_HOSTS.md`
-- `docs/integrations/claude-desktop/PUBLIC_QUICKSTART.md`
-- `docs/integrations/openclaw/PUBLIC_QUICKSTART.md`
-- `docs/spec/ACTION_WALLET_V1_FREEZE.md`
+## Internal
+
+- [Development](./DEVELOPMENT.md)
+- [Releasing](./RELEASING.md)
+- [Security](../SECURITY.md)
