@@ -11,7 +11,6 @@ import {
   Eye,
   Cpu,
   Clock,
-  Terminal,
   GitBranch
 } from "lucide-react";
 import { ossLinks } from "../site/config/links.js";
@@ -194,81 +193,85 @@ function CodeBlock({ title, children }) {
   );
 }
 
-/* ─── Interactive terminal hero ─── */
+/* ─── Animated worker card ─── */
 
-const TERMINAL_LINES = [
-  { text: "$ nooterra", delay: 0, style: "text-stone-300" },
-  { text: "", delay: 400 },
-  { text: "  What do you need a worker to do?", delay: 600, style: "text-stone-500" },
-  { text: "  > Handle support tickets. Look up billing in Stripe.", delay: 900, typing: true, style: "text-stone-200" },
-  { text: "    Draft refund replies. Escalate edge cases.", delay: 0, typing: true, style: "text-stone-200" },
-  { text: "", delay: 800 },
-  { text: "  Generating charter...", delay: 400, style: "text-stone-600" },
-  { text: "", delay: 600 },
-  { text: "  \u2713 Charter generated", delay: 300, style: "text-emerald-500/80" },
-  { text: "    canDo:    Read emails, Look up billing, Draft replies", delay: 150, style: "text-emerald-500/60" },
-  { text: "    askFirst: Issue refunds, Send external emails", delay: 150, style: "text-amber-500/60" },
-  { text: "    neverDo:  Share customer data, Make up information", delay: 150, style: "text-rose-500/60" },
-  { text: "", delay: 300 },
-  { text: "  \u2713 Tools: email, stripe, slack", delay: 200, style: "text-emerald-500/80" },
-  { text: "  \u2713 Schedule: continuous", delay: 200, style: "text-emerald-500/80" },
-  { text: "", delay: 400 },
-  { text: "  Customer Support Worker is live.", delay: 300, style: "text-[#d2b06f]" },
+const WORKER_STEPS = [
+  { label: "Read customer email", status: "done" },
+  { label: "Look up account in Stripe", status: "done" },
+  { label: "Draft refund reply", status: "done" },
+  { label: "Issue $49 refund", status: "approval" },
 ];
 
-function TerminalHero() {
-  const [visibleLines, setVisibleLines] = useState(0);
-  const [typingIdx, setTypingIdx] = useState(0);
+function WorkerCard() {
+  const [step, setStep] = useState(0);
+  const [approved, setApproved] = useState(false);
 
   useEffect(() => {
-    if (visibleLines >= TERMINAL_LINES.length) return;
-    const line = TERMINAL_LINES[visibleLines];
-    const baseDelay = line.delay || 100;
-    const timer = setTimeout(() => setVisibleLines(v => v + 1), baseDelay);
+    if (step >= WORKER_STEPS.length) return;
+    const delay = step === 0 ? 800 : WORKER_STEPS[step].status === "approval" ? 1200 : 700;
+    const timer = setTimeout(() => setStep(s => s + 1), delay);
     return () => clearTimeout(timer);
-  }, [visibleLines]);
+  }, [step]);
 
-  // Typing effect for lines marked with typing: true
   useEffect(() => {
-    if (visibleLines < 1) return;
-    const currentLine = TERMINAL_LINES[visibleLines - 1];
-    if (!currentLine?.typing) {
-      setTypingIdx(999);
-      return;
+    if (step >= WORKER_STEPS.length && !approved) {
+      const timer = setTimeout(() => setApproved(true), 1500);
+      return () => clearTimeout(timer);
     }
-    if (typingIdx >= currentLine.text.length) return;
-    const timer = setTimeout(() => setTypingIdx(i => i + 1), 18);
-    return () => clearTimeout(timer);
-  }, [visibleLines, typingIdx]);
-
-  useEffect(() => { setTypingIdx(0); }, [visibleLines]);
+  }, [step, approved]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-white/[0.06] bg-[#0c0c0e]">
-      <div className="flex items-center gap-2 border-b border-white/[0.04] px-4 py-2.5">
-        <div className="flex gap-1.5">
-          <div className="h-2 w-2 rounded-full bg-[#ff5f57]/60" />
-          <div className="h-2 w-2 rounded-full bg-[#febc2e]/60" />
-          <div className="h-2 w-2 rounded-full bg-[#28c840]/60" />
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+      {/* Worker header */}
+      <div className="flex items-center justify-between border-b border-white/[0.04] px-5 py-3">
+        <div className="flex items-center gap-3">
+          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[13px] font-medium text-stone-200">Customer Support Worker</span>
         </div>
-        <span className="ml-2 font-mono text-[11px] text-stone-600">terminal</span>
+        <span className="text-[11px] text-stone-600">running</span>
       </div>
-      <div className="min-h-[320px] p-5 font-mono text-[13px] leading-relaxed">
-        {TERMINAL_LINES.slice(0, visibleLines).map((line, i) => {
-          const isLastLine = i === visibleLines - 1;
-          const showTyping = line.typing && isLastLine && typingIdx < line.text.length;
-          const displayText = showTyping ? line.text.slice(0, typingIdx) : line.text;
 
-          return (
-            <div key={i} className={`${line.style || "text-stone-500"} ${!line.text ? "h-4" : ""}`}>
-              {displayText}
-              {showTyping ? <span className="inline-block w-[7px] h-[14px] bg-stone-400 ml-px animate-pulse" /> : null}
-            </div>
-          );
-        })}
-        {visibleLines < TERMINAL_LINES.length ? (
-          <span className="inline-block w-[7px] h-[14px] bg-stone-500 animate-pulse" />
+      {/* Activity */}
+      <div className="px-5 py-4 space-y-2.5">
+        {WORKER_STEPS.slice(0, step).map((s, i) => (
+          <div key={i} className="flex items-center gap-3" style={{ animation: "lovable-fade-in 0.3s ease forwards" }}>
+            {s.status === "done" ? (
+              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" strokeWidth={2.5} />
+            ) : approved ? (
+              <Check className="h-3.5 w-3.5 shrink-0 text-[#d2b06f]" strokeWidth={2.5} />
+            ) : (
+              <div className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-amber-500 animate-pulse" />
+            )}
+            <span className={`text-[13px] ${s.status === "approval" && !approved ? "text-amber-400" : "text-stone-400"}`}>
+              {s.label}
+            </span>
+            {s.status === "approval" && !approved ? (
+              <span className="ml-auto rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-400">
+                needs approval
+              </span>
+            ) : s.status === "approval" && approved ? (
+              <span className="ml-auto rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-400">
+                approved
+              </span>
+            ) : null}
+          </div>
+        ))}
+        {step < WORKER_STEPS.length ? (
+          <div className="flex items-center gap-3 text-stone-600">
+            <div className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/[0.08] animate-pulse" />
+            <span className="text-[13px]">Working...</span>
+          </div>
         ) : null}
+      </div>
+
+      {/* Charter summary */}
+      <div className="border-t border-white/[0.04] px-5 py-3">
+        <div className="flex flex-wrap gap-4 text-[11px]">
+          <span className="text-emerald-500/70">4 canDo</span>
+          <span className="text-amber-500/70">3 askFirst</span>
+          <span className="text-rose-500/70">2 neverDo</span>
+          <span className="ml-auto text-stone-600">$0.003 this run</span>
+        </div>
       </div>
     </div>
   );
@@ -281,38 +284,34 @@ function HomePage() {
     <SiteLayout>
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#d2b06f]/[0.04] via-transparent to-transparent" />
-        <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-24 md:pb-24 md:pt-32">
-          <div className="grid items-center gap-12 lg:grid-cols-2">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#d2b06f]/[0.03] via-transparent to-transparent" />
+        <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-24 md:pb-24 md:pt-36">
+          <div className="grid items-center gap-16 lg:grid-cols-2">
             <div>
               <FadeIn>
-                <h1 className="text-[clamp(2rem,4.5vw,3.25rem)] leading-[1.1] tracking-[-0.025em] text-stone-100">
-                  Put AI to work.<br />
-                  <span className="text-[#d2b06f]">For real.</span>
+                <h1 className="text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.08] tracking-[-0.03em] text-stone-100">
+                  Describe the job.<br />
+                  The worker <span className="text-[#d2b06f]">handles it.</span>
                 </h1>
               </FadeIn>
               <FadeIn delay={0.08}>
-                <p className="mt-5 max-w-md text-[15px] leading-relaxed text-stone-500">
-                  Describe any job in plain English. Nooterra deploys an AI worker
-                  with hard guardrails, human approvals, and a full audit trail. Runs 24/7.
+                <p className="mt-6 max-w-md text-[16px] leading-relaxed text-stone-500">
+                  AI workers that run 24/7 with hard boundaries on what they can and can't do. You stay in control. They do the work.
                 </p>
               </FadeIn>
               <FadeIn delay={0.14}>
                 <div className="mt-8 flex flex-wrap items-center gap-3">
-                  <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white" target="_blank" rel="noopener noreferrer">
+                  <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white" target="_blank" rel="noopener noreferrer">
                     Get started <ArrowRight size={14} />
                   </a>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText("npm install -g nooterra"); }}
-                    className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-4 py-2 font-mono text-[13px] text-stone-500 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-300"
-                  >
-                    <Terminal size={13} /> npm install -g nooterra
-                  </button>
+                  <a href={DOCS_EXTERNAL} className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-4 py-2.5 text-[13px] text-stone-500 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-200" target="_blank" rel="noopener noreferrer">
+                    Read the docs <ArrowUpRight size={13} />
+                  </a>
                 </div>
               </FadeIn>
             </div>
             <FadeIn delay={0.2}>
-              <TerminalHero />
+              <WorkerCard />
             </FadeIn>
           </div>
         </div>
@@ -330,7 +329,7 @@ function HomePage() {
             {[
               { num: "1", title: "Describe", desc: "Tell Nooterra what you need in plain English. It infers the tools, schedule, and generates a charter with canDo, askFirst, and neverDo rules." },
               { num: "2", title: "Deploy", desc: "Review the charter, adjust if needed, and deploy. The worker runs as a daemon — on a schedule, webhook trigger, or continuously." },
-              { num: "3", title: "Supervise", desc: "Watch the live activity feed. Approve escalations from your terminal or Slack. Every action is logged with full audit trail." }
+              { num: "3", title: "Supervise", desc: "Watch the live activity feed. Approve escalations from Slack, email, or your dashboard. Every action is logged." }
             ].map((item, i) => (
               <FadeIn key={item.num} delay={i * 0.08}>
                 <div className="flex h-full flex-col bg-[#09090b] p-8">
@@ -370,27 +369,47 @@ function HomePage() {
             </div>
           </FadeIn>
           <FadeIn delay={0.12}>
-            <CodeBlock title="charter">
-{`name: Customer Support Worker
-provider: claude
-schedule: continuous
-
-canDo:
-  - Read customer emails
-  - Look up billing in Stripe
-  - Draft reply messages
-  - Search FAQ and knowledge base
-
-askFirst:
-  - Issue refunds over $10
-  - Send emails to customers
-  - Make promises about features
-
-neverDo:
-  - Share customer data between customers
-  - Make up information
-  - Delete any records`}
-            </CodeBlock>
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+              <div className="border-b border-white/[0.04] px-5 py-3">
+                <span className="text-[13px] font-medium text-stone-300">Customer Support Worker</span>
+                <span className="ml-3 text-[11px] text-stone-600">charter</span>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-emerald-500/70">Can do</p>
+                  <div className="space-y-1.5">
+                    {["Read customer emails", "Look up billing in Stripe", "Draft reply messages", "Search FAQ and knowledge base"].map(r => (
+                      <div key={r} className="flex items-center gap-2.5">
+                        <Check className="h-3 w-3 shrink-0 text-emerald-500/50" strokeWidth={2.5} />
+                        <span className="text-[13px] text-stone-400">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-amber-500/70">Ask first</p>
+                  <div className="space-y-1.5">
+                    {["Issue refunds over $10", "Send emails to customers", "Make promises about features"].map(r => (
+                      <div key={r} className="flex items-center gap-2.5">
+                        <Shield className="h-3 w-3 shrink-0 text-amber-500/50" strokeWidth={2.5} />
+                        <span className="text-[13px] text-stone-400">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-rose-500/70">Never do</p>
+                  <div className="space-y-1.5">
+                    {["Share customer data between customers", "Make up information", "Delete any records"].map(r => (
+                      <div key={r} className="flex items-center gap-2.5">
+                        <X className="h-3 w-3 shrink-0 text-rose-500/50" strokeWidth={2.5} />
+                        <span className="text-[13px] text-stone-400">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </FadeIn>
         </div>
       </section>
@@ -405,7 +424,7 @@ neverDo:
           </FadeIn>
           <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {[
-              { icon: Shield, title: "Approvals", desc: "Sensitive actions pause and route to you. Approve from terminal, Slack, or webhooks. First response wins." },
+              { icon: Shield, title: "Approvals", desc: "Sensitive actions pause and wait for you. Approve from Slack, email, or your phone. First response wins." },
               { icon: Clock, title: "Runs 24/7", desc: "Real daemon with crash recovery, cron schedules, and auto-start on login. Not a chat session." },
               { icon: Cpu, title: "Any provider", desc: "Claude, GPT, Gemini, Llama, Groq, or Ollama. Bring your keys. Swap anytime." },
               { icon: Eye, title: "Full audit", desc: "Every action, tool call, and decision logged automatically. Exportable. No black boxes." }
@@ -494,53 +513,34 @@ neverDo:
         </div>
       </section>
 
-      {/* Install + MCP */}
+      {/* Providers */}
       <section className="border-t border-white/[0.04]">
-        <div className="mx-auto grid max-w-6xl gap-12 px-6 py-20 md:grid-cols-2 md:py-28">
+        <div className="mx-auto max-w-6xl px-6 py-20 md:py-28">
           <FadeIn>
             <h2 className="text-2xl tracking-[-0.01em] text-stone-200 md:text-3xl">
-              Install in seconds.
+              Works with every major AI.
             </h2>
-            <p className="mt-3 text-[15px] text-stone-500">CLI, MCP, or both.</p>
-            <div className="mt-8 space-y-4">
-              <CodeBlock title="terminal">
-{`$ npm install -g nooterra
-$ nooterra`}
-              </CodeBlock>
-              <CodeBlock title="claude_desktop_config.json">
-{`{
-  "mcpServers": {
-    "nooterra": {
-      "command": "npx",
-      "args": ["-y", "nooterra", "mcp"]
-    }
-  }
-}`}
-              </CodeBlock>
-            </div>
+            <p className="mt-3 text-[15px] text-stone-500">Your keys. Your choice. Switch providers without changing your workers.</p>
           </FadeIn>
-          <FadeIn delay={0.12}>
-            <h2 className="text-2xl tracking-[-0.01em] text-stone-200 md:text-3xl">
-              Any AI provider.
-            </h2>
-            <p className="mt-3 text-[15px] text-stone-500">Your keys. Your choice. Swap anytime.</p>
-            <div className="mt-8 space-y-2">
-              {[
-                { name: "ChatGPT", detail: "OAuth sign-in, use your subscription" },
-                { name: "OpenAI API", detail: "GPT-4o, GPT-4o-mini" },
-                { name: "Anthropic", detail: "Claude Sonnet, Opus, Haiku" },
-                { name: "Google", detail: "Gemini Pro, Gemini Flash" },
-                { name: "OpenRouter", detail: "200+ models, one API key" },
-                { name: "Groq", detail: "Fast inference, free tier" },
-                { name: "Ollama", detail: "Local models, fully private" }
-              ].map((p) => (
-                <div key={p.name} className="flex items-center justify-between rounded-lg border border-white/[0.04] px-4 py-2.5">
-                  <span className="text-[13px] font-medium text-stone-300">{p.name}</span>
-                  <span className="text-[12px] text-stone-600">{p.detail}</span>
+          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { name: "OpenAI", detail: "GPT-4o, GPT-4o-mini" },
+              { name: "Anthropic", detail: "Claude Sonnet, Opus" },
+              { name: "Google", detail: "Gemini Pro, Flash" },
+              { name: "OpenRouter", detail: "200+ models" },
+              { name: "ChatGPT", detail: "Use your subscription" },
+              { name: "Groq", detail: "Fast, free tier" },
+              { name: "Ollama", detail: "Local, fully private" },
+              { name: "More", detail: "Any OpenAI-compatible API" }
+            ].map((p, i) => (
+              <FadeIn key={p.name} delay={i * 0.04}>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 transition-colors duration-150 hover:border-white/[0.1]">
+                  <span className="text-[14px] font-medium text-stone-300">{p.name}</span>
+                  <p className="mt-1 text-[12px] text-stone-600">{p.detail}</p>
                 </div>
-              ))}
-            </div>
-          </FadeIn>
+              </FadeIn>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -549,10 +549,10 @@ $ nooterra`}
         <div className="mx-auto max-w-6xl px-6 py-24 text-center md:py-32">
           <FadeIn>
             <h2 className="text-3xl tracking-[-0.02em] text-stone-200 md:text-4xl">
-              Your first worker in 5 minutes.
+              Stop managing tasks.<br />Start managing outcomes.
             </h2>
             <p className="mx-auto mt-4 max-w-md text-[15px] text-stone-500">
-              Install Nooterra, describe what you need, and deploy a governed worker.
+              Describe the work. Deploy a worker. Stay in control.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <a href={ossLinks.repo} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-5 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
