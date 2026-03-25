@@ -86,14 +86,9 @@ function SiteNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <a
-            href={MANAGED_LOGIN_HREF}
-            className="text-[13px] text-stone-400 transition-colors duration-150 hover:text-stone-200"
-          >
-            Sign in
-          </a>
-          <a
-            href={MANAGED_ONBOARDING_HREF}
+            href={ossLinks.repo}
             className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white"
+            target="_blank" rel="noopener noreferrer"
           >
             Get started
           </a>
@@ -121,9 +116,8 @@ function SiteNav() {
                 {link.label}
               </a>
             ))}
-            <div className="flex gap-3 pt-2">
-              <a href={MANAGED_LOGIN_HREF} onClick={() => setMobileOpen(false)} className="text-sm text-stone-400">Sign in</a>
-              <a href={MANAGED_ONBOARDING_HREF} onClick={() => setMobileOpen(false)} className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-sm font-medium text-stone-900">
+            <div className="pt-2">
+              <a href={ossLinks.repo} onClick={() => setMobileOpen(false)} className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-sm font-medium text-stone-900" target="_blank" rel="noopener noreferrer">
                 Get started
               </a>
             </div>
@@ -200,6 +194,86 @@ function CodeBlock({ title, children }) {
   );
 }
 
+/* ─── Interactive terminal hero ─── */
+
+const TERMINAL_LINES = [
+  { text: "$ nooterra", delay: 0, style: "text-stone-300" },
+  { text: "", delay: 400 },
+  { text: "  What do you need a worker to do?", delay: 600, style: "text-stone-500" },
+  { text: "  > Handle support tickets. Look up billing in Stripe.", delay: 900, typing: true, style: "text-stone-200" },
+  { text: "    Draft refund replies. Escalate edge cases.", delay: 0, typing: true, style: "text-stone-200" },
+  { text: "", delay: 800 },
+  { text: "  Generating charter...", delay: 400, style: "text-stone-600" },
+  { text: "", delay: 600 },
+  { text: "  \u2713 Charter generated", delay: 300, style: "text-emerald-500/80" },
+  { text: "    canDo:    Read emails, Look up billing, Draft replies", delay: 150, style: "text-emerald-500/60" },
+  { text: "    askFirst: Issue refunds, Send external emails", delay: 150, style: "text-amber-500/60" },
+  { text: "    neverDo:  Share customer data, Make up information", delay: 150, style: "text-rose-500/60" },
+  { text: "", delay: 300 },
+  { text: "  \u2713 Tools: email, stripe, slack", delay: 200, style: "text-emerald-500/80" },
+  { text: "  \u2713 Schedule: continuous", delay: 200, style: "text-emerald-500/80" },
+  { text: "", delay: 400 },
+  { text: "  Customer Support Worker is live.", delay: 300, style: "text-[#d2b06f]" },
+];
+
+function TerminalHero() {
+  const [visibleLines, setVisibleLines] = useState(0);
+  const [typingIdx, setTypingIdx] = useState(0);
+
+  useEffect(() => {
+    if (visibleLines >= TERMINAL_LINES.length) return;
+    const line = TERMINAL_LINES[visibleLines];
+    const baseDelay = line.delay || 100;
+    const timer = setTimeout(() => setVisibleLines(v => v + 1), baseDelay);
+    return () => clearTimeout(timer);
+  }, [visibleLines]);
+
+  // Typing effect for lines marked with typing: true
+  useEffect(() => {
+    if (visibleLines < 1) return;
+    const currentLine = TERMINAL_LINES[visibleLines - 1];
+    if (!currentLine?.typing) {
+      setTypingIdx(999);
+      return;
+    }
+    if (typingIdx >= currentLine.text.length) return;
+    const timer = setTimeout(() => setTypingIdx(i => i + 1), 18);
+    return () => clearTimeout(timer);
+  }, [visibleLines, typingIdx]);
+
+  useEffect(() => { setTypingIdx(0); }, [visibleLines]);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-white/[0.06] bg-[#0c0c0e]">
+      <div className="flex items-center gap-2 border-b border-white/[0.04] px-4 py-2.5">
+        <div className="flex gap-1.5">
+          <div className="h-2 w-2 rounded-full bg-[#ff5f57]/60" />
+          <div className="h-2 w-2 rounded-full bg-[#febc2e]/60" />
+          <div className="h-2 w-2 rounded-full bg-[#28c840]/60" />
+        </div>
+        <span className="ml-2 font-mono text-[11px] text-stone-600">terminal</span>
+      </div>
+      <div className="min-h-[320px] p-5 font-mono text-[13px] leading-relaxed">
+        {TERMINAL_LINES.slice(0, visibleLines).map((line, i) => {
+          const isLastLine = i === visibleLines - 1;
+          const showTyping = line.typing && isLastLine && typingIdx < line.text.length;
+          const displayText = showTyping ? line.text.slice(0, typingIdx) : line.text;
+
+          return (
+            <div key={i} className={`${line.style || "text-stone-500"} ${!line.text ? "h-4" : ""}`}>
+              {displayText}
+              {showTyping ? <span className="inline-block w-[7px] h-[14px] bg-stone-400 ml-px animate-pulse" /> : null}
+            </div>
+          );
+        })}
+        {visibleLines < TERMINAL_LINES.length ? (
+          <span className="inline-block w-[7px] h-[14px] bg-stone-500 animate-pulse" />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* ─── HOME PAGE ─── */
 
 function HomePage() {
@@ -207,55 +281,40 @@ function HomePage() {
     <SiteLayout>
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#d2b06f]/[0.03] via-transparent to-transparent" />
-        <div className="relative mx-auto max-w-6xl px-6 pb-20 pt-24 md:pt-32">
-          <FadeIn>
-            <p className="mb-5 font-mono text-[13px] text-[#d2b06f]/70">npm install -g nooterra</p>
-          </FadeIn>
-          <FadeIn delay={0.06}>
-            <h1 className="max-w-3xl text-[clamp(2.25rem,5vw,3.75rem)] leading-[1.08] tracking-[-0.02em] text-stone-100">
-              AI workers for{" "}
-              <span className="text-[#d2b06f]">consequential</span> work.
-            </h1>
-          </FadeIn>
-          <FadeIn delay={0.12}>
-            <p className="mt-6 max-w-xl text-[16px] leading-relaxed text-stone-500">
-              Create workers in plain English. Every action is governed by a charter.
-              Sensitive actions need your approval. Everything is logged.
-            </p>
-          </FadeIn>
-          <FadeIn delay={0.18}>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <a href={buildManagedOnboardingHref("home")} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
-                Get started <ArrowRight size={14} />
-              </a>
-              <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-4 py-2 text-[13px] font-medium text-stone-400 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-200" target="_blank" rel="noopener noreferrer">
-                <GitBranch size={14} /> Star on GitHub
-              </a>
+        <div className="absolute inset-0 bg-gradient-to-b from-[#d2b06f]/[0.04] via-transparent to-transparent" />
+        <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-24 md:pb-24 md:pt-32">
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div>
+              <FadeIn>
+                <h1 className="text-[clamp(2rem,4.5vw,3.25rem)] leading-[1.1] tracking-[-0.025em] text-stone-100">
+                  Put AI to work.<br />
+                  <span className="text-[#d2b06f]">For real.</span>
+                </h1>
+              </FadeIn>
+              <FadeIn delay={0.08}>
+                <p className="mt-5 max-w-md text-[15px] leading-relaxed text-stone-500">
+                  Describe any job in plain English. Nooterra deploys an AI worker
+                  with hard guardrails, human approvals, and a full audit trail. Runs 24/7.
+                </p>
+              </FadeIn>
+              <FadeIn delay={0.14}>
+                <div className="mt-8 flex flex-wrap items-center gap-3">
+                  <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white" target="_blank" rel="noopener noreferrer">
+                    Get started <ArrowRight size={14} />
+                  </a>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText("npm install -g nooterra"); }}
+                    className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-4 py-2 font-mono text-[13px] text-stone-500 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-300"
+                  >
+                    <Terminal size={13} /> npm install -g nooterra
+                  </button>
+                </div>
+              </FadeIn>
             </div>
-          </FadeIn>
-
-          <FadeIn delay={0.24}>
-            <div className="mt-12 max-w-2xl">
-              <CodeBlock title="terminal">
-{`$ nooterra
-
-  What do you need a worker to do?
-  > Handle billing questions. Look up customers in
-    Stripe. Draft refund replies.
-
-  ✓ Charter generated
-    canDo:    Read emails, Look up billing, Draft replies
-    askFirst: Issue refunds, Send external emails
-    neverDo:  Share customer data, Make up information
-
-  ✓ Tools: email, stripe, slack
-  ✓ Schedule: continuous
-
-  Customer Support Worker is live.`}
-              </CodeBlock>
-            </div>
-          </FadeIn>
+            <FadeIn delay={0.2}>
+              <TerminalHero />
+            </FadeIn>
+          </div>
         </div>
       </section>
 
@@ -496,7 +555,7 @@ $ nooterra`}
               Install Nooterra, describe what you need, and deploy a governed worker.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <a href={buildManagedOnboardingHref("home_cta")} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-5 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
+              <a href={ossLinks.repo} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-5 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
                 Get started <ArrowRight size={14} />
               </a>
               <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-5 py-2.5 text-[13px] font-medium text-stone-400 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-200" target="_blank" rel="noopener noreferrer">
@@ -528,7 +587,7 @@ function PricingPage() {
       period: "/month",
       desc: "Cloud workers, Slack approvals, webhooks.",
       points: ["Cloud-hosted workers", "Slack approvals", "Webhook integrations", "Activity dashboard", "Email support"],
-      cta: { label: "Start Pro", href: buildManagedOnboardingHref("pricing_pro") },
+      cta: { label: "Start Pro", href: "/support" },
       featured: true
     },
     {
