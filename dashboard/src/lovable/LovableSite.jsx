@@ -77,7 +77,7 @@ function SiteNav() {
     <nav className="fixed inset-x-0 top-0 z-50" style={{ backgroundColor: "rgba(13, 12, 10, 0.92)", backdropFilter: "blur(12px)" }}>
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <a href="/" className="flex items-center gap-2 group">
-          <NooterraLogo className="h-5 w-auto transition-colors" style={{ color: "var(--neutral-100)" }} />
+          <NooterraLogo className="h-8 w-auto transition-colors" style={{ color: "var(--neutral-100)" }} />
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
