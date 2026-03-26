@@ -145,6 +145,8 @@ function getGreeting() {
 }
 
 function getInitials(email) {
+  const name = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
+  if (name) return name.charAt(0).toUpperCase();
   if (!email) return "?";
   return email.charAt(0).toUpperCase();
 }
@@ -357,6 +359,7 @@ function NooterraLogo({ height = 24, style: extraStyle }) {
 
 function SignUpView({ onAuth }) {
   const [step, setStep] = useState("form");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -389,6 +392,13 @@ function SignUpView({ onAuth }) {
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId });
       saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+      // Save name to tenant settings and localStorage
+      if (fullName.trim()) {
+        try {
+          await updateTenantSettings({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId }, { displayName: fullName.trim(), callMe: fullName.trim().split(" ")[0] });
+          localStorage.setItem("nooterra_user_name", fullName.trim());
+        } catch { /* non-fatal */ }
+      }
       try {
         const keypair = await generateBrowserEd25519KeypairPem();
         const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`, body: { email: email.trim(), company: email.trim().split("@")[0] } });
@@ -433,9 +443,11 @@ function SignUpView({ onAuth }) {
         <p style={S.authSub}>We'll send a verification code to your email. No password needed.</p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmitForm}>
+          <label style={S.label}>Name</label>
+          <FocusInput type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" required autoFocus />
           <label style={S.label}>Email</label>
-          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
-          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading || !email.trim()}>{loading ? "One moment..." : "Continue \u2192"}</button>
+          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
+          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading || !email.trim() || !fullName.trim()}>{loading ? "One moment..." : "Continue \u2192"}</button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
           Already have an account?{" "}
@@ -1171,7 +1183,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   if (!hasMessages) {
     const greeting = getGreeting();
-    const displayName = userName ? userName.split("@")[0] : null;
+    const storedName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
+    const displayName = storedName ? storedName.split(" ")[0] : (userName ? userName.split("@")[0] : null);
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
         <div style={{ flex: 1 }} />
