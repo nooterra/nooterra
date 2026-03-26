@@ -495,26 +495,34 @@ function SignInView({ onAuth }) {
 
   async function handleSubmit(e) {
     e.preventDefault(); setError(""); setLoading(true);
-    const tid = tenantId.trim(); const em = email.trim();
+    const em = email.trim();
     try {
+      // Use signup endpoint to get tenant ID — it returns existing tenant for known emails
+      const result = await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
+      const tid = result?.tenantId;
+      if (!tid) { setError("Could not find your account. Try signing up instead."); setLoading(false); return; }
+      setTenantId(tid);
+      // Try passkey login first
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
       if (storedPasskey) {
-        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
-        if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
-          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
-          touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-          const principal = await fetchSessionPrincipal();
-          const runtime = loadRuntimeConfig();
-          saveRuntime({ ...runtime, tenantId: tid });
-          saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-          onAuth?.("dashboard");
-          return;
-        }
+        try {
+          const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
+          if (optionsResp?.challenge && optionsResp?.challengeId) {
+            const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
+            await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
+            touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+            const principal = await fetchSessionPrincipal();
+            saveRuntime({ ...loadRuntimeConfig(), tenantId: tid });
+            saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+            onAuth?.("dashboard");
+            return;
+          }
+        } catch { /* passkey failed, fall through to OTP */ }
       }
+      // Fall through to OTP
       await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
       setStep("otp");
-    } catch (err) { setError(err?.message || "Sign in failed. Check your credentials."); }
+    } catch (err) { setError(err?.message || "Sign in failed. Please try again."); }
     finally { setLoading(false); }
   }
 
@@ -575,15 +583,12 @@ function SignInView({ onAuth }) {
       <div style={S.authBox} className="lovable-fade">
         <div style={{ marginBottom: "2rem" }}><NooterraLogo height={22} style={{ color: "var(--text-primary)" }} /></div>
         <h1 style={S.authTitle}>Welcome back</h1>
-        <p style={S.authSub}>Sign in to your account.</p>
+        <p style={S.authSub}>We'll send a verification code to your email.</p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <label style={S.label}>Email</label>
           <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
-          <label style={S.label}>Your account ID</label>
-          <FocusInput type="text" value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="tenant_abc123" required />
-          <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "-0.75rem", marginBottom: "1.25rem", lineHeight: 1.4 }}>Check your signup email for this.</p>
-          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading}>{loading ? "Signing in..." : "Sign in"}</button>
+          <button type="submit" style={{ ...S.btnPrimary, opacity: loading || !email.trim() ? 0.5 : 1 }} disabled={loading || !email.trim()}>{loading ? "Sending code..." : "Continue \u2192"}</button>
         </form>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1.5rem" }}>
           <a href="/signup" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/signup"); }}>Create account</a>
