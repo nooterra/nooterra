@@ -127,9 +127,9 @@ function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0] ? String(argv[0]) : "";
 
-  // No args: launch the TUI
+  // No args: launch the interactive CLI
   if (!cmd) {
-    return runNodeScript("scripts/worker-builder/tui.mjs", []);
+    return runNodeScript("scripts/worker-builder/cli.mjs", []);
   }
 
   if (cmd === "-h" || cmd === "--help") {
