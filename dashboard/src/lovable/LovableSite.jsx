@@ -70,6 +70,7 @@ function SiteNav() {
 
   const navLinks = [
     { label: "Docs", href: DOCS_EXTERNAL },
+    { label: "Pricing", href: "/pricing" },
     { label: "GitHub", href: ossLinks.repo }
   ];
 
@@ -95,12 +96,20 @@ function SiteNav() {
             </a>
           ))}
           <a
-            href={DOCS_GETTING_STARTED}
+            href="/login"
+            className="text-[13px] transition-colors"
+            style={{ color: "var(--neutral-500)" }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "var(--neutral-200)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "var(--neutral-500)"}
+          >
+            Sign in
+          </a>
+          <a
+            href="/signup"
             className="inline-flex items-center px-3.5 py-1.5 text-[13px] font-semibold transition-all duration-150"
             style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
-            target="_blank" rel="noopener noreferrer"
           >
             Get started
           </a>
@@ -135,13 +144,20 @@ function SiteNav() {
                 {link.label}
               </a>
             ))}
-            <div className="pt-2">
+            <div className="pt-2 flex items-center gap-4">
               <a
-                href={DOCS_GETTING_STARTED}
+                href="/login"
+                onClick={() => setMobileOpen(false)}
+                className="text-sm transition-colors"
+                style={{ color: "var(--neutral-500)" }}
+              >
+                Sign in
+              </a>
+              <a
+                href="/signup"
                 onClick={() => setMobileOpen(false)}
                 className="inline-flex items-center px-3.5 py-1.5 text-sm font-semibold"
                 style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-                target="_blank" rel="noopener noreferrer"
               >
                 Get started
               </a>
@@ -869,10 +885,148 @@ function SimpleInfoPage({ title, summary }) {
   );
 }
 
+/* ── PRICING PAGE ── */
+
+const PRICING_TIERS = [
+  {
+    name: "Free",
+    price: "$0",
+    period: "",
+    description: "Run unlimited workers locally from the CLI. Your keys, your data, no cloud required.",
+    features: [
+      "Unlimited local workers",
+      "Any AI provider",
+      "Full charter and guardrails",
+      "CLI and MCP support",
+      "Community support"
+    ],
+    cta: "Get started",
+    ctaHref: DOCS_GETTING_STARTED,
+    ctaExternal: true,
+    highlighted: false
+  },
+  {
+    name: "Pro",
+    price: "$29",
+    period: "/month",
+    description: "Cloud-hosted workers that run 24/7. Approve from Slack. Web dashboard.",
+    features: [
+      "Everything in Free",
+      "Cloud-hosted workers",
+      "Web dashboard",
+      "Slack approvals",
+      "Webhook integrations",
+      "Email support"
+    ],
+    cta: "Start free trial",
+    ctaHref: "/signup",
+    ctaExternal: false,
+    highlighted: true
+  },
+  {
+    name: "Team",
+    price: "$99",
+    period: "/month",
+    description: "Shared workers, team approvals, SSO, and audit exports.",
+    features: [
+      "Everything in Pro",
+      "Shared worker dashboard",
+      "Team approval workflows",
+      "SSO and admin controls",
+      "Audit log export",
+      "Priority support"
+    ],
+    cta: "Contact us",
+    ctaHref: "/support",
+    ctaExternal: false,
+    highlighted: false
+  }
+];
+
+function PricingPage() {
+  return (
+    <SiteLayout>
+      <section className="mx-auto max-w-6xl px-6" style={{ paddingTop: "7rem", paddingBottom: "3rem" }}>
+        <FadeIn>
+          <h1 style={{ fontSize: "clamp(2rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>Pricing</h1>
+          <p className="mt-5 max-w-xl text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
+            Start free on your own machine. Scale to the cloud when you're ready.
+          </p>
+        </FadeIn>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6" style={{ paddingBottom: "6rem" }}>
+        <div className="grid gap-6 md:grid-cols-3">
+          {PRICING_TIERS.map((tier, i) => (
+            <FadeIn key={tier.name} delay={i * 0.08}>
+              <div
+                className="flex flex-col h-full"
+                style={{
+                  border: tier.highlighted
+                    ? "1px solid rgba(200, 170, 110, 0.25)"
+                    : "1px solid rgba(235, 232, 226, 0.06)",
+                  borderRadius: "10px",
+                  backgroundColor: tier.highlighted
+                    ? "rgba(200, 170, 110, 0.03)"
+                    : "rgba(235, 232, 226, 0.02)",
+                  padding: "2rem"
+                }}
+              >
+                <div>
+                  <p className="text-[13px] font-semibold uppercase tracking-[0.1em]" style={{ color: tier.highlighted ? "var(--gold)" : "var(--neutral-400)" }}>
+                    {tier.name}
+                  </p>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span style={{ fontSize: "2.25rem", fontWeight: 700, letterSpacing: "-0.03em", color: "var(--neutral-100)" }}>{tier.price}</span>
+                    {tier.period ? <span className="text-[14px]" style={{ color: "var(--neutral-600)" }}>{tier.period}</span> : null}
+                  </div>
+                  <p className="mt-4 text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{tier.description}</p>
+                </div>
+
+                <div className="mt-8 space-y-3 flex-1">
+                  {tier.features.map((f) => (
+                    <div key={f} className="flex items-start gap-3">
+                      <span className="mt-1.5 block h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: tier.highlighted ? "var(--gold)" : "var(--neutral-600)" }} />
+                      <span className="text-[13px]" style={{ color: "var(--neutral-400)" }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-8">
+                  <a
+                    href={tier.ctaHref}
+                    className="inline-flex items-center justify-center w-full px-4 py-2.5 text-[13px] font-semibold transition-all duration-150"
+                    style={
+                      tier.highlighted
+                        ? { backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }
+                        : { border: "1px solid rgba(235, 232, 226, 0.1)", color: "var(--neutral-400)", borderRadius: "6px" }
+                    }
+                    onMouseEnter={(e) => {
+                      if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold-hover)"; }
+                      else { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.18)"; e.currentTarget.style.color = "var(--neutral-200)"; }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold)"; }
+                      else { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.1)"; e.currentTarget.style.color = "var(--neutral-400)"; }
+                    }}
+                    {...(tier.ctaExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                  >
+                    {tier.cta}
+                  </a>
+                </div>
+              </div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+    </SiteLayout>
+  );
+}
+
 /* ── MAIN EXPORT ── */
 
 export default function LovableSite({ mode = "home" }) {
-  if (mode === "pricing") return <HomePage />;
+  if (mode === "pricing") return <PricingPage />;
   if (mode === "status") return <StatusPage />;
   if (mode === "security") return <SecurityPage />;
   if (mode === "privacy") return <PrivacyPage />;
