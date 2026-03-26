@@ -133,16 +133,175 @@ function createWebhookChannel(webhookUrl, callbackPort = 0) {
 }
 
 /**
- * Stubbed channels — return pending and never resolve on their own.
- * Real implementations would integrate with Slack/email/SMS APIs.
+ * Slack channel — posts an approval message and polls for emoji reactions.
+ *
+ * Uses only chat:write and reactions:read scopes (no interactive webhook needed).
+ * Posts to a configured channel/DM, then polls reactions.get every 5 seconds.
+ * Approve = ✅ (white_check_mark), Deny = ❌ (x).
  */
-function createSlackChannel(_config) {
+function loadSlackToken() {
+  const fp = path.join(os.homedir(), '.nooterra', 'credentials', 'slack-token.txt');
+  if (!fs.existsSync(fp)) return null;
+  return fs.readFileSync(fp, 'utf-8').trim() || null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function slackApiCall(token, method, body) {
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
+async function slackApiGet(token, method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const response = await fetch(`https://slack.com/api/${method}?${qs}`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  return response.json();
+}
+
+function formatArgsSummary(description) {
+  // description is typically a pre-formatted string; truncate if very long
+  if (!description) return '(no details)';
+  if (description.length > 300) return description.slice(0, 300) + '…';
+  return description;
+}
+
+function buildApprovalBlocks(request) {
+  const lines = [
+    `:bell: *Approval Required*`,
+    '',
+    `*Worker:* ${request.workerId || 'unknown'}`,
+    `*Action:* ${request.action || 'unknown'}`,
+    `*Details:* ${formatArgsSummary(request.description)}`,
+  ];
+  if (request.rule) {
+    lines.push(`*Rule:* askFirst — ${request.rule}`);
+  }
+  lines.push('');
+  lines.push('React with :white_check_mark: to approve or :x: to deny');
+
+  return [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: lines.join('\n') },
+    },
+    {
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `Approval ID: \`${request.id}\` · Expires: ${new Date(request.expiresAt).toLocaleTimeString()}`,
+        },
+      ],
+    },
+  ];
+}
+
+function hasReaction(reactions, name) {
+  if (!reactions || !Array.isArray(reactions)) return false;
+  return reactions.some((r) => r.name === name);
+}
+
+function createSlackChannel(config = {}) {
   return {
     id: 'slack',
     name: 'Slack',
-    async send(_request) {
-      // Stub: in production, post to Slack and await interaction callback
-      return new Promise(() => {}); // never resolves — cancelled by anti-stamping
+
+    async send(request) {
+      const token = loadSlackToken();
+      if (!token) {
+        return { decision: 'error', respondedBy: 'slack:no-token' };
+      }
+
+      const channel = config.channel || config.slackChannel;
+      if (!channel) {
+        return { decision: 'error', respondedBy: 'slack:no-channel' };
+      }
+
+      // Post the approval message
+      const blocks = buildApprovalBlocks(request);
+      const fallbackText = `Approval required for worker "${request.workerId}": ${request.action} — ${request.description || ''}`;
+      const postResult = await slackApiCall(token, 'chat.postMessage', {
+        channel,
+        text: fallbackText,
+        blocks,
+      });
+
+      if (!postResult.ok) {
+        console.error(`[approval-engine] Slack post failed: ${postResult.error}`);
+        return { decision: 'error', respondedBy: `slack:post-failed:${postResult.error}` };
+      }
+
+      const ts = postResult.ts;
+      const channelId = postResult.channel;
+
+      // Poll for reactions
+      const timeoutMs = config.timeoutMs || request.timeoutMs || DEFAULT_TIMEOUT_MS;
+      const pollMs = config.pollMs || 5000;
+      const deadline = Date.now() + timeoutMs;
+
+      while (Date.now() < deadline) {
+        await sleep(pollMs);
+
+        let reactionsResult;
+        try {
+          reactionsResult = await slackApiGet(token, 'reactions.get', {
+            channel: channelId,
+            timestamp: ts,
+            full: 'true',
+          });
+        } catch {
+          // Network blip — keep polling
+          continue;
+        }
+
+        if (!reactionsResult.ok) {
+          // API error — keep trying unless it's a permanent error
+          if (reactionsResult.error === 'channel_not_found' || reactionsResult.error === 'message_not_found') {
+            return { decision: 'error', respondedBy: `slack:${reactionsResult.error}` };
+          }
+          continue;
+        }
+
+        const reactions = reactionsResult.message?.reactions || [];
+
+        if (hasReaction(reactions, 'white_check_mark') || hasReaction(reactions, 'heavy_check_mark')) {
+          // Post approval confirmation in thread
+          await slackApiCall(token, 'chat.postMessage', {
+            channel: channelId,
+            thread_ts: ts,
+            text: ':white_check_mark: Approved',
+          });
+          return { decision: 'approved', respondedBy: 'slack:reaction' };
+        }
+
+        if (hasReaction(reactions, 'x') || hasReaction(reactions, 'no_entry_sign')) {
+          await slackApiCall(token, 'chat.postMessage', {
+            channel: channelId,
+            thread_ts: ts,
+            text: ':x: Denied',
+          });
+          return { decision: 'denied', respondedBy: 'slack:reaction' };
+        }
+      }
+
+      // Timed out — notify in thread
+      await slackApiCall(token, 'chat.postMessage', {
+        channel: channelId,
+        thread_ts: ts,
+        text: ':alarm_clock: Approval timed out',
+      });
+      return { decision: 'timeout', respondedBy: 'slack:timeout' };
     },
   };
 }
@@ -193,8 +352,13 @@ export function createApprovalEngine(options = {}) {
   if (options.channels) {
     for (const ch of options.channels) {
       if (typeof ch === 'string' && CHANNEL_FACTORIES[ch]) {
-        channels.push(CHANNEL_FACTORIES[ch]());
-      } else if (typeof ch === 'object' && ch.id) {
+        // Simple string — use factory with global options (e.g. options.slackChannel)
+        channels.push(CHANNEL_FACTORIES[ch](options));
+      } else if (typeof ch === 'object' && ch.type && CHANNEL_FACTORIES[ch.type]) {
+        // Config object with type — pass config to factory (e.g. { type: 'slack', channel: '#approvals' })
+        channels.push(CHANNEL_FACTORIES[ch.type](ch));
+      } else if (typeof ch === 'object' && ch.id && typeof ch.send === 'function') {
+        // Pre-built channel adapter — use as-is
         channels.push(ch);
       }
     }
