@@ -20,7 +20,7 @@ function getRouteMode() {
   if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/approvals") return { mode: "approvals", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/wallet") return { mode: "wallet", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/wallet") return { mode: "dashboard", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/dashboard") return { mode: "dashboard", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/product") return { mode: "product", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/pricing") return { mode: "pricing", launchId: null, agentId: null, runId: null, requestedPath: null };

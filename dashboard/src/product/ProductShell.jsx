@@ -291,31 +291,10 @@ function SignUpView({ onAuth }) {
     setError("");
     setLoading(true);
     try {
-      let passkeySuccess = false;
-      try {
-        const optionsResp = await authRequest({ pathname: "/v1/public/signup/passkey/options", body: { email: email.trim(), company: email.trim().split("@")[0] } });
-        if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const keypair = await generateBrowserEd25519KeypairPem();
-          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
-          const passkeyResp = await authRequest({
-            pathname: "/v1/public/signup/passkey",
-            body: { tenantId: optionsResp.tenantId, challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: `${navigator.userAgent.split(" ").slice(-1)[0] || "Browser"} passkey` },
-          });
-          saveStoredBuyerPasskeyBundle({ tenantId: optionsResp.tenantId || passkeyResp?.tenantId, email: email.trim(), credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
-          const principal = await fetchSessionPrincipal();
-          const runtime = loadRuntimeConfig();
-          const tenantId = optionsResp.tenantId || passkeyResp?.tenantId || principal?.tenantId || runtime.tenantId;
-          saveRuntime({ ...runtime, tenantId });
-          saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-          passkeySuccess = true;
-          onAuth?.("builder");
-        }
-      } catch { /* Passkey not supported -- fall through to OTP */ }
-      if (!passkeySuccess) {
-        const result = await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } });
-        setSignupResult(result);
-        setStep("otp");
-      }
+      // Always go through OTP first — verify email ownership before granting access
+      const result = await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } });
+      setSignupResult(result);
+      setStep("otp");
     } catch (err) {
       setError(err?.message || "Sign up failed. Please try again.");
     } finally { setLoading(false); }
@@ -1981,13 +1960,13 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       setUserEmail(onboardState?.buyer?.email || null);
       setIsFirstTime(true);
       setCurrentMode("dashboard");
-      navigate("/wallet");
+      navigate("/dashboard");
     } else {
       const onboardState = loadOnboardingState();
       setUserEmail(onboardState?.buyer?.email || null);
       setIsFirstTime(false);
       setCurrentMode("dashboard");
-      navigate("/wallet");
+      navigate("/dashboard");
     }
   }
 
