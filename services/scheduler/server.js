@@ -14,11 +14,10 @@
  *   POLL_INTERVAL_MS      - Scheduler poll interval (default 10000)
  */
 
-'use strict';
-
-const http = require('http');
-const { Pool } = require('pg');
-const { chatCompletion, listModels } = require('./openrouter');
+import http from 'node:http';
+import pg from 'pg';
+const { Pool } = pg;
+import { chatCompletion, listModels } from './openrouter.js';
 
 // ---------------------------------------------------------------------------
 // Configuration

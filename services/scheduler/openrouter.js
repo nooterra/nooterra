@@ -6,8 +6,6 @@
  * and token usage tracking. Zero external dependencies beyond Node.js fetch.
  */
 
-'use strict';
-
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
@@ -376,7 +374,7 @@ function estimateCost(modelId, promptTokens, completionTokens) {
 // Exports
 // ---------------------------------------------------------------------------
 
-module.exports = {
+export {
   chatCompletion,
   listModels,
   getModelPricing,
