@@ -226,6 +226,8 @@ async function handleCommand(cmd, args, rl) {
     case '/approvals': return showApprovals();
     case '/cost': return showCost();
     case '/health': return showHealth();
+    case '/pause': return pauseResumeWorker(args, 'paused');
+    case '/resume': return pauseResumeWorker(args, 'ready');
     case '/delegate': return showDelegateHelp(args);
     case '/quit': case '/exit': case '/q':
       console.log(`\n  ${c.dim}Goodbye.${c.reset}\n`);
@@ -246,6 +248,8 @@ function showHelp() {
   ${c.gold}/teach${c.reset} <name> <info>   Give a worker company knowledge
   ${c.gold}/templates${c.reset}             Quick start templates
   ${c.gold}/stop${c.reset} <name>           Stop a worker
+  ${c.gold}/pause${c.reset} <name>          Pause a scheduled worker
+  ${c.gold}/resume${c.reset} <name>         Resume a paused worker
   ${c.gold}/delegate${c.reset}              Delegate between workers
   ${c.gold}/schedule${c.reset}              Schedule recurring runs
 
@@ -287,7 +291,12 @@ function showWorkers() {
     const name = w.charter?.name || w.id;
     const provider = w.provider ? `${c.dim}${PROVIDERS[w.provider]?.name || w.provider}${c.reset}` : '';
     const runs = w.stats?.totalRuns || 0;
-    console.log(`    ${status}  ${c.white}${name}${c.reset}  ${provider}  ${c.dim}${runs} run${runs !== 1 ? 's' : ''}${c.reset}`);
+    const lastRun = w.stats?.lastRunAt ? `${c.dim}last: ${new Date(w.stats.lastRunAt).toLocaleDateString()}${c.reset}` : '';
+    const schedule = w.charter?.schedule?.type === 'cron' ? `${c.dim}cron: ${w.charter.schedule.value}${c.reset}` :
+      w.charter?.schedule?.type === 'interval' ? `${c.dim}every ${w.charter.schedule.value}${c.reset}` :
+      w.charter?.schedule?.type === 'continuous' ? `${c.dim}continuous${c.reset}` : '';
+    const details = [provider, `${runs} run${runs !== 1 ? 's' : ''}`, lastRun, schedule].filter(Boolean).join(`${c.dim} · ${c.reset}`);
+    console.log(`    ${status}  ${c.white}${name}${c.reset}  ${c.dim}${details}${c.reset}`);
   }
   console.log('');
 }
@@ -453,6 +462,29 @@ function stopWorker(nameOrId) {
     return;
   }
   console.log(`\n  ${c.dim}Worker stopping is not yet implemented for local workers.${c.reset}\n`);
+}
+
+async function pauseResumeWorker(nameOrId, targetStatus) {
+  if (!nameOrId?.trim()) {
+    console.log(`\n  ${c.dim}Usage: /${targetStatus === 'paused' ? 'pause' : 'resume'} <worker name>${c.reset}\n`);
+    return;
+  }
+  const workers = listWorkers();
+  const match = workers.find(w =>
+    (w.charter?.name || '').toLowerCase().includes(nameOrId.toLowerCase()) || w.id === nameOrId
+  );
+  if (!match) {
+    console.log(`\n  ${c.red}✗${c.reset} Worker "${nameOrId}" not found.\n`);
+    return;
+  }
+  try {
+    const { updateWorkerStatus } = await import('./worker-persistence.mjs');
+    updateWorkerStatus(match.id, targetStatus);
+    const action = targetStatus === 'paused' ? 'Paused' : 'Resumed';
+    console.log(`\n  ${c.green}✓${c.reset} ${action} ${match.charter?.name || match.id}.\n`);
+  } catch {
+    console.log(`\n  ${c.red}✗${c.reset} Failed to update worker status.\n`);
+  }
 }
 
 function showDashboard() {
