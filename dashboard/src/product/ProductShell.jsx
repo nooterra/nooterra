@@ -76,6 +76,13 @@ function navigate(path) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 /* ── Worker API helpers ──────────────────────────────────── */
 
 async function workerApiRequest({ pathname, method = "GET", body = null }) {
@@ -117,405 +124,55 @@ async function logoutSession() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Shared styles (inline, keeps single-file constraint)
+   Shared styles
    ═══════════════════════════════════════════════════════════ */
 
 const S = {
-  shell: {
-    minHeight: "100vh",
-    background: "var(--neutral-950)",
-    color: "var(--neutral-200)",
-    fontFamily: "var(--font-body)",
-    WebkitFontSmoothing: "antialiased",
-  },
-  /* Auth screens */
-  authWrap: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "2rem",
-  },
-  authBox: {
-    width: "100%",
-    maxWidth: 400,
-  },
-  authTitle: {
-    fontSize: "clamp(1.6rem, 4vw, 2rem)",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    marginBottom: "0.5rem",
-    lineHeight: 1.15,
-  },
-  authSub: {
-    fontSize: "0.95rem",
-    color: "var(--neutral-400)",
-    marginBottom: "2.5rem",
-    lineHeight: 1.5,
-  },
-  label: {
-    display: "block",
-    fontSize: "0.8rem",
-    fontWeight: 600,
-    color: "var(--neutral-300)",
-    marginBottom: "0.4rem",
-    letterSpacing: "0.03em",
-    textTransform: "uppercase",
-  },
-  input: {
-    display: "block",
-    width: "100%",
-    padding: "0.75rem 1rem",
-    fontSize: "0.95rem",
-    background: "var(--neutral-900)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    color: "var(--neutral-100)",
-    outline: "none",
-    marginBottom: "1.25rem",
-    fontFamily: "inherit",
-    transition: "border-color 0.15s",
-  },
-  inputFocus: {
-    borderColor: "var(--gold)",
-  },
-  btnPrimary: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0.75rem 1.75rem",
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    background: "var(--gold)",
-    color: "var(--neutral-950)",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-    letterSpacing: "0.01em",
-    transition: "background 0.15s, opacity 0.15s",
-    width: "100%",
-    fontFamily: "inherit",
-  },
-  btnSecondary: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0.6rem 1.25rem",
-    fontSize: "0.85rem",
-    fontWeight: 600,
-    background: "transparent",
-    color: "var(--neutral-200)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    cursor: "pointer",
-    transition: "border-color 0.15s",
-    fontFamily: "inherit",
-  },
-  btnGhost: {
-    background: "none",
-    border: "none",
-    color: "var(--gold)",
-    cursor: "pointer",
-    fontSize: "0.85rem",
-    fontWeight: 500,
-    padding: 0,
-    fontFamily: "inherit",
-  },
-  link: {
-    color: "var(--gold)",
-    textDecoration: "none",
-    fontSize: "0.85rem",
-    fontWeight: 500,
-  },
-  error: {
-    fontSize: "0.85rem",
-    color: "#c97055",
-    marginBottom: "1rem",
-  },
-  success: {
-    fontSize: "0.85rem",
-    color: "#5bb98c",
-    marginBottom: "1rem",
-  },
-  /* Dashboard layout */
-  dashLayout: {
-    display: "flex",
-    minHeight: "100vh",
-  },
-  sidebar: {
-    width: 240,
-    flexShrink: 0,
-    borderRight: "1px solid var(--neutral-800)",
-    padding: "2rem 0",
-    display: "flex",
-    flexDirection: "column",
-    position: "sticky",
-    top: 0,
-    height: "100vh",
-    overflowY: "auto",
-  },
-  sidebarLogo: {
-    fontSize: "1.1rem",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    padding: "0 1.5rem",
-    marginBottom: "2.5rem",
-    letterSpacing: "-0.01em",
-  },
-  navItem: {
-    display: "block",
-    padding: "0.55rem 1.5rem",
-    fontSize: "0.88rem",
-    fontWeight: 500,
-    color: "var(--neutral-400)",
-    cursor: "pointer",
-    textDecoration: "none",
-    transition: "color 0.12s",
-    border: "none",
-    background: "none",
-    width: "100%",
-    textAlign: "left",
-    fontFamily: "inherit",
-  },
-  navItemActive: {
-    color: "var(--neutral-50)",
-  },
-  navSection: {
-    fontSize: "0.7rem",
-    fontWeight: 600,
-    color: "var(--neutral-500)",
-    padding: "1.5rem 1.5rem 0.5rem",
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-  },
-  main: {
-    flex: 1,
-    padding: "2.5rem 3rem",
-    maxWidth: 960,
-  },
-  pageTitle: {
-    fontSize: "clamp(1.4rem, 3vw, 1.75rem)",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    marginBottom: "0.3rem",
-  },
-  pageSub: {
-    fontSize: "0.9rem",
-    color: "var(--neutral-400)",
-    marginBottom: "2rem",
-  },
-  /* Worker list */
-  workerRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto auto auto auto",
-    alignItems: "center",
-    gap: "1.5rem",
-    padding: "1rem 0",
-    borderBottom: "1px solid var(--neutral-800)",
-    cursor: "pointer",
-    transition: "background 0.1s",
-  },
-  workerName: {
-    fontSize: "0.95rem",
-    fontWeight: 600,
-    color: "var(--neutral-100)",
-  },
-  workerMeta: {
-    fontSize: "0.8rem",
-    color: "var(--neutral-400)",
-    fontVariantNumeric: "tabular-nums",
-  },
-  statusDot: (color) => ({
-    display: "inline-block",
-    width: 7,
-    height: 7,
-    borderRadius: "50%",
-    background: color,
-    marginRight: 6,
-    verticalAlign: "middle",
-  }),
-  /* Charter */
-  charterSection: {
-    marginBottom: "1.5rem",
-  },
-  charterLabel: {
-    fontSize: "0.75rem",
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    marginBottom: "0.5rem",
-  },
-  charterItem: {
-    fontSize: "0.88rem",
-    color: "var(--neutral-300)",
-    padding: "0.3rem 0",
-    lineHeight: 1.5,
-  },
-  /* Approvals */
-  approvalRow: {
-    padding: "1.25rem 0",
-    borderBottom: "1px solid var(--neutral-800)",
-  },
-  /* Onboarding */
-  onboardWrap: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "2rem",
-  },
-  onboardBox: {
-    width: "100%",
-    maxWidth: 520,
-  },
-  onboardStep: {
-    fontSize: "0.75rem",
-    fontWeight: 600,
-    color: "var(--neutral-500)",
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    marginBottom: "1rem",
-  },
-  onboardTitle: {
-    fontSize: "clamp(1.5rem, 4vw, 2.2rem)",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    marginBottom: "1.5rem",
-    lineHeight: 1.15,
-  },
-  /* Pricing */
-  pricingWrap: {
-    minHeight: "100vh",
-    padding: "6rem 2rem 4rem",
-    maxWidth: 1100,
-    margin: "0 auto",
-  },
-  pricingTitle: {
-    fontSize: "clamp(2rem, 5vw, 3rem)",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    marginBottom: "0.75rem",
-    lineHeight: 1.1,
-  },
-  tier: {
-    padding: "2.5rem 0",
-    borderBottom: "1px solid var(--neutral-800)",
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "3rem",
-    alignItems: "start",
-  },
-  tierName: {
-    fontSize: "1.25rem",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-    marginBottom: "0.3rem",
-  },
-  tierPrice: {
-    fontSize: "0.95rem",
-    color: "var(--neutral-400)",
-    marginBottom: "1rem",
-  },
-  tierFeature: {
-    fontSize: "0.88rem",
-    color: "var(--neutral-300)",
-    padding: "0.25rem 0",
-    lineHeight: 1.5,
-  },
-  /* Textarea */
-  textarea: {
-    display: "block",
-    width: "100%",
-    padding: "0.75rem 1rem",
-    fontSize: "0.95rem",
-    background: "var(--neutral-900)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    color: "var(--neutral-100)",
-    outline: "none",
-    fontFamily: "inherit",
-    resize: "vertical",
-    minHeight: 120,
-    lineHeight: 1.5,
-    marginBottom: "1.25rem",
-  },
-  /* Select */
-  select: {
-    display: "block",
-    width: "100%",
-    padding: "0.75rem 1rem",
-    fontSize: "0.95rem",
-    background: "var(--neutral-900)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    color: "var(--neutral-100)",
-    outline: "none",
-    fontFamily: "inherit",
-    marginBottom: "1.25rem",
-    appearance: "none",
-  },
-  /* Activity log */
-  logEntry: {
-    padding: "0.75rem 0",
-    borderBottom: "1px solid var(--neutral-800)",
-  },
-  logTime: {
-    fontSize: "0.75rem",
-    color: "var(--neutral-500)",
-    fontVariantNumeric: "tabular-nums",
-  },
-  logSummary: {
-    fontSize: "0.88rem",
-    color: "var(--neutral-300)",
-    marginTop: "0.2rem",
-    lineHeight: 1.5,
-  },
-  logDetail: {
-    fontSize: "0.82rem",
-    color: "var(--neutral-500)",
-    marginTop: "0.4rem",
-    lineHeight: 1.5,
-    whiteSpace: "pre-wrap",
-    padding: "0.75rem 1rem",
-    background: "var(--neutral-900)",
-    borderRadius: 6,
-  },
-  /* Back link */
-  backLink: {
-    display: "inline-block",
-    fontSize: "0.82rem",
-    fontWeight: 500,
-    color: "var(--neutral-400)",
-    marginBottom: "2rem",
-    cursor: "pointer",
-    background: "none",
-    border: "none",
-    padding: 0,
-    fontFamily: "inherit",
-  },
-  /* OTP input */
-  otpInput: {
-    display: "block",
-    width: "100%",
-    padding: "0.75rem 1rem",
-    fontSize: "1.5rem",
-    fontWeight: 700,
-    letterSpacing: "0.5em",
-    textAlign: "center",
-    background: "var(--neutral-900)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    color: "var(--neutral-100)",
-    outline: "none",
-    marginBottom: "1.25rem",
-    fontFamily: "inherit",
-    transition: "border-color 0.15s",
-  },
-  /* Spacer */
-  mb1: { marginBottom: "1rem" },
-  mb2: { marginBottom: "2rem" },
-  mt2: { marginTop: "2rem" },
-  mt3: { marginTop: "3rem" },
+  shell: { minHeight: "100vh", background: "var(--neutral-950)", color: "var(--neutral-200)", fontFamily: "var(--font-body)", WebkitFontSmoothing: "antialiased" },
+  authWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" },
+  authBox: { width: "100%", maxWidth: 400 },
+  authTitle: { fontSize: "clamp(1.6rem, 4vw, 2rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.5rem", lineHeight: 1.15 },
+  authSub: { fontSize: "0.95rem", color: "var(--neutral-400)", marginBottom: "2.5rem", lineHeight: 1.5 },
+  label: { display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "0.4rem", letterSpacing: "0.03em", textTransform: "uppercase" },
+  input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s" },
+  inputFocus: { borderColor: "var(--gold)" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--gold)", color: "var(--neutral-950)", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
+  btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--neutral-200)", border: "1px solid var(--neutral-700)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
+  btnGhost: { background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
+  link: { color: "var(--gold)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
+  error: { fontSize: "0.85rem", color: "#c97055", marginBottom: "1rem" },
+  success: { fontSize: "0.85rem", color: "#5bb98c", marginBottom: "1rem" },
+  appLayout: { display: "flex", minHeight: "100vh" },
+  sidebar: { width: 240, flexShrink: 0, borderRight: "1px solid var(--neutral-800)", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", background: "var(--neutral-950)" },
+  sidebarLogo: { fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", padding: "1.5rem 1.5rem 1rem", letterSpacing: "-0.01em" },
+  navItem: { display: "block", padding: "0.55rem 1.5rem", fontSize: "0.88rem", fontWeight: 500, color: "var(--neutral-400)", cursor: "pointer", textDecoration: "none", transition: "color 0.12s", border: "none", background: "none", width: "100%", textAlign: "left", fontFamily: "inherit" },
+  navItemActive: { color: "var(--neutral-50)" },
+  navSection: { fontSize: "0.7rem", fontWeight: 600, color: "var(--neutral-500)", padding: "1.5rem 1.5rem 0.5rem", letterSpacing: "0.06em", textTransform: "uppercase" },
+  main: { flex: 1, padding: "2.5rem 3rem", maxWidth: 960 },
+  pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.3rem" },
+  pageSub: { fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "2rem" },
+  workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1.5rem", padding: "1rem 0", borderBottom: "1px solid var(--neutral-800)", cursor: "pointer", transition: "background 0.1s" },
+  workerName: { fontSize: "0.95rem", fontWeight: 600, color: "var(--neutral-100)" },
+  workerMeta: { fontSize: "0.8rem", color: "var(--neutral-400)", fontVariantNumeric: "tabular-nums" },
+  statusDot: (color) => ({ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, marginRight: 6, verticalAlign: "middle" }),
+  charterSection: { marginBottom: "1.5rem" },
+  charterLabel: { fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.5rem" },
+  charterItem: { fontSize: "0.88rem", color: "var(--neutral-300)", padding: "0.3rem 0", lineHeight: 1.5 },
+  approvalRow: { padding: "1.25rem 0", borderBottom: "1px solid var(--neutral-800)" },
+  pricingWrap: { minHeight: "100vh", padding: "6rem 2rem 4rem", maxWidth: 1100, margin: "0 auto" },
+  pricingTitle: { fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.75rem", lineHeight: 1.1 },
+  tier: { padding: "2.5rem 0", borderBottom: "1px solid var(--neutral-800)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem", alignItems: "start" },
+  tierName: { fontSize: "1.25rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.3rem" },
+  tierPrice: { fontSize: "0.95rem", color: "var(--neutral-400)", marginBottom: "1rem" },
+  tierFeature: { fontSize: "0.88rem", color: "var(--neutral-300)", padding: "0.25rem 0", lineHeight: 1.5 },
+  textarea: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", fontFamily: "inherit", resize: "vertical", minHeight: 120, lineHeight: 1.5, marginBottom: "1.25rem" },
+  select: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", fontFamily: "inherit", marginBottom: "1.25rem", appearance: "none" },
+  logEntry: { padding: "0.75rem 0", borderBottom: "1px solid var(--neutral-800)" },
+  logTime: { fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" },
+  logSummary: { fontSize: "0.88rem", color: "var(--neutral-300)", marginTop: "0.2rem", lineHeight: 1.5 },
+  logDetail: { fontSize: "0.82rem", color: "var(--neutral-500)", marginTop: "0.4rem", lineHeight: 1.5, whiteSpace: "pre-wrap", padding: "0.75rem 1rem", background: "var(--neutral-900)", borderRadius: 6 },
+  backLink: { display: "inline-block", fontSize: "0.82rem", fontWeight: 500, color: "var(--neutral-400)", marginBottom: "2rem", cursor: "pointer", background: "none", border: "none", padding: 0, fontFamily: "inherit" },
+  otpInput: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s" },
 };
 
 const STATUS_COLORS = {
@@ -526,7 +183,7 @@ const STATUS_COLORS = {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   FocusInput — input that highlights on focus
+   FocusInput
    ═══════════════════════════════════════════════════════════ */
 
 function FocusInput({ style, ...props }) {
@@ -546,7 +203,45 @@ function FocusInput({ style, ...props }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH: SignUpView — real Magic Link signup
+   SendArrow — inline SVG send button
+   ═══════════════════════════════════════════════════════════ */
+
+function SendArrow({ disabled, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: "50%",
+        background: disabled ? "var(--neutral-700)" : "var(--gold)",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        transition: "background 0.15s",
+        opacity: disabled ? 0.5 : 1,
+      }}
+      aria-label="Send"
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
+        <path
+          d="M3 8h10M9 4l4 4-4 4"
+          stroke={disabled ? "var(--neutral-500)" : "var(--neutral-950)"}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AUTH: SignUpView
    ═══════════════════════════════════════════════════════════ */
 
 function SignUpView({ onAuth }) {
@@ -563,7 +258,6 @@ function SignUpView({ onAuth }) {
     setError("");
     setLoading(true);
     try {
-      // Try passkey signup first (better UX — skips OTP step)
       let passkeySuccess = false;
       try {
         const optionsResp = await authRequest({
@@ -591,7 +285,6 @@ function SignUpView({ onAuth }) {
             },
           });
 
-          // Save passkey bundle for future logins
           saveStoredBuyerPasskeyBundle({
             tenantId: optionsResp.tenantId || passkeyResp?.tenantId,
             email: email.trim(),
@@ -603,21 +296,19 @@ function SignUpView({ onAuth }) {
             createdAt: new Date().toISOString(),
           });
 
-          // Session cookie is now set — fetch principal
           const principal = await fetchSessionPrincipal();
           const runtime = loadRuntimeConfig();
           const tenantId = optionsResp.tenantId || passkeyResp?.tenantId || principal?.tenantId || runtime.tenantId;
           saveRuntime({ ...runtime, tenantId });
-          saveOnboardingState({ buyer: principal, sessionExpected: true });
+          saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
           passkeySuccess = true;
-          onAuth?.("onboarding");
+          onAuth?.("builder");
         }
       } catch {
-        // Passkey not supported or failed — fall through to OTP flow
+        // Passkey not supported — fall through to OTP
       }
 
       if (!passkeySuccess) {
-        // Standard signup: sends OTP email
         const result = await authRequest({
           pathname: "/v1/public/signup",
           body: { email: email.trim(), company: company.trim() },
@@ -639,7 +330,6 @@ function SignUpView({ onAuth }) {
     try {
       const tenantId = signupResult?.tenantId;
 
-      // Verify OTP to complete signup — the backend activates the session cookie on this call
       if (tenantId) {
         await authRequest({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
@@ -647,11 +337,10 @@ function SignUpView({ onAuth }) {
         });
       }
 
-      // Session should now be active — fetch principal
       const principal = await fetchSessionPrincipal();
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId });
-      saveOnboardingState({ buyer: principal, sessionExpected: true });
+      saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
 
       // Try to register a passkey now that we have a session
       try {
@@ -688,10 +377,10 @@ function SignUpView({ onAuth }) {
           });
         }
       } catch {
-        // Passkey registration is optional — not fatal
+        // Passkey registration is optional
       }
 
-      onAuth?.("onboarding");
+      onAuth?.("builder");
     } catch (err) {
       setError(err?.message || "Invalid code. Please try again.");
     } finally {
@@ -802,7 +491,7 @@ function SignUpView({ onAuth }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH: SignInView — real Magic Link login
+   AUTH: SignInView
    ═══════════════════════════════════════════════════════════ */
 
 function SignInView({ onAuth }) {
@@ -820,11 +509,9 @@ function SignInView({ onAuth }) {
     const tid = tenantId.trim();
     const em = email.trim();
     try {
-      // Check if we have a stored passkey for this tenant/email
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
 
       if (storedPasskey) {
-        // Passkey login flow
         const optionsResp = await authRequest({
           pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`,
           body: { email: em },
@@ -849,17 +536,15 @@ function SignInView({ onAuth }) {
 
           touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
 
-          // Session is active — confirm
           const principal = await fetchSessionPrincipal();
           const runtime = loadRuntimeConfig();
           saveRuntime({ ...runtime, tenantId: tid });
-          saveOnboardingState({ buyer: principal, sessionExpected: true });
+          saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
           onAuth?.("dashboard");
           return;
         }
       }
 
-      // No passkey or passkey flow failed — fall back to OTP
       await authRequest({
         pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`,
         body: { email: em },
@@ -887,7 +572,7 @@ function SignInView({ onAuth }) {
       const principal = await fetchSessionPrincipal();
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tid });
-      saveOnboardingState({ buyer: principal, sessionExpected: true });
+      saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
       onAuth?.("dashboard");
     } catch (err) {
       setError(err?.message || "Invalid code. Please try again.");
@@ -988,7 +673,7 @@ function SignInView({ onAuth }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   BUILDER: Inference logic (ported from worker-builder-core)
+   BUILDER: Inference logic
    ═══════════════════════════════════════════════════════════ */
 
 const CAPABILITY_CATALOG = {
@@ -1090,7 +775,6 @@ function inferSchedule(taskDescription) {
 
 function inferWorkerName(description) {
   const desc = description.trim().toLowerCase();
-  // Try to extract a meaningful name
   const patterns = [
     /(?:monitor|check|watch|track)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
     /(?:draft|write|create|generate)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
@@ -1103,7 +787,6 @@ function inferWorkerName(description) {
       return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") + " Worker";
     }
   }
-  // Fallback: first 3-4 meaningful words
   const words = description.trim().split(/\s+/).filter(w => !["a", "an", "the", "my", "our", "to", "and", "or", "for", "in", "on", "at", "i", "we"].includes(w.toLowerCase())).slice(0, 3);
   if (words.length === 0) return "New Worker";
   return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") + " Worker";
@@ -1188,7 +871,6 @@ function processBuilderInput(conv, userInput) {
 
     case BUILDER_STATES.CAPABILITIES_CHECK: {
       const lower = input.toLowerCase();
-      // Check if they want to add more capabilities
       if (/add|also|slack|gmail|email|github|browser|search/.test(lower)) {
         const additional = inferCapabilities(input);
         const existingIds = new Set(conv.context.capabilities.map(c => c.id));
@@ -1197,11 +879,9 @@ function processBuilderInput(conv, userInput) {
             conv.context.capabilities.push(cap);
           }
         }
-        // Re-infer charter with new capabilities
         conv.context.charter = inferCharterRules(conv.context.taskDescription, conv.context.capabilities);
       }
 
-      // Show charter review
       addBuilderMessage(conv, "builder",
         "Here's the charter I'd suggest for this worker. Review it and let me know if you want to change anything.",
         { type: "charter", charter: conv.context.charter },
@@ -1228,8 +908,6 @@ function processBuilderInput(conv, userInput) {
         addBuilderMessage(conv, "builder", "Which rule should I remove? Paste the exact text or tell me which section (canDo, askFirst, neverDo) and what to remove.");
         return;
       }
-      // Looks good / continue
-      // Show model options
       const topModels = RECOMMENDED_MODELS.slice(0, 3);
       const currentModel = RECOMMENDED_MODELS.find(m => m.id === conv.context.model) || topModels[0];
       addBuilderMessage(conv, "builder",
@@ -1241,7 +919,6 @@ function processBuilderInput(conv, userInput) {
     }
 
     case BUILDER_STATES.MODEL_SUGGEST: {
-      // Check if they picked a model by name or just confirmed
       const lower = input.toLowerCase();
       for (const m of RECOMMENDED_MODELS) {
         if (lower.includes(m.name.toLowerCase()) || lower.includes(m.id.toLowerCase())) {
@@ -1265,7 +942,7 @@ function processBuilderInput(conv, userInput) {
         return;
       }
       conv.state = BUILDER_STATES.DEPLOYING;
-      return; // deployment handled by the component
+      return;
     }
 
     default:
@@ -1279,18 +956,13 @@ function processBuilderInput(conv, userInput) {
    ═══════════════════════════════════════════════════════════ */
 
 function useBuilderState() {
-  const [conv, setConv] = useState(() => {
-    const c = createBuilderConversation();
-    addBuilderMessage(c, "builder", "What do you need a worker to do?");
-    return c;
-  });
+  const [conv, setConv] = useState(() => createBuilderConversation());
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState("");
   const [deployedWorker, setDeployedWorker] = useState(null);
 
   function sendMessage(text) {
     const next = { ...conv, messages: [...conv.messages], context: { ...conv.context } };
-    // Deep-copy charter if it exists
     if (next.context.charter) {
       next.context.charter = {
         canDo: [...next.context.charter.canDo],
@@ -1304,7 +976,6 @@ function useBuilderState() {
     processBuilderInput(next, text);
     setConv(next);
 
-    // If state just moved to DEPLOYING, kick off the API call
     if (next.state === BUILDER_STATES.DEPLOYING) {
       handleDeploy(next);
     }
@@ -1344,7 +1015,6 @@ function useBuilderState() {
       });
       setDeployedWorker(result);
 
-      // Mark onboarding complete
       saveOnboardingState({
         buyer: loadOnboardingState()?.buyer || null,
         sessionExpected: true,
@@ -1370,476 +1040,12 @@ function useBuilderState() {
 
   function reset() {
     const c = createBuilderConversation();
-    addBuilderMessage(c, "builder", "What do you need a worker to do?");
     setConv(c);
     setDeployedWorker(null);
     setDeployError("");
   }
 
   return { conv, sendMessage, selectModel, deploying, deployError, deployedWorker, reset };
-}
-
-/* ═══════════════════════════════════════════════════════════
-   BUILDER: Chat styles
-   ═══════════════════════════════════════════════════════════ */
-
-const BS = {
-  wrap: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    minHeight: "100vh",
-  },
-  wrapInline: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    minHeight: 0,
-  },
-  header: {
-    padding: "2rem 2.5rem 1rem",
-    borderBottom: "1px solid var(--neutral-800)",
-    flexShrink: 0,
-  },
-  headerTitle: {
-    fontSize: "1.1rem",
-    fontWeight: 700,
-    color: "var(--neutral-50)",
-  },
-  headerSub: {
-    fontSize: "0.82rem",
-    color: "var(--neutral-500)",
-    marginTop: "0.2rem",
-  },
-  messagesArea: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "1.5rem 2.5rem",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.75rem",
-  },
-  bubbleRow: (isUser) => ({
-    display: "flex",
-    justifyContent: isUser ? "flex-end" : "flex-start",
-  }),
-  bubble: (isUser) => ({
-    maxWidth: "75%",
-    padding: "0.75rem 1rem",
-    borderRadius: 12,
-    fontSize: "0.9rem",
-    lineHeight: 1.55,
-    color: "var(--neutral-100)",
-    background: isUser ? "var(--neutral-800)" : "var(--neutral-900)",
-    borderLeft: isUser ? "none" : "3px solid var(--gold)",
-    wordBreak: "break-word",
-  }),
-  inputBar: {
-    display: "flex",
-    gap: "0.5rem",
-    padding: "1rem 2.5rem 1.5rem",
-    borderTop: "1px solid var(--neutral-800)",
-    flexShrink: 0,
-    background: "var(--neutral-950)",
-  },
-  chatInput: {
-    flex: 1,
-    padding: "0.7rem 1rem",
-    fontSize: "0.9rem",
-    background: "var(--neutral-900)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 8,
-    color: "var(--neutral-100)",
-    outline: "none",
-    fontFamily: "inherit",
-    transition: "border-color 0.15s",
-  },
-  sendBtn: {
-    padding: "0.7rem 1.25rem",
-    fontSize: "0.85rem",
-    fontWeight: 600,
-    background: "var(--gold)",
-    color: "var(--neutral-950)",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    transition: "opacity 0.15s",
-    flexShrink: 0,
-  },
-  capBtn: {
-    display: "inline-block",
-    padding: "0.45rem 0.9rem",
-    fontSize: "0.82rem",
-    fontWeight: 600,
-    background: "var(--gold-dim)",
-    color: "var(--gold)",
-    border: "1px solid var(--gold)",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    marginRight: "0.5rem",
-    marginTop: "0.5rem",
-    transition: "background 0.15s",
-  },
-  skipBtn: {
-    display: "inline-block",
-    padding: "0.45rem 0.9rem",
-    fontSize: "0.82rem",
-    fontWeight: 500,
-    background: "transparent",
-    color: "var(--neutral-400)",
-    border: "1px solid var(--neutral-700)",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    marginTop: "0.5rem",
-    transition: "border-color 0.15s",
-  },
-  charterBlock: {
-    marginTop: "0.75rem",
-    padding: "0.75rem 1rem",
-    background: "rgba(0,0,0,0.2)",
-    borderRadius: 8,
-    border: "1px solid var(--neutral-800)",
-  },
-  modelCard: (isSelected) => ({
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "0.6rem 0.9rem",
-    borderRadius: 8,
-    border: isSelected ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
-    background: isSelected ? "rgba(210,176,111,0.08)" : "transparent",
-    cursor: "pointer",
-    marginTop: "0.4rem",
-    transition: "all 0.15s",
-  }),
-  deployBtn: {
-    display: "inline-block",
-    padding: "0.6rem 1.5rem",
-    fontSize: "0.88rem",
-    fontWeight: 600,
-    background: "var(--gold)",
-    color: "var(--neutral-950)",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    marginTop: "0.75rem",
-    transition: "opacity 0.15s",
-  },
-  viewWorkerBtn: {
-    display: "inline-block",
-    padding: "0.55rem 1.25rem",
-    fontSize: "0.85rem",
-    fontWeight: 600,
-    background: "var(--gold)",
-    color: "var(--neutral-950)",
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    marginTop: "0.75rem",
-    transition: "opacity 0.15s",
-  },
-};
-
-/* ═══════════════════════════════════════════════════════════
-   BUILDER: BuilderMessage — renders typed messages
-   ═══════════════════════════════════════════════════════════ */
-
-function BuilderMessage({ msg, onAction }) {
-  const isUser = msg.role === "user";
-
-  if (isUser) {
-    return (
-      <div style={BS.bubbleRow(true)} className="lovable-fade">
-        <div style={BS.bubble(true)}>{msg.content}</div>
-      </div>
-    );
-  }
-
-  // Builder messages
-  const meta = msg.meta;
-
-  return (
-    <div style={BS.bubbleRow(false)} className="lovable-fade">
-      <div style={BS.bubble(false)}>
-        <div>{msg.content}</div>
-
-        {/* Capabilities with connect buttons */}
-        {meta?.type === "capabilities" && meta.capabilities?.length > 0 && (
-          <div style={{ marginTop: "0.6rem" }}>
-            {meta.capabilities.map(cap => (
-              <button
-                key={cap.id}
-                style={BS.capBtn}
-                onClick={() => alert(`Integration coming soon. Your worker will use built-in tools for ${cap.name} for now.`)}
-              >
-                Connect {cap.name}
-              </button>
-            ))}
-            <button style={BS.skipBtn} onClick={() => onAction?.("skip_capabilities")}>
-              Skip for now
-            </button>
-          </div>
-        )}
-
-        {meta?.type === "capabilities_fallback" && (
-          <div style={{ marginTop: "0.6rem" }}>
-            <button style={BS.skipBtn} onClick={() => onAction?.("skip_capabilities")}>
-              Sounds good, continue
-            </button>
-          </div>
-        )}
-
-        {/* Charter preview */}
-        {meta?.type === "charter" && meta.charter && (
-          <div style={BS.charterBlock}>
-            <CharterDisplay charter={meta.charter} compact />
-            <button
-              style={{ ...BS.skipBtn, marginTop: "0.75rem" }}
-              onClick={() => onAction?.("charter_ok")}
-            >
-              Looks good
-            </button>
-          </div>
-        )}
-
-        {/* Model selection cards */}
-        {meta?.type === "models" && meta.models && (
-          <div style={{ marginTop: "0.5rem" }}>
-            {meta.models.map(m => (
-              <div
-                key={m.id}
-                style={BS.modelCard(m.id === meta.selected)}
-                onClick={() => onAction?.("select_model", m.id)}
-              >
-                <div>
-                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === meta.selected ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span>
-                  <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
-                </div>
-                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
-                  ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M
-                </span>
-              </div>
-            ))}
-            <button
-              style={{ ...BS.skipBtn, marginTop: "0.6rem" }}
-              onClick={() => onAction?.("confirm_model")}
-            >
-              Use recommended
-            </button>
-          </div>
-        )}
-
-        {/* Deploy confirmation */}
-        {meta?.type === "confirm" && (
-          <div>
-            <button
-              style={BS.deployBtn}
-              onClick={() => onAction?.("deploy")}
-            >
-              Deploy worker
-            </button>
-          </div>
-        )}
-
-        {/* Deployed success */}
-        {meta?.type === "deployed" && (
-          <div>
-            <button
-              style={BS.viewWorkerBtn}
-              onClick={() => onAction?.("view_worker", meta.worker)}
-            >
-              View worker
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   BUILDER: BuilderChat component
-   ═══════════════════════════════════════════════════════════ */
-
-function BuilderChat({ fullScreen = false, onComplete, onViewWorker, onBack }) {
-  const { conv, sendMessage, selectModel, deploying, deployedWorker, reset } = useBuilderState();
-  const [inputValue, setInputValue] = useState("");
-  const [inputFocused, setInputFocused] = useState(false);
-  const messagesEndRef = useRef(null);
-  const messagesAreaRef = useRef(null);
-
-  // Auto-scroll to latest message
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conv.messages.length]);
-
-  function handleSend() {
-    const text = inputValue.trim();
-    if (!text || deploying) return;
-    setInputValue("");
-    sendMessage(text);
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
-
-  function handleAction(action, payload) {
-    switch (action) {
-      case "skip_capabilities":
-        sendMessage("skip for now");
-        break;
-      case "charter_ok":
-        sendMessage("looks good");
-        break;
-      case "select_model":
-        selectModel(payload);
-        break;
-      case "confirm_model":
-        sendMessage("use recommended");
-        break;
-      case "deploy":
-        sendMessage("deploy");
-        break;
-      case "view_worker":
-        if (payload?.id) {
-          onViewWorker?.(payload);
-        } else {
-          onComplete?.();
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  const isDeployed = conv.state === BUILDER_STATES.DEPLOYED;
-  const isDeploying = conv.state === BUILDER_STATES.DEPLOYING || deploying;
-
-  return (
-    <div style={fullScreen ? BS.wrap : BS.wrapInline}>
-      {/* Header */}
-      <div style={BS.header}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={BS.headerTitle}>
-              {fullScreen ? "nooterra" : "New worker"}
-            </div>
-            <div style={BS.headerSub}>
-              {fullScreen
-                ? "Tell me what you need done. I'll build a worker for it."
-                : "Describe the job and I'll set it up."
-              }
-            </div>
-          </div>
-          {!fullScreen && onBack && (
-            <button style={S.btnGhost} onClick={onBack}>Cancel</button>
-          )}
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={BS.messagesArea} ref={messagesAreaRef}>
-        {conv.messages.map((msg) => (
-          <BuilderMessage key={msg.id} msg={msg} onAction={handleAction} />
-        ))}
-        {isDeploying && (
-          <div style={BS.bubbleRow(false)} className="lovable-fade">
-            <div style={{ ...BS.bubble(false), color: "var(--neutral-400)" }}>Deploying...</div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
-      {!isDeployed && (
-        <div style={BS.inputBar}>
-          <input
-            type="text"
-            style={{
-              ...BS.chatInput,
-              ...(inputFocused ? { borderColor: "var(--gold)" } : {}),
-            }}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-            placeholder={
-              conv.state === BUILDER_STATES.GREETING || conv.state === BUILDER_STATES.UNDERSTANDING
-                ? "e.g. Monitor competitor prices and post a daily summary to Slack"
-                : "Type a message..."
-            }
-            disabled={isDeploying}
-            autoFocus
-          />
-          <button
-            style={{ ...BS.sendBtn, opacity: !inputValue.trim() || isDeploying ? 0.5 : 1 }}
-            onClick={handleSend}
-            disabled={!inputValue.trim() || isDeploying}
-          >
-            Send
-          </button>
-        </div>
-      )}
-
-      {/* Post-deploy: offer to create another or go to dashboard */}
-      {isDeployed && (
-        <div style={{ ...BS.inputBar, justifyContent: "center", gap: "1rem" }}>
-          <button style={S.btnSecondary} onClick={reset}>
-            Create another worker
-          </button>
-          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onComplete}>
-            Go to dashboard
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function generateCharterPreview(description) {
-  const desc = description.toLowerCase();
-  const canDo = [];
-  const askFirst = [];
-  const neverDo = [];
-
-  if (desc.includes("email") || desc.includes("inbox") || desc.includes("support")) {
-    canDo.push("Read incoming support emails");
-    canDo.push("Draft reply templates");
-    askFirst.push("Send replies to customers");
-    neverDo.push("Delete or archive emails without review");
-  }
-  if (desc.includes("monitor") || desc.includes("check") || desc.includes("watch")) {
-    canDo.push("Monitor data sources on schedule");
-    canDo.push("Generate summary reports");
-    askFirst.push("Trigger alerts or notifications");
-  }
-  if (desc.includes("write") || desc.includes("draft") || desc.includes("create")) {
-    canDo.push("Draft content based on templates");
-    askFirst.push("Publish or send drafted content");
-    neverDo.push("Publish without human approval");
-  }
-
-  if (canDo.length === 0) {
-    canDo.push("Execute the described task");
-    canDo.push("Log results and status");
-    askFirst.push("Take actions with external side effects");
-    neverDo.push("Access resources outside defined scope");
-  }
-
-  neverDo.push("Spend money without approval");
-  neverDo.push("Access credentials or keys directly");
-
-  return { canDo, askFirst, neverDo };
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1881,29 +1087,620 @@ function CharterDisplay({ charter, compact = false }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   DASHBOARD: Sidebar
+   BuilderMessage — renders a single message in the chat
    ═══════════════════════════════════════════════════════════ */
 
-function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
-  const [creditBalance, setCreditBalance] = useState(null);
+function BuilderMessage({ msg, onAction, selectedModel }) {
+  const isUser = msg.role === "user";
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" });
-        if (result?.balance != null) {
-          setCreditBalance(result.balance);
-        } else if (result?.remaining != null) {
-          setCreditBalance(result.remaining);
-        }
-      } catch { /* ignore — credits endpoint may not exist yet */ }
-    })();
-  }, []);
+  if (isUser) {
+    return (
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }} className="lovable-fade">
+        <div style={{
+          maxWidth: "75%",
+          padding: "0.75rem 1rem",
+          borderRadius: 16,
+          borderBottomRightRadius: 4,
+          fontSize: "0.9rem",
+          lineHeight: 1.55,
+          color: "var(--neutral-100)",
+          background: "var(--neutral-800)",
+          wordBreak: "break-word",
+        }}>
+          {msg.content}
+        </div>
+      </div>
+    );
+  }
+
+  const meta = msg.meta;
 
   return (
+    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
+      <div style={{
+        maxWidth: "85%",
+        fontSize: "0.9rem",
+        lineHeight: 1.6,
+        color: "var(--neutral-200)",
+        wordBreak: "break-word",
+      }}>
+        <div>{msg.content}</div>
+
+        {/* Capabilities with connect buttons */}
+        {meta?.type === "capabilities" && meta.capabilities?.length > 0 && (
+          <div style={{ marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            {meta.capabilities.map(cap => (
+              <button
+                key={cap.id}
+                style={{
+                  padding: "0.4rem 0.85rem",
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  background: "rgba(210,176,111,0.08)",
+                  color: "var(--gold)",
+                  border: "1px solid rgba(210,176,111,0.3)",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+                onClick={() => alert(`Integration coming soon. Your worker will use built-in tools for ${cap.name} for now.`)}
+              >
+                Connect {cap.name}
+              </button>
+            ))}
+            <button
+              style={{
+                padding: "0.4rem 0.85rem",
+                fontSize: "0.82rem",
+                fontWeight: 500,
+                background: "transparent",
+                color: "var(--neutral-400)",
+                border: "1px solid var(--neutral-700)",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onClick={() => onAction?.("skip_capabilities")}
+            >
+              Skip for now
+            </button>
+          </div>
+        )}
+
+        {meta?.type === "capabilities_fallback" && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              style={{
+                padding: "0.4rem 0.85rem",
+                fontSize: "0.82rem",
+                fontWeight: 500,
+                background: "transparent",
+                color: "var(--neutral-400)",
+                border: "1px solid var(--neutral-700)",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onClick={() => onAction?.("skip_capabilities")}
+            >
+              Sounds good, continue
+            </button>
+          </div>
+        )}
+
+        {/* Charter preview */}
+        {meta?.type === "charter" && meta.charter && (
+          <div style={{
+            marginTop: "0.75rem",
+            padding: "1rem",
+            background: "rgba(0,0,0,0.25)",
+            borderRadius: 10,
+            borderLeft: "3px solid var(--gold)",
+          }}>
+            <CharterDisplay charter={meta.charter} compact />
+            <button
+              style={{
+                marginTop: "0.5rem",
+                padding: "0.4rem 0.85rem",
+                fontSize: "0.82rem",
+                fontWeight: 500,
+                background: "transparent",
+                color: "var(--neutral-400)",
+                border: "1px solid var(--neutral-700)",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onClick={() => onAction?.("charter_ok")}
+            >
+              Looks good
+            </button>
+          </div>
+        )}
+
+        {/* Model selection cards */}
+        {meta?.type === "models" && meta.models && (
+          <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {meta.models.map(m => (
+              <div
+                key={m.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "0.6rem 0.9rem",
+                  borderRadius: 8,
+                  border: m.id === (selectedModel || meta.selected) ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
+                  background: m.id === (selectedModel || meta.selected) ? "rgba(210,176,111,0.08)" : "transparent",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+                onClick={() => onAction?.("select_model", m.id)}
+              >
+                <div>
+                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === (selectedModel || meta.selected) ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
+                </div>
+                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
+                  ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M
+                </span>
+              </div>
+            ))}
+            <button
+              style={{
+                marginTop: "0.25rem",
+                padding: "0.4rem 0.85rem",
+                fontSize: "0.82rem",
+                fontWeight: 500,
+                background: "transparent",
+                color: "var(--neutral-400)",
+                border: "1px solid var(--neutral-700)",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                alignSelf: "flex-start",
+              }}
+              onClick={() => onAction?.("confirm_model")}
+            >
+              Use recommended
+            </button>
+          </div>
+        )}
+
+        {/* Deploy confirmation */}
+        {meta?.type === "confirm" && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              style={{
+                padding: "0.6rem 1.5rem",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                background: "var(--gold)",
+                color: "var(--neutral-950)",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onClick={() => onAction?.("deploy")}
+            >
+              Deploy worker
+            </button>
+          </div>
+        )}
+
+        {/* Deployed success */}
+        {meta?.type === "deployed" && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              style={{
+                padding: "0.55rem 1.25rem",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                background: "var(--gold)",
+                color: "var(--neutral-950)",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              onClick={() => onAction?.("view_worker", meta.worker)}
+            >
+              View worker
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AutoTextarea — grows with content, min 1 row, max 5 rows
+   ═══════════════════════════════════════════════════════════ */
+
+function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, autoFocus }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.style.height = "auto";
+      const scrollH = ref.current.scrollHeight;
+      const lineH = 24;
+      const maxH = lineH * 5 + 24; // 5 rows + padding
+      ref.current.style.height = Math.min(scrollH, maxH) + "px";
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      rows={1}
+      style={{
+        width: "100%",
+        padding: "0.85rem 1rem",
+        paddingBottom: "2.75rem",
+        fontSize: "0.95rem",
+        background: "transparent",
+        border: "none",
+        color: "var(--neutral-100)",
+        outline: "none",
+        fontFamily: "inherit",
+        resize: "none",
+        lineHeight: "24px",
+        overflow: "auto",
+      }}
+    />
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BuilderInputBox — the fancy input with model selector + send
+   ═══════════════════════════════════════════════════════════ */
+
+function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
+  const [focused, setFocused] = useState(false);
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend?.();
+    }
+  }
+
+  const selectedModel = RECOMMENDED_MODELS.find(m => m.id === model);
+
+  return (
+    <div
+      style={{
+        background: "var(--neutral-900)",
+        border: focused ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
+        borderRadius: 16,
+        transition: "border-color 0.15s",
+        position: "relative",
+        maxWidth: 680,
+        width: "100%",
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    >
+      <AutoTextarea
+        value={value}
+        onChange={onChange}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder || "Describe what you need..."}
+        disabled={disabled}
+        autoFocus
+      />
+      {/* Bottom bar: model selector + send */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 0.75rem 0.65rem",
+      }}>
+        <select
+          value={model}
+          onChange={(e) => onModelChange?.(e.target.value)}
+          style={{
+            background: "transparent",
+            border: "1px solid var(--neutral-700)",
+            borderRadius: 6,
+            color: "var(--neutral-400)",
+            fontSize: "0.78rem",
+            padding: "0.3rem 0.5rem",
+            fontFamily: "inherit",
+            outline: "none",
+            cursor: "pointer",
+            appearance: "none",
+            paddingRight: "1.2rem",
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "right 0.4rem center",
+          }}
+        >
+          {RECOMMENDED_MODELS.map(m => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+        <SendArrow disabled={disabled || !value.trim()} onClick={onSend} />
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ConnectToolsRow — tools row below input
+   ═══════════════════════════════════════════════════════════ */
+
+function ConnectToolsRow() {
+  const tools = [
+    { name: "Gmail", color: "#ea4335" },
+    { name: "Slack", color: "#4a154b" },
+    { name: "GitHub", color: "#f0f0f0" },
+    { name: "Stripe", color: "#635bff" },
+  ];
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "0.75rem",
+      marginTop: "1.25rem",
+      justifyContent: "center",
+    }}>
+      <span style={{ fontSize: "0.78rem", color: "var(--neutral-500)" }}>Connect your tools</span>
+      {tools.map(t => (
+        <button
+          key={t.name}
+          onClick={() => alert(`${t.name} integration coming soon.`)}
+          style={{
+            padding: "0.3rem 0.7rem",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            color: "var(--neutral-400)",
+            background: "transparent",
+            border: "1px solid var(--neutral-800)",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            transition: "border-color 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--neutral-600)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}
+        >
+          {t.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BuilderView — the main builder chat (Claude/ChatGPT style)
+   ═══════════════════════════════════════════════════════════ */
+
+function BuilderView({ onComplete, onViewWorker, userName }) {
+  const { conv, sendMessage, selectModel, deploying, deployedWorker, reset } = useBuilderState();
+  const [inputValue, setInputValue] = useState("");
+  const [selectedModel, setSelectedModel] = useState("google/gemini-3-flash");
+  const messagesEndRef = useRef(null);
+
+  const hasMessages = conv.messages.length > 0;
+  const isDeployed = conv.state === BUILDER_STATES.DEPLOYED;
+  const isDeploying = conv.state === BUILDER_STATES.DEPLOYING || deploying;
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conv.messages.length]);
+
+  function handleSend() {
+    const text = inputValue.trim();
+    if (!text || isDeploying) return;
+    setInputValue("");
+    sendMessage(text);
+  }
+
+  function handleAction(action, payload) {
+    switch (action) {
+      case "skip_capabilities":
+        sendMessage("skip for now");
+        break;
+      case "charter_ok":
+        sendMessage("looks good");
+        break;
+      case "select_model":
+        setSelectedModel(payload);
+        selectModel(payload);
+        break;
+      case "confirm_model":
+        sendMessage("use recommended");
+        break;
+      case "deploy":
+        sendMessage("deploy");
+        break;
+      case "view_worker":
+        if (payload?.id) {
+          onViewWorker?.(payload);
+        } else {
+          onComplete?.();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Greeting screen (no messages yet)
+  if (!hasMessages) {
+    const greeting = getGreeting();
+    const displayName = userName ? userName.split("@")[0] : null;
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        minHeight: "calc(100vh - 1px)",
+        padding: "2rem",
+      }}>
+        <div style={{ flex: 1 }} />
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <h1 style={{
+            fontSize: "clamp(1.5rem, 4vw, 2.2rem)",
+            fontWeight: 700,
+            color: "var(--neutral-50)",
+            lineHeight: 1.2,
+            marginBottom: "0.25rem",
+          }}>
+            {displayName ? `${greeting}, ${displayName}.` : "What do you need done?"}
+          </h1>
+          {displayName && (
+            <p style={{ fontSize: "1rem", color: "var(--neutral-500)", marginTop: "0.5rem" }}>
+              What do you need done?
+            </p>
+          )}
+        </div>
+        <BuilderInputBox
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onSend={handleSend}
+          disabled={false}
+          model={selectedModel}
+          onModelChange={setSelectedModel}
+          placeholder="Describe what you need..."
+        />
+        <ConnectToolsRow />
+        <div style={{ flex: 1.5 }} />
+      </div>
+    );
+  }
+
+  // Conversation view
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: "100vh",
+    }}>
+      {/* Messages area */}
+      <div style={{
+        flex: 1,
+        overflowY: "auto",
+        padding: "2rem 0",
+        display: "flex",
+        flexDirection: "column",
+      }}>
+        <div style={{
+          maxWidth: 680,
+          width: "100%",
+          margin: "0 auto",
+          padding: "0 1.5rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.25rem",
+        }}>
+          {conv.messages.map((msg) => (
+            <BuilderMessage
+              key={msg.id}
+              msg={msg}
+              onAction={handleAction}
+              selectedModel={selectedModel}
+            />
+          ))}
+          {isDeploying && (
+            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
+              <div style={{ fontSize: "0.9rem", color: "var(--neutral-400)" }}>Deploying...</div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Input area (fixed at bottom) */}
+      {!isDeployed && (
+        <div style={{
+          flexShrink: 0,
+          padding: "1rem 1.5rem 1.5rem",
+          display: "flex",
+          justifyContent: "center",
+          background: "var(--neutral-950)",
+        }}>
+          <BuilderInputBox
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onSend={handleSend}
+            disabled={isDeploying}
+            model={selectedModel}
+            onModelChange={setSelectedModel}
+            placeholder="Type a message..."
+          />
+        </div>
+      )}
+
+      {/* Post-deploy actions */}
+      {isDeployed && (
+        <div style={{
+          flexShrink: 0,
+          padding: "1rem 1.5rem 1.5rem",
+          display: "flex",
+          justifyContent: "center",
+          gap: "0.75rem",
+          background: "var(--neutral-950)",
+        }}>
+          <button style={S.btnSecondary} onClick={reset}>
+            Create another worker
+          </button>
+          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onComplete}>
+            Go to dashboard
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AppSidebar — persistent sidebar (Claude/ChatGPT style)
+   ═══════════════════════════════════════════════════════════ */
+
+function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker }) {
+  return (
     <nav style={S.sidebar}>
+      {/* Logo */}
       <div style={S.sidebarLogo}>nooterra</div>
 
+      {/* New worker button */}
+      <div style={{ padding: "0 1rem 1rem" }}>
+        <button
+          onClick={onNewWorker}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "0.6rem 1rem",
+            fontSize: "0.85rem",
+            fontWeight: 600,
+            background: "var(--gold)",
+            color: "var(--neutral-950)",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            transition: "opacity 0.15s",
+          }}
+        >
+          New worker
+        </button>
+      </div>
+
+      {/* Navigation */}
       <button
         style={{ ...S.navItem, ...(activeView === "workers" ? S.navItemActive : {}) }}
         onClick={() => onNavigate("workers")}
@@ -1916,15 +1713,13 @@ function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
       >
         Approvals
         {pendingApprovals > 0 && (
-          <span
-            style={{
-              marginLeft: 8,
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              color: "var(--gold)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
+          <span style={{
+            marginLeft: 8,
+            fontSize: "0.72rem",
+            fontWeight: 700,
+            color: "var(--gold)",
+            fontVariantNumeric: "tabular-nums",
+          }}>
             {pendingApprovals}
           </span>
         )}
@@ -1942,44 +1737,85 @@ function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
         Settings
       </button>
 
-      {creditBalance != null && (
-        <div style={{ padding: "1rem 1.5rem", marginTop: "0.5rem" }}>
-          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--neutral-500)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.3rem" }}>
-            Credits
-          </div>
-          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--neutral-100)", fontVariantNumeric: "tabular-nums" }}>
-            ${(creditBalance / 100).toFixed(2)} remaining
-          </div>
-          <a
-            href="/settings"
-            onClick={(e) => { e.preventDefault(); onNavigate("settings"); }}
-            style={{ fontSize: "0.78rem", color: "var(--gold)", textDecoration: "none", fontWeight: 500 }}
-          >
-            Top up
-          </a>
+      {/* Divider */}
+      <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.75rem 1.5rem" }} />
+
+      {/* Workers list */}
+      {workers && workers.length > 0 && (
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          <div style={{ ...S.navSection, paddingTop: "0.5rem" }}>Active Workers</div>
+          {workers.map(w => (
+            <button
+              key={w.id}
+              style={{
+                ...S.navItem,
+                fontSize: "0.82rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+              onClick={() => onNavigate("workerDetail", w.id)}
+            >
+              <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
+              <span style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}>
+                {w.name}
+              </span>
+            </button>
+          ))}
         </div>
       )}
 
-      <div style={{ flex: 1 }} />
+      {!workers || workers.length === 0 ? <div style={{ flex: 1 }} /> : null}
 
-      <div style={S.navSection}>Resources</div>
-      <a href="https://docs.nooterra.ai" style={S.navItem} target="_blank" rel="noopener noreferrer">
-        Docs
-      </a>
-      <a href="https://github.com/nooterra" style={S.navItem} target="_blank" rel="noopener noreferrer">
-        GitHub
-      </a>
-      <button
-        style={{ ...S.navItem, color: "var(--neutral-500)", marginTop: "0.5rem" }}
-        onClick={async () => {
-          await logoutSession();
-          try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
-          try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
-          navigate("/login");
-        }}
-      >
-        Sign out
-      </button>
+      {/* Divider */}
+      <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.5rem 1.5rem" }} />
+
+      {/* User info + credits */}
+      <div style={{ padding: "0.75rem 1.5rem" }}>
+        {userEmail && (
+          <div style={{
+            fontSize: "0.8rem",
+            color: "var(--neutral-300)",
+            marginBottom: "0.3rem",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+            {userEmail}
+          </div>
+        )}
+        {creditBalance != null && (
+          <div style={{
+            fontSize: "0.78rem",
+            color: "var(--neutral-500)",
+            fontVariantNumeric: "tabular-nums",
+            marginBottom: "0.4rem",
+          }}>
+            ${(creditBalance / 100).toFixed(2)} credits
+          </div>
+        )}
+        <button
+          style={{
+            ...S.navItem,
+            padding: 0,
+            fontSize: "0.78rem",
+            color: "var(--neutral-500)",
+            width: "auto",
+          }}
+          onClick={async () => {
+            await logoutSession();
+            try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
+            try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
+            navigate("/login");
+          }}
+        >
+          Sign out
+        </button>
+      </div>
     </nav>
   );
 }
@@ -2017,7 +1853,7 @@ function WorkersListView({ onSelect, onCreate }) {
                 : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <button style={S.btnPrimary} onClick={onCreate}>
+        <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>
           Create worker
         </button>
       </div>
@@ -2045,7 +1881,6 @@ function WorkersListView({ onSelect, onCreate }) {
 
       {workers.length > 0 && (
         <div>
-          {/* Header */}
           <div
             style={{
               ...S.workerRow,
@@ -2129,7 +1964,6 @@ function WorkerDetailView({ workerId, onBack }) {
     setError("");
     try {
       await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" });
-      // Reload worker to get updated status
       const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
       setWorker(result);
     } catch (err) {
@@ -2197,7 +2031,6 @@ function WorkerDetailView({ workerId, onBack }) {
 
       {error && <div style={S.error}>{error}</div>}
 
-      {/* Action buttons */}
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
         <button
           style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }}
@@ -2215,14 +2048,12 @@ function WorkerDetailView({ workerId, onBack }) {
         </button>
       </div>
 
-      {/* Cost summary */}
       {worker.cost != null && (
         <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "2rem" }}>
           Cost this period: <span style={{ color: "var(--neutral-200)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span>
         </div>
       )}
 
-      {/* Tabs */}
       <div style={{ display: "flex", gap: "0.25rem", borderBottom: "1px solid var(--neutral-800)", marginBottom: "2rem" }}>
         {tabs.map((t) => (
           <button
@@ -2305,14 +2136,6 @@ function ActivityLogEntry({ entry }) {
       )}
     </div>
   );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   DASHBOARD: CreateWorkerView (now uses BuilderChat)
-   ═══════════════════════════════════════════════════════════ */
-
-function deriveWorkerName(description) {
-  return inferWorkerName(description);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2460,7 +2283,7 @@ function ApprovalsView() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RECEIPTS VIEW (execution history)
+   RECEIPTS VIEW
    ═══════════════════════════════════════════════════════════ */
 
 function ReceiptsView() {
@@ -2710,16 +2533,18 @@ function PricingView() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   DASHBOARD SHELL (authenticated views)
+   APP SHELL — unified layout with persistent sidebar
    ═══════════════════════════════════════════════════════════ */
 
-function DashboardShell({ initialView = "workers" }) {
+function AppShell({ initialView = "builder", userEmail }) {
   const [view, setView] = useState(initialView);
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [workers, setWorkers] = useState([]);
+  const [creditBalance, setCreditBalance] = useState(null);
 
+  // Load sidebar data
   useEffect(() => {
-    // Check pending approvals count
     (async () => {
       try {
         const runtime = loadRuntimeConfig();
@@ -2728,11 +2553,31 @@ function DashboardShell({ initialView = "workers" }) {
         setPendingApprovals(Array.isArray(items) ? items.length : 0);
       } catch { /* ignore */ }
     })();
+
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        setWorkers(result?.items || result || []);
+      } catch { /* ignore */ }
+    })();
+
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" });
+        if (result?.balance != null) setCreditBalance(result.balance);
+        else if (result?.remaining != null) setCreditBalance(result.remaining);
+      } catch { /* ignore */ }
+    })();
   }, []);
 
-  function handleNavigate(dest) {
-    setView(dest);
-    setSelectedWorkerId(null);
+  function handleNavigate(dest, workerId) {
+    if (dest === "workerDetail" && workerId) {
+      setSelectedWorkerId(workerId);
+      setView("workerDetail");
+    } else {
+      setView(dest);
+      setSelectedWorkerId(null);
+    }
   }
 
   function handleSelectWorker(worker) {
@@ -2740,46 +2585,91 @@ function DashboardShell({ initialView = "workers" }) {
     setView("workerDetail");
   }
 
-  function handleCreateWorker(result) {
-    if (result?.id) {
-      setSelectedWorkerId(result.id);
+  function handleNewWorker() {
+    setView("builder");
+    setSelectedWorkerId(null);
+  }
+
+  function handleBuilderComplete() {
+    // Reload workers list
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        setWorkers(result?.items || result || []);
+      } catch { /* ignore */ }
+    })();
+    setView("workers");
+  }
+
+  function handleViewWorker(w) {
+    // Reload workers list
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        setWorkers(result?.items || result || []);
+      } catch { /* ignore */ }
+    })();
+    if (w?.id) {
+      setSelectedWorkerId(w.id);
       setView("workerDetail");
     } else {
       setView("workers");
     }
   }
 
+  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "workers" : view;
+
   return (
-    <div style={S.dashLayout}>
-      <Sidebar
-        activeView={view === "workerDetail" || view === "createWorker" ? "workers" : view}
+    <div style={S.appLayout}>
+      <AppSidebar
+        activeView={sidebarActiveView}
         onNavigate={handleNavigate}
+        workers={workers}
         pendingApprovals={pendingApprovals}
+        userEmail={userEmail}
+        creditBalance={creditBalance}
+        onNewWorker={handleNewWorker}
       />
-      <main style={S.main}>
-        {view === "workers" && (
-          <WorkersListView
-            onSelect={handleSelectWorker}
-            onCreate={() => setView("createWorker")}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {view === "builder" && (
+          <BuilderView
+            onComplete={handleBuilderComplete}
+            onViewWorker={handleViewWorker}
+            userName={userEmail}
           />
+        )}
+        {view === "workers" && (
+          <div style={S.main}>
+            <WorkersListView
+              onSelect={handleSelectWorker}
+              onCreate={handleNewWorker}
+            />
+          </div>
         )}
         {view === "workerDetail" && selectedWorkerId && (
-          <WorkerDetailView
-            workerId={selectedWorkerId}
-            onBack={() => { setSelectedWorkerId(null); setView("workers"); }}
-          />
+          <div style={S.main}>
+            <WorkerDetailView
+              workerId={selectedWorkerId}
+              onBack={() => { setSelectedWorkerId(null); setView("workers"); }}
+            />
+          </div>
         )}
-        {view === "createWorker" && (
-          <BuilderChat
-            onBack={() => setView("workers")}
-            onComplete={() => setView("workers")}
-            onViewWorker={(w) => { if (w?.id) { setSelectedWorkerId(w.id); setView("workerDetail"); } else { setView("workers"); } }}
-          />
+        {view === "approvals" && (
+          <div style={S.main}>
+            <ApprovalsView />
+          </div>
         )}
-        {view === "approvals" && <ApprovalsView />}
-        {view === "receipts" && <ReceiptsView />}
-        {view === "settings" && <SettingsView />}
-      </main>
+        {view === "receipts" && (
+          <div style={S.main}>
+            <ReceiptsView />
+          </div>
+        )}
+        {view === "settings" && (
+          <div style={S.main}>
+            <SettingsView />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2791,6 +2681,7 @@ function DashboardShell({ initialView = "workers" }) {
 export default function ProductShell({ mode, launchId, agentId, runId, requestedPath }) {
   const [currentMode, setCurrentMode] = useState(null); // null = checking session
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [userEmail, setUserEmail] = useState(null);
 
   // On mount, check for an existing session
   useEffect(() => {
@@ -2807,7 +2698,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       try {
         const principal = await fetchSessionPrincipal();
         if (!cancelled && principal && principal.email) {
-          // Session is valid — save state and go to requested view or dashboard
+          setUserEmail(principal.email);
           const runtime = loadRuntimeConfig();
           if (principal.tenantId) {
             saveRuntime({ ...runtime, tenantId: principal.tenantId });
@@ -2816,14 +2707,14 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
             ...loadOnboardingState(),
             buyer: principal,
             sessionExpected: true,
+            completed: true,
           });
 
-          // Check if onboarding was completed
-          const onboardState = loadOnboardingState();
-          if (onboardState?.completed || mode === "dashboard" || mode === "wallet" || mode === "approvals" || mode === "receipts" || mode === "workspace" || mode === "disputes") {
-            setCurrentMode(mode === "login" ? "dashboard" : mode);
+          // Authenticated user — map mode to view
+          if (mode === "login" || mode === "signup") {
+            setCurrentMode("dashboard");
           } else {
-            setCurrentMode("onboarding");
+            setCurrentMode(mode || "dashboard");
           }
           setSessionChecked(true);
           return;
@@ -2833,7 +2724,6 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       }
 
       if (!cancelled) {
-        // No session — show login unless explicitly requesting signup/pricing
         if (mode === "login" || mode === "signup" || mode === "pricing") {
           setCurrentMode(mode);
         } else {
@@ -2850,7 +2740,6 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   // Update mode when prop changes (after initial session check)
   useEffect(() => {
     if (sessionChecked) {
-      // Only update for non-auth modes if we have a session
       const onboardState = loadOnboardingState();
       if (onboardState?.sessionExpected) {
         setCurrentMode(mode);
@@ -2861,18 +2750,20 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   }, [mode, sessionChecked]);
 
   function handleAuth(dest) {
-    if (dest === "onboarding") {
-      navigate("/onboarding?experience=app");
-      setCurrentMode("onboarding");
-    } else {
-      navigate("/wallet");
+    // After signup or login, go directly to the app shell
+    if (dest === "builder") {
+      // Signup flow: go to builder view
+      const onboardState = loadOnboardingState();
+      setUserEmail(onboardState?.buyer?.email || null);
       setCurrentMode("dashboard");
+      navigate("/wallet");
+    } else {
+      // Login flow: go to dashboard/workers
+      const onboardState = loadOnboardingState();
+      setUserEmail(onboardState?.buyer?.email || null);
+      setCurrentMode("dashboard");
+      navigate("/wallet");
     }
-  }
-
-  function handleOnboardingComplete() {
-    navigate("/wallet");
-    setCurrentMode("dashboard");
   }
 
   // Show loading state while checking session
@@ -2895,6 +2786,16 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
   const resolvedMode = currentMode;
 
+  // Determine the initial view for AppShell based on mode
+  function getInitialView() {
+    switch (resolvedMode) {
+      case "approvals": return "approvals";
+      case "receipts": return "receipts";
+      case "workspace": return "settings";
+      default: return "builder";
+    }
+  }
+
   return (
     <div style={S.shell}>
       {resolvedMode === "signup" && (
@@ -2905,41 +2806,13 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
         <SignInView onAuth={handleAuth} />
       )}
 
-      {resolvedMode === "onboarding" && (
-        <BuilderChat
-          fullScreen
-          onComplete={handleOnboardingComplete}
-          onViewWorker={(w) => { handleOnboardingComplete(); }}
-        />
-      )}
-
       {resolvedMode === "pricing" && (
         <PricingView />
       )}
 
-      {(resolvedMode === "wallet" || resolvedMode === "dashboard") && (
-        <DashboardShell initialView="workers" />
-      )}
-
-      {resolvedMode === "approvals" && (
-        <DashboardShell initialView="approvals" />
-      )}
-
-      {resolvedMode === "receipts" && (
-        <DashboardShell initialView="receipts" />
-      )}
-
-      {resolvedMode === "workspace" && (
-        <DashboardShell initialView="settings" />
-      )}
-
-      {resolvedMode === "disputes" && (
-        <DashboardShell initialView="workers" />
-      )}
-
-      {/* Fallback: any unrecognized mode → dashboard */}
-      {!["signup", "login", "onboarding", "pricing", "wallet", "dashboard", "approvals", "receipts", "workspace", "disputes"].includes(resolvedMode) && (
-        <DashboardShell initialView="workers" />
+      {/* All authenticated views use the unified AppShell */}
+      {!["signup", "login", "pricing"].includes(resolvedMode) && resolvedMode != null && (
+        <AppShell initialView={getInitialView()} userEmail={userEmail} />
       )}
     </div>
   );
