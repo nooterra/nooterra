@@ -25,6 +25,7 @@ import "./product.css";
    ═══════════════════════════════════════════════════════════ */
 
 const ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
+const THEME_STORAGE_KEY = "nooterra_theme";
 const AUTH_BASE = "/__magic";
 const WORKER_API_BASE = "/__nooterra";
 
@@ -108,6 +109,23 @@ function saveOnboardingState(state) {
   try {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(state));
   } catch { /* ignore */ }
+}
+
+function loadTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+  } catch { return "dark"; }
+}
+
+function saveTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch { /* ignore */ }
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
 }
 
 function navigate(path) {
@@ -1584,98 +1602,35 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   TemplateCard — a single template in the welcome grid
-   ═══════════════════════════════════════════════════════════ */
+/* ── TemplateCard ── */
 
 function TemplateCard({ template, onDeploy, deploying }) {
   return (
-    <div
-      style={{
-        padding: "1.5rem",
-        border: "1px solid var(--neutral-800)",
-        borderRadius: 12,
-        background: "var(--neutral-900)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.75rem",
-        transition: "border-color 0.15s",
-        cursor: "default",
-      }}
+    <div style={{ padding: "1.5rem", border: "1px solid var(--neutral-800)", borderRadius: 12, background: "var(--neutral-900)", display: "flex", flexDirection: "column", gap: "0.75rem", transition: "border-color 0.15s", cursor: "default" }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--neutral-600)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}
-    >
-      <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--neutral-50)" }}>
-        {template.name}
-      </div>
-      <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", lineHeight: 1.5, flex: 1 }}>
-        {template.description}
-      </div>
-      <button
-        style={{
-          ...S.btnPrimary,
-          width: "auto",
-          alignSelf: "flex-start",
-          padding: "0.5rem 1.25rem",
-          fontSize: "0.82rem",
-          opacity: deploying ? 0.5 : 1,
-        }}
-        disabled={deploying}
-        onClick={() => onDeploy(template)}
-      >
-        {deploying ? "Deploying..." : "Deploy \u2192"}
-      </button>
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}>
+      <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--neutral-50)" }}>{template.name}</div>
+      <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", lineHeight: 1.5, flex: 1 }}>{template.description}</div>
+      <button style={{ ...S.btnPrimary, width: "auto", alignSelf: "flex-start", padding: "0.5rem 1.25rem", fontSize: "0.82rem", opacity: deploying ? 0.5 : 1 }} disabled={deploying} onClick={() => onDeploy(template)}>{deploying ? "Deploying..." : "Deploy \u2192"}</button>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   TemplateCharterReview — shown after clicking Deploy on a template
-   ═══════════════════════════════════════════════════════════ */
+/* ── TemplateCharterReview ── */
 
 function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
   return (
-    <div style={{
-      maxWidth: 560,
-      margin: "0 auto",
-      padding: "2rem",
-    }} className="lovable-fade">
-      <button
-        style={S.backLink}
-        onClick={onCustomize}
-      >
-        ← Back
-      </button>
+    <div style={{ maxWidth: 560, margin: "0 auto", padding: "2rem" }} className="lovable-fade">
+      <button style={S.backLink} onClick={onCustomize}>← Back</button>
       <h2 style={{ ...S.pageTitle, marginBottom: "0.5rem" }}>{template.name}</h2>
       <p style={{ ...S.pageSub, marginBottom: "1.5rem" }}>{template.description}</p>
-
-      <div style={{
-        padding: "1.25rem",
-        background: "rgba(0,0,0,0.25)",
-        borderRadius: 10,
-        borderLeft: "3px solid var(--gold)",
-        marginBottom: "2rem",
-      }}>
-        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          What this worker can do
-        </div>
+      <div style={{ padding: "1.25rem", background: "rgba(0,0,0,0.25)", borderRadius: 10, borderLeft: "3px solid var(--gold)", marginBottom: "2rem" }}>
+        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>What this worker can do</div>
         <CharterDisplay charter={template.charter} compact />
       </div>
-
       <div style={{ display: "flex", gap: "0.75rem" }}>
-        <button
-          style={{ ...S.btnPrimary, width: "auto", opacity: deploying ? 0.5 : 1 }}
-          disabled={deploying}
-          onClick={onDeploy}
-        >
-          {deploying ? "Deploying..." : "Deploy"}
-        </button>
-        <button
-          style={S.btnSecondary}
-          onClick={onCustomize}
-        >
-          Customize
-        </button>
+        <button style={{ ...S.btnPrimary, width: "auto", opacity: deploying ? 0.5 : 1 }} disabled={deploying} onClick={onDeploy}>{deploying ? "Deploying..." : "Deploy"}</button>
+        <button style={S.btnSecondary} onClick={onCustomize}>Customize</button>
       </div>
     </div>
   );
@@ -2010,149 +1965,74 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
    ═══════════════════════════════════════════════════════════ */
 
 function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  const navBtn = (key, label, extra) => (
+    <button style={{ ...S.navItem, ...(activeView === key ? S.navItemActive : {}) }} onClick={() => onNavigate(key)}>{label}{extra}</button>
+  );
+
   return (
     <nav style={S.sidebar}>
-      {/* Logo */}
       <div style={S.sidebarLogo}>nooterra</div>
-
-      {/* New worker button */}
       <div style={{ padding: "0 1rem 1rem" }}>
-        <button
-          onClick={onNewWorker}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "0.6rem 1rem",
-            fontSize: "0.85rem",
-            fontWeight: 600,
-            background: "var(--gold)",
-            color: "var(--neutral-950)",
-            border: "none",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            transition: "opacity 0.15s",
-          }}
-        >
-          New worker
-        </button>
+        <button onClick={onNewWorker} style={{ display: "block", width: "100%", padding: "0.6rem 1rem", fontSize: "0.85rem", fontWeight: 600, background: "var(--gold)", color: "var(--neutral-950)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s" }}>New worker</button>
       </div>
-
-      {/* Navigation */}
-      <button
-        style={{ ...S.navItem, ...(activeView === "workers" ? S.navItemActive : {}) }}
-        onClick={() => onNavigate("workers")}
-      >
-        Workers
-      </button>
-      <button
-        style={{ ...S.navItem, ...(activeView === "approvals" ? S.navItemActive : {}) }}
-        onClick={() => onNavigate("approvals")}
-      >
-        Approvals
-        {pendingApprovals > 0 && (
-          <span style={{
-            marginLeft: 8,
-            fontSize: "0.72rem",
-            fontWeight: 700,
-            color: "var(--gold)",
-            fontVariantNumeric: "tabular-nums",
-          }}>
-            {pendingApprovals}
-          </span>
-        )}
-      </button>
-      <button
-        style={{ ...S.navItem, ...(activeView === "receipts" ? S.navItemActive : {}) }}
-        onClick={() => onNavigate("receipts")}
-      >
-        History
-      </button>
-      <button
-        style={{ ...S.navItem, ...(activeView === "settings" ? S.navItemActive : {}) }}
-        onClick={() => onNavigate("settings")}
-      >
-        Settings
-      </button>
-
-      {/* Divider */}
+      {navBtn("workers", "Workers")}
+      {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "0.72rem", fontWeight: 700, color: "var(--gold)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
+      {navBtn("receipts", "History")}
+      {navBtn("settings", "Settings")}
       <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.75rem 1.5rem" }} />
-
-      {/* Workers list */}
-      {workers && workers.length > 0 && (
+      {workers && workers.length > 0 ? (
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           <div style={{ ...S.navSection, paddingTop: "0.5rem" }}>Active Workers</div>
           {workers.map(w => (
-            <button
-              key={w.id}
-              style={{
-                ...S.navItem,
-                fontSize: "0.82rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-              }}
-              onClick={() => onNavigate("workerDetail", w.id)}
-            >
+            <button key={w.id} style={{ ...S.navItem, fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "0.5rem" }} onClick={() => onNavigate("workerDetail", w.id)}>
               <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
-              <span style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}>
-                {w.name}
-              </span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
             </button>
           ))}
         </div>
-      )}
-
-      {!workers || workers.length === 0 ? <div style={{ flex: 1 }} /> : null}
-
-      {/* Divider */}
+      ) : <div style={{ flex: 1 }} />}
       <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.5rem 1.5rem" }} />
 
-      {/* User info + credits */}
-      <div style={{ padding: "0.75rem 1.5rem" }}>
+      {/* User info + dropdown menu */}
+      <div style={{ padding: "0.75rem 1.5rem", position: "relative" }} ref={menuRef}>
+        {menuOpen && (() => {
+          const mStyle = { display: "block", width: "100%", padding: "0.6rem 1rem", fontSize: "0.85rem", color: "var(--neutral-200)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", textDecoration: "none" };
+          const hover = (e) => { e.currentTarget.style.background = "var(--neutral-800)"; };
+          const unhover = (e) => { e.currentTarget.style.background = "none"; };
+          const sep = <div style={{ borderTop: "1px solid var(--neutral-700)", margin: "0.25rem 0" }} />;
+          return (
+            <div style={{ position: "absolute", bottom: "100%", left: "0.75rem", right: "0.75rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.3)", padding: "0.25rem 0", zIndex: 100, marginBottom: "0.25rem" }}>
+              <button style={{ ...mStyle, display: "flex", justifyContent: "space-between", alignItems: "center" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { setMenuOpen(false); onNavigate("settings"); }}>
+                <span>Settings</span><span style={{ fontSize: "0.75rem", color: "var(--neutral-500)" }}>&#8984;,</span>
+              </button>
+              <a href="https://docs.nooterra.ai" target="_blank" rel="noopener noreferrer" style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => setMenuOpen(false)}>Get help</a>
+              {sep}
+              <a href="/pricing" style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); setMenuOpen(false); navigate("/pricing"); }}>Upgrade to Pro</a>
+              {sep}
+              <button style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => { setMenuOpen(false); await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Log out</button>
+            </div>
+          );
+        })()}
         {userEmail && (
-          <div style={{
-            fontSize: "0.8rem",
-            color: "var(--neutral-300)",
-            marginBottom: "0.3rem",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}>
-            {userEmail}
-          </div>
+          <button style={{ display: "block", width: "100%", fontSize: "0.8rem", color: "var(--neutral-300)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0, marginBottom: "0.3rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => setMenuOpen(!menuOpen)}>{userEmail}</button>
         )}
         {creditBalance != null && (
-          <div style={{
-            fontSize: "0.78rem",
-            color: "var(--neutral-500)",
-            fontVariantNumeric: "tabular-nums",
-            marginBottom: "0.4rem",
-          }}>
-            ${(creditBalance / 100).toFixed(2)} credits
-          </div>
+          <div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)} credits</div>
         )}
-        <button
-          style={{
-            ...S.navItem,
-            padding: 0,
-            fontSize: "0.78rem",
-            color: "var(--neutral-500)",
-            width: "auto",
-          }}
-          onClick={async () => {
-            await logoutSession();
-            try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
-            try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
-            navigate("/login");
-          }}
-        >
-          Sign out
-        </button>
       </div>
     </nav>
   );
@@ -2722,89 +2602,152 @@ function ReceiptsView() {
    SETTINGS VIEW
    ═══════════════════════════════════════════════════════════ */
 
-function SettingsView() {
-  const [settings, setSettings] = useState(null);
+function ToggleSwitch({ on, onToggle }) {
+  return (
+    <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--gold)" : "var(--neutral-700)", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
+      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 0.15s" }} />
+    </button>
+  );
+}
+
+function ThemePreview({ opt, selected, onClick }) {
+  const base = { padding: "0.75rem", borderRadius: 10, border: selected ? "2px solid var(--gold)" : "2px solid var(--neutral-700)", background: selected ? "var(--gold-dim)" : "transparent", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "border-color 0.15s", flex: 1 };
+  return (
+    <button onClick={onClick} style={base}>
+      {opt.key === "auto" ? (
+        <div style={{ width: 80, height: 50, borderRadius: 6, margin: "0 auto 0.5rem", display: "flex", overflow: "hidden" }}>
+          <div style={{ flex: 1, background: opt.bgLeft, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}>
+            <div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgLeft }} />
+          </div>
+          <div style={{ flex: 1, background: opt.bgRight, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}>
+            <div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgRight }} />
+          </div>
+        </div>
+      ) : (
+        <div style={{ width: 80, height: 50, borderRadius: 6, margin: "0 auto 0.5rem", background: opt.bg, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 6 }}>
+          <div style={{ width: "80%", height: 8, borderRadius: 2, background: opt.fg }} />
+        </div>
+      )}
+      <div style={{ fontSize: "0.82rem", fontWeight: 600, color: selected ? "var(--neutral-100)" : "var(--neutral-400)" }}>{opt.label}</div>
+    </button>
+  );
+}
+
+function SettingsView({ userEmail }) {
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState("account");
+  const [theme, setTheme] = useState(() => loadTheme());
+  const [defaultModel, setDefaultModel] = useState("google/gemini-3-flash");
+  const [notifApproval, setNotifApproval] = useState(true);
+  const [notifWeekly, setNotifWeekly] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const runtime = loadRuntimeConfig();
 
   useEffect(() => {
     (async () => {
       try {
-        const runtime = loadRuntimeConfig();
         const result = await fetchTenantSettings(runtime);
-        setSettings(result);
         setDisplayName(result?.displayName || result?.name || "");
-      } catch {
-        setSettings({});
-      }
+        if (result?.defaultModel) setDefaultModel(result.defaultModel);
+      } catch { /* ignore */ }
       setLoading(false);
     })();
   }, []);
 
   async function handleSave() {
-    setSaving(true);
-    setSaved(false);
-    try {
-      const runtime = loadRuntimeConfig();
-      await updateTenantSettings(runtime, { displayName: displayName.trim() });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch { /* ignore */ }
+    setSaving(true); setSaved(false);
+    try { await updateTenantSettings(runtime, { displayName: displayName.trim(), defaultModel }); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch { /* ignore */ }
     setSaving(false);
   }
 
-  const runtime = loadRuntimeConfig();
+  function handleThemeChange(t) { setTheme(t); saveTheme(t); }
+
+  const tabs = [{ key: "account", label: "Account" }, { key: "appearance", label: "Appearance" }, { key: "model", label: "Default Model" }, { key: "notifications", label: "Notifications" }, { key: "danger", label: "Danger Zone" }];
+  const themes = [
+    { key: "light", label: "Light", bg: "#f5f3ef", fg: "#d4cfc7" },
+    { key: "auto", label: "Auto", bgLeft: "#f5f3ef", bgRight: "#0d0c0a", fgLeft: "#d4cfc7", fgRight: "#1f1d1a" },
+    { key: "dark", label: "Dark", bg: "#0d0c0a", fg: "#1f1d1a" },
+  ];
+  const saveBtn = (label = "Save") => (<button style={{ ...S.btnPrimary, width: "auto", opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={handleSave}>{saving ? "Saving..." : saved ? "Saved" : label}</button>);
+
+  if (loading) return (<div><h1 style={S.pageTitle}>Settings</h1><p style={S.pageSub}>Loading...</p></div>);
 
   return (
     <div>
       <h1 style={S.pageTitle}>Settings</h1>
-      <p style={S.pageSub}>Manage your account.</p>
-
-      {loading ? (
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
-      ) : (
-        <div style={{ maxWidth: 480 }}>
-          <label style={S.label}>Display name</label>
-          <FocusInput
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-          <button
-            style={{ ...S.btnPrimary, width: "auto", opacity: saving ? 0.6 : 1 }}
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? "Saving..." : saved ? "Saved" : "Save"}
-          </button>
-
-          <div style={{ ...S.label, marginTop: "3rem" }}>Tenant ID</div>
-          <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", fontVariantNumeric: "tabular-nums", marginBottom: "2rem" }}>
-            {runtime.tenantId}
-          </div>
-
-          <div style={{ ...S.label, marginTop: "1rem" }}>API endpoint</div>
-          <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", wordBreak: "break-all", marginBottom: "2rem" }}>
-            {runtime.baseUrl}
-          </div>
-
-          <button
-            style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}
-            onClick={async () => {
-              if (window.confirm("Sign out?")) {
-                await logoutSession();
-                try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
-                try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
-                navigate("/login");
-              }
-            }}
-          >
-            Sign out
-          </button>
+      <p style={S.pageSub}>Manage your account and preferences.</p>
+      <div style={{ maxWidth: 560 }}>
+        <div style={{ display: "flex", gap: "0.25rem", borderBottom: "1px solid var(--neutral-800)", marginBottom: "2rem", flexWrap: "wrap" }}>
+          {tabs.map((s) => (
+            <button key={s.key} onClick={() => setTab(s.key)} style={{ padding: "0.6rem 1rem", fontSize: "0.85rem", fontWeight: 600, color: tab === s.key ? "var(--neutral-50)" : "var(--neutral-400)", background: "none", border: "none", borderBottom: tab === s.key ? "2px solid var(--gold)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{s.label}</button>
+          ))}
         </div>
-      )}
+
+        {tab === "account" && (<div>
+          <label style={S.label}>Display name</label>
+          <FocusInput type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+          <div style={{ marginBottom: "2rem" }}>{saveBtn()}</div>
+          <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "2rem 0" }} />
+          <label style={S.label}>Email</label>
+          <div style={{ fontSize: "0.88rem", color: "var(--neutral-300)", marginBottom: "1.5rem" }}>{userEmail || "Not available"}</div>
+          <label style={S.label}>Account ID</label>
+          <div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>{runtime.tenantId}</div>
+        </div>)}
+
+        {tab === "appearance" && (<div>
+          <label style={S.label}>Color mode</label>
+          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", marginTop: 0 }}>Choose how nooterra looks for you.</p>
+          <div style={{ display: "flex", gap: "1rem" }}>
+            {themes.map((opt) => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}
+          </div>
+        </div>)}
+
+        {tab === "model" && (<div>
+          <label style={S.label}>Default model</label>
+          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", marginTop: 0 }}>This model will be used for new workers by default. You can change it per worker.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {RECOMMENDED_MODELS.map((m) => (
+              <div key={m.id} onClick={() => setDefaultModel(m.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.7rem 1rem", borderRadius: 8, cursor: "pointer", border: m.id === defaultModel ? "1px solid var(--gold)" : "1px solid var(--neutral-700)", background: m.id === defaultModel ? "rgba(210,176,111,0.08)" : "transparent", transition: "all 0.15s" }}>
+                <div><span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === defaultModel ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span><span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span></div>
+                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: "1.5rem" }}>{saveBtn("Save default model")}</div>
+        </div>)}
+
+        {tab === "notifications" && (<div>
+          <label style={S.label}>Notifications</label>
+          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1.5rem", marginTop: 0 }}>Control how you get notified about worker activity.</p>
+          {[{ label: "Email me when a worker needs approval", desc: "Get notified when a worker is waiting for your decision.", on: notifApproval, toggle: () => setNotifApproval(!notifApproval) },
+            { label: "Weekly worker report", desc: "Receive a weekly summary of all worker activity.", on: notifWeekly, toggle: () => setNotifWeekly(!notifWeekly) }].map((n, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--neutral-800)" }}>
+              <div><div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", fontWeight: 500 }}>{n.label}</div><div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", marginTop: "0.15rem" }}>{n.desc}</div></div>
+              <ToggleSwitch on={n.on} onToggle={n.toggle} />
+            </div>
+          ))}
+        </div>)}
+
+        {tab === "danger" && (<div>
+          <label style={{ ...S.label, color: "#c97055" }}>Danger Zone</label>
+          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1.5rem", marginTop: 0 }}>Irreversible actions. Please be certain.</p>
+          {!showDeleteConfirm ? (
+            <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
+          ) : (
+            <div style={{ padding: "1.25rem", border: "1px solid #c97055", borderRadius: 10, background: "rgba(201,112,85,0.06)" }}>
+              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#c97055", marginBottom: "0.5rem" }}>Are you sure?</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", lineHeight: 1.5 }}>This will permanently delete your account and all workers. This action cannot be undone.</div>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <button style={{ ...S.btnPrimary, width: "auto", background: "#c97055" }} onClick={async () => { await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Yes, delete my account</button>
+                <button style={S.btnSecondary} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>)}
+      </div>
     </div>
   );
 }
@@ -3055,7 +2998,7 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
         )}
         {view === "settings" && (
           <div style={S.main}>
-            <SettingsView />
+            <SettingsView userEmail={userEmail} />
           </div>
         )}
       </div>
@@ -3072,6 +3015,11 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
   const [isFirstTime, setIsFirstTime] = useState(false);
+
+  // Apply theme on mount
+  useEffect(() => {
+    applyTheme(loadTheme());
+  }, []);
 
   // On mount, check for an existing session
   useEffect(() => {

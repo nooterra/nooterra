@@ -88,3 +88,41 @@ body {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Light theme overrides ── */
+
+[data-theme="light"] {
+  --neutral-950: #f5f3ef;
+  --neutral-900: #ebe8e2;
+  --neutral-800: #d4cfc7;
+  --neutral-700: #b5afa6;
+  --neutral-600: #918a82;
+  --neutral-500: #6b665f;
+  --neutral-400: #484440;
+  --neutral-300: #2e2b27;
+  --neutral-200: #1f1d1a;
+  --neutral-100: #161412;
+  --neutral-50: #0d0c0a;
+  --gold: #b89a5a;
+  --gold-hover: #a68a4a;
+}
+
+/* ── Auto follows system preference ── */
+
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] {
+    --neutral-950: #f5f3ef;
+    --neutral-900: #ebe8e2;
+    --neutral-800: #d4cfc7;
+    --neutral-700: #b5afa6;
+    --neutral-600: #918a82;
+    --neutral-500: #6b665f;
+    --neutral-400: #484440;
+    --neutral-300: #2e2b27;
+    --neutral-200: #1f1d1a;
+    --neutral-100: #161412;
+    --neutral-50: #0d0c0a;
+    --gold: #b89a5a;
+    --gold-hover: #a68a4a;
+  }
+}
