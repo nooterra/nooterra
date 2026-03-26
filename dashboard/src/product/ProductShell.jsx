@@ -247,7 +247,6 @@ function SendArrow({ disabled, onClick }) {
 function SignUpView({ onAuth }) {
   const [step, setStep] = useState("form"); // "form" | "otp"
   const [email, setEmail] = useState("");
-  const [company, setCompany] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -262,7 +261,7 @@ function SignUpView({ onAuth }) {
       try {
         const optionsResp = await authRequest({
           pathname: "/v1/public/signup/passkey/options",
-          body: { email: email.trim(), company: company.trim() },
+          body: { email: email.trim() },
         });
 
         if (optionsResp?.challenge && optionsResp?.challengeId) {
@@ -311,7 +310,7 @@ function SignUpView({ onAuth }) {
       if (!passkeySuccess) {
         const result = await authRequest({
           pathname: "/v1/public/signup",
-          body: { email: email.trim(), company: company.trim() },
+          body: { email: email.trim() },
         });
         setSignupResult(result);
         setStep("otp");
@@ -432,7 +431,7 @@ function SignUpView({ onAuth }) {
                 try {
                   await authRequest({
                     pathname: "/v1/public/signup",
-                    body: { email: email.trim(), company: company.trim() },
+                    body: { email: email.trim() },
                   });
                 } catch { /* ignore */ }
               }}
@@ -448,9 +447,9 @@ function SignUpView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
-        <h1 style={S.authTitle}>Create your workspace</h1>
+        <h1 style={S.authTitle}>Get started</h1>
         <p style={S.authSub}>
-          Deploy AI workers that handle real work — monitored, governed, on your terms.
+          Enter your email to get started.
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmitForm}>
@@ -459,16 +458,9 @@ function SignUpView({ onAuth }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder="you@example.com"
             required
             autoFocus
-          />
-          <label style={S.label}>Company name</label>
-          <FocusInput
-            type="text"
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
-            placeholder="Acme Corp"
             required
           />
           <button
@@ -476,7 +468,7 @@ function SignUpView({ onAuth }) {
             style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
             disabled={loading}
           >
-            {loading ? "Creating..." : "Create workspace"}
+            {loading ? "Creating..." : "Continue"}
           </button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
@@ -633,7 +625,7 @@ function SignInView({ onAuth }) {
       <div style={S.authBox} className="lovable-fade">
         <h1 style={S.authTitle}>Welcome back</h1>
         <p style={S.authSub}>
-          Sign in to manage your workers.
+          Welcome back.
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
@@ -651,7 +643,7 @@ function SignInView({ onAuth }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder="you@example.com"
             required
           />
           <button
@@ -2379,13 +2371,13 @@ function SettingsView() {
   return (
     <div>
       <h1 style={S.pageTitle}>Settings</h1>
-      <p style={S.pageSub}>Manage your workspace configuration.</p>
+      <p style={S.pageSub}>Manage your account.</p>
 
       {loading ? (
         <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
       ) : (
         <div style={{ maxWidth: 480 }}>
-          <label style={S.label}>Workspace name</label>
+          <label style={S.label}>Display name</label>
           <FocusInput
             type="text"
             value={displayName}
@@ -2412,7 +2404,7 @@ function SettingsView() {
           <button
             style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}
             onClick={async () => {
-              if (window.confirm("Sign out of this workspace?")) {
+              if (window.confirm("Sign out?")) {
                 await logoutSession();
                 try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
                 try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
