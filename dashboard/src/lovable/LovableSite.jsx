@@ -73,12 +73,10 @@ function SiteNav() {
   ];
 
   return (
-    <nav className="fixed inset-x-0 top-0 z-50" style={{ backgroundColor: "rgba(13, 12, 10, 0.92)", backdropFilter: "blur(12px)" }}>
+    <nav className="fixed inset-x-0 top-0 z-50" style={{ backgroundColor: "rgba(250, 249, 245, 0.92)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <a href="/" className="flex items-center gap-2 group">
-          <div style={{ height: 30, overflow: "hidden", display: "flex", alignItems: "center" }}>
-            <img src="/logo.png" alt="nooterra" style={{ height: 90, width: "auto", mixBlendMode: "screen", filter: "brightness(1.3)" }} />
-          </div>
+          <NooterraLogo className="h-4 w-auto" style={{ color: "#1a1a1a" }} />
         </a>
 
         <div className="hidden items-center gap-8 md:flex">
@@ -131,7 +129,7 @@ function SiteNav() {
       </div>
 
       {mobileOpen ? (
-        <div className="md:hidden" style={{ borderTop: "1px solid rgba(235, 232, 226, 0.06)", backgroundColor: "rgba(13, 12, 10, 0.96)", backdropFilter: "blur(12px)" }}>
+        <div className="md:hidden" style={{ borderTop: "1px solid rgba(0,0,0,0.06)", backgroundColor: "rgba(250, 249, 245, 0.96)", backdropFilter: "blur(12px)" }}>
           <div className="space-y-3 px-6 py-5">
             {navLinks.map((link) => (
               <a
@@ -173,7 +171,7 @@ function SiteFooter() {
   return (
     <footer>
       <div className="mx-auto max-w-6xl px-6 py-14">
-        <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.08) 20%, rgba(235, 232, 226, 0.08) 80%, transparent)", marginBottom: "40px" }} />
+        <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "40px" }} />
         <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div>
             <NooterraLogo className="h-4 w-auto" style={{ color: "var(--neutral-300)" }} />
@@ -204,7 +202,7 @@ function SiteFooter() {
 
 function SiteLayout({ children }) {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "var(--neutral-950)", color: "var(--neutral-300)", fontFamily: "var(--font-body)" }}>
+    <div className="min-h-screen" style={{ backgroundColor: "#FAF9F5", color: "var(--neutral-300)", fontFamily: "var(--font-body)" }}>
       <SiteNav />
       <main className="pt-14">{children}</main>
       <SiteFooter />
@@ -246,9 +244,9 @@ function WorkerCard() {
   );
 
   return (
-    <div style={{ border: "1px solid rgba(235, 232, 226, 0.06)", borderRadius: "10px", backgroundColor: "rgba(235, 232, 226, 0.02)", overflow: "hidden" }}>
+    <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", backgroundColor: "#FFFFFF", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
       {/* Worker header */}
-      <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid rgba(235, 232, 226, 0.04)" }}>
+      <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
         <div className="flex items-center gap-3">
           <div className="h-2 w-2 rounded-full lovable-pulse" style={{ backgroundColor: "#4ade80" }} />
           <span className="text-[13px] font-semibold" style={{ color: "var(--neutral-100)" }}>Customer Support Worker</span>
@@ -283,14 +281,14 @@ function WorkerCard() {
         ))}
         {step < WORKER_STEPS.length ? (
           <div className="flex items-center gap-3">
-            <div className="h-3.5 w-3.5 shrink-0 rounded-full animate-pulse" style={{ border: "1px solid rgba(235, 232, 226, 0.1)" }} />
+            <div className="h-3.5 w-3.5 shrink-0 rounded-full animate-pulse" style={{ border: "1px solid rgba(0,0,0,0.15)" }} />
             <span className="text-[13px]" style={{ color: "var(--neutral-600)" }}>Working...</span>
           </div>
         ) : null}
       </div>
 
       {/* Charter summary */}
-      <div className="px-5 py-3" style={{ borderTop: "1px solid rgba(235, 232, 226, 0.04)" }}>
+      <div className="px-5 py-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
         <div className="flex flex-wrap gap-4 text-[11px] tabular-nums">
           <span style={{ color: "rgba(74, 222, 128, 0.7)" }}>4 canDo</span>
           <span style={{ color: "rgba(245, 158, 11, 0.7)" }}>3 askFirst</span>
@@ -337,9 +335,9 @@ function HomePage() {
                   <a
                     href={ossLinks.repo}
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-[14px] font-medium transition-all duration-150"
-                    style={{ border: "1px solid rgba(235, 232, 226, 0.1)", color: "var(--neutral-400)", borderRadius: "6px" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.18)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.1)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
+                    style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
                     target="_blank" rel="noopener noreferrer"
                   >
                     <GitHubIcon className="h-4 w-4" /> View on GitHub
@@ -359,7 +357,7 @@ function HomePage() {
       {/* Section 1: You describe it. It runs. */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
           <div className="grid gap-14 md:grid-cols-2 items-center">
             <FadeIn>
               <div>
@@ -381,7 +379,7 @@ function HomePage() {
       {/* Section 2: Rules it can't break. */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
           <div className="grid gap-14 md:grid-cols-2 items-start">
             <FadeIn>
               <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
@@ -407,8 +405,8 @@ function HomePage() {
               </div>
             </FadeIn>
             <FadeIn delay={0.12}>
-              <div style={{ border: "1px solid rgba(235, 232, 226, 0.06)", borderRadius: "10px", overflow: "hidden" }}>
-                <div className="px-5 py-3.5 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(235, 232, 226, 0.04)" }}>
+              <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", overflow: "hidden", backgroundColor: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div className="px-5 py-3.5 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
                   <span className="text-[13px] font-semibold" style={{ color: "var(--neutral-200)" }}>Customer Support Worker</span>
                   <span className="ml-auto text-[11px]" style={{ color: "var(--neutral-600)" }}>charter</span>
                 </div>
@@ -456,7 +454,7 @@ function HomePage() {
       {/* Section 3: Bold outcome claim */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
             <div className="text-center" style={{ maxWidth: "36rem", margin: "0 auto" }}>
               <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)", lineHeight: 1.15 }}>
@@ -473,7 +471,7 @@ function HomePage() {
       {/* Section 4: One-line comparison */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
             <div className="text-center">
               <p style={{ fontSize: "clamp(1.125rem, 2vw, 1.375rem)", lineHeight: 1.65, color: "var(--neutral-400)", fontWeight: 500, letterSpacing: "-0.01em" }}>
@@ -487,7 +485,7 @@ function HomePage() {
       {/* Section 5: Start in 30 seconds */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
             <div className="text-center" style={{ maxWidth: "32rem", margin: "0 auto" }}>
               <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
@@ -509,7 +507,7 @@ function HomePage() {
                   <span
                     key={t}
                     className="px-3 py-1.5 text-[12px]"
-                    style={{ borderRadius: "9999px", border: "1px solid rgba(235, 232, 226, 0.08)", color: "var(--neutral-500)" }}
+                    style={{ borderRadius: "9999px", border: "1px solid rgba(0,0,0,0.08)", color: "var(--neutral-500)" }}
                   >
                     {t}
                   </span>
@@ -523,7 +521,7 @@ function HomePage() {
       {/* CTA */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "4rem", paddingBottom: "8rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "6rem" }} />
+          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "6rem" }} />
           <FadeIn>
             <div className="text-center">
               <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>
@@ -542,9 +540,9 @@ function HomePage() {
                 <a
                   href={ossLinks.repo}
                   className="inline-flex items-center gap-2 px-6 py-2.5 text-[14px] font-medium transition-all duration-150"
-                  style={{ border: "1px solid rgba(235, 232, 226, 0.1)", color: "var(--neutral-400)", borderRadius: "6px" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.18)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.1)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
+                  style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
                   target="_blank" rel="noopener noreferrer"
                 >
                   View on GitHub
@@ -581,7 +579,7 @@ function SecurityPage() {
             { title: "Full audit trail", desc: "Every action, approval, and decision logged with timestamps and context. Export anytime." }
           ].map((item, i) => (
             <FadeIn key={item.title} delay={i * 0.06}>
-              <div className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
+              <div className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
                 <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
               </div>
@@ -619,7 +617,7 @@ function PrivacyPage() {
           { title: "No training on your data", desc: "We never train models on your data. Audit logs are yours -- exportable and deletable." },
           { title: "Data portability", desc: "Export workers, charters, and logs at any time. Cancel and your data is deleted within 30 days." }
         ].map((item, i) => (
-          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
+          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
             <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
           </div>
@@ -638,7 +636,7 @@ function TermsPage() {
           { title: "Fair use", desc: "Workers should perform legitimate business tasks. Do not use for spam, fraud, or harassment." },
           { title: "Service availability", desc: "Free tier runs locally with no uptime guarantee. Paid tiers include SLAs." }
         ].map((item, i) => (
-          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
+          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
             <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
           </div>
@@ -657,7 +655,7 @@ function SupportPage() {
           { title: "Discord", desc: "Ask questions and get help from the community.", href: DISCORD_HREF, cta: "Join Discord" },
           { title: "GitHub Issues", desc: "Report bugs or request features.", href: ossLinks.issues, cta: "Open issue" }
         ].map((item, i) => (
-          <a key={item.title} href={item.href} className="block py-8 transition-colors group" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}} target="_blank" rel="noopener noreferrer">
+          <a key={item.title} href={item.href} className="block py-8 transition-colors group" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}} target="_blank" rel="noopener noreferrer">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
             <p className="mt-2 text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
             <span className="mt-2 inline-block text-[13px] transition-colors" style={{ color: "var(--neutral-400)" }}>{item.cta} &rarr;</span>
@@ -732,7 +730,7 @@ function StatusPage() {
           style={{
             borderRadius: "9999px",
             border: state.loading
-              ? "1px solid rgba(235, 232, 226, 0.08)"
+              ? "1px solid rgba(0,0,0,0.08)"
               : allOk
                 ? "1px solid rgba(74, 222, 128, 0.2)"
                 : "1px solid rgba(251, 191, 36, 0.2)",
@@ -756,7 +754,7 @@ function StatusPage() {
       </div>
       <div className="space-y-0">
         {state.checks.map((c, i) => (
-          <div key={c.id} className="flex items-center justify-between py-3.5" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
+          <div key={c.id} className="flex items-center justify-between py-3.5" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
             <span className="text-[13px]" style={{ color: "var(--neutral-200)" }}>{c.label}</span>
             <span className="text-[11px] uppercase tracking-wider font-medium" style={{
               color: c.status === "ok" ? "#4ade80" : c.status === "degraded" ? "#fbbf24" : "#f43f5e"
@@ -788,7 +786,7 @@ function SimpleInfoPage({ title, summary }) {
         <a
           href="/support"
           className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium"
-          style={{ border: "1px solid rgba(235, 232, 226, 0.1)", color: "var(--neutral-400)", borderRadius: "6px" }}
+          style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
         >
           Get help
         </a>
@@ -876,11 +874,11 @@ function PricingPage() {
                 style={{
                   border: tier.highlighted
                     ? "1px solid rgba(200, 170, 110, 0.25)"
-                    : "1px solid rgba(235, 232, 226, 0.06)",
+                    : "1px solid rgba(0,0,0,0.08)",
                   borderRadius: "10px",
                   backgroundColor: tier.highlighted
-                    ? "rgba(200, 170, 110, 0.03)"
-                    : "rgba(235, 232, 226, 0.02)",
+                    ? "rgba(210, 176, 111, 0.06)"
+                    : "#FFFFFF",
                   padding: "2rem"
                 }}
               >
@@ -911,15 +909,15 @@ function PricingPage() {
                     style={
                       tier.highlighted
                         ? { backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }
-                        : { border: "1px solid rgba(235, 232, 226, 0.1)", color: "var(--neutral-400)", borderRadius: "6px" }
+                        : { border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }
                     }
                     onMouseEnter={(e) => {
                       if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold-hover)"; }
-                      else { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.18)"; e.currentTarget.style.color = "var(--neutral-200)"; }
+                      else { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }
                     }}
                     onMouseLeave={(e) => {
                       if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold)"; }
-                      else { e.currentTarget.style.borderColor = "rgba(235, 232, 226, 0.1)"; e.currentTarget.style.color = "var(--neutral-400)"; }
+                      else { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }
                     }}
                     {...(tier.ctaExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   >

@@ -114,7 +114,7 @@ function saveOnboardingState(state) {
 }
 
 function loadTheme() {
-  try { return localStorage.getItem(THEME_STORAGE_KEY) || "dark"; } catch { return "dark"; }
+  try { return localStorage.getItem(THEME_STORAGE_KEY) || "light"; } catch { return "light"; }
 }
 
 function saveTheme(theme) {
@@ -122,7 +122,15 @@ function saveTheme(theme) {
   applyTheme(theme);
 }
 
-function applyTheme(theme) { document.documentElement.setAttribute("data-theme", theme); }
+function applyTheme(theme) {
+  if (theme === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+  } else if (theme === "auto") {
+    document.documentElement.setAttribute("data-theme", "auto");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+}
 
 function loadSidebarCollapsed() {
   try { return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"; } catch { return false; }
@@ -2001,9 +2009,9 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   ];
 
   const themes = [
-    { key: "light", label: "Light", bg: "#eeece2", fg: "#e0ddd3" },
-    { key: "auto", label: "Auto", bgLeft: "#eeece2", bgRight: "#1a1a1a", fgLeft: "#e0ddd3", fgRight: "#2a2a2a" },
-    { key: "dark", label: "Dark", bg: "#1a1a1a", fg: "#2a2a2a" },
+    { key: "light", label: "Light", bg: "#FAF9F5", fg: "#EBE8E0" },
+    { key: "auto", label: "Auto", bgLeft: "#FAF9F5", bgRight: "#212121", fgLeft: "#EBE8E0", fgRight: "#2f2f2f" },
+    { key: "dark", label: "Dark", bg: "#212121", fg: "#2f2f2f" },
   ];
 
   const fonts = [
