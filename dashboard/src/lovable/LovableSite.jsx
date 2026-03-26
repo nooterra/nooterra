@@ -5,7 +5,6 @@ const DOCS_EXTERNAL = "https://docs.nooterra.ai";
 const DOCS_GETTING_STARTED = DOCS_EXTERNAL + "/getting-started";
 const DISCORD_HREF = "https://discord.gg/nooterra";
 const MANAGED_ONBOARDING_HREF = buildManagedAccountHref({ flow: "signup", source: "site", hash: "account-create" });
-const MANAGED_LOGIN_HREF = buildManagedAccountHref({ flow: "login", source: "site", hash: "identity-access" });
 
 function buildManagedAccountHref({ flow = "signup", source = "", hash = "account-create" } = {}) {
   const params = new URLSearchParams();
@@ -67,27 +66,36 @@ function SiteNav() {
   }, []);
 
   const navLinks = [
-    { label: "Docs", href: DOCS_EXTERNAL },
     { label: "Pricing", href: "/pricing" },
-    { label: "GitHub", href: ossLinks.repo }
+    { label: "Docs", href: DOCS_EXTERNAL },
+    { label: "GitHub", href: ossLinks.repo },
   ];
 
   return (
-    <nav className="fixed inset-x-0 top-0 z-50" style={{ backgroundColor: "rgba(250, 249, 245, 0.92)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <a href="/" className="flex items-center gap-2 group">
-          <NooterraLogo className="h-4 w-auto" style={{ color: "#1a1a1a" }} />
+    <nav style={{
+      position: "fixed", inset: "0 0 auto 0", zIndex: 50,
+      backgroundColor: "oklch(98.5% 0.005 80 / 0.92)",
+      backdropFilter: "blur(12px)",
+      borderBottom: "1px solid var(--border)",
+    }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, padding: "0 24px" }}>
+        <a href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
+          <NooterraLogo className="h-[18px] w-auto" style={{ color: "var(--text-100)" }} />
         </a>
 
-        <div className="hidden items-center gap-8 md:flex">
+        {/* Desktop nav */}
+        <div style={{ display: "flex", alignItems: "center", gap: 32 }} className="hidden md:flex">
           {navLinks.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="text-[13px] font-medium transition-colors duration-150"
-              style={{ color: pathname === link.href ? "var(--neutral-200)" : "var(--neutral-500)" }}
-              onMouseEnter={(e) => e.currentTarget.style.color = "var(--neutral-200)"}
-              onMouseLeave={(e) => { if (pathname !== link.href) e.currentTarget.style.color = "var(--neutral-500)"; }}
+              style={{
+                fontSize: "var(--text-sm)", fontWeight: 500, textDecoration: "none",
+                color: pathname === link.href ? "var(--text-100)" : "var(--text-200)",
+                transition: "color 150ms",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-100)"}
+              onMouseLeave={(e) => { if (pathname !== link.href) e.currentTarget.style.color = "var(--text-200)"; }}
               {...(link.href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             >
               {link.label}
@@ -95,19 +103,25 @@ function SiteNav() {
           ))}
           <a
             href="/login"
-            className="text-[13px] transition-colors"
-            style={{ color: "var(--neutral-500)" }}
-            onMouseEnter={(e) => e.currentTarget.style.color = "var(--neutral-200)"}
-            onMouseLeave={(e) => e.currentTarget.style.color = "var(--neutral-500)"}
+            style={{
+              fontSize: "var(--text-sm)", fontWeight: 500, textDecoration: "none",
+              color: "var(--text-200)", transition: "color 150ms",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-100)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-200)"}
           >
             Sign in
           </a>
           <a
             href="/signup"
-            className="inline-flex items-center px-3.5 py-1.5 text-[13px] font-semibold transition-all duration-150"
-            style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
+            style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "8px 20px", fontSize: "var(--text-sm)", fontWeight: 600,
+              backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
+              textDecoration: "none", transition: "opacity 150ms",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
+            onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
           >
             Get started
           </a>
@@ -116,8 +130,8 @@ function SiteNav() {
         {/* Mobile toggle */}
         <button
           onClick={() => setMobileOpen((v) => !v)}
-          className="p-2 md:hidden"
-          style={{ color: "var(--neutral-400)" }}
+          style={{ padding: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-200)" }}
+          className="md:hidden"
           aria-label="Toggle menu"
         >
           {mobileOpen ? (
@@ -128,73 +142,53 @@ function SiteNav() {
         </button>
       </div>
 
-      {mobileOpen ? (
-        <div className="md:hidden" style={{ borderTop: "1px solid rgba(0,0,0,0.06)", backgroundColor: "rgba(250, 249, 245, 0.96)", backdropFilter: "blur(12px)" }}>
-          <div className="space-y-3 px-6 py-5">
+      {mobileOpen && (
+        <div className="md:hidden" style={{ borderTop: "1px solid var(--border)", backgroundColor: "oklch(98.5% 0.005 80 / 0.96)", backdropFilter: "blur(12px)" }}>
+          <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
             {navLinks.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                onClick={() => setMobileOpen(false)}
-                className="block text-sm transition-colors"
-                style={{ color: "var(--neutral-400)" }}
-              >
+              <a key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
+                style={{ fontSize: "var(--text-base)", color: "var(--text-200)", textDecoration: "none" }}>
                 {link.label}
               </a>
             ))}
-            <div className="pt-2 flex items-center gap-4">
-              <a
-                href="/login"
-                onClick={() => setMobileOpen(false)}
-                className="text-sm transition-colors"
-                style={{ color: "var(--neutral-500)" }}
-              >
-                Sign in
-              </a>
-              <a
-                href="/signup"
-                onClick={() => setMobileOpen(false)}
-                className="inline-flex items-center px-3.5 py-1.5 text-sm font-semibold"
-                style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-              >
-                Get started
-              </a>
+            <div style={{ paddingTop: 8, display: "flex", alignItems: "center", gap: 16 }}>
+              <a href="/login" onClick={() => setMobileOpen(false)} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Sign in</a>
+              <a href="/signup" onClick={() => setMobileOpen(false)} style={{ display: "inline-flex", padding: "8px 20px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none" }}>Get started</a>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </nav>
   );
 }
 
 function SiteFooter() {
   return (
-    <footer>
-      <div className="mx-auto max-w-6xl px-6 py-14">
-        <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "40px" }} />
-        <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+    <footer style={{ borderTop: "1px solid var(--border)" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "48px 24px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "32px 64px" }}>
           <div>
-            <NooterraLogo className="h-4 w-auto" style={{ color: "var(--neutral-300)" }} />
-            <p className="mt-3 max-w-xs text-[13px] leading-relaxed" style={{ color: "var(--neutral-600)" }}>
+            <NooterraLogo className="h-[16px] w-auto" style={{ color: "var(--text-200)" }} />
+            <p style={{ marginTop: 12, maxWidth: 260, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-300)" }}>
               AI workers for consequential work.
             </p>
-            <p className="mt-6 text-[11px]" style={{ color: "var(--neutral-700)" }}>&copy; 2026 Nooterra</p>
           </div>
-          <div className="flex flex-wrap gap-x-14 gap-y-6">
-            <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--neutral-600)" }}>Resources</p>
-              <a href={DOCS_EXTERNAL} className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }} target="_blank" rel="noopener noreferrer">Docs</a>
-              <a href={ossLinks.repo} className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }} target="_blank" rel="noopener noreferrer">GitHub</a>
-              <a href={DISCORD_HREF} className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }} target="_blank" rel="noopener noreferrer">Discord</a>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "24px 56px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-300)", margin: 0 }}>Resources</p>
+              <a href={DOCS_EXTERNAL} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">Docs</a>
+              <a href={ossLinks.repo} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">GitHub</a>
+              <a href={DISCORD_HREF} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">Discord</a>
             </div>
-            <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--neutral-600)" }}>Legal</p>
-              <a href="/security" className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }}>Security</a>
-              <a href="/privacy" className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }}>Privacy</a>
-              <a href="/terms" className="block text-[13px] transition-colors hover:opacity-80" style={{ color: "var(--neutral-500)" }}>Terms</a>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-300)", margin: 0 }}>Legal</p>
+              <a href="/security" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Security</a>
+              <a href="/privacy" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Privacy</a>
+              <a href="/terms" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Terms</a>
             </div>
           </div>
         </div>
+        <p style={{ marginTop: 40, fontSize: "11px", color: "var(--text-300)" }}>&copy; 2026 Nooterra</p>
       </div>
     </footer>
   );
@@ -202,9 +196,9 @@ function SiteFooter() {
 
 function SiteLayout({ children }) {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#FAF9F5", color: "var(--neutral-300)", fontFamily: "var(--font-body)" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-100)", color: "var(--text-100)", fontFamily: "var(--font-body)" }}>
       <SiteNav />
-      <main className="pt-14">{children}</main>
+      <main style={{ paddingTop: 56 }}>{children}</main>
       <SiteFooter />
     </div>
   );
@@ -238,63 +232,65 @@ function WorkerCard() {
   }, [step, approved]);
 
   const checkSvg = (color) => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
       <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 
   return (
-    <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", backgroundColor: "#FFFFFF", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-      {/* Worker header */}
-      <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-        <div className="flex items-center gap-3">
-          <div className="h-2 w-2 rounded-full lovable-pulse" style={{ backgroundColor: "#4ade80" }} />
-          <span className="text-[13px] font-semibold" style={{ color: "var(--neutral-100)" }}>Customer Support Worker</span>
+    <div style={{
+      border: "1px solid var(--border)",
+      borderRadius: 12,
+      backgroundColor: "var(--bg-400)",
+      overflow: "hidden",
+      boxShadow: "var(--shadow-md)",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="lovable-pulse" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#4ade80" }} />
+          <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-100)" }}>Customer Support Worker</span>
         </div>
-        <span className="text-[11px] tabular-nums" style={{ color: "var(--neutral-600)" }}>running</span>
+        <span className="tabular-nums" style={{ fontSize: "11px", color: "var(--text-300)" }}>running</span>
       </div>
 
-      {/* Activity */}
-      <div className="px-5 py-4 space-y-3">
+      {/* Steps */}
+      <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
         {WORKER_STEPS.slice(0, step).map((s, i) => (
-          <div key={i} className="flex items-center gap-3" style={{ animation: "lovable-fade-in 0.3s ease forwards" }}>
-            {s.status === "done" ? (
-              checkSvg("#4ade80")
-            ) : approved ? (
-              checkSvg("var(--gold)")
-            ) : (
-              <div className="h-3.5 w-3.5 shrink-0 rounded-full animate-pulse" style={{ border: "2px solid #f59e0b" }} />
-            )}
-            <span className="text-[13px]" style={{ color: s.status === "approval" && !approved ? "#fbbf24" : "var(--neutral-400)" }}>
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, animation: "lovable-fade-in 0.3s ease forwards" }}>
+            {s.status === "done" ? checkSvg("#4ade80")
+              : approved ? checkSvg("var(--accent)")
+              : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #f59e0b", flexShrink: 0 }} className="lovable-pulse" />
+            }
+            <span style={{ fontSize: "var(--text-sm)", color: s.status === "approval" && !approved ? "#fbbf24" : "var(--text-200)" }}>
               {s.label}
             </span>
-            {s.status === "approval" && !approved ? (
-              <span className="ml-auto px-2 py-0.5 text-[10px] uppercase tracking-wider font-medium" style={{ borderRadius: "9999px", border: "1px solid rgba(245, 158, 11, 0.3)", backgroundColor: "rgba(245, 158, 11, 0.1)", color: "#fbbf24" }}>
+            {s.status === "approval" && !approved && (
+              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, borderRadius: 9999, border: "1px solid oklch(75% 0.15 85 / 0.3)", backgroundColor: "oklch(75% 0.15 85 / 0.1)", color: "#fbbf24" }}>
                 needs approval
               </span>
-            ) : s.status === "approval" && approved ? (
-              <span className="ml-auto px-2 py-0.5 text-[10px] uppercase tracking-wider font-medium" style={{ borderRadius: "9999px", border: "1px solid rgba(74, 222, 128, 0.3)", backgroundColor: "rgba(74, 222, 128, 0.1)", color: "#4ade80" }}>
+            )}
+            {s.status === "approval" && approved && (
+              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, borderRadius: 9999, border: "1px solid oklch(70% 0.15 155 / 0.3)", backgroundColor: "oklch(70% 0.15 155 / 0.1)", color: "#4ade80" }}>
                 approved
               </span>
-            ) : null}
+            )}
           </div>
         ))}
-        {step < WORKER_STEPS.length ? (
-          <div className="flex items-center gap-3">
-            <div className="h-3.5 w-3.5 shrink-0 rounded-full animate-pulse" style={{ border: "1px solid rgba(0,0,0,0.15)" }} />
-            <span className="text-[13px]" style={{ color: "var(--neutral-600)" }}>Working...</span>
+        {step < WORKER_STEPS.length && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="lovable-pulse" style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid var(--border)", flexShrink: 0 }} />
+            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-300)" }}>Working...</span>
           </div>
-        ) : null}
+        )}
       </div>
 
-      {/* Charter summary */}
-      <div className="px-5 py-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-        <div className="flex flex-wrap gap-4 text-[11px] tabular-nums">
-          <span style={{ color: "rgba(74, 222, 128, 0.7)" }}>4 canDo</span>
-          <span style={{ color: "rgba(245, 158, 11, 0.7)" }}>3 askFirst</span>
-          <span style={{ color: "rgba(244, 63, 94, 0.7)" }}>2 neverDo</span>
-          <span className="ml-auto" style={{ color: "var(--neutral-600)" }}>$0.003 this run</span>
-        </div>
+      {/* Footer */}
+      <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: 16 }}>
+        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(70% 0.12 155 / 0.7)" }}>4 canDo</span>
+        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(75% 0.14 85 / 0.7)" }}>3 askFirst</span>
+        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(60% 0.18 15 / 0.7)" }}>2 neverDo</span>
+        <span className="tabular-nums" style={{ fontSize: "11px", color: "var(--text-300)", marginLeft: "auto" }}>$0.003 this run</span>
       </div>
     </div>
   );
@@ -305,39 +301,52 @@ function WorkerCard() {
 function HomePage() {
   return (
     <SiteLayout>
-      {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="relative mx-auto max-w-6xl px-6" style={{ paddingTop: "clamp(6rem, 12vh, 10rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)" }}>
-          <div className="grid items-center gap-16 lg:grid-cols-2">
+      {/* HERO — asymmetric two-column */}
+      <section style={{ overflow: "hidden" }}>
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px", paddingTop: "clamp(6rem, 14vh, 12rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 48, alignItems: "center" }} className="lg:grid-cols-[1.1fr_0.9fr]">
             <div>
               <FadeIn>
-                <h1 style={{ fontSize: "clamp(2.25rem, 5vw, 3.75rem)", lineHeight: 1.06, letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                  Your next hire never sleeps.
+                <h1 style={{
+                  fontSize: "var(--text-3xl)", lineHeight: 1.04, letterSpacing: "-0.035em",
+                  fontWeight: 800, color: "var(--text-100)",
+                }}>
+                  Your next hire<br />never sleeps.
                 </h1>
               </FadeIn>
               <FadeIn delay={0.08}>
-                <p className="mt-7 max-w-md" style={{ fontSize: "clamp(1rem, 1.5vw, 1.125rem)", lineHeight: 1.65, color: "var(--neutral-500)" }}>
-                  AI workers that handle real work -- with rules, approvals, and a complete audit trail.
+                <p style={{
+                  marginTop: 24, maxWidth: 440,
+                  fontSize: "var(--text-lg)", lineHeight: 1.6, color: "var(--text-200)",
+                }}>
+                  AI workers with rules, approvals, and a complete audit trail.
                 </p>
               </FadeIn>
               <FadeIn delay={0.14}>
-                <div className="mt-9 flex flex-wrap items-center gap-3">
+                <div style={{ marginTop: 36, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
                   <a
-                    href={DOCS_GETTING_STARTED}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-[14px] font-semibold transition-all duration-150"
-                    style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
-                    target="_blank" rel="noopener noreferrer"
+                    href="/signup"
+                    style={{
+                      display: "inline-flex", alignItems: "center", padding: "12px 28px",
+                      fontSize: "var(--text-base)", fontWeight: 600,
+                      backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
+                      textDecoration: "none", transition: "opacity 200ms ease-out",
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
                   >
                     Get started
                   </a>
                   <a
                     href={ossLinks.repo}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-[14px] font-medium transition-all duration-150"
-                    style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 28px",
+                      fontSize: "var(--text-base)", fontWeight: 500,
+                      border: "1px solid var(--text-100)", color: "var(--text-100)", borderRadius: 9999,
+                      textDecoration: "none", transition: "opacity 200ms ease-out",
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = "0.7"}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
                     target="_blank" rel="noopener noreferrer"
                   >
                     <GitHubIcon className="h-4 w-4" /> View on GitHub
@@ -346,7 +355,7 @@ function HomePage() {
               </FadeIn>
             </div>
             <FadeIn delay={0.2}>
-              <div className="relative lg:pl-6">
+              <div style={{ paddingLeft: 0 }} className="lg:pl-8">
                 <WorkerCard />
               </div>
             </FadeIn>
@@ -354,200 +363,151 @@ function HomePage() {
         </div>
       </section>
 
-      {/* Section 1: You describe it. It runs. */}
-      <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
-          <div className="grid gap-14 md:grid-cols-2 items-center">
-            <FadeIn>
-              <div>
-                <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                  You describe it. It runs.
-                </h2>
-                <p className="mt-5 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
-                  Tell Nooterra what you need in plain English. It builds the worker, infers the tools, sets the schedule, and generates a charter you can review before anything runs.
-                </p>
-              </div>
-            </FadeIn>
-            <FadeIn delay={0.12}>
-              <WorkerCard />
-            </FadeIn>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 2: Rules it can't break. */}
-      <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
-          <div className="grid gap-14 md:grid-cols-2 items-start">
-            <FadeIn>
-              <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                Rules it can't break.
-              </h2>
-              <p className="mt-5 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
-                Every worker gets a charter with three rule types. These aren't prompt suggestions -- they're enforced at runtime before every action.
-              </p>
-              <div className="mt-10 space-y-6">
-                {[
-                  { dot: "#4ade80", label: "canDo", desc: "Actions the worker takes autonomously. Read data, send alerts, update records." },
-                  { dot: "#fbbf24", label: "askFirst", desc: "Actions that pause and wait for your approval. Refunds, external emails, spending." },
-                  { dot: "#f43f5e", label: "neverDo", desc: "Hard blocks the worker cannot cross, no matter what. Enforced at runtime." }
-                ].map((item) => (
-                  <div key={item.label} className="flex items-start gap-4">
-                    <div className="mt-2 h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: item.dot }} />
-                    <div>
-                      <span className="text-[13px] font-bold" style={{ color: "var(--neutral-200)", fontFamily: "monospace" }}>{item.label}</span>
-                      <p className="mt-1 text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
-                    </div>
+      {/* SECTION 1: Rules it can't break — full-width darker bg, horizontal strip */}
+      <section style={{ backgroundColor: "var(--bg-200)" }}>
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(4rem, 8vh, 7rem) 24px" }}>
+          <FadeIn>
+            <h2 style={{
+              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
+              color: "var(--text-100)", marginBottom: 16,
+            }}>
+              Rules it can't break.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 40 }}>
+              Every worker gets a charter with three rule types. These aren't prompt suggestions -- they're enforced at runtime before every action.
+            </p>
+          </FadeIn>
+          <FadeIn delay={0.1}>
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: 0,
+              borderRadius: 10, overflow: "hidden",
+              border: "1px solid var(--border)",
+              backgroundColor: "var(--bg-400)",
+            }}>
+              {[
+                { dot: "#4ade80", label: "canDo", items: "Read emails, Draft replies, Search knowledge base" },
+                { dot: "#fbbf24", label: "askFirst", items: "Issue refunds, Send external emails" },
+                { dot: "#f43f5e", label: "neverDo", items: "Delete data, Share customer info" },
+              ].map((rule, i) => (
+                <div key={rule.label} style={{
+                  flex: "1 1 260px", padding: "20px 24px",
+                  borderLeft: i > 0 ? "1px solid var(--border)" : "none",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: rule.dot }} />
+                    <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-100)" }}>{rule.label}</span>
                   </div>
-                ))}
-              </div>
-            </FadeIn>
-            <FadeIn delay={0.12}>
-              <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", overflow: "hidden", backgroundColor: "#FFFFFF", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <div className="px-5 py-3.5 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--neutral-200)" }}>Customer Support Worker</span>
-                  <span className="ml-auto text-[11px]" style={{ color: "var(--neutral-600)" }}>charter</span>
+                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6, margin: 0 }}>{rule.items}</p>
                 </div>
-                <div className="p-5 space-y-5">
-                  <div>
-                    <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(74, 222, 128, 0.7)" }}>Can do</p>
-                    <div className="space-y-2">
-                      {["Read customer emails", "Look up billing in Stripe", "Draft reply messages", "Search FAQ and knowledge base"].map(r => (
-                        <div key={r} className="flex items-center gap-3">
-                          <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: "#4ade80" }} />
-                          <span className="text-[13px]" style={{ color: "var(--neutral-400)" }}>{r}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(251, 191, 36, 0.7)" }}>Ask first</p>
-                    <div className="space-y-2">
-                      {["Issue refunds over $10", "Send emails to customers", "Make promises about features"].map(r => (
-                        <div key={r} className="flex items-center gap-3">
-                          <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: "#fbbf24" }} />
-                          <span className="text-[13px]" style={{ color: "var(--neutral-400)" }}>{r}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(244, 63, 94, 0.7)" }}>Never do</p>
-                    <div className="space-y-2">
-                      {["Share customer data between customers", "Make up information", "Delete any records"].map(r => (
-                        <div key={r} className="flex items-center gap-3">
-                          <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: "#f43f5e" }} />
-                          <span className="text-[13px]" style={{ color: "var(--neutral-400)" }}>{r}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </FadeIn>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 3: Bold outcome claim */}
-      <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
-          <FadeIn>
-            <div className="text-center" style={{ maxWidth: "36rem", margin: "0 auto" }}>
-              <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)", lineHeight: 1.15 }}>
-                One worker handles 127 requests a week.
-              </h2>
-              <p className="mt-6 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
-                Runs 24/7 as a real daemon. Cron schedules, crash recovery, auto-restart. Every action logged, every decision auditable. Your keys, any provider.
-              </p>
+              ))}
             </div>
           </FadeIn>
         </div>
       </section>
 
-      {/* Section 4: One-line comparison */}
+      {/* SECTION 2: Big impact number */}
       <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(5rem, 10vh, 8rem) 24px", textAlign: "center" }}>
           <FadeIn>
-            <div className="text-center">
-              <p style={{ fontSize: "clamp(1.125rem, 2vw, 1.375rem)", lineHeight: 1.65, color: "var(--neutral-400)", fontWeight: 500, letterSpacing: "-0.01em" }}>
-                Unlike chatbots, workers take action. Unlike automation, they think.
-              </p>
+            <div style={{
+              fontSize: "var(--text-3xl)", fontWeight: 800, letterSpacing: "-0.04em",
+              color: "var(--text-300)", lineHeight: 1, marginBottom: 16,
+            }}>
+              127
+            </div>
+            <h2 style={{
+              fontSize: "var(--text-xl)", fontWeight: 700, letterSpacing: "-0.02em",
+              color: "var(--text-100)", marginBottom: 12,
+            }}>
+              One worker. 127 requests. One week.
+            </h2>
+            <p style={{
+              fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 480,
+              margin: "0 auto", lineHeight: 1.6,
+            }}>
+              Runs 24/7 as a real daemon. Cron schedules, crash recovery, auto-restart. Every action logged, every decision auditable.
+            </p>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* SECTION 3: Start in 30 seconds — with input */}
+      <section style={{ backgroundColor: "var(--bg-200)" }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "clamp(4rem, 8vh, 7rem) 24px", textAlign: "center" }}>
+          <FadeIn>
+            <h2 style={{
+              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
+              color: "var(--text-100)", marginBottom: 32,
+            }}>
+              Start in 30 seconds.
+            </h2>
+            <a
+              href="/signup"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: "100%", padding: "16px 24px",
+                fontSize: "var(--text-base)", fontWeight: 600,
+                backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 12,
+                textDecoration: "none", transition: "opacity 200ms ease-out",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
+              onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+            >
+              Describe your first worker
+            </a>
+            <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+              {["Support Monitor", "Price Tracker", "Inbox Summary"].map((t) => (
+                <span key={t} style={{
+                  padding: "6px 14px", fontSize: "var(--text-xs)",
+                  borderRadius: 9999, border: "1px solid var(--border)",
+                  color: "var(--text-200)", backgroundColor: "var(--bg-400)",
+                }}>
+                  {t}
+                </span>
+              ))}
             </div>
           </FadeIn>
         </div>
       </section>
 
-      {/* Section 5: Start in 30 seconds */}
+      {/* Final CTA */}
       <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "5rem" }} />
+        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(5rem, 10vh, 8rem) 24px", textAlign: "center" }}>
           <FadeIn>
-            <div className="text-center" style={{ maxWidth: "32rem", margin: "0 auto" }}>
-              <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                Start in 30 seconds.
-              </h2>
-              <div className="mt-8">
-                <a
-                  href="/signup"
-                  className="inline-flex items-center gap-2 px-6 py-3 text-[14px] font-semibold transition-all duration-150"
-                  style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "8px", width: "100%", justifyContent: "center" }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
-                >
-                  Describe your first worker
-                </a>
-              </div>
-              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                {["Customer support", "Price tracking", "Inbox summary"].map((t) => (
-                  <span
-                    key={t}
-                    className="px-3 py-1.5 text-[12px]"
-                    style={{ borderRadius: "9999px", border: "1px solid rgba(0,0,0,0.08)", color: "var(--neutral-500)" }}
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "4rem", paddingBottom: "8rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.06) 80%, transparent)", marginBottom: "6rem" }} />
-          <FadeIn>
-            <div className="text-center">
-              <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                Your next worker is one conversation away.
-              </h2>
-              <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-                <a
-                  href="/signup"
-                  className="inline-flex items-center gap-2 px-6 py-2.5 text-[14px] font-semibold transition-all duration-150"
-                  style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
-                >
-                  Get started
-                </a>
-                <a
-                  href={ossLinks.repo}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 text-[14px] font-medium transition-all duration-150"
-                  style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }}
-                  target="_blank" rel="noopener noreferrer"
-                >
-                  View on GitHub
-                </a>
-              </div>
+            <h2 style={{
+              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
+              color: "var(--text-100)",
+            }}>
+              Your next worker is one conversation away.
+            </h2>
+            <div style={{ marginTop: 36, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
+              <a
+                href="/signup"
+                style={{
+                  display: "inline-flex", alignItems: "center", padding: "12px 28px",
+                  fontSize: "var(--text-base)", fontWeight: 600,
+                  backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
+                  textDecoration: "none", transition: "opacity 200ms ease-out",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+              >
+                Get started
+              </a>
+              <a
+                href={ossLinks.repo}
+                style={{
+                  display: "inline-flex", alignItems: "center", padding: "12px 28px",
+                  fontSize: "var(--text-base)", fontWeight: 500,
+                  border: "1px solid var(--text-100)", color: "var(--text-100)", borderRadius: 9999,
+                  textDecoration: "none", transition: "opacity 200ms ease-out",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = "0.7"}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+                target="_blank" rel="noopener noreferrer"
+              >
+                View on GitHub
+              </a>
             </div>
           </FadeIn>
         </div>
@@ -561,27 +521,26 @@ function HomePage() {
 function SecurityPage() {
   return (
     <SiteLayout>
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingTop: "7rem", paddingBottom: "3rem" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
-          <h1 style={{ fontSize: "clamp(2rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>Security</h1>
-          <p className="mt-5 max-w-xl text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
+          <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Security</h1>
+          <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
             Workers cannot exceed their charter. Every action is logged. Every escalation requires human approval. Every boundary is enforced at runtime.
           </p>
         </FadeIn>
       </section>
-
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingBottom: "6rem" }}>
-        <div className="mt-10 space-y-0">
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
+        <div style={{ marginTop: 40 }}>
           {[
             { title: "Fail closed", desc: "Ambiguous situations halt execution and ask. Missing context, unclear scope, or expired approvals all stop the worker." },
             { title: "Least privilege", desc: "Workers only access tools and data explicitly granted in their charter. Nothing more." },
             { title: "Human in the loop", desc: "Consequential actions always route through human approval. The threshold is configurable per worker." },
-            { title: "Full audit trail", desc: "Every action, approval, and decision logged with timestamps and context. Export anytime." }
+            { title: "Full audit trail", desc: "Every action, approval, and decision logged with timestamps and context. Export anytime." },
           ].map((item, i) => (
             <FadeIn key={item.title} delay={i * 0.06}>
-              <div className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
-                <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
-                <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
+              <div style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+                <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
+                <p style={{ marginTop: 8, maxWidth: 520, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{item.desc}</p>
               </div>
             </FadeIn>
           ))}
@@ -596,12 +555,12 @@ function SecurityPage() {
 function SimplePage({ title, children }) {
   return (
     <SiteLayout>
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingTop: "7rem", paddingBottom: "3rem" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
-          <h1 style={{ fontSize: "clamp(2rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>{title}</h1>
+          <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>{title}</h1>
         </FadeIn>
       </section>
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingBottom: "6rem" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
         <FadeIn delay={0.06}>{children}</FadeIn>
       </section>
     </SiteLayout>
@@ -611,15 +570,15 @@ function SimplePage({ title, children }) {
 function PrivacyPage() {
   return (
     <SimplePage title="Privacy">
-      <div className="space-y-0">
+      <div>
         {[
           { title: "Your keys, your providers", desc: "API keys are encrypted at rest and never leave your account boundary. Free tier runs entirely on your machine." },
           { title: "No training on your data", desc: "We never train models on your data. Audit logs are yours -- exportable and deletable." },
-          { title: "Data portability", desc: "Export workers, charters, and logs at any time. Cancel and your data is deleted within 30 days." }
+          { title: "Data portability", desc: "Export workers, charters, and logs at any time. Cancel and your data is deleted within 30 days." },
         ].map((item, i) => (
-          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
-            <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
-            <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
+          <div key={item.title} style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+            <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
+            <p style={{ marginTop: 8, maxWidth: 520, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{item.desc}</p>
           </div>
         ))}
       </div>
@@ -630,15 +589,15 @@ function PrivacyPage() {
 function TermsPage() {
   return (
     <SimplePage title="Terms">
-      <div className="space-y-0">
+      <div>
         {[
           { title: "Your workers, your responsibility", desc: "You define the charter, grant approvals, and control what workers do. Nooterra enforces the boundaries you set." },
           { title: "Fair use", desc: "Workers should perform legitimate business tasks. Do not use for spam, fraud, or harassment." },
-          { title: "Service availability", desc: "Free tier runs locally with no uptime guarantee. Paid tiers include SLAs." }
+          { title: "Service availability", desc: "Free tier runs locally with no uptime guarantee. Paid tiers include SLAs." },
         ].map((item, i) => (
-          <div key={item.title} className="py-8" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
-            <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
-            <p className="mt-2 max-w-lg text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
+          <div key={item.title} style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+            <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
+            <p style={{ marginTop: 8, maxWidth: 520, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{item.desc}</p>
           </div>
         ))}
       </div>
@@ -649,16 +608,16 @@ function TermsPage() {
 function SupportPage() {
   return (
     <SimplePage title="Get help">
-      <div className="space-y-0">
+      <div>
         {[
           { title: "Documentation", desc: "Guides, API reference, and troubleshooting.", href: DOCS_EXTERNAL, cta: "Open docs" },
           { title: "Discord", desc: "Ask questions and get help from the community.", href: DISCORD_HREF, cta: "Join Discord" },
-          { title: "GitHub Issues", desc: "Report bugs or request features.", href: ossLinks.issues, cta: "Open issue" }
+          { title: "GitHub Issues", desc: "Report bugs or request features.", href: ossLinks.issues, cta: "Open issue" },
         ].map((item, i) => (
-          <a key={item.title} href={item.href} className="block py-8 transition-colors group" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}} target="_blank" rel="noopener noreferrer">
-            <h3 className="text-[15px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
-            <p className="mt-2 text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
-            <span className="mt-2 inline-block text-[13px] transition-colors" style={{ color: "var(--neutral-400)" }}>{item.cta} &rarr;</span>
+          <a key={item.title} href={item.href} style={{ display: "block", padding: "32px 0", textDecoration: "none", borderTop: i > 0 ? "1px solid var(--border)" : "none" }} target="_blank" rel="noopener noreferrer">
+            <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
+            <p style={{ marginTop: 8, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{item.desc}</p>
+            <span style={{ marginTop: 8, display: "inline-block", fontSize: "var(--text-sm)", color: "var(--text-200)" }}>{item.cta} &rarr;</span>
           </a>
         ))}
       </div>
@@ -669,7 +628,7 @@ function SupportPage() {
 /* ── STATUS PAGE ── */
 
 const PUBLIC_STATUS_CHECKS = Object.freeze([
-  { id: "home", label: "Homepage", path: "/", type: "html", needle: "conversation" }
+  { id: "home", label: "Homepage", path: "/", type: "html", needle: "conversation" },
 ]);
 
 function normalizeStatusPathname(value) {
@@ -724,47 +683,35 @@ function StatusPage() {
 
   return (
     <SimplePage title="Status">
-      <div className="flex items-center gap-3 mb-8">
-        <span
-          className="inline-flex items-center gap-2 px-3 py-1 text-[11px] uppercase tracking-wider font-medium"
-          style={{
-            borderRadius: "9999px",
-            border: state.loading
-              ? "1px solid rgba(0,0,0,0.08)"
-              : allOk
-                ? "1px solid rgba(74, 222, 128, 0.2)"
-                : "1px solid rgba(251, 191, 36, 0.2)",
-            backgroundColor: state.loading
-              ? "transparent"
-              : allOk
-                ? "rgba(74, 222, 128, 0.1)"
-                : "rgba(251, 191, 36, 0.1)",
-            color: state.loading
-              ? "var(--neutral-500)"
-              : allOk
-                ? "#4ade80"
-                : "#fbbf24"
-          }}
-        >
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32 }}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 12px",
+          fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500,
+          borderRadius: 9999,
+          border: state.loading ? "1px solid var(--border)" : allOk ? "1px solid oklch(70% 0.15 155 / 0.2)" : "1px solid oklch(75% 0.14 85 / 0.2)",
+          backgroundColor: state.loading ? "transparent" : allOk ? "oklch(70% 0.15 155 / 0.1)" : "oklch(75% 0.14 85 / 0.1)",
+          color: state.loading ? "var(--text-300)" : allOk ? "#4ade80" : "#fbbf24",
+        }}>
           {state.loading ? "Checking..." : allOk ? "All systems operational" : "Degraded"}
         </span>
-        <button onClick={() => setNonce(v => v + 1)} className="transition-colors" style={{ color: "var(--neutral-600)" }} onMouseEnter={(e) => e.currentTarget.style.color = "var(--neutral-400)"} onMouseLeave={(e) => e.currentTarget.style.color = "var(--neutral-600)"}>
+        <button onClick={() => setNonce(v => v + 1)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-300)", padding: 4, transition: "color 150ms" }}
+          onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-200)"}
+          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-300)"}
+        >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
       </div>
-      <div className="space-y-0">
+      <div>
         {state.checks.map((c, i) => (
-          <div key={c.id} className="flex items-center justify-between py-3.5" style={i > 0 ? { borderTop: "1px solid rgba(0,0,0,0.05)" } : {}}>
-            <span className="text-[13px]" style={{ color: "var(--neutral-200)" }}>{c.label}</span>
-            <span className="text-[11px] uppercase tracking-wider font-medium" style={{
-              color: c.status === "ok" ? "#4ade80" : c.status === "degraded" ? "#fbbf24" : "#f43f5e"
-            }}>
+          <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-100)" }}>{c.label}</span>
+            <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, color: c.status === "ok" ? "#4ade80" : c.status === "degraded" ? "#fbbf24" : "#f43f5e" }}>
               {c.statusLabel}
             </span>
           </div>
         ))}
       </div>
-      {state.at ? <p className="mt-4 text-[11px] tabular-nums" style={{ color: "var(--neutral-700)" }}>Checked {new Date(state.at).toLocaleString()}</p> : null}
+      {state.at && <p className="tabular-nums" style={{ marginTop: 16, fontSize: "11px", color: "var(--text-300)" }}>Checked {new Date(state.at).toLocaleString()}</p>}
     </SimplePage>
   );
 }
@@ -774,20 +721,20 @@ function StatusPage() {
 function SimpleInfoPage({ title, summary }) {
   return (
     <SimplePage title={title}>
-      <p className="text-[15px]" style={{ color: "var(--neutral-500)" }}>{summary}</p>
-      <div className="mt-8 flex gap-3">
-        <a
-          href="/"
-          className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
-          style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
-        >
+      <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)" }}>{summary}</p>
+      <div style={{ marginTop: 32, display: "flex", gap: 12 }}>
+        <a href="/" style={{
+          display: "inline-flex", alignItems: "center", padding: "10px 20px",
+          fontSize: "var(--text-sm)", fontWeight: 600,
+          backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none",
+        }}>
           Go home &rarr;
         </a>
-        <a
-          href="/support"
-          className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium"
-          style={{ border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }}
-        >
+        <a href="/support" style={{
+          display: "inline-flex", alignItems: "center", padding: "10px 20px",
+          fontSize: "var(--text-sm)", fontWeight: 500,
+          border: "1px solid var(--border)", color: "var(--text-200)", borderRadius: 9999, textDecoration: "none",
+        }}>
           Get help
         </a>
       </div>
@@ -799,126 +746,77 @@ function SimpleInfoPage({ title, summary }) {
 
 const PRICING_TIERS = [
   {
-    name: "Free",
-    price: "$0",
-    period: "",
+    name: "Free", price: "$0", period: "",
     description: "Run unlimited workers locally from the CLI. Your keys, your data, no cloud required.",
-    features: [
-      "Unlimited local workers",
-      "Any AI provider",
-      "Full charter and guardrails",
-      "CLI and MCP support",
-      "Community support"
-    ],
-    cta: "Get started",
-    ctaHref: DOCS_GETTING_STARTED,
-    ctaExternal: true,
-    highlighted: false
+    features: ["Unlimited local workers", "Any AI provider", "Full charter and guardrails", "CLI and MCP support", "Community support"],
+    cta: "Get started", ctaHref: DOCS_GETTING_STARTED, ctaExternal: true, highlighted: false,
   },
   {
-    name: "Pro",
-    price: "$29",
-    period: "/month",
+    name: "Pro", price: "$29", period: "/month",
     description: "Cloud-hosted workers that run 24/7. Approve from Slack. Web dashboard.",
-    features: [
-      "Everything in Free",
-      "Cloud-hosted workers",
-      "Web dashboard",
-      "Slack approvals",
-      "Webhook integrations",
-      "Email support"
-    ],
-    cta: "Start free trial",
-    ctaHref: "/signup",
-    ctaExternal: false,
-    highlighted: true
+    features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approvals", "Webhook integrations", "Email support"],
+    cta: "Start free trial", ctaHref: "/signup", ctaExternal: false, highlighted: true,
   },
   {
-    name: "Team",
-    price: "$99",
-    period: "/month",
+    name: "Team", price: "$99", period: "/month",
     description: "Shared workers, team approvals, SSO, and audit exports.",
-    features: [
-      "Everything in Pro",
-      "Shared worker dashboard",
-      "Team approval workflows",
-      "SSO and admin controls",
-      "Audit log export",
-      "Priority support"
-    ],
-    cta: "Contact us",
-    ctaHref: "/support",
-    ctaExternal: false,
-    highlighted: false
-  }
+    features: ["Everything in Pro", "Shared worker dashboard", "Team approval workflows", "SSO and admin controls", "Audit log export", "Priority support"],
+    cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
+  },
 ];
 
 function PricingPage() {
   return (
     <SiteLayout>
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingTop: "7rem", paddingBottom: "3rem" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
-          <h1 style={{ fontSize: "clamp(2rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>Pricing</h1>
-          <p className="mt-5 max-w-xl text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
+          <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Pricing</h1>
+          <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
             Start free on your own machine. Scale to the cloud when you're ready.
           </p>
         </FadeIn>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6" style={{ paddingBottom: "6rem" }}>
-        <div className="grid gap-6 md:grid-cols-3">
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
           {PRICING_TIERS.map((tier, i) => (
             <FadeIn key={tier.name} delay={i * 0.08}>
-              <div
-                className="flex flex-col h-full"
-                style={{
-                  border: tier.highlighted
-                    ? "1px solid rgba(200, 170, 110, 0.25)"
-                    : "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: "10px",
-                  backgroundColor: tier.highlighted
-                    ? "rgba(210, 176, 111, 0.06)"
-                    : "#FFFFFF",
-                  padding: "2rem"
-                }}
-              >
+              <div style={{
+                display: "flex", flexDirection: "column", height: "100%", padding: 32,
+                border: tier.highlighted ? "1px solid var(--accent)" : "1px solid var(--border)",
+                borderRadius: 12,
+                backgroundColor: tier.highlighted ? "oklch(68% 0.12 65 / 0.04)" : "var(--bg-400)",
+              }}>
                 <div>
-                  <p className="text-[13px] font-semibold uppercase tracking-[0.1em]" style={{ color: tier.highlighted ? "var(--gold)" : "var(--neutral-400)" }}>
+                  <p style={{ fontSize: "var(--text-sm)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: tier.highlighted ? "var(--accent)" : "var(--text-200)", margin: 0 }}>
                     {tier.name}
                   </p>
-                  <div className="mt-4 flex items-baseline gap-1">
-                    <span style={{ fontSize: "2.25rem", fontWeight: 700, letterSpacing: "-0.03em", color: "var(--neutral-100)" }}>{tier.price}</span>
-                    {tier.period ? <span className="text-[14px]" style={{ color: "var(--neutral-600)" }}>{tier.period}</span> : null}
+                  <div style={{ marginTop: 16, display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <span style={{ fontSize: "var(--text-2xl)", fontWeight: 700, letterSpacing: "-0.03em", color: "var(--text-100)" }}>{tier.price}</span>
+                    {tier.period && <span style={{ fontSize: "var(--text-sm)", color: "var(--text-300)" }}>{tier.period}</span>}
                   </div>
-                  <p className="mt-4 text-[14px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{tier.description}</p>
+                  <p style={{ marginTop: 16, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{tier.description}</p>
                 </div>
 
-                <div className="mt-8 space-y-3 flex-1">
+                <div style={{ marginTop: 32, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
                   {tier.features.map((f) => (
-                    <div key={f} className="flex items-start gap-3">
-                      <span className="mt-1.5 block h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: tier.highlighted ? "var(--gold)" : "var(--neutral-600)" }} />
-                      <span className="text-[13px]" style={{ color: "var(--neutral-400)" }}>{f}</span>
+                    <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <span style={{ marginTop: 6, display: "block", width: 6, height: 6, borderRadius: "50%", flexShrink: 0, backgroundColor: tier.highlighted ? "var(--accent)" : "var(--text-300)" }} />
+                      <span style={{ fontSize: "var(--text-sm)", color: "var(--text-200)" }}>{f}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-8">
+                <div style={{ marginTop: 32 }}>
                   <a
                     href={tier.ctaHref}
-                    className="inline-flex items-center justify-center w-full px-4 py-2.5 text-[13px] font-semibold transition-all duration-150"
                     style={
                       tier.highlighted
-                        ? { backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }
-                        : { border: "1px solid rgba(0,0,0,0.12)", color: "var(--neutral-400)", borderRadius: "6px" }
+                        ? { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none", transition: "opacity 200ms" }
+                        : { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 500, border: "1px solid var(--border)", color: "var(--text-200)", borderRadius: 9999, textDecoration: "none", transition: "border-color 200ms" }
                     }
-                    onMouseEnter={(e) => {
-                      if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold-hover)"; }
-                      else { e.currentTarget.style.borderColor = "rgba(0,0,0,0.2)"; e.currentTarget.style.color = "var(--neutral-200)"; }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (tier.highlighted) { e.currentTarget.style.backgroundColor = "var(--gold)"; }
-                      else { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; e.currentTarget.style.color = "var(--neutral-400)"; }
-                    }}
+                    onMouseEnter={(e) => { if (tier.highlighted) e.currentTarget.style.opacity = "0.85"; else e.currentTarget.style.borderColor = "var(--text-200)"; }}
+                    onMouseLeave={(e) => { if (tier.highlighted) e.currentTarget.style.opacity = "1"; else e.currentTarget.style.borderColor = "var(--border)"; }}
                     {...(tier.ctaExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   >
                     {tier.cta}
@@ -943,10 +841,10 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "terms") return <TermsPage />;
   if (mode === "support") return <SupportPage />;
 
-  // Killed pages → redirect to home
+  // Killed pages -> redirect to home
   if (mode === "product" || mode === "demo" || mode === "developers" || mode === "integrations") return <HomePage />;
 
-  // Docs → external
+  // Docs -> external
   if (typeof mode === "string" && mode.startsWith("docs")) {
     if (typeof window !== "undefined") window.location.replace(DOCS_EXTERNAL);
     return null;
@@ -967,7 +865,7 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "verification_failed") return <SimpleInfoPage title="Verification failed." summary="The action could not be verified. Check your activity feed or contact support." />;
   if (mode === "unsupported_host") return <SimpleInfoPage title="Host not supported." summary="Nooterra currently supports CLI, MCP, and REST API." />;
 
-  // Trust entries → home
+  // Trust entries -> home
   if (mode === "wallet" || mode === "approvals" || mode === "receipts" || mode === "disputes") return <HomePage />;
 
   return <HomePage />;

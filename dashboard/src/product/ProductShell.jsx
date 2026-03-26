@@ -41,40 +41,22 @@ const RECOMMENDED_MODELS = [
 
 const STARTER_TEMPLATES = [
   {
-    id: "support-monitor",
-    name: "Support Monitor",
+    id: "support-monitor", name: "Support Monitor",
     description: "Watch your inbox and draft replies for common questions.",
-    charter: {
-      canDo: ["Read incoming emails", "Categorize by topic", "Draft reply templates", "Search knowledge base"],
-      askFirst: ["Send replies to customers", "Forward to team members", "Issue refunds"],
-      neverDo: ["Delete emails", "Share customer data", "Make commitments about features"],
-    },
-    schedule: { type: "continuous" },
-    model: "google/gemini-3-flash",
+    charter: { canDo: ["Read incoming emails", "Categorize by topic", "Draft reply templates", "Search knowledge base"], askFirst: ["Send replies to customers", "Forward to team members", "Issue refunds"], neverDo: ["Delete emails", "Share customer data", "Make commitments about features"] },
+    schedule: { type: "continuous" }, model: "google/gemini-3-flash",
   },
   {
-    id: "price-tracker",
-    name: "Price Tracker",
+    id: "price-tracker", name: "Price Tracker",
     description: "Monitor competitor pricing pages daily and alert you on changes.",
-    charter: {
-      canDo: ["Check competitor websites", "Compare current vs previous prices", "Send alerts to Slack"],
-      askFirst: ["Adjust your prices", "Send alerts to customers"],
-      neverDo: ["Access payment systems", "Share competitor data externally"],
-    },
-    schedule: { type: "cron", value: "0 9 * * *" },
-    model: "google/gemini-3-flash",
+    charter: { canDo: ["Check competitor websites", "Compare current vs previous prices", "Send alerts to Slack"], askFirst: ["Adjust your prices", "Send alerts to customers"], neverDo: ["Access payment systems", "Share competitor data externally"] },
+    schedule: { type: "cron", value: "0 9 * * *" }, model: "google/gemini-3-flash",
   },
   {
-    id: "inbox-summary",
-    name: "Inbox Summary",
+    id: "inbox-summary", name: "Inbox Summary",
     description: "Summarize your emails every morning and send a digest.",
-    charter: {
-      canDo: ["Read all emails from the last 24 hours", "Categorize by priority", "Generate summary"],
-      askFirst: ["Send digest to Slack or email", "Archive processed emails"],
-      neverDo: ["Delete emails", "Reply on your behalf", "Forward to external contacts"],
-    },
-    schedule: { type: "cron", value: "0 8 * * 1-5" },
-    model: "google/gemini-3-flash",
+    charter: { canDo: ["Read all emails from the last 24 hours", "Categorize by priority", "Generate summary"], askFirst: ["Send digest to Slack or email", "Archive processed emails"], neverDo: ["Delete emails", "Reply on your behalf", "Forward to external contacts"] },
+    schedule: { type: "cron", value: "0 8 * * 1-5" }, model: "google/gemini-3-flash",
   },
 ];
 
@@ -123,13 +105,9 @@ function saveTheme(theme) {
 }
 
 function applyTheme(theme) {
-  if (theme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
-  } else if (theme === "auto") {
-    document.documentElement.setAttribute("data-theme", "auto");
-  } else {
-    document.documentElement.removeAttribute("data-theme");
-  }
+  if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  else if (theme === "auto") document.documentElement.setAttribute("data-theme", "auto");
+  else document.documentElement.removeAttribute("data-theme");
 }
 
 function loadSidebarCollapsed() {
@@ -166,7 +144,7 @@ function tierLabel(tier) {
 }
 
 function tierColor(tier) {
-  if (tier === "pro") return "var(--gold)";
+  if (tier === "pro") return "var(--accent)";
   if (tier === "scale") return "#5bb98c";
   return "var(--text-tertiary)";
 }
@@ -176,12 +154,9 @@ function tierColor(tier) {
 async function workerApiRequest({ pathname, method = "GET", body = null }) {
   const runtime = loadRuntimeConfig();
   return requestJson({
-    baseUrl: WORKER_API_BASE,
-    pathname,
-    method,
+    baseUrl: WORKER_API_BASE, pathname, method,
     headers: { "x-tenant-id": runtime.tenantId, "content-type": "application/json" },
-    body,
-    credentials: "include",
+    body, credentials: "include",
   });
 }
 
@@ -189,12 +164,9 @@ async function workerApiRequest({ pathname, method = "GET", body = null }) {
 
 async function authRequest({ pathname, method = "POST", body = null }) {
   return requestJson({
-    baseUrl: AUTH_BASE,
-    pathname,
-    method,
+    baseUrl: AUTH_BASE, pathname, method,
     headers: { "content-type": "application/json" },
-    body,
-    credentials: "include",
+    body, credentials: "include",
   });
 }
 
@@ -217,22 +189,19 @@ function templateScheduleToApiValue(schedule) {
 }
 
 /* ===================================================================
-   Shared inline styles
+   Style tokens
    =================================================================== */
 
 const S = {
   shell: { minHeight: "100vh", background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: "var(--font-body)", WebkitFontSmoothing: "antialiased" },
   authWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" },
-  authBox: { width: "100%", maxWidth: 400 },
-  authTitle: { fontSize: "clamp(1.6rem, 4vw, 2rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", lineHeight: 1.15 },
-  authSub: { fontSize: "0.95rem", color: "var(--text-secondary)", marginBottom: "2.5rem", lineHeight: 1.5 },
   label: { display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", marginBottom: "0.4rem", letterSpacing: "0.05em", textTransform: "uppercase" },
   input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "15px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
-  inputFocus: { borderColor: "var(--gold)" },
-  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--accent, #fff)", color: "var(--accent-text, #1a1a1a)", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
+  inputFocus: { borderColor: "var(--accent)" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "#1a1a1a", color: "#ffffff", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "opacity 0.15s", width: "100%", fontFamily: "inherit" },
   btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
-  btnGhost: { background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
-  link: { color: "var(--gold)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
+  btnGhost: { background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
+  link: { color: "var(--accent)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
   error: { fontSize: "0.85rem", color: "#c97055", marginBottom: "1rem" },
   success: { fontSize: "0.85rem", color: "#5bb98c", marginBottom: "1rem" },
   appLayout: { display: "flex", minHeight: "100vh" },
@@ -243,7 +212,6 @@ const S = {
   workerName: { fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" },
   workerMeta: { fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" },
   statusDot: (color) => ({ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, marginRight: 6, verticalAlign: "middle", flexShrink: 0 }),
-  charterSection: { marginBottom: "1.5rem" },
   charterLabel: { fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.5rem" },
   charterItem: { fontSize: "14px", color: "var(--text-secondary)", padding: "0.3rem 0", lineHeight: 1.6 },
   approvalRow: { padding: "1.25rem 0", borderBottom: "1px solid var(--border)" },
@@ -253,7 +221,6 @@ const S = {
   logSummary: { fontSize: "14px", color: "var(--text-secondary)", marginTop: "0.2rem", lineHeight: 1.6 },
   logDetail: { fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.4rem", lineHeight: 1.6, whiteSpace: "pre-wrap", padding: "0.75rem 1rem", background: "var(--bg-surface)", borderRadius: 6 },
   backLink: { display: "inline-block", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)", marginBottom: "2rem", cursor: "pointer", background: "none", border: "none", padding: 0, fontFamily: "inherit" },
-  otpInput: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
   pricingWrap: { minHeight: "100vh", padding: "6rem 2rem 4rem", maxWidth: 1100, margin: "0 auto" },
   pricingTitle: { fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", lineHeight: 1.1 },
   tier: { padding: "2.5rem 0", borderBottom: "1px solid var(--border)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem", alignItems: "start" },
@@ -264,7 +231,7 @@ const S = {
 
 const STATUS_COLORS = {
   running: "#5bb98c",
-  paused: "var(--gold)",
+  paused: "var(--accent)",
   ready: "var(--text-tertiary)",
   error: "#c97055",
 };
@@ -286,16 +253,13 @@ function FocusInput({ style, ...props }) {
 }
 
 /* ===================================================================
-   Inline SVG icons (no imports -- all tiny inline SVGs)
+   Inline SVG icons
    =================================================================== */
 
 function SidebarToggleIcon({ size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 18 18" fill="none" style={{ display: "block" }}>
-      <rect x="1" y="1" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <rect x="10" y="1" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <rect x="1" y="10" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <rect x="10" y="10" width="7" height="7" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M3 4h12M3 9h12M3 14h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -320,8 +284,7 @@ function SearchIcon({ size = 16 }) {
 function SendArrow({ disabled, onClick }) {
   return (
     <button
-      onClick={onClick}
-      disabled={disabled}
+      onClick={onClick} disabled={disabled} aria-label="Send"
       style={{
         width: 32, height: 32, borderRadius: "50%",
         background: disabled ? "var(--bg-hover)" : "var(--text-primary)",
@@ -330,7 +293,6 @@ function SendArrow({ disabled, onClick }) {
         flexShrink: 0, transition: "opacity 150ms",
         opacity: disabled ? 0.3 : 1,
       }}
-      aria-label="Send"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
         <path d="M8 12V4M4 8l4-4 4 4" stroke={disabled ? "var(--text-tertiary)" : "var(--bg-primary)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -367,11 +329,9 @@ function NooterraLogo({ height = 24, style: extraStyle }) {
 
 const A = {
   wrap: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem 1.5rem", background: "#ffffff", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", WebkitFontSmoothing: "antialiased" },
-  inner: { width: "100%", maxWidth: 380, textAlign: "center" },
-  logo: { fontSize: 28, fontWeight: 800, color: "#0a0a0a", marginBottom: "3.5rem", letterSpacing: "-0.03em", textAlign: "left" },
+  inner: { width: "100%", maxWidth: 360, textAlign: "center" },
   heading: { fontSize: 32, fontWeight: 700, color: "#0a0a0a", marginBottom: "0.75rem", lineHeight: 1.15 },
   sub: { fontSize: 16, color: "#6b7280", marginBottom: "2.5rem", lineHeight: 1.5 },
-  label: { display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: "0.4rem", textAlign: "left" },
   input: { display: "block", width: "100%", padding: "16px 22px", fontSize: 16, background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#0a0a0a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s", boxSizing: "border-box" },
   inputFocus: { borderColor: "#0a0a0a", boxShadow: "0 0 0 1px #0a0a0a" },
   otpInput: { display: "block", width: "100%", padding: "18px 22px", fontSize: "1.75rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#0a0a0a", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s", boxSizing: "border-box" },
@@ -398,7 +358,7 @@ function AuthInput({ style, ...props }) {
 }
 
 function AuthView({ onAuth }) {
-  const [step, setStep] = useState("form"); // "form" | "otp"
+  const [step, setStep] = useState("form");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -407,7 +367,6 @@ function AuthView({ onAuth }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Auto-login with stored passkey on mount
   useEffect(() => {
     (async () => {
       try {
@@ -424,7 +383,7 @@ function AuthView({ onAuth }) {
           saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
           onAuth?.("dashboard");
         }
-      } catch { /* no stored passkey or it failed — show form */ }
+      } catch { /* no stored passkey or it failed */ }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -436,7 +395,6 @@ function AuthView({ onAuth }) {
       const tid = result?.tenantId;
       if (!tid) { setError("Something went wrong. Please try again."); setLoading(false); return; }
       setTenantId(tid);
-      // Try passkey login first for returning users
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
       if (storedPasskey) {
         try {
@@ -453,12 +411,9 @@ function AuthView({ onAuth }) {
           }
         } catch { /* passkey failed, fall through to OTP */ }
       }
-      // Determine if new account (otpIssued flag) or send OTP for existing
       const newAccount = !!result?.otpIssued;
       setIsNewAccount(newAccount);
-      if (!newAccount) {
-        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
-      }
+      if (!newAccount) await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
       setStep("otp");
     } catch (err) { setError(err?.message || "Something went wrong. Please try again."); }
     finally { setLoading(false); }
@@ -473,14 +428,12 @@ function AuthView({ onAuth }) {
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tid });
       saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-      // Save name for new accounts
       if (isNewAccount && fullName.trim()) {
         try {
           await updateTenantSettings({ ...runtime, tenantId: tid }, { displayName: fullName.trim(), callMe: fullName.trim().split(" ")[0] });
           localStorage.setItem("nooterra_user_name", fullName.trim());
         } catch { /* non-fatal */ }
       }
-      // Register passkey
       try {
         const keypair = await generateBrowserEd25519KeypairPem();
         const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em, company: em.split("@")[0] } });
@@ -499,20 +452,16 @@ function AuthView({ onAuth }) {
     setError("");
     const em = email.trim(); const tid = tenantId.trim();
     try {
-      if (isNewAccount) {
-        await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
-      } else {
-        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
-      }
+      if (isNewAccount) await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
+      else await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
     } catch { /* ignore */ }
   }
 
-  // --- OTP step ---
   if (step === "otp") {
     return (
       <div style={A.wrap}>
         <div style={A.inner} className="lovable-fade">
-          <div style={A.logo}>nooterra</div>
+          <NooterraLogo height={24} style={{ color: "#0a0a0a", margin: "0 auto 3rem" }} />
           <h1 style={A.heading}>Enter your code</h1>
           <p style={A.sub}>We sent a verification code to <strong style={{ color: "#1a1a1a" }}>{email}</strong>.</p>
           {error && <div style={A.error}>{error}</div>}
@@ -538,21 +487,16 @@ function AuthView({ onAuth }) {
     );
   }
 
-  // --- Email form step ---
   const socialBtnStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "14px 20px", fontSize: 15, fontWeight: 500, background: "#ffffff", color: "#1a1a1a", border: "1px solid #d1d5db", borderRadius: 9999, cursor: "pointer", fontFamily: "inherit", transition: "background 0.15s", marginBottom: "0.6rem" };
   return (
     <div style={A.wrap}>
-      {/* Top bar with logo */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "1.25rem 1.5rem" }}>
-        <NooterraLogo style={{ color: "#0a0a0a", height: 22 }} />
+        <NooterraLogo style={{ color: "#0a0a0a", height: 24 }} />
       </div>
-
       <div style={A.inner} className="lovable-fade">
         <h1 style={A.heading}>Log in or sign up</h1>
         <p style={A.sub}>Create AI workers that run 24/7 with guardrails, approvals, and audit trails.</p>
         {error && <div style={A.error}>{error}</div>}
-
-        {/* Social buttons */}
         <button style={socialBtnStyle} onClick={() => setError("Google sign-in coming soon. Use email for now.")} onMouseOver={(e) => e.currentTarget.style.background = "#f9fafb"} onMouseOut={(e) => e.currentTarget.style.background = "#ffffff"}>
           <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
           Continue with Google
@@ -561,15 +505,7 @@ function AuthView({ onAuth }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#000000"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
           Continue with Apple
         </button>
-
-        {/* Divider */}
-        <div style={A.divider}>
-          <div style={A.dividerLine} />
-          <span>OR</span>
-          <div style={A.dividerLine} />
-        </div>
-
-        {/* Email form */}
+        <div style={A.divider}><div style={A.dividerLine} /><span>OR</span><div style={A.dividerLine} /></div>
         <form onSubmit={handleContinue}>
           <AuthInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" required autoFocus />
           <button type="submit" style={{ ...A.btn, opacity: loading || !email.trim() ? 0.5 : 1 }} disabled={loading || !email.trim()}>
@@ -717,7 +653,7 @@ function CharterDisplay({ charter, compact = false }) {
   if (!charter) return null;
   const sections = [
     { key: "canDo", label: "Can do", color: "#5bb98c", items: charter.canDo || [] },
-    { key: "askFirst", label: "Ask first", color: "var(--gold)", items: charter.askFirst || [] },
+    { key: "askFirst", label: "Ask first", color: "var(--accent)", items: charter.askFirst || [] },
     { key: "neverDo", label: "Never do", color: "#c97055", items: charter.neverDo || [] },
   ];
   return (
@@ -737,42 +673,31 @@ function CharterDisplay({ charter, compact = false }) {
 }
 
 /* ===================================================================
-   BuilderMessage -- single message in the chat
+   BuilderMessage
    =================================================================== */
 
 function BuilderMessage({ msg, isStreaming, onDeployWorker }) {
   const isUser = msg.role === "user";
-
   if (isUser) {
     return (
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }} className="lovable-fade">
-        <div style={{
-          maxWidth: "85%", padding: "12px 16px", borderRadius: 18,
-          fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)",
-          background: "var(--bg-surface)", wordBreak: "break-word",
-        }}>{msg.content}</div>
+        <div style={{ maxWidth: "85%", padding: "12px 16px", borderRadius: 18, fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", background: "var(--bg-surface)", border: "1px solid var(--border)", wordBreak: "break-word" }}>{msg.content}</div>
       </div>
     );
   }
-
   const workerDef = msg.content ? parseWorkerDefinition(msg.content) : null;
   const displayContent = workerDef ? stripWorkerDefinitionBlock(msg.content) : msg.content;
-
   return (
     <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.75rem" }} className="lovable-fade">
       <div style={{ maxWidth: "85%", fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
         {displayContent}
         {isStreaming && <span style={{ display: "inline-block", width: 2, height: "1.1em", background: "var(--text-primary)", marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 1s step-end infinite" }} />}
-
         {workerDef && !isStreaming && (
-          <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: 10, borderLeft: "2px solid var(--gold)" }}>
+          <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: 10, borderLeft: "2px solid var(--accent)" }}>
             <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem" }}>{workerDef.name}</div>
             <CharterDisplay charter={{ canDo: workerDef.canDo || [], askFirst: workerDef.askFirst || [], neverDo: workerDef.neverDo || [] }} compact />
             {workerDef.schedule && <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginBottom: "0.5rem" }}>Schedule: {workerDef.schedule}</div>}
-            <button
-              style={{ padding: "0.6rem 1.5rem", fontSize: "14px", fontWeight: 600, background: "var(--gold)", color: "#1a1a1a", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", marginTop: "0.5rem" }}
-              onClick={() => onDeployWorker?.(workerDef)}
-            >Deploy this worker</button>
+            <button style={{ ...S.btnPrimary, width: "auto", padding: "0.6rem 1.5rem", fontSize: "14px", marginTop: "0.5rem" }} onClick={() => onDeployWorker?.(workerDef)}>Deploy this worker</button>
           </div>
         )}
       </div>
@@ -781,79 +706,50 @@ function BuilderMessage({ msg, isStreaming, onDeployWorker }) {
 }
 
 /* ===================================================================
-   AutoTextarea -- grows with content
+   AutoTextarea
    =================================================================== */
 
 function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, autoFocus }) {
   const ref = useRef(null);
   useEffect(() => {
-    if (ref.current) {
-      ref.current.style.height = "auto";
-      ref.current.style.height = Math.min(ref.current.scrollHeight, 160) + "px";
-    }
+    if (ref.current) { ref.current.style.height = "auto"; ref.current.style.height = Math.min(ref.current.scrollHeight, 160) + "px"; }
   }, [value]);
-
   return (
     <textarea ref={ref} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} disabled={disabled} autoFocus={autoFocus} rows={1}
-      style={{
-        width: "100%", padding: "14px 16px", paddingLeft: "48px", paddingBottom: "2.75rem",
-        fontSize: "15px", background: "transparent", border: "none",
-        color: "var(--text-primary)", outline: "none", fontFamily: "inherit",
-        resize: "none", lineHeight: "24px", overflow: "auto", boxSizing: "border-box",
-      }}
+      style={{ width: "100%", padding: "14px 16px", paddingLeft: "48px", paddingBottom: "2.75rem", fontSize: "15px", background: "transparent", border: "none", color: "var(--text-primary)", outline: "none", fontFamily: "inherit", resize: "none", lineHeight: "24px", overflow: "auto", boxSizing: "border-box" }}
     />
   );
 }
 
 /* ===================================================================
-   ModelDropdown -- popover for model selection
+   ModelDropdown
    =================================================================== */
 
 function ModelDropdown({ model, onModelChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const selectedModel = RECOMMENDED_MODELS.find(m => m.id === model);
-
   useEffect(() => {
     if (!open) return;
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
-
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(!open)} style={{
-        background: "transparent", border: "none", color: "var(--text-secondary)",
-        fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit",
-        display: "flex", alignItems: "center", gap: 4, borderRadius: 6,
-      }}>
+      <button onClick={() => setOpen(!open)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, borderRadius: 6 }}>
         {selectedModel?.name || "Select model"}
         <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
       </button>
       {open && (
-        <div className="popover-animate" style={{
-          position: "absolute", bottom: "100%", left: 0, marginBottom: 4,
-          background: "var(--bg-surface)", border: "1px solid var(--border)",
-          borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-          padding: "4px 0", zIndex: 50, minWidth: 300, maxWidth: 380,
-        }}>
+        <div className="popover-animate" style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 4, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 50, minWidth: 300, maxWidth: 380 }}>
           {RECOMMENDED_MODELS.map(m => (
-            <button key={m.id} onClick={() => { onModelChange(m.id); setOpen(false); }} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              width: "100%", padding: "8px 12px", fontSize: "14px",
-              background: m.id === model ? "var(--bg-hover)" : "transparent",
-              color: m.id === model ? "var(--text-primary)" : "var(--text-secondary)",
-              border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-              transition: "background 150ms",
-            }}
+            <button key={m.id} onClick={() => { onModelChange(m.id); setOpen(false); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "8px 12px", fontSize: "14px", background: m.id === model ? "var(--bg-hover)" : "transparent", color: m.id === model ? "var(--text-primary)" : "var(--text-secondary)", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" }}
               onMouseEnter={e => { if (m.id !== model) e.currentTarget.style.background = "var(--bg-hover)"; }}
               onMouseLeave={e => { if (m.id !== model) e.currentTarget.style.background = "transparent"; }}
             >
               <span style={{ fontWeight: m.id === model ? 600 : 400 }}>{m.name}</span>
-              <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>
-                ${m.inputPer1M.toFixed(2)}/${m.outputPer1M.toFixed(2)}
-              </span>
+              <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)}/${m.outputPer1M.toFixed(2)}</span>
             </button>
           ))}
         </div>
@@ -863,36 +759,22 @@ function ModelDropdown({ model, onModelChange }) {
 }
 
 /* ===================================================================
-   PlusMenu -- popover from + button in input box
+   PlusMenu
    =================================================================== */
 
 function PlusMenu({ onClose, onAction }) {
   const ref = useRef(null);
-
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [onClose]);
-
-  const itemStyle = {
-    display: "flex", alignItems: "center", gap: 10, width: "100%",
-    padding: "8px 14px", fontSize: "14px", color: "var(--text-secondary)",
-    background: "none", border: "none", cursor: "pointer",
-    fontFamily: "inherit", textAlign: "left", transition: "background 150ms",
-    borderRadius: 0,
-  };
+  const itemStyle = { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 14px", fontSize: "14px", color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms", borderRadius: 0 };
   const hover = (e) => { e.currentTarget.style.background = "var(--bg-hover)"; };
   const unhover = (e) => { e.currentTarget.style.background = "none"; };
   const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
-
   return (
-    <div ref={ref} className="popover-animate" style={{
-      position: "absolute", bottom: "calc(100% + 4px)", left: 8,
-      background: "var(--bg-surface)", border: "1px solid var(--border)",
-      borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-      padding: "4px 0", zIndex: 50, minWidth: 200, maxWidth: 240,
-    }}>
+    <div ref={ref} className="popover-animate" style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 50, minWidth: 200, maxWidth: 240 }}>
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("knowledge"); onClose(); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
         Add knowledge
@@ -915,46 +797,26 @@ function PlusMenu({ onClose, onAction }) {
 }
 
 /* ===================================================================
-   BuilderInputBox -- Claude-style with + button, model selector, send
+   BuilderInputBox
    =================================================================== */
 
 function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
   const [focused, setFocused] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
-
-  function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); }
-  }
-
+  function handleKeyDown(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); } }
   return (
     <div style={{ position: "relative", maxWidth: 680, width: "100%" }}>
       <div
-        style={{
-          background: "var(--bg-surface)", border: "1px solid var(--border)",
-          borderRadius: 16, transition: "border-color 150ms", position: "relative",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
-          ...(focused ? { borderColor: "var(--border)" } : {}),
-        }}
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, transition: "border-color 150ms, box-shadow 150ms", position: "relative", boxShadow: focused ? "var(--shadow-md)" : "var(--shadow-sm)" }}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       >
-        {/* + button */}
-        <button
-          onClick={() => setPlusMenuOpen(!plusMenuOpen)}
-          style={{
-            position: "absolute", left: 10, top: 12, zIndex: 2,
-            width: 28, height: 28, borderRadius: "50%",
-            background: "var(--bg-hover)", border: "none",
-            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            color: "var(--text-secondary)", transition: "background 150ms",
-          }}
+        <button onClick={() => setPlusMenuOpen(!plusMenuOpen)} style={{ position: "absolute", left: 10, top: 12, zIndex: 2, width: 28, height: 28, borderRadius: "50%", background: "var(--bg-hover)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", transition: "background 150ms" }}
           onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; }}
           onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         >
           <PlusIcon size={16} />
         </button>
-
         {plusMenuOpen && <PlusMenu onClose={() => setPlusMenuOpen(false)} />}
-
         <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px 10px" }}>
           <ModelDropdown model={model} onModelChange={onModelChange} />
@@ -969,17 +831,13 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
 }
 
 /* ===================================================================
-   TemplateCard -- small suggestion card
+   TemplateCard
    =================================================================== */
 
 function TemplateCard({ template, onClick }) {
   return (
     <div
-      style={{
-        padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 12,
-        background: "var(--bg-surface)", cursor: "pointer", transition: "border-color 150ms",
-        display: "flex", flexDirection: "column", gap: "0.4rem",
-      }}
+      style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-surface)", cursor: "pointer", transition: "border-color 150ms", display: "flex", flexDirection: "column", gap: "0.4rem" }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
       onClick={onClick}
@@ -1000,7 +858,7 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
       <button style={S.backLink} onClick={onCustomize}>{"\u2190"} Back</button>
       <h2 style={{ ...S.pageTitle, marginBottom: "0.5rem" }}>{template.name}</h2>
       <p style={{ ...S.pageSub, marginBottom: "1.5rem" }}>{template.description}</p>
-      <div style={{ padding: "1.25rem", borderRadius: 10, borderLeft: "2px solid var(--gold)", marginBottom: "2rem" }}>
+      <div style={{ padding: "1.25rem", borderRadius: 10, borderLeft: "2px solid var(--accent)", marginBottom: "2rem" }}>
         <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>What this worker can do</div>
         <CharterDisplay charter={template.charter} compact />
       </div>
@@ -1013,7 +871,7 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
 }
 
 /* ===================================================================
-   BuilderView -- main AI chat
+   BuilderView
    =================================================================== */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
@@ -1027,108 +885,48 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [templateDeploying, setTemplateDeploying] = useState(false);
   const [templateError, setTemplateError] = useState("");
   const streamAbortRef = useRef(null);
-
   const hasMessages = messages.length > 0;
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   async function sendChatMessage(userContent) {
     const newMessages = [...messages, { role: "user", content: userContent }];
-    setMessages(newMessages);
-    setStreaming(true);
-
+    setMessages(newMessages); setStreaming(true);
     const runtime = loadRuntimeConfig();
     const abortController = new AbortController();
     streamAbortRef.current = abortController;
-
     try {
-      const res = await fetch("/__nooterra/v1/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
-        credentials: "include",
-        body: JSON.stringify({ messages: newMessages, model: selectedModel }),
-        signal: abortController.signal,
-      });
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ error: "Chat request failed" }));
-        setMessages([...newMessages, { role: "assistant", content: errBody.error || "Something went wrong. Please try again." }]);
-        setStreaming(false);
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = "";
-
+      const res = await fetch("/__nooterra/v1/chat", { method: "POST", headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId }, credentials: "include", body: JSON.stringify({ messages: newMessages, model: selectedModel }), signal: abortController.signal });
+      if (!res.ok) { const errBody = await res.json().catch(() => ({ error: "Chat request failed" })); setMessages([...newMessages, { role: "assistant", content: errBody.error || "Something went wrong. Please try again." }]); setStreaming(false); return; }
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let assistantContent = "";
       setMessages([...newMessages, { role: "assistant", content: "" }]);
-
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const { done, value } = await reader.read(); if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content || "";
-            if (delta) {
-              assistantContent += delta;
-              const captured = assistantContent;
-              setMessages(prev => {
-                const updated = [...prev];
-                updated[updated.length - 1] = { role: "assistant", content: captured };
-                return updated;
-              });
-            }
-          } catch { /* skip malformed SSE */ }
+          const data = line.slice(6); if (data === "[DONE]") break;
+          try { const parsed = JSON.parse(data); const delta = parsed.choices?.[0]?.delta?.content || ""; if (delta) { assistantContent += delta; const captured = assistantContent; setMessages(prev => { const updated = [...prev]; updated[updated.length - 1] = { role: "assistant", content: captured }; return updated; }); } } catch { /* skip */ }
         }
       }
     } catch (err) {
       if (err.name !== "AbortError") {
-        setMessages(prev => {
-          if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content) {
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: "assistant", content: "Something went wrong. Please try again." };
-            return updated;
-          }
-          return [...prev, { role: "assistant", content: "Something went wrong. Please try again." }];
-        });
+        setMessages(prev => { if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content) { const updated = [...prev]; updated[updated.length - 1] = { role: "assistant", content: "Something went wrong. Please try again." }; return updated; } return [...prev, { role: "assistant", content: "Something went wrong. Please try again." }]; });
       }
     }
-    setStreaming(false);
-    streamAbortRef.current = null;
+    setStreaming(false); streamAbortRef.current = null;
   }
 
-  function handleSend() {
-    const text = inputValue.trim();
-    if (!text || streaming) return;
-    setInputValue("");
-    sendChatMessage(text);
-  }
+  function handleSend() { const text = inputValue.trim(); if (!text || streaming) return; setInputValue(""); sendChatMessage(text); }
 
   async function handleDeployWorker(workerDef) {
     setDeployingWorker(true);
     try {
       const charter = { canDo: workerDef.canDo || [], askFirst: workerDef.askFirst || [], neverDo: workerDef.neverDo || [] };
-      const scheduleVal = workerDef.schedule || "on_demand";
-      const result = await workerApiRequest({
-        pathname: "/v1/workers", method: "POST",
-        body: {
-          name: workerDef.name || "New Worker",
-          description: "",
-          charter: JSON.stringify(charter),
-          schedule: scheduleVal,
-          model: workerDef.model || selectedModel,
-        },
-      });
+      const result = await workerApiRequest({ pathname: "/v1/workers", method: "POST", body: { name: workerDef.name || "New Worker", description: "", charter: JSON.stringify(charter), schedule: workerDef.schedule || "on_demand", model: workerDef.model || selectedModel } });
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       if (result?.id) onViewWorker?.(result); else onComplete?.();
-    } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]);
-    }
+    } catch (err) { setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]); }
     setDeployingWorker(false);
   }
 
@@ -1142,10 +940,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     setTemplateDeploying(false);
   }
 
-  function handleTemplateClick(template) {
-    setInputValue(template.description);
-  }
-
+  function handleTemplateClick(template) { setInputValue(template.description); }
   function handleReset() { setMessages([]); }
 
   if (templateReview) {
@@ -1173,12 +968,9 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           </p>
         </div>
         <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} />
-
         {isFirstTime && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", width: "100%", maxWidth: 680, marginTop: "1.5rem" }}>
-            {STARTER_TEMPLATES.map(t => (
-              <TemplateCard key={t.id} template={t} onClick={() => handleTemplateClick(t)} />
-            ))}
+            {STARTER_TEMPLATES.map(t => <TemplateCard key={t.id} template={t} onClick={() => handleTemplateClick(t)} />)}
           </div>
         )}
         <div style={{ flex: 1.5 }} />
@@ -1190,28 +982,14 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "2rem 0", display: "flex", flexDirection: "column" }}>
         <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          {messages.map((msg, i) => (
-            <BuilderMessage
-              key={`msg_${i}`}
-              msg={msg}
-              isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
-              onDeployWorker={handleDeployWorker}
-            />
-          ))}
+          {messages.map((msg, i) => <BuilderMessage key={`msg_${i}`} msg={msg} isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"} onDeployWorker={handleDeployWorker} />)}
           {streaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
-            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
-              <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div>
-            </div>
+            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div></div>
           )}
-          {deployingWorker && (
-            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
-              <div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying...</div>
-            </div>
-          )}
+          {deployingWorker && <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying...</div></div>}
           <div ref={messagesEndRef} />
         </div>
       </div>
-
       <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
         <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." />
       </div>
@@ -1220,27 +998,16 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 }
 
 /* ===================================================================
-   UserMenu -- popover above email/avatar in sidebar
+   UserMenu
    =================================================================== */
 
 function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier }) {
-  const itemStyle = {
-    display: "block", width: "100%", padding: "8px 14px", fontSize: "14px",
-    color: "var(--text-secondary)", background: "none", border: "none",
-    cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms",
-  };
+  const itemStyle = { display: "block", width: "100%", padding: "8px 14px", fontSize: "14px", color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" };
   const hover = (e) => { e.currentTarget.style.background = "var(--bg-hover)"; };
   const unhover = (e) => { e.currentTarget.style.background = "none"; };
   const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
-
   return (
-    <div className="popover-animate" style={{
-      position: "absolute", bottom: "100%", left: "8px", right: "8px",
-      background: "var(--bg-surface)", border: "1px solid var(--border)",
-      borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-      padding: "4px 0", zIndex: 100, marginBottom: 4,
-    }}>
-      {/* Email + tier header */}
+    <div className="popover-animate" style={{ position: "absolute", bottom: "100%", left: "8px", right: "8px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 100, marginBottom: 4 }}>
       <div style={{ padding: "10px 14px 6px" }}>
         <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
         <div style={{ fontSize: "12px", color: tierColor(userTier), fontWeight: 600, marginTop: 2 }}>{tierLabel(userTier)} plan</div>
@@ -1249,128 +1016,50 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier }) 
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onClose(); onOpenSettings(); }}>Settings</button>
       <a href="https://docs.nooterra.ai" target="_blank" rel="noopener noreferrer" style={{ ...itemStyle, textDecoration: "none" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={onClose}>Help & docs</a>
       {sep}
-      <a href="/pricing" style={{ ...itemStyle, textDecoration: "none", color: "var(--gold)", fontWeight: 600 }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade to Pro</a>
+      <a href="/pricing" style={{ ...itemStyle, textDecoration: "none", color: "var(--accent)", fontWeight: 600 }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade to Pro</a>
       {sep}
-      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => {
-        onClose();
-        await logoutSession();
-        try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
-        try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
-        navigate("/login");
-      }}>Log out</button>
+      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => { onClose(); await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Log out</button>
     </div>
   );
 }
 
 /* ===================================================================
-   CollapsedSidebar -- 48px icon-only sidebar
+   CollapsedSidebar
    =================================================================== */
 
 function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpenSettings, userEmail, pendingApprovals }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
+  useEffect(() => { if (!menuOpen) return; function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [menuOpen]);
 
   const iconBtn = (key, label, svgContent, badge) => (
-    <button
-      onClick={() => onNavigate(key)}
-      title={label}
-      style={{
-        width: 36, height: 36, borderRadius: 8,
-        background: activeView === key ? "var(--bg-hover)" : "transparent",
-        border: "none", cursor: "pointer", display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: 0,
-        color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)",
-        transition: "background 150ms", position: "relative", flexShrink: 0,
-      }}
+    <button onClick={() => onNavigate(key)} title={label} style={{ width: 36, height: 36, borderRadius: 8, background: activeView === key ? "var(--bg-hover)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", transition: "background 150ms", position: "relative", flexShrink: 0 }}
       onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
       onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
     >
       {svgContent}
-      {badge > 0 && (
-        <div style={{
-          position: "absolute", top: 2, right: 2, width: 14, height: 14,
-          borderRadius: "50%", background: "var(--gold)", fontSize: "9px",
-          fontWeight: 700, color: "#1a1a1a", display: "flex", alignItems: "center",
-          justifyContent: "center",
-        }}>{badge}</div>
-      )}
+      {badge > 0 && <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: "var(--accent)", fontSize: "9px", fontWeight: 700, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</div>}
     </button>
   );
 
   return (
-    <nav style={{
-      width: 48, height: "100vh", position: "sticky", top: 0,
-      display: "flex", flexDirection: "column", alignItems: "center",
-      background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)",
-      padding: "12px 0", gap: 4, flexShrink: 0,
-    }}>
-      {/* Toggle button */}
-      <button onClick={onToggle} title="Expand sidebar" style={{
-        width: 36, height: 36, borderRadius: 8, background: "none",
-        border: "none", cursor: "pointer", color: "var(--text-secondary)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        transition: "background 150ms", marginBottom: 4,
-      }}
+    <nav style={{ width: 52, height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", alignItems: "center", background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", padding: "12px 0", gap: 4, flexShrink: 0 }}>
+      <button onClick={onToggle} title="Expand sidebar" style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms", marginBottom: 4 }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-      >
-        <SidebarToggleIcon />
-      </button>
-
-      {/* New worker */}
-      <button onClick={onNewWorker} title="New worker" style={{
-        width: 36, height: 36, borderRadius: 8, background: "var(--gold)",
-        border: "none", cursor: "pointer", color: "#1a1a1a",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        transition: "opacity 150ms", marginBottom: 4,
-      }}>
-        <PlusIcon size={18} />
-      </button>
-
-      {/* Nav icons */}
-      {iconBtn("workers", "Workers",
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
-      )}
-      {iconBtn("approvals", "Approvals",
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>,
-        pendingApprovals
-      )}
-      {iconBtn("receipts", "History",
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
-      )}
-
+      ><SidebarToggleIcon /></button>
+      <button onClick={onNewWorker} title="New worker" style={{ width: 36, height: 36, borderRadius: 8, background: "oklch(68% 0.12 65 / 0.15)", border: "none", cursor: "pointer", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 150ms", marginBottom: 4 }}><PlusIcon size={18} /></button>
+      {iconBtn("workers", "Workers", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>)}
+      {iconBtn("approvals", "Approvals", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, pendingApprovals)}
+      {iconBtn("receipts", "History", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
       <div style={{ flex: 1 }} />
-
-      {/* Settings */}
-      <button onClick={onOpenSettings} title="Settings" style={{
-        width: 36, height: 36, borderRadius: 8, background: "none",
-        border: "none", cursor: "pointer", color: "var(--text-secondary)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        transition: "background 150ms",
-      }}
+      <button onClick={onOpenSettings} title="Settings" style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-      </button>
-
-      {/* User avatar */}
+      ><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>
       <div style={{ position: "relative" }} ref={menuRef}>
         {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier="free" />}
-        <button onClick={() => setMenuOpen(!menuOpen)} title={userEmail || "Account"} style={{
-          width: 32, height: 32, borderRadius: "50%",
-          background: "var(--gold)", border: "none", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: "13px", fontWeight: 700, color: "#1a1a1a",
-          transition: "opacity 150ms",
-        }}>
+        <button onClick={() => setMenuOpen(!menuOpen)} title={userEmail || "Account"} style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", transition: "opacity 150ms" }}>
           {getInitials(userEmail)}
         </button>
       </div>
@@ -1379,85 +1068,39 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
 }
 
 /* ===================================================================
-   ExpandedSidebar -- 260px text sidebar
+   ExpandedSidebar
    =================================================================== */
 
 function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker, onToggle, onOpenSettings, userTier }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
+  useEffect(() => { if (!menuOpen) return; function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [menuOpen]);
 
   const navBtn = (key, label, extra) => (
-    <button
-      style={{
-        display: "flex", alignItems: "center",
-        padding: "8px 12px", margin: "0 12px", borderRadius: 8,
-        fontSize: "14px", fontWeight: 500,
-        color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)",
-        background: activeView === key ? "var(--bg-hover)" : "transparent",
-        cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left",
-        transition: "background 150ms, color 150ms",
-        boxSizing: "border-box", width: "calc(100% - 24px)",
-      }}
+    <button style={{ display: "flex", alignItems: "center", padding: "8px 12px", margin: "0 12px", borderRadius: 8, fontSize: "14px", fontWeight: 500, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", background: activeView === key ? "var(--bg-hover)" : "transparent", cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left", transition: "background 150ms, color 150ms", boxSizing: "border-box", width: "calc(100% - 24px)" }}
       onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
       onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
       onClick={() => onNavigate(key)}
-    >
-      {label}{extra}
-    </button>
+    >{label}{extra}</button>
   );
 
   return (
-    <nav style={{
-      width: 260, height: "100vh", position: "sticky", top: 0,
-      display: "flex", flexDirection: "column",
-      background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      {/* Header: toggle + logo */}
+    <nav style={{ width: 260, height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 16px 12px", height: 56, boxSizing: "border-box" }}>
-        <button onClick={onToggle} style={{
-          background: "none", border: "none", cursor: "pointer",
-          color: "var(--text-secondary)", padding: 4, borderRadius: 6,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "background 150ms",
-        }}
+        <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
           onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-        >
-          <SidebarToggleIcon />
-        </button>
-        <NooterraLogo height={20} style={{ color: "var(--text-primary)" }} />
+        ><SidebarToggleIcon /></button>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>nooterra</span>
       </div>
-
-      {/* New worker button */}
       <div style={{ padding: "0 12px 12px" }}>
-        <button onClick={onNewWorker} style={{
-          display: "block", width: "100%", padding: "8px 12px",
-          fontSize: "14px", fontWeight: 600, background: "var(--gold)",
-          color: "#1a1a1a", border: "none", borderRadius: 8,
-          cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms",
-        }}>+ New worker</button>
+        <button onClick={onNewWorker} style={{ display: "block", width: "100%", padding: "8px 12px", fontSize: "14px", fontWeight: 600, background: "oklch(68% 0.12 65 / 0.15)", color: "var(--accent)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms" }}>+ New worker</button>
       </div>
-
-      {/* Section: Workers */}
       <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", padding: "12px 24px 6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>Workers</div>
       {workers && workers.length > 0 ? (
         <div className="sidebar-inner" style={{ overflowY: "auto", minHeight: 0, flex: 0 }}>
           {workers.map(w => (
-            <button key={w.id} style={{
-              display: "flex", alignItems: "center", gap: 8, width: "calc(100% - 24px)",
-              padding: "8px 12px", margin: "0 12px", borderRadius: 8,
-              fontSize: "14px", fontWeight: 400, color: "var(--text-secondary)",
-              background: "transparent", cursor: "pointer", border: "none",
-              fontFamily: "inherit", textAlign: "left", transition: "background 150ms",
-            }}
+            <button key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, width: "calc(100% - 24px)", padding: "8px 12px", margin: "0 12px", borderRadius: 8, fontSize: "14px", fontWeight: 400, color: "var(--text-secondary)", background: "transparent", cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" }}
               onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
               onClick={() => onNavigate("workerDetail", w.id)}
@@ -1470,45 +1113,20 @@ function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, us
       ) : (
         <div style={{ padding: "4px 24px", fontSize: "13px", color: "var(--text-tertiary)" }}>No workers yet</div>
       )}
-
-      {/* Divider */}
       <div style={{ borderTop: "1px solid var(--border)", margin: "16px 16px" }} />
-
-      {/* Nav items */}
-      {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--gold)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
+      {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--accent)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
       {navBtn("receipts", "History")}
-
-      {/* Spacer */}
       <div style={{ flex: 1 }} />
-
-      {/* Divider */}
       <div style={{ borderTop: "1px solid var(--border)", margin: "8px 16px" }} />
-
-      {/* User info */}
       <div style={{ padding: "12px 16px", position: "relative" }} ref={menuRef}>
         {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier={userTier} />}
-        <button style={{
-          display: "flex", alignItems: "center", gap: 10, width: "100%",
-          background: "none", border: "none", cursor: "pointer",
-          fontFamily: "inherit", textAlign: "left", padding: 0,
-        }} onClick={() => setMenuOpen(!menuOpen)}>
-          {/* Avatar */}
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%",
-            background: "var(--gold)", display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "13px", fontWeight: 700, color: "#1a1a1a", flexShrink: 0,
-          }}>
-            {getInitials(userEmail)}
-          </div>
+        <button style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }} onClick={() => setMenuOpen(!menuOpen)}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", flexShrink: 0 }}>{getInitials(userEmail)}</div>
           <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "14px", color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {userEmail || "User"}
-            </div>
+            <div style={{ fontSize: "14px", color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
               <span style={{ fontSize: "12px", fontWeight: 600, color: tierColor(userTier) }}>{tierLabel(userTier)}</span>
-              {creditBalance != null && (
-                <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)}</span>
-              )}
+              {creditBalance != null && <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)}</span>}
             </div>
           </div>
         </button>
@@ -1518,69 +1136,32 @@ function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, us
 }
 
 /* ===================================================================
-   AppSidebar -- dual-mode wrapper with smooth transition
+   AppSidebar
    =================================================================== */
 
 function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker, collapsed, onToggle, onOpenSettings, userTier }) {
-  if (collapsed) {
-    return (
-      <CollapsedSidebar
-        onToggle={onToggle}
-        onNavigate={onNavigate}
-        activeView={activeView}
-        onNewWorker={onNewWorker}
-        onOpenSettings={onOpenSettings}
-        userEmail={userEmail}
-        pendingApprovals={pendingApprovals}
-      />
-    );
-  }
-
+  if (collapsed) return <CollapsedSidebar onToggle={onToggle} onNavigate={onNavigate} activeView={activeView} onNewWorker={onNewWorker} onOpenSettings={onOpenSettings} userEmail={userEmail} pendingApprovals={pendingApprovals} />;
   return (
     <div className="sidebar-wrap" style={{ width: 260, flexShrink: 0 }}>
-      <ExpandedSidebar
-        activeView={activeView}
-        onNavigate={onNavigate}
-        workers={workers}
-        pendingApprovals={pendingApprovals}
-        userEmail={userEmail}
-        creditBalance={creditBalance}
-        onNewWorker={onNewWorker}
-        onToggle={onToggle}
-        onOpenSettings={onOpenSettings}
-        userTier={userTier}
-      />
+      <ExpandedSidebar activeView={activeView} onNavigate={onNavigate} workers={workers} pendingApprovals={pendingApprovals} userEmail={userEmail} creditBalance={creditBalance} onNewWorker={onNewWorker} onToggle={onToggle} onOpenSettings={onOpenSettings} userTier={userTier} />
     </div>
   );
 }
 
 /* ===================================================================
-   DASHBOARD: WorkersListView
+   WorkersListView
    =================================================================== */
 
 function WorkersListView({ onSelect, onCreate }) {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); }
-      setLoading(false);
-    })();
-  }, []);
-
+  useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); } setLoading(false); })(); }, []);
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
-        <div>
-          <h1 style={S.pageTitle}>Workers</h1>
-          <p style={{ ...S.pageSub, marginBottom: 0 }}>
-            {loading ? "Loading..." : workers.length === 0 ? "No workers yet. Create one to get started." : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
-          </p>
-        </div>
+        <div><h1 style={S.pageTitle}>Workers</h1><p style={{ ...S.pageSub, marginBottom: 0 }}>{loading ? "Loading..." : workers.length === 0 ? "No workers yet. Create one to get started." : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}</p></div>
         <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
       </div>
-
       {!loading && workers.length === 0 && (
         <div style={{ padding: "4rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
           <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your first worker is waiting</div>
@@ -1588,7 +1169,6 @@ function WorkersListView({ onSelect, onCreate }) {
           <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
         </div>
       )}
-
       {workers.length > 0 && (
         <div>
           <div style={{ ...S.workerRow, cursor: "default", borderBottom: "1px solid var(--border)", padding: "0 0 0.5rem" }}>
@@ -1599,9 +1179,7 @@ function WorkersListView({ onSelect, onCreate }) {
             <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Cost</div>
           </div>
           {workers.map(w => (
-            <div key={w.id} style={S.workerRow} onClick={() => onSelect(w)}
-              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+            <div key={w.id} style={S.workerRow} onClick={() => onSelect(w)} onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
               <div style={S.workerName}>{w.name}</div>
               <div style={S.workerMeta}><span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />{w.status}</div>
               <div style={S.workerMeta}>{w.lastRun || w.lastRunAt ? timeAgo(w.lastRun || w.lastRunAt) : "never"}</div>
@@ -1616,7 +1194,7 @@ function WorkersListView({ onSelect, onCreate }) {
 }
 
 /* ===================================================================
-   DASHBOARD: WorkerDetailView
+   WorkerDetailView
    =================================================================== */
 
 function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
@@ -1628,50 +1206,12 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   const [runningAction, setRunningAction] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch { setWorker(null); }
-      setLoading(false);
-    })();
-  }, [workerId]);
+  useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch { setWorker(null); } setLoading(false); })(); }, [workerId]);
+  useEffect(() => { if (tab === "activity" && workerId) { setLogsLoading(true); (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.items || result || []); } catch { setLogs([]); } setLogsLoading(false); })(); } }, [tab, workerId]);
+  useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); } } catch { /* ignore */ } }, 5000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
 
-  useEffect(() => {
-    if (tab === "activity" && workerId) {
-      setLogsLoading(true);
-      (async () => {
-        try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.items || result || []); } catch { setLogs([]); }
-        setLogsLoading(false);
-      })();
-    }
-  }, [tab, workerId]);
-
-  useEffect(() => {
-    if (!isNewDeploy || !workerId) return;
-    const interval = setInterval(async () => {
-      try {
-        const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
-        setWorker(result);
-        if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); }
-      } catch { /* ignore */ }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isNewDeploy, workerId, tab]);
-
-  async function handleRunNow() {
-    setRunningAction(true); setError("");
-    try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); }
-    catch (err) { setError(err?.message || "Failed to run worker."); }
-    setRunningAction(false);
-  }
-
-  async function handlePauseResume() {
-    if (!worker) return;
-    setRunningAction(true); setError("");
-    const newStatus = worker.status === "paused" ? "ready" : "paused";
-    try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); }
-    catch (err) { setError(err?.message || "Failed to update worker."); }
-    setRunningAction(false);
-  }
+  async function handleRunNow() { setRunningAction(true); setError(""); try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch (err) { setError(err?.message || "Failed to run worker."); } setRunningAction(false); }
+  async function handlePauseResume() { if (!worker) return; setRunningAction(true); setError(""); const newStatus = worker.status === "paused" ? "ready" : "paused"; try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); } catch (err) { setError(err?.message || "Failed to update worker."); } setRunningAction(false); }
 
   if (loading) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div></div>);
   if (!worker) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Worker not found.</div></div>);
@@ -1693,21 +1233,9 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
         <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }} disabled={runningAction} onClick={handleRunNow}>{runningAction ? "Running..." : "Run now"}</button>
         <button style={S.btnSecondary} disabled={runningAction} onClick={handlePauseResume}>{worker.status === "paused" ? "Resume" : "Pause"}</button>
       </div>
-      {worker.cost != null && (
-        <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "2rem" }}>
-          Cost this period: <span style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span>
-        </div>
-      )}
+      {worker.cost != null && <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "2rem" }}>Cost this period: <span style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span></div>}
       <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border)", marginBottom: "2rem" }}>
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
-            padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600,
-            color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)",
-            background: "none", border: "none",
-            borderBottom: tab === t.key ? "2px solid var(--gold)" : "2px solid transparent",
-            cursor: "pointer", fontFamily: "inherit", marginBottom: -1,
-          }}>{t.label}</button>
-        ))}
+        {tabs.map(t => <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600, color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)", background: "none", border: "none", borderBottom: tab === t.key ? "2px solid var(--accent)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{t.label}</button>)}
       </div>
       {tab === "charter" && <CharterDisplay charter={charter} />}
       {tab === "activity" && (
@@ -1715,26 +1243,17 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
           {isNewDeploy && logs.length === 0 && !logsLoading && (
             <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
               <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your worker is queued and will run shortly.</div>
-              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--gold)", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "1rem auto 0" }} />
+              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--accent)", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "1rem auto 0" }} />
             </div>
           )}
-          {logsLoading ? (
-            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div>
-          ) : logs.length === 0 && !isNewDeploy ? (
-            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div>
-          ) : (
-            logs.map((entry, i) => <ActivityLogEntry key={entry.id || i} entry={entry} />)
-          )}
+          {logsLoading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div> : logs.length === 0 && !isNewDeploy ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div> : logs.map((entry, i) => <ActivityLogEntry key={entry.id || i} entry={entry} />)}
         </div>
       )}
       {tab === "settings" && (
         <div style={{ maxWidth: 480 }}>
           <label style={S.label}>Schedule</label>
           <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{worker.schedule || "Manual (on-demand)"}</div>
-          {worker.model && (<>
-            <label style={S.label}>Model</label>
-            <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{RECOMMENDED_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div>
-          </>)}
+          {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{RECOMMENDED_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
         </div>
       )}
     </div>
@@ -1747,16 +1266,13 @@ function ActivityLogEntry({ entry }) {
     <div style={S.logEntry}>
       <div style={S.logTime}>{entry.time ? timeAgo(entry.time) : ""}</div>
       <div style={S.logSummary}>{entry.summary}</div>
-      {entry.detail && (<>
-        <button style={{ ...S.btnGhost, marginTop: "0.4rem", fontSize: "12px" }} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide details" : "Show details"}</button>
-        {expanded && <div style={S.logDetail}>{entry.detail}</div>}
-      </>)}
+      {entry.detail && (<><button style={{ ...S.btnGhost, marginTop: "0.4rem", fontSize: "12px" }} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide details" : "Show details"}</button>{expanded && <div style={S.logDetail}>{entry.detail}</div>}</>)}
     </div>
   );
 }
 
 /* ===================================================================
-   APPROVALS VIEW
+   ApprovalsView
    =================================================================== */
 
 function ApprovalsView() {
@@ -1766,31 +1282,14 @@ function ApprovalsView() {
   const [deciding, setDeciding] = useState(null);
 
   useEffect(() => { loadApprovals(); }, []);
-
-  async function loadApprovals() {
-    setLoading(true);
-    try {
-      const runtime = loadRuntimeConfig();
-      const [pending, decided] = await Promise.all([fetchApprovalInbox(runtime, { status: "pending" }), fetchApprovalInbox(runtime, { status: "decided" })]);
-      setItems(pending?.items || pending || []);
-      setHistory(decided?.items || decided || []);
-    } catch { setItems([]); setHistory([]); }
-    setLoading(false);
-  }
-
-  async function handleDecide(requestId, approved) {
-    setDeciding(requestId);
-    try { const runtime = loadRuntimeConfig(); await decideApprovalInboxItem(runtime, requestId, { approved }); await loadApprovals(); } catch { /* ignore */ }
-    setDeciding(null);
-  }
+  async function loadApprovals() { setLoading(true); try { const runtime = loadRuntimeConfig(); const [pending, decided] = await Promise.all([fetchApprovalInbox(runtime, { status: "pending" }), fetchApprovalInbox(runtime, { status: "decided" })]); setItems(pending?.items || pending || []); setHistory(decided?.items || decided || []); } catch { setItems([]); setHistory([]); } setLoading(false); }
+  async function handleDecide(requestId, approved) { setDeciding(requestId); try { const runtime = loadRuntimeConfig(); await decideApprovalInboxItem(runtime, requestId, { approved }); await loadApprovals(); } catch { /* ignore */ } setDeciding(null); }
 
   return (
     <div>
       <h1 style={S.pageTitle}>Approvals</h1>
       <p style={S.pageSub}>Workers ask before taking sensitive actions. Review and decide here.</p>
-      {loading ? (
-        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
-      ) : (<>
+      {loading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div> : (<>
         {items.length === 0 ? (
           <div style={{ padding: "3rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, marginBottom: "3rem" }}>
             <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Nothing pending</div>
@@ -1836,78 +1335,50 @@ function ApprovalsView() {
 }
 
 /* ===================================================================
-   RECEIPTS VIEW
+   ReceiptsView
    =================================================================== */
 
 function ReceiptsView() {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try { const runtime = loadRuntimeConfig(); const result = await fetchWorkOrderReceipts(runtime, { limit: 50 }); setReceipts(result?.items || result || []); } catch { setReceipts([]); }
-      setLoading(false);
-    })();
-  }, []);
-
+  useEffect(() => { (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchWorkOrderReceipts(runtime, { limit: 50 }); setReceipts(result?.items || result || []); } catch { setReceipts([]); } setLoading(false); })(); }, []);
   return (
     <div>
       <h1 style={S.pageTitle}>History</h1>
       <p style={S.pageSub}>Execution log across all workers.</p>
-      {loading ? (
-        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
-      ) : receipts.length === 0 ? (
-        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No executions yet.</div>
-      ) : (
-        receipts.map(r => (
-          <div key={r.id || r.receiptId} style={S.logEntry}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{r.workerName || r.agentName || r.summary || r.id || "Execution"}</div>
-                <div style={S.logTime}>{r.completedAt ? formatDateTime(r.completedAt) : r.createdAt ? formatDateTime(r.createdAt) : ""}</div>
-              </div>
-              {r.cost != null && <div style={{ ...S.workerMeta, color: "var(--text-secondary)" }}>{typeof r.cost === "number" ? `$${r.cost.toFixed(2)}` : formatCurrency(r.cost)}</div>}
+      {loading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div> : receipts.length === 0 ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No executions yet.</div> : receipts.map(r => (
+        <div key={r.id || r.receiptId} style={S.logEntry}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{r.workerName || r.agentName || r.summary || r.id || "Execution"}</div>
+              <div style={S.logTime}>{r.completedAt ? formatDateTime(r.completedAt) : r.createdAt ? formatDateTime(r.createdAt) : ""}</div>
             </div>
+            {r.cost != null && <div style={{ ...S.workerMeta, color: "var(--text-secondary)" }}>{typeof r.cost === "number" ? `$${r.cost.toFixed(2)}` : formatCurrency(r.cost)}</div>}
           </div>
-        ))
-      )}
+        </div>
+      ))}
     </div>
   );
 }
 
 /* ===================================================================
-   SETTINGS MODAL -- full-page style with left sidebar navigation
+   SettingsModal
    =================================================================== */
 
 function ToggleSwitch({ on, onToggle }) {
-  return (
-    <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--gold)" : "var(--bg-hover)", position: "relative", flexShrink: 0, transition: "background 150ms" }}>
-      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 150ms" }} />
-    </button>
-  );
+  return <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--accent)" : "var(--bg-hover)", position: "relative", flexShrink: 0, transition: "background 150ms" }}><div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 150ms" }} /></button>;
 }
 
 function ThemePreview({ opt, selected, onClick }) {
   return (
-    <button onClick={onClick} style={{
-      padding: "0.75rem", borderRadius: 10, cursor: "pointer", textAlign: "center",
-      fontFamily: "inherit", transition: "border-color 150ms", flex: 1,
-      border: selected ? "2px solid var(--gold)" : "2px solid var(--border)",
-      background: selected ? "var(--gold-dim)" : "transparent",
-    }}>
+    <button onClick={onClick} style={{ padding: "0.75rem", borderRadius: 10, cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "border-color 150ms", flex: 1, border: selected ? "2px solid var(--accent)" : "2px solid var(--border)", background: selected ? "var(--gold-dim)" : "transparent" }}>
       {opt.key === "auto" ? (
         <div style={{ width: 80, height: 50, borderRadius: 8, margin: "0 auto 0.5rem", display: "flex", overflow: "hidden" }}>
-          <div style={{ flex: 1, background: opt.bgLeft, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}>
-            <div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgLeft }} />
-          </div>
-          <div style={{ flex: 1, background: opt.bgRight, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}>
-            <div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgRight }} />
-          </div>
+          <div style={{ flex: 1, background: opt.bgLeft, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}><div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgLeft }} /></div>
+          <div style={{ flex: 1, background: opt.bgRight, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}><div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgRight }} /></div>
         </div>
       ) : (
-        <div style={{ width: 80, height: 50, borderRadius: 8, margin: "0 auto 0.5rem", background: opt.bg, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 6 }}>
-          <div style={{ width: "80%", height: 8, borderRadius: 2, background: opt.fg }} />
-        </div>
+        <div style={{ width: 80, height: 50, borderRadius: 8, margin: "0 auto 0.5rem", background: opt.bg, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 6 }}><div style={{ width: "80%", height: 8, borderRadius: 2, background: opt.fg }} /></div>
       )}
       <div style={{ fontSize: "13px", fontWeight: 600, color: selected ? "var(--text-primary)" : "var(--text-secondary)" }}>{opt.label}</div>
     </button>
@@ -1920,7 +1391,6 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const [callMe, setCallMe] = useState("");
   const [workFunction, setWorkFunction] = useState("founder");
   const [preferences, setPreferences] = useState("");
-  const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [tab, setTab] = useState("general");
   const [theme, setTheme] = useState(() => loadTheme());
@@ -1936,105 +1406,38 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const runtime = loadRuntimeConfig();
 
   useEffect(() => {
-    // Load from localStorage first (instant), then try backend
-    try {
-      const stored = JSON.parse(localStorage.getItem("nooterra_settings") || "{}");
-      if (stored.displayName) setDisplayName(stored.displayName);
-      if (stored.callMe) setCallMe(stored.callMe);
-      if (stored.workFunction) setWorkFunction(stored.workFunction);
-      if (stored.preferences) setPreferences(stored.preferences);
-      if (stored.defaultModel) setDefaultModel(stored.defaultModel);
-    } catch { /* ignore */ }
-    (async () => {
-      try {
-        const result = await fetchTenantSettings(runtime);
-        if (result?.displayName) setDisplayName(result.displayName);
-        if (result?.name && !displayName) setDisplayName(result.name);
-      } catch { /* ignore */ }
-      setLoading(false);
-    })();
+    try { const stored = JSON.parse(localStorage.getItem("nooterra_settings") || "{}"); if (stored.displayName) setDisplayName(stored.displayName); if (stored.callMe) setCallMe(stored.callMe); if (stored.workFunction) setWorkFunction(stored.workFunction); if (stored.preferences) setPreferences(stored.preferences); if (stored.defaultModel) setDefaultModel(stored.defaultModel); } catch { /* ignore */ }
+    (async () => { try { const result = await fetchTenantSettings(runtime); if (result?.displayName) setDisplayName(result.displayName); if (result?.name && !displayName) setDisplayName(result.name); } catch { /* ignore */ } setLoading(false); })();
   }, []);
 
-  useEffect(() => {
-    function handleKey(e) { if (e.key === "Escape") onClose(); }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  useEffect(() => { function handleKey(e) { if (e.key === "Escape") onClose(); } document.addEventListener("keydown", handleKey); return () => document.removeEventListener("keydown", handleKey); }, [onClose]);
 
   async function handleSave() {
     setSaveState("saving");
     try {
-      // Save all settings to localStorage (reliable, works immediately)
       const settingsData = { displayName: displayName.trim(), callMe: callMe.trim(), workFunction, preferences: preferences.trim(), defaultModel };
       localStorage.setItem("nooterra_settings", JSON.stringify(settingsData));
       if (displayName.trim()) localStorage.setItem("nooterra_user_name", displayName.trim());
-      // Try saving displayName to backend (best-effort, may not accept custom fields)
-      try { await updateTenantSettings(runtime, { displayName: displayName.trim() }); } catch { /* backend may reject custom fields */ }
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 2000);
-    } catch (err) {
-      console.error("Settings save failed:", err);
-      setSaveState("error");
-      setTimeout(() => setSaveState("idle"), 2000);
-    }
+      try { await updateTenantSettings(runtime, { displayName: displayName.trim() }); } catch { /* backend may reject */ }
+      setSaveState("saved"); setTimeout(() => setSaveState("idle"), 2000);
+    } catch (err) { console.error("Settings save failed:", err); setSaveState("error"); setTimeout(() => setSaveState("idle"), 2000); }
   }
 
   function handleThemeChange(t) { setTheme(t); saveTheme(t); }
-
-  function handleCopyAccountId() {
-    try { navigator.clipboard.writeText(runtime.tenantId); setCopiedAccountId(true); setTimeout(() => setCopiedAccountId(false), 1500); } catch { /* ignore */ }
-  }
+  function handleCopyAccountId() { try { navigator.clipboard.writeText(runtime.tenantId); setCopiedAccountId(true); setTimeout(() => setCopiedAccountId(false), 1500); } catch { /* ignore */ } }
 
   async function handleBillingCheckout(payload) {
     setBillingLoading(true);
-    try {
-      const result = await workerApiRequest({ pathname: "/v1/billing/checkout", method: "POST", body: { ...payload, email: userEmail } });
-      if (result?.url) {
-        window.location.href = result.url;
-      } else {
-        console.error("No checkout URL returned", result);
-        setBillingLoading(false);
-      }
-    } catch (err) {
-      console.error("Billing checkout failed:", err);
-      setBillingLoading(false);
-    }
+    try { const result = await workerApiRequest({ pathname: "/v1/billing/checkout", method: "POST", body: { ...payload, email: userEmail } }); if (result?.url) window.location.href = result.url; else { console.error("No checkout URL returned", result); setBillingLoading(false); } } catch (err) { console.error("Billing checkout failed:", err); setBillingLoading(false); }
   }
 
-  const sidebarTabs = [
-    { key: "general", label: "General" },
-    { key: "account", label: "Account" },
-    { key: "billing", label: "Billing" },
-    { key: "usage", label: "Usage" },
-  ];
-
-  const themes = [
-    { key: "light", label: "Light", bg: "#FAF9F5", fg: "#EBE8E0" },
-    { key: "auto", label: "Auto", bgLeft: "#FAF9F5", bgRight: "#212121", fgLeft: "#EBE8E0", fgRight: "#2f2f2f" },
-    { key: "dark", label: "Dark", bg: "#212121", fg: "#2f2f2f" },
-  ];
-
-  const fonts = [
-    { key: "default", label: "Default" },
-    { key: "sans", label: "Sans" },
-    { key: "mono", label: "Mono" },
-  ];
+  const sidebarTabs = [{ key: "general", label: "General" }, { key: "account", label: "Account" }, { key: "billing", label: "Billing" }, { key: "usage", label: "Usage" }];
+  const themes = [{ key: "light", label: "Light", bg: "#FAF9F5", fg: "#EBE8E0" }, { key: "auto", label: "Auto", bgLeft: "#FAF9F5", bgRight: "#212121", fgLeft: "#EBE8E0", fgRight: "#2f2f2f" }, { key: "dark", label: "Dark", bg: "#212121", fg: "#2f2f2f" }];
+  const fonts = [{ key: "default", label: "Default" }, { key: "sans", label: "Sans" }, { key: "mono", label: "Mono" }];
 
   function SaveButton({ label = "Save" }) {
-    const isSaved = saveState === "saved";
-    const isSaving = saveState === "saving";
-    const isError = saveState === "error";
-    return (
-      <button style={{
-        ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px",
-        opacity: isSaving ? 0.6 : 1,
-        background: isSaved ? "#5bb98c" : isError ? "#c97055" : "var(--gold)",
-        transition: "background 300ms, opacity 150ms, transform 150ms",
-        transform: isSaved ? "scale(1.02)" : "scale(1)",
-      }} disabled={isSaving} onClick={handleSave}>
-        {isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed — try again" : label}
-      </button>
-    );
+    const isSaved = saveState === "saved"; const isSaving = saveState === "saving"; const isError = saveState === "error";
+    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "#5bb98c" : isError ? "#c97055" : "#1a1a1a", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
   }
 
   const currentTier = userTier || "free";
@@ -2042,57 +1445,26 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   return (
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-content" style={{
-        width: "100%", maxWidth: 720, maxHeight: "85vh",
-        background: "var(--bg-surface)", borderRadius: 16,
-        boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
-        overflow: "hidden", display: "flex", flexDirection: "column",
-      }}>
-        {/* Header */}
+      <div className="modal-content" style={{ width: "100%", maxWidth: 720, maxHeight: "85vh", background: "var(--bg-surface)", borderRadius: 16, boxShadow: "var(--shadow-lg)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
           <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Settings</h2>
-          <button onClick={onClose} style={{
-            background: "none", border: "none", cursor: "pointer",
-            color: "var(--text-secondary)", padding: 4, borderRadius: 6,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "background 150ms",
-          }}
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
             onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-          >
-            <CloseIcon />
-          </button>
+          ><CloseIcon /></button>
         </div>
-
-        {/* Body: left sidebar + content */}
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-          {/* Left sidebar nav */}
           <div style={{ width: 180, flexShrink: 0, borderRight: "1px solid var(--border)", padding: "16px 0", overflowY: "auto" }}>
             {sidebarTabs.map(s => (
-              <button key={s.key} onClick={() => setTab(s.key)} style={{
-                display: "block", width: "100%", padding: "8px 20px",
-                fontSize: "14px", fontWeight: tab === s.key ? 600 : 400,
-                color: tab === s.key ? "var(--text-primary)" : "var(--text-secondary)",
-                background: tab === s.key ? "var(--bg-hover)" : "transparent",
-                border: "none", cursor: "pointer", fontFamily: "inherit",
-                textAlign: "left", transition: "background 150ms, color 150ms",
-                borderLeft: tab === s.key ? "2px solid var(--gold)" : "2px solid transparent",
-              }}
+              <button key={s.key} onClick={() => setTab(s.key)} style={{ display: "block", width: "100%", padding: "8px 20px", fontSize: "14px", fontWeight: tab === s.key ? 600 : 400, color: tab === s.key ? "var(--text-primary)" : "var(--text-secondary)", background: tab === s.key ? "var(--bg-hover)" : "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms, color 150ms", borderLeft: tab === s.key ? "2px solid var(--accent)" : "2px solid transparent" }}
                 onMouseEnter={e => { if (tab !== s.key) e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={e => { if (tab !== s.key) e.currentTarget.style.background = "transparent"; }}
-              >
-                {s.label}
-              </button>
+              >{s.label}</button>
             ))}
           </div>
-
-          {/* Content */}
           <div style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
             {loading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div> : (<>
-
-              {/* GENERAL TAB */}
               {tab === "general" && (<div>
-                {/* Profile */}
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Profile</div>
                   <label style={S.label}>Display name</label>
@@ -2100,19 +1472,13 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   <label style={S.label}>What should Nooterra call you?</label>
                   <FocusInput type="text" value={callMe} onChange={(e) => setCallMe(e.target.value)} placeholder="e.g. Aiden, boss, chief..." />
                   <label style={S.label}>Work function</label>
-                  <select value={workFunction} onChange={(e) => setWorkFunction(e.target.value)} style={{ ...S.input, cursor: "pointer", appearance: "auto" }}>
-                    {WORK_FUNCTIONS.map(wf => <option key={wf.value} value={wf.value}>{wf.label}</option>)}
-                  </select>
+                  <select value={workFunction} onChange={(e) => setWorkFunction(e.target.value)} style={{ ...S.input, cursor: "pointer", appearance: "auto" }}>{WORK_FUNCTIONS.map(wf => <option key={wf.value} value={wf.value}>{wf.label}</option>)}</select>
                 </div>
-
-                {/* Preferences */}
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Preferences</div>
                   <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "0.75rem" }}>What preferences should workers consider?</p>
                   <textarea value={preferences} onChange={(e) => setPreferences(e.target.value)} placeholder="e.g. Always use formal language. Prefer bullet points over paragraphs." style={{ ...S.textarea, minHeight: 80 }} />
                 </div>
-
-                {/* Notifications */}
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1rem" }}>Notifications</div>
                   {[
@@ -2121,76 +1487,41 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                     { label: "Worker errors", desc: "Get notified when a worker encounters an error.", on: notifErrors, toggle: () => setNotifErrors(!notifErrors) },
                   ].map((n, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <div>
-                        <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{n.label}</div>
-                        <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{n.desc}</div>
-                      </div>
+                      <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{n.label}</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{n.desc}</div></div>
                       <ToggleSwitch on={n.on} onToggle={n.toggle} />
                     </div>
                   ))}
                 </div>
-
-                {/* Appearance */}
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Appearance</div>
                   <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Choose how Nooterra looks.</p>
-                  <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                    {themes.map(opt => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}
-                  </div>
+                  <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>{themes.map(opt => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}</div>
                   <label style={S.label}>Font</label>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    {fonts.map(f => (
-                      <button key={f.key} onClick={() => setFont(f.key)} style={{
-                        padding: "6px 16px", fontSize: "13px", fontWeight: 500,
-                        borderRadius: 6, border: font === f.key ? "1px solid var(--gold)" : "1px solid var(--border)",
-                        background: font === f.key ? "var(--gold-dim)" : "transparent",
-                        color: font === f.key ? "var(--text-primary)" : "var(--text-secondary)",
-                        cursor: "pointer", fontFamily: f.key === "mono" ? "monospace" : f.key === "sans" ? "sans-serif" : "inherit",
-                        transition: "all 150ms",
-                      }}>{f.label}</button>
-                    ))}
+                    {fonts.map(f => <button key={f.key} onClick={() => setFont(f.key)} style={{ padding: "6px 16px", fontSize: "13px", fontWeight: 500, borderRadius: 6, border: font === f.key ? "1px solid var(--accent)" : "1px solid var(--border)", background: font === f.key ? "var(--gold-dim)" : "transparent", color: font === f.key ? "var(--text-primary)" : "var(--text-secondary)", cursor: "pointer", fontFamily: f.key === "mono" ? "monospace" : f.key === "sans" ? "sans-serif" : "inherit", transition: "all 150ms" }}>{f.label}</button>)}
                   </div>
                 </div>
-
                 <SaveButton />
               </div>)}
-
-              {/* ACCOUNT TAB */}
               {tab === "account" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Account</div>
-
                 <label style={S.label}>Email</label>
                 <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{userEmail || "Not available"}</div>
-
                 <label style={S.label}>Account ID</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "1.5rem" }}>
                   <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>{runtime.tenantId}</div>
-                  <button onClick={handleCopyAccountId} style={{
-                    fontSize: "12px", padding: "2px 8px", borderRadius: 4,
-                    border: "1px solid var(--border)", background: copiedAccountId ? "#5bb98c" : "transparent",
-                    color: copiedAccountId ? "white" : "var(--text-tertiary)", cursor: "pointer",
-                    fontFamily: "inherit", transition: "all 150ms",
-                  }}>{copiedAccountId ? "Copied" : "Copy"}</button>
+                  <button onClick={handleCopyAccountId} style={{ fontSize: "12px", padding: "2px 8px", borderRadius: 4, border: "1px solid var(--border)", background: copiedAccountId ? "#5bb98c" : "transparent", color: copiedAccountId ? "white" : "var(--text-tertiary)", cursor: "pointer", fontFamily: "inherit", transition: "all 150ms" }}>{copiedAccountId ? "Copied" : "Copy"}</button>
                 </div>
-
                 <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
-
-                {/* Active sessions */}
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1rem" }}>Active sessions</div>
                 <div style={{ padding: "1rem", border: "1px solid var(--border)", borderRadius: 8, marginBottom: "1rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>This browser</div>
-                      <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Current session</div>
-                    </div>
+                    <div><div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>This browser</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Current session</div></div>
                     <div style={{ fontSize: "12px", color: "#5bb98c", fontWeight: 600 }}>Active</div>
                   </div>
                 </div>
                 <button style={{ ...S.btnSecondary, fontSize: "13px", padding: "0.5rem 1rem" }} onClick={async () => { await logoutSession(); navigate("/login"); }}>Log out of all devices</button>
-
                 <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
-
-                {/* Delete account */}
                 {!showDeleteConfirm ? (
                   <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
                 ) : (
@@ -2204,89 +1535,45 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   </div>
                 )}
               </div>)}
-
-              {/* BILLING TAB */}
               {tab === "billing" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Billing</div>
-
-                {/* Current plan */}
                 <label style={S.label}>Current plan</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.5rem" }}>
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", padding: "4px 12px",
-                    borderRadius: 6, fontSize: "14px", fontWeight: 700,
-                    background: currentTier === "free" ? "var(--bg-hover)" : "var(--gold-dim)",
-                    color: currentTier === "free" ? "var(--text-secondary)" : "var(--gold)",
-                  }}>{tierLabel(currentTier)}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 6, fontSize: "14px", fontWeight: 700, background: currentTier === "free" ? "var(--bg-hover)" : "var(--gold-dim)", color: currentTier === "free" ? "var(--text-secondary)" : "var(--accent)" }}>{tierLabel(currentTier)}</span>
                 </div>
-
-                {currentTier === "free" && (
-                  <button style={{ ...S.btnPrimary, width: "auto", marginBottom: "2rem", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "Redirecting..." : "Upgrade to Pro"}</button>
-                )}
-
+                {currentTier === "free" && <button style={{ ...S.btnPrimary, width: "auto", marginBottom: "2rem", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "Redirecting..." : "Upgrade to Pro"}</button>}
                 <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-
-                {/* Payment method */}
                 <label style={S.label}>Payment method</label>
                 <div style={{ fontSize: "14px", color: "var(--text-tertiary)", marginBottom: "1.5rem" }}>No payment method on file</div>
-
                 <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-
-                {/* Invoice history */}
                 <label style={S.label}>Invoice history</label>
-                <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 8, marginBottom: "1.5rem" }}>
-                  <div style={{ fontSize: "14px", color: "var(--text-tertiary)" }}>No invoices yet</div>
-                </div>
-
-                {currentTier !== "free" && (<>
-                  <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-                  <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}>Cancel plan</button>
-                </>)}
+                <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 8, marginBottom: "1.5rem" }}><div style={{ fontSize: "14px", color: "var(--text-tertiary)" }}>No invoices yet</div></div>
+                {currentTier !== "free" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}>Cancel plan</button></>)}
               </div>)}
-
-              {/* USAGE TAB */}
               {tab === "usage" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Usage</div>
-
-                {/* Credits remaining */}
                 <label style={S.label}>Credits remaining</label>
                 <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginBottom: "1.5rem" }}>${balance}</div>
-
-                {/* Usage bar */}
                 <label style={S.label}>Usage this period</label>
                 <div style={{ marginBottom: "1.5rem" }}>
-                  <div style={{ height: 8, borderRadius: 4, background: "var(--bg-hover)", overflow: "hidden", marginBottom: 6 }}>
-                    <div style={{ height: "100%", borderRadius: 4, background: "var(--gold)", width: "12%", transition: "width 300ms" }} />
-                  </div>
+                  <div style={{ height: 8, borderRadius: 4, background: "var(--bg-hover)", overflow: "hidden", marginBottom: 6 }}><div style={{ height: "100%", borderRadius: 4, background: "var(--accent)", width: "12%", transition: "width 300ms" }} /></div>
                   <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>12% of weekly limit</div>
                 </div>
-
                 <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-
-                {/* Model breakdown */}
                 <label style={S.label}>Model breakdown</label>
                 <div style={{ marginBottom: "1.5rem" }}>
-                  {[
-                    { name: "Gemini 3 Flash", tokens: "24,500" },
-                    { name: "Nemotron 3 Super", tokens: "12,300" },
-                    { name: "GPT-5.4", tokens: "0" },
-                  ].map((m, i) => (
+                  {[{ name: "Gemini 3 Flash", tokens: "24,500" }, { name: "Nemotron 3 Super", tokens: "12,300" }, { name: "GPT-5.4", tokens: "0" }].map((m, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                       <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>{m.name}</span>
                       <span style={{ fontSize: "14px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{m.tokens} tokens</span>
                     </div>
                   ))}
                 </div>
-
-                {!showCreditPicker ? (
-                  <button style={{ ...S.btnPrimary, width: "auto" }} onClick={() => setShowCreditPicker(true)}>Top up credits</button>
-                ) : (
+                {!showCreditPicker ? <button style={{ ...S.btnPrimary, width: "auto" }} onClick={() => setShowCreditPicker(true)}>Top up credits</button> : (
                   <div>
                     <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "0.75rem" }}>Select amount:</div>
                     <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                      {[5, 20, 50, 100].map((amt) => (
-                        <button key={amt} style={{ ...S.btnSecondary, width: "auto", padding: "8px 18px", fontSize: "14px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ type: "credits", amount: amt })}>${amt}</button>
-                      ))}
+                      {[5, 20, 50, 100].map((amt) => <button key={amt} style={{ ...S.btnSecondary, width: "auto", padding: "8px 18px", fontSize: "14px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ type: "credits", amount: amt })}>${amt}</button>)}
                     </div>
                     <button style={{ background: "none", border: "none", color: "var(--text-tertiary)", fontSize: "13px", marginTop: "0.5rem", cursor: "pointer", padding: 0 }} onClick={() => setShowCreditPicker(false)}>Cancel</button>
                   </div>
@@ -2301,7 +1588,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 }
 
 /* ===================================================================
-   PRICING VIEW
+   PricingView
    =================================================================== */
 
 function PricingView() {
@@ -2310,7 +1597,6 @@ function PricingView() {
     { name: "Pro", price: "$29 / month", features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approval integration", "Email notifications", "Priority support"], cta: "Start free trial", ctaAction: () => navigate("/signup"), primary: true },
     { name: "Team", price: "$99 / month", features: ["Everything in Pro", "Shared team dashboard", "SSO / SAML", "Audit log export", "Custom worker templates", "Dedicated support"], cta: "Contact us", ctaHref: "mailto:team@nooterra.ai", primary: false },
   ];
-
   return (
     <div style={S.pricingWrap} className="lovable-fade">
       <h1 style={S.pricingTitle}>Simple, honest pricing</h1>
@@ -2331,15 +1617,13 @@ function PricingView() {
           </div>
         </div>
       ))}
-      <div style={{ marginTop: "3rem" }}>
-        <a href="/" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/"); }}>{"\u2190"} Back to home</a>
-      </div>
+      <div style={{ marginTop: "3rem" }}><a href="/" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/"); }}>{"\u2190"} Back to home</a></div>
     </div>
   );
 }
 
 /* ===================================================================
-   APP SHELL -- unified layout with dual-mode sidebar
+   AppShell
    =================================================================== */
 
 function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
@@ -2357,58 +1641,21 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
     (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; setPendingApprovals(Array.isArray(items) ? items.length : 0); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
-    (async () => {
-      try {
-        const runtime = loadRuntimeConfig();
-        const settings = await fetchTenantSettings(runtime);
-        if (settings?.tier) setUserTier(settings.tier);
-        else if (settings?.plan) setUserTier(settings.plan);
-      } catch { /* ignore */ }
-    })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []);
 
-  function handleToggleSidebar() {
-    const next = !sidebarCollapsed;
-    setSidebarCollapsed(next);
-    saveSidebarCollapsed(next);
-  }
-
-  function handleNavigate(dest, workerId) {
-    if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); }
-    else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); }
-  }
-
+  function handleToggleSidebar() { const next = !sidebarCollapsed; setSidebarCollapsed(next); saveSidebarCollapsed(next); }
+  function handleNavigate(dest, workerId) { if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); } else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); } }
   function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
   function handleNewWorker() { setView("builder"); setSelectedWorkerId(null); setIsNewDeploy(false); }
-
-  function handleBuilderComplete() {
-    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
-    setView("workers");
-  }
-
-  function handleViewWorker(w) {
-    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
-    if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); }
-    else setView("workers");
-  }
+  function handleBuilderComplete() { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); setView("workers"); }
+  function handleViewWorker(w) { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("workers"); }
 
   const sidebarActiveView = view === "workerDetail" || view === "builder" ? "workers" : view;
 
   return (
     <div style={S.appLayout}>
-      <AppSidebar
-        activeView={sidebarActiveView}
-        onNavigate={handleNavigate}
-        workers={workers}
-        pendingApprovals={pendingApprovals}
-        userEmail={userEmail}
-        creditBalance={creditBalance}
-        onNewWorker={handleNewWorker}
-        collapsed={sidebarCollapsed}
-        onToggle={handleToggleSidebar}
-        onOpenSettings={() => setSettingsOpen(true)}
-        userTier={userTier}
-      />
+      <AppSidebar activeView={sidebarActiveView} onNavigate={handleNavigate} workers={workers} pendingApprovals={pendingApprovals} userEmail={userEmail} creditBalance={creditBalance} onNewWorker={handleNewWorker} collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} onOpenSettings={() => setSettingsOpen(true)} userTier={userTier} />
       <div style={{ flex: 1, minWidth: 0 }}>
         {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
         {view === "workers" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
@@ -2422,7 +1669,7 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
 }
 
 /* ===================================================================
-   PRODUCT SHELL -- top-level mode router with session check
+   ProductShell -- top-level mode router
    =================================================================== */
 
 export default function ProductShell({ mode, launchId, agentId, runId, requestedPath }) {
@@ -2446,8 +1693,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
           saveOnboardingState({ ...loadOnboardingState(), buyer: principal, sessionExpected: true, completed: true });
           try { const workersResult = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); if ((workersResult?.items || workersResult || []).length === 0) setIsFirstTime(true); } catch { /* ignore */ }
           if (mode === "login" || mode === "signup") setCurrentMode("dashboard"); else setCurrentMode(mode || "dashboard");
-          setSessionChecked(true);
-          return;
+          setSessionChecked(true); return;
         }
       } catch { /* No valid session */ }
       if (!cancelled) {
@@ -2467,9 +1713,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
     }
   }, [mode, sessionChecked]);
 
-  function handleAuth() {
-    window.location.href = "/dashboard";
-  }
+  function handleAuth() { window.location.href = "/dashboard"; }
 
   if (!sessionChecked) {
     return (
@@ -2491,7 +1735,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       case "approvals": return "approvals";
       case "receipts": return "receipts";
       case "workspace": return "settings";
-      default: return "builder"; // Always land on chat, like Claude/ChatGPT
+      default: return "builder";
     }
   }
 
