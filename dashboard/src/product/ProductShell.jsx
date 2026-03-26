@@ -37,6 +37,45 @@ const RECOMMENDED_MODELS = [
   { id: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini", inputPer1M: 0.75, outputPer1M: 4.50, tag: "High volume" },
 ];
 
+const STARTER_TEMPLATES = [
+  {
+    id: "support-monitor",
+    name: "Support Monitor",
+    description: "Watch your inbox and draft replies for common questions.",
+    charter: {
+      canDo: ["Read incoming emails", "Categorize by topic", "Draft reply templates", "Search knowledge base"],
+      askFirst: ["Send replies to customers", "Forward to team members", "Issue refunds"],
+      neverDo: ["Delete emails", "Share customer data", "Make commitments about features"],
+    },
+    schedule: { type: "continuous" },
+    model: "google/gemini-3-flash",
+  },
+  {
+    id: "price-tracker",
+    name: "Price Tracker",
+    description: "Monitor competitor pricing pages daily and alert you on changes.",
+    charter: {
+      canDo: ["Check competitor websites", "Compare current vs previous prices", "Send alerts to Slack"],
+      askFirst: ["Adjust your prices", "Send alerts to customers"],
+      neverDo: ["Access payment systems", "Share competitor data externally"],
+    },
+    schedule: { type: "cron", value: "0 9 * * *" },
+    model: "google/gemini-3-flash",
+  },
+  {
+    id: "inbox-summary",
+    name: "Inbox Summary",
+    description: "Summarize your emails every morning and send a digest.",
+    charter: {
+      canDo: ["Read all emails from the last 24 hours", "Categorize by priority", "Generate summary"],
+      askFirst: ["Send digest to Slack or email", "Archive processed emails"],
+      neverDo: ["Delete emails", "Reply on your behalf", "Forward to external contacts"],
+    },
+    schedule: { type: "cron", value: "0 8 * * 1-5" },
+    model: "google/gemini-3-flash",
+  },
+];
+
 function cls(...args) {
   return args.filter(Boolean).join(" ");
 }
@@ -121,6 +160,16 @@ async function logoutSession() {
   try {
     await authRequest({ pathname: "/v1/buyer/logout", method: "POST" });
   } catch { /* ignore */ }
+}
+
+/* ── Template deploy helper ──────────────────────────────── */
+
+function templateScheduleToApiValue(schedule) {
+  if (!schedule) return "daily";
+  if (schedule.type === "continuous") return "continuous";
+  if (schedule.type === "interval") return schedule.value || "1h";
+  if (schedule.type === "cron") return schedule.value || "0 9 * * *";
+  return "on_demand";
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -447,9 +496,12 @@ function SignUpView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
+        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
+          nooterra
+        </div>
         <h1 style={S.authTitle}>Get started</h1>
         <p style={S.authSub}>
-          Enter your email to get started.
+          AI workers that run 24/7 with hard boundaries on what they can and can't do.
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmitForm}>
@@ -461,14 +513,13 @@ function SignUpView({ onAuth }) {
             placeholder="you@example.com"
             required
             autoFocus
-            required
           />
           <button
             type="submit"
             style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
             disabled={loading}
           >
-            {loading ? "Creating..." : "Continue"}
+            {loading ? "Creating..." : "Continue \u2192"}
           </button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
@@ -493,6 +544,72 @@ function SignInView({ onAuth }) {
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasStoredPasskey, setHasStoredPasskey] = useState(false);
+
+  // On mount, check for stored passkey and auto-fill
+  useEffect(() => {
+    try {
+      const stored = loadStoredBuyerPasskeyBundle({});
+      if (stored && stored.tenantId && stored.email) {
+        setTenantId(stored.tenantId);
+        setEmail(stored.email);
+        setHasStoredPasskey(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  async function handlePasskeyLogin() {
+    setError("");
+    setLoading(true);
+    const tid = tenantId.trim();
+    const em = email.trim();
+    try {
+      const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+      if (!storedPasskey) {
+        setError("No stored passkey found. Please use email sign-in.");
+        setLoading(false);
+        return;
+      }
+
+      const optionsResp = await authRequest({
+        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`,
+        body: { email: em },
+      });
+
+      if (optionsResp?.challenge && optionsResp?.challengeId) {
+        const signature = await signBrowserPasskeyChallengeBase64Url({
+          privateKeyPem: storedPasskey.privateKeyPem,
+          challenge: optionsResp.challenge,
+        });
+
+        await authRequest({
+          pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`,
+          body: {
+            challengeId: optionsResp.challengeId,
+            challenge: optionsResp.challenge,
+            credentialId: storedPasskey.credentialId,
+            publicKeyPem: storedPasskey.publicKeyPem,
+            signature,
+          },
+        });
+
+        touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+
+        const principal = await fetchSessionPrincipal();
+        const runtime = loadRuntimeConfig();
+        saveRuntime({ ...runtime, tenantId: tid });
+        saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+        onAuth?.("dashboard");
+        return;
+      }
+
+      setError("Passkey authentication failed. Try email sign-in instead.");
+    } catch (err) {
+      setError(err?.message || "Passkey sign-in failed. Try email sign-in instead.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -620,24 +737,52 @@ function SignInView({ onAuth }) {
     );
   }
 
+  // If we have a stored passkey, show simplified sign-in
+  if (hasStoredPasskey) {
+    return (
+      <div style={S.authWrap}>
+        <div style={S.authBox} className="lovable-fade">
+          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
+            nooterra
+          </div>
+          <h1 style={S.authTitle}>Welcome back</h1>
+          <p style={S.authSub}>
+            Signing in as <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>
+          </p>
+          {error && <div style={S.error}>{error}</div>}
+          <button
+            style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1, marginBottom: "1rem" }}
+            disabled={loading}
+            onClick={handlePasskeyLogin}
+          >
+            {loading ? "Signing in..." : "Sign in with passkey"}
+          </button>
+          <p style={{ ...S.authSub, marginTop: "1rem", marginBottom: 0, fontSize: "0.82rem" }}>
+            Not you?{" "}
+            <button
+              style={S.btnGhost}
+              onClick={() => { setHasStoredPasskey(false); setTenantId(""); setEmail(""); setError(""); }}
+            >
+              Use a different account
+            </button>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
+        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
+          nooterra
+        </div>
         <h1 style={S.authTitle}>Welcome back</h1>
         <p style={S.authSub}>
-          Welcome back.
+          Sign in to your account.
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
-          <label style={S.label}>Tenant ID</label>
-          <FocusInput
-            type="text"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-            placeholder="tenant_abc123"
-            required
-            autoFocus
-          />
           <label style={S.label}>Email</label>
           <FocusInput
             type="email"
@@ -645,7 +790,19 @@ function SignInView({ onAuth }) {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             required
+            autoFocus
           />
+          <label style={S.label}>Your account ID</label>
+          <FocusInput
+            type="text"
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            placeholder="tenant_abc123"
+            required
+          />
+          <p style={{ fontSize: "0.78rem", color: "var(--neutral-500)", marginTop: "-0.75rem", marginBottom: "1.25rem", lineHeight: 1.4 }}>
+            Check your signup email for this.
+          </p>
           <button
             type="submit"
             style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
@@ -1428,61 +1585,115 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ConnectToolsRow — tools row below input
+   TemplateCard — a single template in the welcome grid
    ═══════════════════════════════════════════════════════════ */
 
-function ConnectToolsRow() {
-  const tools = [
-    { name: "Gmail", color: "#ea4335" },
-    { name: "Slack", color: "#4a154b" },
-    { name: "GitHub", color: "#f0f0f0" },
-    { name: "Stripe", color: "#635bff" },
-  ];
+function TemplateCard({ template, onDeploy, deploying }) {
+  return (
+    <div
+      style={{
+        padding: "1.5rem",
+        border: "1px solid var(--neutral-800)",
+        borderRadius: 12,
+        background: "var(--neutral-900)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.75rem",
+        transition: "border-color 0.15s",
+        cursor: "default",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--neutral-600)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}
+    >
+      <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--neutral-50)" }}>
+        {template.name}
+      </div>
+      <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", lineHeight: 1.5, flex: 1 }}>
+        {template.description}
+      </div>
+      <button
+        style={{
+          ...S.btnPrimary,
+          width: "auto",
+          alignSelf: "flex-start",
+          padding: "0.5rem 1.25rem",
+          fontSize: "0.82rem",
+          opacity: deploying ? 0.5 : 1,
+        }}
+        disabled={deploying}
+        onClick={() => onDeploy(template)}
+      >
+        {deploying ? "Deploying..." : "Deploy \u2192"}
+      </button>
+    </div>
+  );
+}
 
+/* ═══════════════════════════════════════════════════════════
+   TemplateCharterReview — shown after clicking Deploy on a template
+   ═══════════════════════════════════════════════════════════ */
+
+function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
   return (
     <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "0.75rem",
-      marginTop: "1.25rem",
-      justifyContent: "center",
-    }}>
-      <span style={{ fontSize: "0.78rem", color: "var(--neutral-500)" }}>Connect your tools</span>
-      {tools.map(t => (
+      maxWidth: 560,
+      margin: "0 auto",
+      padding: "2rem",
+    }} className="lovable-fade">
+      <button
+        style={S.backLink}
+        onClick={onCustomize}
+      >
+        ← Back
+      </button>
+      <h2 style={{ ...S.pageTitle, marginBottom: "0.5rem" }}>{template.name}</h2>
+      <p style={{ ...S.pageSub, marginBottom: "1.5rem" }}>{template.description}</p>
+
+      <div style={{
+        padding: "1.25rem",
+        background: "rgba(0,0,0,0.25)",
+        borderRadius: 10,
+        borderLeft: "3px solid var(--gold)",
+        marginBottom: "2rem",
+      }}>
+        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          What this worker can do
+        </div>
+        <CharterDisplay charter={template.charter} compact />
+      </div>
+
+      <div style={{ display: "flex", gap: "0.75rem" }}>
         <button
-          key={t.name}
-          onClick={() => alert(`${t.name} integration coming soon.`)}
-          style={{
-            padding: "0.3rem 0.7rem",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            color: "var(--neutral-400)",
-            background: "transparent",
-            border: "1px solid var(--neutral-800)",
-            borderRadius: 6,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            transition: "border-color 0.15s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--neutral-600)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}
+          style={{ ...S.btnPrimary, width: "auto", opacity: deploying ? 0.5 : 1 }}
+          disabled={deploying}
+          onClick={onDeploy}
         >
-          {t.name}
+          {deploying ? "Deploying..." : "Deploy"}
         </button>
-      ))}
+        <button
+          style={S.btnSecondary}
+          onClick={onCustomize}
+        >
+          Customize
+        </button>
+      </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
    BuilderView — the main builder chat (Claude/ChatGPT style)
+   Now with template selection for first-time users
    ═══════════════════════════════════════════════════════════ */
 
-function BuilderView({ onComplete, onViewWorker, userName }) {
+function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const { conv, sendMessage, selectModel, deploying, deployedWorker, reset } = useBuilderState();
   const [inputValue, setInputValue] = useState("");
   const [selectedModel, setSelectedModel] = useState("google/gemini-3-flash");
   const messagesEndRef = useRef(null);
+  const [templateReview, setTemplateReview] = useState(null); // template being reviewed
+  const [templateDeploying, setTemplateDeploying] = useState(false);
+  const [templateError, setTemplateError] = useState("");
 
   const hasMessages = conv.messages.length > 0;
   const isDeployed = conv.state === BUILDER_STATES.DEPLOYED;
@@ -1529,7 +1740,143 @@ function BuilderView({ onComplete, onViewWorker, userName }) {
     }
   }
 
-  // Greeting screen (no messages yet)
+  async function handleTemplateDeploy(template) {
+    setTemplateDeploying(true);
+    setTemplateError("");
+    try {
+      const result = await workerApiRequest({
+        pathname: "/v1/workers",
+        method: "POST",
+        body: {
+          name: template.name,
+          description: template.description,
+          charter: JSON.stringify(template.charter),
+          schedule: templateScheduleToApiValue(template.schedule),
+          model: template.model,
+        },
+      });
+
+      saveOnboardingState({
+        buyer: loadOnboardingState()?.buyer || null,
+        sessionExpected: true,
+        completed: true,
+      });
+
+      // Go directly to worker detail
+      if (result?.id) {
+        onViewWorker?.(result);
+      } else {
+        onComplete?.();
+      }
+    } catch (err) {
+      setTemplateError(err?.message || "Failed to deploy worker.");
+    }
+    setTemplateDeploying(false);
+  }
+
+  // Template charter review screen
+  if (templateReview) {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        minHeight: "calc(100vh - 1px)",
+        padding: "2rem",
+      }}>
+        {templateError && <div style={{ ...S.error, textAlign: "center", marginBottom: "1rem" }}>{templateError}</div>}
+        <TemplateCharterReview
+          template={templateReview}
+          onDeploy={() => handleTemplateDeploy(templateReview)}
+          onCustomize={() => { setTemplateReview(null); setTemplateError(""); }}
+          deploying={templateDeploying}
+        />
+      </div>
+    );
+  }
+
+  // Welcome screen with templates (shown when no messages and first-time user)
+  if (!hasMessages && isFirstTime) {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        minHeight: "calc(100vh - 1px)",
+        padding: "2rem",
+      }}>
+        <div style={{ flex: 1 }} />
+        <div style={{ textAlign: "center", marginBottom: "2.5rem", maxWidth: 600 }}>
+          <h1 style={{
+            fontSize: "clamp(1.5rem, 4vw, 2.2rem)",
+            fontWeight: 700,
+            color: "var(--neutral-50)",
+            lineHeight: 1.2,
+            marginBottom: "0.5rem",
+          }}>
+            Welcome to Nooterra.
+          </h1>
+          <p style={{ fontSize: "1rem", color: "var(--neutral-400)", marginTop: "0.5rem" }}>
+            Deploy your first worker in 30 seconds.
+          </p>
+        </div>
+
+        {/* Template heading */}
+        <div style={{ marginBottom: "1.25rem", textAlign: "center", width: "100%", maxWidth: 780 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.5rem" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Pick a template
+            </span>
+            <span style={{ fontSize: "0.78rem", color: "var(--neutral-500)" }}>
+              or describe your own below
+            </span>
+          </div>
+        </div>
+
+        {/* Template grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: "1rem",
+          width: "100%",
+          maxWidth: 780,
+          marginBottom: "2.5rem",
+        }}>
+          {STARTER_TEMPLATES.map(t => (
+            <TemplateCard
+              key={t.id}
+              template={t}
+              onDeploy={(tmpl) => setTemplateReview(tmpl)}
+              deploying={false}
+            />
+          ))}
+        </div>
+
+        {/* Custom worker input */}
+        <div style={{ width: "100%", maxWidth: 680, textAlign: "center" }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--neutral-500)", marginBottom: "0.75rem" }}>
+            Or tell me what you need:
+          </div>
+          <BuilderInputBox
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onSend={handleSend}
+            disabled={false}
+            model={selectedModel}
+            onModelChange={setSelectedModel}
+            placeholder="Describe what you need..."
+          />
+        </div>
+        <div style={{ flex: 1.5 }} />
+      </div>
+    );
+  }
+
+  // Greeting screen for returning users (no messages, not first time -- just the builder chat)
   if (!hasMessages) {
     const greeting = getGreeting();
     const displayName = userName ? userName.split("@")[0] : null;
@@ -1569,7 +1916,6 @@ function BuilderView({ onComplete, onViewWorker, userName }) {
           onModelChange={setSelectedModel}
           placeholder="Describe what you need..."
         />
-        <ConnectToolsRow />
         <div style={{ flex: 1.5 }} />
       </div>
     );
@@ -1915,10 +2261,10 @@ function WorkersListView({ onSelect, onCreate }) {
    DASHBOARD: WorkerDetailView
    ═══════════════════════════════════════════════════════════ */
 
-function WorkerDetailView({ workerId, onBack }) {
+function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   const [worker, setWorker] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("charter");
+  const [tab, setTab] = useState(isNewDeploy ? "activity" : "charter");
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [runningAction, setRunningAction] = useState(false);
@@ -1950,6 +2296,22 @@ function WorkerDetailView({ workerId, onBack }) {
       })();
     }
   }, [tab, workerId]);
+
+  // Auto-poll for new deploy to catch first execution
+  useEffect(() => {
+    if (!isNewDeploy || !workerId) return;
+    const interval = setInterval(async () => {
+      try {
+        const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
+        setWorker(result);
+        if (tab === "activity") {
+          const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" });
+          setLogs(logResult?.items || logResult || []);
+        }
+      } catch { /* ignore */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isNewDeploy, workerId, tab]);
 
   async function handleRunNow() {
     setRunningAction(true);
@@ -2075,9 +2437,36 @@ function WorkerDetailView({ workerId, onBack }) {
 
       {tab === "activity" && (
         <div>
+          {isNewDeploy && logs.length === 0 && !logsLoading && (
+            <div style={{
+              padding: "2rem",
+              textAlign: "center",
+              border: "1px dashed var(--neutral-700)",
+              borderRadius: 12,
+            }}>
+              <div style={{
+                fontSize: "0.95rem",
+                fontWeight: 600,
+                color: "var(--neutral-300)",
+                marginBottom: "0.5rem",
+              }}>
+                Your worker is queued and will run shortly.
+              </div>
+              <div style={{
+                width: 24,
+                height: 24,
+                border: "2px solid var(--neutral-700)",
+                borderTop: "2px solid var(--gold)",
+                borderRadius: "50%",
+                animation: "spin 1s linear infinite",
+                margin: "1rem auto 0",
+              }} />
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
           {logsLoading ? (
             <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading logs...</div>
-          ) : logs.length === 0 ? (
+          ) : logs.length === 0 && !isNewDeploy ? (
             <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>
               No activity yet. This worker hasn't run.
             </div>
@@ -2528,9 +2917,10 @@ function PricingView() {
    APP SHELL — unified layout with persistent sidebar
    ═══════════════════════════════════════════════════════════ */
 
-function AppShell({ initialView = "builder", userEmail }) {
+function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
   const [view, setView] = useState(initialView);
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
+  const [isNewDeploy, setIsNewDeploy] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [workers, setWorkers] = useState([]);
   const [creditBalance, setCreditBalance] = useState(null);
@@ -2565,21 +2955,25 @@ function AppShell({ initialView = "builder", userEmail }) {
   function handleNavigate(dest, workerId) {
     if (dest === "workerDetail" && workerId) {
       setSelectedWorkerId(workerId);
+      setIsNewDeploy(false);
       setView("workerDetail");
     } else {
       setView(dest);
       setSelectedWorkerId(null);
+      setIsNewDeploy(false);
     }
   }
 
   function handleSelectWorker(worker) {
     setSelectedWorkerId(worker.id);
+    setIsNewDeploy(false);
     setView("workerDetail");
   }
 
   function handleNewWorker() {
     setView("builder");
     setSelectedWorkerId(null);
+    setIsNewDeploy(false);
   }
 
   function handleBuilderComplete() {
@@ -2603,6 +2997,7 @@ function AppShell({ initialView = "builder", userEmail }) {
     })();
     if (w?.id) {
       setSelectedWorkerId(w.id);
+      setIsNewDeploy(true);
       setView("workerDetail");
     } else {
       setView("workers");
@@ -2628,6 +3023,7 @@ function AppShell({ initialView = "builder", userEmail }) {
             onComplete={handleBuilderComplete}
             onViewWorker={handleViewWorker}
             userName={userEmail}
+            isFirstTime={isFirstTime && workers.length === 0}
           />
         )}
         {view === "workers" && (
@@ -2642,7 +3038,8 @@ function AppShell({ initialView = "builder", userEmail }) {
           <div style={S.main}>
             <WorkerDetailView
               workerId={selectedWorkerId}
-              onBack={() => { setSelectedWorkerId(null); setView("workers"); }}
+              onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }}
+              isNewDeploy={isNewDeploy}
             />
           </div>
         )}
@@ -2674,6 +3071,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   const [currentMode, setCurrentMode] = useState(null); // null = checking session
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
+  const [isFirstTime, setIsFirstTime] = useState(false);
 
   // On mount, check for an existing session
   useEffect(() => {
@@ -2701,6 +3099,15 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
             sessionExpected: true,
             completed: true,
           });
+
+          // Check if user has any workers to determine first-time status
+          try {
+            const workersResult = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+            const workersList = workersResult?.items || workersResult || [];
+            if (workersList.length === 0) {
+              setIsFirstTime(true);
+            }
+          } catch { /* ignore */ }
 
           // Authenticated user — map mode to view
           if (mode === "login" || mode === "signup") {
@@ -2742,17 +3149,18 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   }, [mode, sessionChecked]);
 
   function handleAuth(dest) {
-    // After signup or login, go directly to the app shell
     if (dest === "builder") {
-      // Signup flow: go to builder view
+      // Signup flow: first-time user, show templates
       const onboardState = loadOnboardingState();
       setUserEmail(onboardState?.buyer?.email || null);
+      setIsFirstTime(true);
       setCurrentMode("dashboard");
       navigate("/wallet");
     } else {
-      // Login flow: go to dashboard/workers
+      // Login flow: returning user, go to workers list
       const onboardState = loadOnboardingState();
       setUserEmail(onboardState?.buyer?.email || null);
+      setIsFirstTime(false);
       setCurrentMode("dashboard");
       navigate("/wallet");
     }
@@ -2778,13 +3186,15 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
   const resolvedMode = currentMode;
 
-  // Determine the initial view for AppShell based on mode
+  // Determine the initial view for AppShell based on mode and first-time status
   function getInitialView() {
+    // First-time users (from signup or no workers) get the builder with templates
+    if (isFirstTime) return "builder";
     switch (resolvedMode) {
       case "approvals": return "approvals";
       case "receipts": return "receipts";
       case "workspace": return "settings";
-      default: return "builder";
+      default: return "workers"; // Returning users see workers list
     }
   }
 
@@ -2804,7 +3214,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
       {/* All authenticated views use the unified AppShell */}
       {!["signup", "login", "pricing"].includes(resolvedMode) && resolvedMode != null && (
-        <AppShell initialView={getInitialView()} userEmail={userEmail} />
+        <AppShell initialView={getInitialView()} userEmail={userEmail} isFirstTime={isFirstTime} />
       )}
     </div>
   );
