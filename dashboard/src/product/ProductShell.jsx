@@ -3,17 +3,21 @@ import {
   buildHeaders,
   createClientId,
   decideApprovalInboxItem,
+  DEFAULT_AUTH_BASE_URL,
   fetchApprovalInbox,
   fetchTenantSettings,
   fetchWorkOrderReceipts,
   fetchWorkOrderReceiptDetail,
   formatDateTime,
   formatCurrency,
+  generateBrowserEd25519KeypairPem,
   loadRuntimeConfig,
   loadStoredBuyerPasskeyBundle,
   PRODUCT_RUNTIME_STORAGE_KEY,
   requestJson,
   saveStoredBuyerPasskeyBundle,
+  signBrowserPasskeyChallengeBase64Url,
+  touchStoredBuyerPasskeyBundle,
   updateTenantSettings,
 } from "./api.js";
 import "./product.css";
@@ -24,6 +28,7 @@ import "./product.css";
 
 const ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
 const WORKERS_STORAGE_KEY = "nooterra_workers_v1";
+const AUTH_BASE = "/__magic";
 
 function cls(...args) {
   return args.filter(Boolean).join(" ");
@@ -62,6 +67,29 @@ function saveOnboardingState(state) {
 function navigate(path) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+/* ── Auth helpers ────────────────────────────────────────── */
+
+async function authRequest({ pathname, method = "POST", body = null }) {
+  return requestJson({
+    baseUrl: AUTH_BASE,
+    pathname,
+    method,
+    headers: { "content-type": "application/json" },
+    body,
+    credentials: "include",
+  });
+}
+
+async function fetchSessionPrincipal() {
+  return authRequest({ pathname: "/v1/buyer/me", method: "GET" });
+}
+
+async function logoutSession() {
+  try {
+    await authRequest({ pathname: "/v1/buyer/logout", method: "POST" });
+  } catch { /* ignore */ }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -178,6 +206,11 @@ const S = {
   error: {
     fontSize: "0.85rem",
     color: "#c97055",
+    marginBottom: "1rem",
+  },
+  success: {
+    fontSize: "0.85rem",
+    color: "#5bb98c",
     marginBottom: "1rem",
   },
   /* Dashboard layout */
@@ -436,6 +469,24 @@ const S = {
     padding: 0,
     fontFamily: "inherit",
   },
+  /* OTP input */
+  otpInput: {
+    display: "block",
+    width: "100%",
+    padding: "0.75rem 1rem",
+    fontSize: "1.5rem",
+    fontWeight: 700,
+    letterSpacing: "0.5em",
+    textAlign: "center",
+    background: "var(--neutral-900)",
+    border: "1px solid var(--neutral-700)",
+    borderRadius: 8,
+    color: "var(--neutral-100)",
+    outline: "none",
+    marginBottom: "1.25rem",
+    fontFamily: "inherit",
+    transition: "border-color 0.15s",
+  },
   /* Spacer */
   mb1: { marginBottom: "1rem" },
   mb2: { marginBottom: "2rem" },
@@ -471,46 +522,214 @@ function FocusInput({ style, ...props }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH: SignUpView
+   AUTH: SignUpView — real Magic Link signup
    ═══════════════════════════════════════════════════════════ */
 
 function SignUpView({ onAuth }) {
+  const [step, setStep] = useState("form"); // "form" | "otp"
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [company, setCompany] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signupResult, setSignupResult] = useState(null);
 
-  async function handleSubmit(e) {
+  async function handleSubmitForm(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const runtime = loadRuntimeConfig();
-      const result = await requestJson({
-        baseUrl: runtime.authBaseUrl,
-        pathname: "/auth/signup",
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: { email: email.trim(), password },
-      });
-      if (result?.apiKey || result?.token) {
-        const updated = {
-          ...runtime,
-          apiKey: result.apiKey || result.token || "",
-          tenantId: result.tenantId || runtime.tenantId,
-        };
-        saveRuntime(updated);
-        saveOnboardingState({ buyer: { email: email.trim() } });
-        onAuth?.("onboarding");
-      } else {
-        saveOnboardingState({ buyer: { email: email.trim() } });
-        onAuth?.("onboarding");
+      // Try passkey signup first (better UX — skips OTP step)
+      let passkeySuccess = false;
+      try {
+        const optionsResp = await authRequest({
+          pathname: "/v1/public/signup/passkey/options",
+          body: { email: email.trim(), company: company.trim() },
+        });
+
+        if (optionsResp?.challenge && optionsResp?.challengeId) {
+          const keypair = await generateBrowserEd25519KeypairPem();
+          const signature = await signBrowserPasskeyChallengeBase64Url({
+            privateKeyPem: keypair.privateKeyPem,
+            challenge: optionsResp.challenge,
+          });
+
+          const passkeyResp = await authRequest({
+            pathname: "/v1/public/signup/passkey",
+            body: {
+              tenantId: optionsResp.tenantId,
+              challengeId: optionsResp.challengeId,
+              challenge: optionsResp.challenge,
+              credentialId: keypair.keyId,
+              publicKeyPem: keypair.publicKeyPem,
+              signature,
+              label: `${navigator.userAgent.split(" ").slice(-1)[0] || "Browser"} passkey`,
+            },
+          });
+
+          // Save passkey bundle for future logins
+          saveStoredBuyerPasskeyBundle({
+            tenantId: optionsResp.tenantId || passkeyResp?.tenantId,
+            email: email.trim(),
+            credentialId: keypair.keyId,
+            publicKeyPem: keypair.publicKeyPem,
+            privateKeyPem: keypair.privateKeyPem,
+            keyId: keypair.keyId,
+            label: "Browser passkey",
+            createdAt: new Date().toISOString(),
+          });
+
+          // Session cookie is now set — fetch principal
+          const principal = await fetchSessionPrincipal();
+          const runtime = loadRuntimeConfig();
+          const tenantId = optionsResp.tenantId || passkeyResp?.tenantId || principal?.tenantId || runtime.tenantId;
+          saveRuntime({ ...runtime, tenantId });
+          saveOnboardingState({ buyer: principal, sessionExpected: true });
+          passkeySuccess = true;
+          onAuth?.("onboarding");
+        }
+      } catch {
+        // Passkey not supported or failed — fall through to OTP flow
+      }
+
+      if (!passkeySuccess) {
+        // Standard signup: sends OTP email
+        const result = await authRequest({
+          pathname: "/v1/public/signup",
+          body: { email: email.trim(), company: company.trim() },
+        });
+        setSignupResult(result);
+        setStep("otp");
       }
     } catch (err) {
       setError(err?.message || "Sign up failed. Please try again.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmitOtp(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const tenantId = signupResult?.tenantId;
+
+      // Verify OTP to complete signup — the backend activates the session cookie on this call
+      if (tenantId) {
+        await authRequest({
+          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+          body: { email: email.trim(), code: otpCode.trim() },
+        });
+      }
+
+      // Session should now be active — fetch principal
+      const principal = await fetchSessionPrincipal();
+      const runtime = loadRuntimeConfig();
+      saveRuntime({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId });
+      saveOnboardingState({ buyer: principal, sessionExpected: true });
+
+      // Try to register a passkey now that we have a session
+      try {
+        const keypair = await generateBrowserEd25519KeypairPem();
+        const optionsResp = await authRequest({
+          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
+          body: { email: email.trim() },
+        });
+        if (optionsResp?.challenge && optionsResp?.challengeId) {
+          const signature = await signBrowserPasskeyChallengeBase64Url({
+            privateKeyPem: keypair.privateKeyPem,
+            challenge: optionsResp.challenge,
+          });
+          await authRequest({
+            pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`,
+            body: {
+              challengeId: optionsResp.challengeId,
+              challenge: optionsResp.challenge,
+              credentialId: keypair.keyId,
+              publicKeyPem: keypair.publicKeyPem,
+              signature,
+              label: "Browser passkey",
+            },
+          });
+          saveStoredBuyerPasskeyBundle({
+            tenantId,
+            email: email.trim(),
+            credentialId: keypair.keyId,
+            publicKeyPem: keypair.publicKeyPem,
+            privateKeyPem: keypair.privateKeyPem,
+            keyId: keypair.keyId,
+            label: "Browser passkey",
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // Passkey registration is optional — not fatal
+      }
+
+      onAuth?.("onboarding");
+    } catch (err) {
+      setError(err?.message || "Invalid code. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (step === "otp") {
+    return (
+      <div style={S.authWrap}>
+        <div style={S.authBox} className="lovable-fade">
+          <h1 style={S.authTitle}>Check your email</h1>
+          <p style={S.authSub}>
+            We sent a 6-digit code to <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>.
+            Enter it below to verify your account.
+          </p>
+          {error && <div style={S.error}>{error}</div>}
+          <form onSubmit={handleSubmitOtp}>
+            <label style={S.label}>Verification code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              required
+              autoFocus
+              style={{
+                ...S.otpInput,
+                ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}),
+              }}
+            />
+            <button
+              type="submit"
+              style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }}
+              disabled={loading || otpCode.length < 6}
+            >
+              {loading ? "Verifying..." : "Verify and continue"}
+            </button>
+          </form>
+          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "0.82rem" }}>
+            Didn't receive a code?{" "}
+            <button
+              style={S.btnGhost}
+              onClick={async () => {
+                setError("");
+                try {
+                  await authRequest({
+                    pathname: "/v1/public/signup",
+                    body: { email: email.trim(), company: company.trim() },
+                  });
+                } catch { /* ignore */ }
+              }}
+            >
+              Resend
+            </button>
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -521,7 +740,7 @@ function SignUpView({ onAuth }) {
           Deploy AI workers that handle real work — monitored, governed, on your terms.
         </p>
         {error && <div style={S.error}>{error}</div>}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmitForm}>
           <label style={S.label}>Email</label>
           <FocusInput
             type="email"
@@ -531,13 +750,13 @@ function SignUpView({ onAuth }) {
             required
             autoFocus
           />
-          <label style={S.label}>Password</label>
+          <label style={S.label}>Company name</label>
           <FocusInput
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            minLength={8}
+            type="text"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="Acme Corp"
+            required
           />
           <button
             type="submit"
@@ -559,12 +778,14 @@ function SignUpView({ onAuth }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH: SignInView
+   AUTH: SignInView — real Magic Link login
    ═══════════════════════════════════════════════════════════ */
 
 function SignInView({ onAuth }) {
+  const [step, setStep] = useState("form"); // "form" | "otp"
+  const [tenantId, setTenantId] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -572,31 +793,130 @@ function SignInView({ onAuth }) {
     e.preventDefault();
     setError("");
     setLoading(true);
+    const tid = tenantId.trim();
+    const em = email.trim();
     try {
-      const runtime = loadRuntimeConfig();
-      const result = await requestJson({
-        baseUrl: runtime.authBaseUrl,
-        pathname: "/auth/login",
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: { email: email.trim(), password },
-      });
-      if (result?.apiKey || result?.token) {
-        const updated = {
-          ...runtime,
-          apiKey: result.apiKey || result.token || "",
-          tenantId: result.tenantId || runtime.tenantId,
-        };
-        saveRuntime(updated);
-        onAuth?.("dashboard");
-      } else {
-        onAuth?.("dashboard");
+      // Check if we have a stored passkey for this tenant/email
+      const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+
+      if (storedPasskey) {
+        // Passkey login flow
+        const optionsResp = await authRequest({
+          pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`,
+          body: { email: em },
+        });
+
+        if (optionsResp?.challenge && optionsResp?.challengeId) {
+          const signature = await signBrowserPasskeyChallengeBase64Url({
+            privateKeyPem: storedPasskey.privateKeyPem,
+            challenge: optionsResp.challenge,
+          });
+
+          await authRequest({
+            pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`,
+            body: {
+              challengeId: optionsResp.challengeId,
+              challenge: optionsResp.challenge,
+              credentialId: storedPasskey.credentialId,
+              publicKeyPem: storedPasskey.publicKeyPem,
+              signature,
+            },
+          });
+
+          touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+
+          // Session is active — confirm
+          const principal = await fetchSessionPrincipal();
+          const runtime = loadRuntimeConfig();
+          saveRuntime({ ...runtime, tenantId: tid });
+          saveOnboardingState({ buyer: principal, sessionExpected: true });
+          onAuth?.("dashboard");
+          return;
+        }
       }
+
+      // No passkey or passkey flow failed — fall back to OTP
+      await authRequest({
+        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`,
+        body: { email: em },
+      });
+      setStep("otp");
     } catch (err) {
       setError(err?.message || "Sign in failed. Check your credentials.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmitOtp(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const tid = tenantId.trim();
+    const em = email.trim();
+    try {
+      await authRequest({
+        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login`,
+        body: { email: em, code: otpCode.trim() },
+      });
+
+      const principal = await fetchSessionPrincipal();
+      const runtime = loadRuntimeConfig();
+      saveRuntime({ ...runtime, tenantId: tid });
+      saveOnboardingState({ buyer: principal, sessionExpected: true });
+      onAuth?.("dashboard");
+    } catch (err) {
+      setError(err?.message || "Invalid code. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (step === "otp") {
+    return (
+      <div style={S.authWrap}>
+        <div style={S.authBox} className="lovable-fade">
+          <h1 style={S.authTitle}>Check your email</h1>
+          <p style={S.authSub}>
+            We sent a 6-digit code to <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>.
+          </p>
+          {error && <div style={S.error}>{error}</div>}
+          <form onSubmit={handleSubmitOtp}>
+            <label style={S.label}>Verification code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              required
+              autoFocus
+              style={{
+                ...S.otpInput,
+                ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}),
+              }}
+            />
+            <button
+              type="submit"
+              style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }}
+              disabled={loading || otpCode.length < 6}
+            >
+              {loading ? "Verifying..." : "Sign in"}
+            </button>
+          </form>
+          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "0.82rem" }}>
+            <button
+              style={S.btnGhost}
+              onClick={() => { setStep("form"); setOtpCode(""); setError(""); }}
+            >
+              Back to login
+            </button>
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -608,21 +928,21 @@ function SignInView({ onAuth }) {
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
+          <label style={S.label}>Tenant ID</label>
+          <FocusInput
+            type="text"
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            placeholder="tenant_abc123"
+            required
+            autoFocus
+          />
           <label style={S.label}>Email</label>
           <FocusInput
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com"
-            required
-            autoFocus
-          />
-          <label style={S.label}>Password</label>
-          <FocusInput
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Your password"
             required
           />
           <button
@@ -637,9 +957,6 @@ function SignInView({ onAuth }) {
           <a href="/signup" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/signup"); }}>
             Create account
           </a>
-          <button style={S.btnGhost} onClick={() => {}}>
-            Forgot password?
-          </button>
         </div>
       </div>
     </div>
@@ -685,6 +1002,7 @@ function OnboardingView({ onComplete }) {
       }
       saveOnboardingState({
         buyer: loadOnboardingState()?.buyer || null,
+        sessionExpected: true,
         completed: true,
         companyName: companyName.trim(),
         provider,
@@ -975,8 +1293,10 @@ function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
       </a>
       <button
         style={{ ...S.navItem, color: "var(--neutral-500)", marginTop: "0.5rem" }}
-        onClick={() => {
+        onClick={async () => {
+          await logoutSession();
           try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
+          try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
           navigate("/login");
         }}
       >
@@ -1609,9 +1929,11 @@ function SettingsView() {
 
           <button
             style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}
-            onClick={() => {
+            onClick={async () => {
               if (window.confirm("Sign out of this workspace?")) {
+                await logoutSession();
                 try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
+                try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
                 navigate("/login");
               }
             }}
@@ -1829,15 +2151,80 @@ function DashboardShell({ initialView = "workers" }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PRODUCT SHELL — top-level mode router
+   PRODUCT SHELL — top-level mode router with session check
    ═══════════════════════════════════════════════════════════ */
 
 export default function ProductShell({ mode, launchId, agentId, runId, requestedPath }) {
-  const [currentMode, setCurrentMode] = useState(mode);
+  const [currentMode, setCurrentMode] = useState(null); // null = checking session
+  const [sessionChecked, setSessionChecked] = useState(false);
 
+  // On mount, check for an existing session
   useEffect(() => {
-    setCurrentMode(mode);
+    let cancelled = false;
+
+    async function checkSession() {
+      // If the mode is explicitly an auth page, skip session check
+      if (mode === "signup" || mode === "pricing") {
+        setCurrentMode(mode);
+        setSessionChecked(true);
+        return;
+      }
+
+      try {
+        const principal = await fetchSessionPrincipal();
+        if (!cancelled && principal && principal.email) {
+          // Session is valid — save state and go to requested view or dashboard
+          const runtime = loadRuntimeConfig();
+          if (principal.tenantId) {
+            saveRuntime({ ...runtime, tenantId: principal.tenantId });
+          }
+          saveOnboardingState({
+            ...loadOnboardingState(),
+            buyer: principal,
+            sessionExpected: true,
+          });
+
+          // Check if onboarding was completed
+          const onboardState = loadOnboardingState();
+          if (onboardState?.completed || mode === "dashboard" || mode === "wallet" || mode === "approvals" || mode === "receipts" || mode === "workspace" || mode === "disputes") {
+            setCurrentMode(mode === "login" ? "dashboard" : mode);
+          } else {
+            setCurrentMode("onboarding");
+          }
+          setSessionChecked(true);
+          return;
+        }
+      } catch {
+        // No valid session
+      }
+
+      if (!cancelled) {
+        // No session — show login unless explicitly requesting signup/pricing
+        if (mode === "login" || mode === "signup" || mode === "pricing") {
+          setCurrentMode(mode);
+        } else {
+          setCurrentMode("login");
+        }
+        setSessionChecked(true);
+      }
+    }
+
+    checkSession();
+    return () => { cancelled = true; };
   }, [mode]);
+
+  // Update mode when prop changes (after initial session check)
+  useEffect(() => {
+    if (sessionChecked) {
+      // Only update for non-auth modes if we have a session
+      const onboardState = loadOnboardingState();
+      if (onboardState?.sessionExpected) {
+        setCurrentMode(mode);
+      } else if (mode === "signup" || mode === "login" || mode === "pricing") {
+        setCurrentMode(mode);
+      }
+    }
+  }, [mode, sessionChecked]);
 
   function handleAuth(dest) {
     if (dest === "onboarding") {
@@ -1854,7 +2241,24 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
     setCurrentMode("dashboard");
   }
 
-  // Map modes to views
+  // Show loading state while checking session
+  if (!sessionChecked) {
+    return (
+      <div style={S.shell}>
+        <div style={S.authWrap}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.5rem" }}>
+              nooterra
+            </div>
+            <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>
+              Loading...
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const resolvedMode = currentMode;
 
   return (
