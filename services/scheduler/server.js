@@ -688,15 +688,17 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
       return;
     }
-    try {
-      const status = await getBillingStatus(tenantId, pool);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(status));
-    } catch (err) {
-      log('error', `Billing status error: ${err.message}`);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
-    }
+    (async () => {
+      try {
+        const status = await getBillingStatus(tenantId, pool);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(status));
+      } catch (err) {
+        log('error', `Billing status error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    })();
     return;
   }
 
