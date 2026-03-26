@@ -11,7 +11,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import net from 'net';
+import dns from 'dns';
+import { promisify } from 'util';
 import { execSync } from 'child_process';
+
+const dnsResolve = promisify(dns.resolve4);
 
 const HOME = os.homedir();
 const NOOTERRA_DIR = path.join(HOME, '.nooterra');
@@ -76,6 +80,66 @@ function isPathSafe(p) {
 }
 
 // ---------------------------------------------------------------------------
+// SSRF protection — block requests to private/internal network addresses
+// ---------------------------------------------------------------------------
+
+function isPrivateIP(ip) {
+  // IPv6 loopback
+  if (ip === '::1') return true;
+  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
+  const v4match = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  const v4 = v4match ? v4match[1] : ip;
+
+  const parts = v4.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(p => isNaN(p))) return false;
+
+  const [a, b] = parts;
+  // 0.0.0.0
+  if (v4 === '0.0.0.0') return true;
+  // 127.0.0.0/8 (loopback)
+  if (a === 127) return true;
+  // 10.0.0.0/8
+  if (a === 10) return true;
+  // 172.16.0.0/12
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // 192.168.0.0/16
+  if (a === 192 && b === 168) return true;
+  // 169.254.0.0/16 (link-local)
+  if (a === 169 && b === 254) return true;
+
+  return false;
+}
+
+async function assertNotPrivateUrl(urlString) {
+  const parsed = new URL(urlString);
+  const hostname = parsed.hostname;
+
+  // Block localhost and .local domains
+  if (hostname === 'localhost' || hostname.endsWith('.local')) {
+    throw new Error('Blocked: cannot fetch from private/internal network addresses');
+  }
+
+  // If hostname is already an IP, check directly
+  if (isPrivateIP(hostname)) {
+    throw new Error('Blocked: cannot fetch from private/internal network addresses');
+  }
+
+  // Resolve hostname to IP and check
+  try {
+    const addresses = await dnsResolve(hostname);
+    for (const addr of addresses) {
+      if (isPrivateIP(addr)) {
+        throw new Error('Blocked: cannot fetch from private/internal network addresses');
+      }
+    }
+  } catch (err) {
+    // If the error is our own block, re-throw
+    if (err.message.startsWith('Blocked:')) throw err;
+    // DNS resolution failure — let fetch handle it naturally
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
 
@@ -102,6 +166,9 @@ const BUILT_IN_TOOLS = {
     execute: async (args) => {
       const { url, method = 'GET', headers = {}, body, extract = 'text' } = args;
       if (!url) throw new Error('url is required');
+
+      // SSRF protection: block private/internal network addresses
+      await assertNotPrivateUrl(url);
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -161,7 +228,7 @@ const BUILT_IN_TOOLS = {
   // =========================================================================
   web_search: {
     name: 'web_search',
-    description: 'Search the web. Uses Brave Search API (if key available), DuckDuckGo, or Google as fallback. Returns top results with title, URL, and snippet.',
+    description: 'Search the web. Uses Brave Search API (if key available) or DuckDuckGo HTML as fallback. Returns top results with title, URL, and snippet.',
     parameters: {
       type: 'object',
       properties: {
@@ -215,23 +282,21 @@ const BUILT_IN_TOOLS = {
       }
 
       // -----------------------------------------------------------------
-      // Strategy 2: DuckDuckGo HTML scrape (free, no key)
+      // Strategy 2: DuckDuckGo HTML search (free, no key)
+      // Uses html.duckduckgo.com with GET request
       // -----------------------------------------------------------------
       async function searchDuckDuckGo() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15_000);
         try {
-          // Use lite.duckduckgo.com — simpler HTML, less likely to CAPTCHA
-          const url = `https://lite.duckduckgo.com/lite/`;
+          const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           const response = await fetch(url, {
-            method: 'POST',
+            method: 'GET',
             headers: {
               'User-Agent': BROWSER_UA,
               'Accept': 'text/html',
               'Accept-Language': 'en-US,en;q=0.9',
-              'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: `q=${encodeURIComponent(query)}`,
             redirect: 'follow',
             signal: controller.signal
           });
@@ -239,22 +304,31 @@ const BUILT_IN_TOOLS = {
           const html = await response.text();
           const results = [];
 
-          // Lite version: extract all external https links with their text
-          const linkMatches = [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
+          // Extract result links: <a class="result__a" ...>
+          const linkMatches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
 
           for (const match of linkMatches) {
             if (results.length >= num_results) break;
-            const resultUrl = match[1];
+            let resultUrl = match[1];
             const title = stripHtml(match[2]).trim();
 
-            // Skip DuckDuckGo internal links and empty titles
+            // Skip empty titles
             if (!title || title.length < 3) continue;
+
+            // DuckDuckGo sometimes wraps URLs in a redirect — extract the real URL
+            const uddgMatch = resultUrl.match(/[?&]uddg=([^&]+)/);
+            if (uddgMatch) {
+              resultUrl = decodeURIComponent(uddgMatch[1]);
+            }
+
+            // Skip DuckDuckGo internal links
             if (resultUrl.includes('duckduckgo.com')) continue;
             if (resultUrl.includes('duck.co')) continue;
 
-            // Try to get a snippet — look for text after this link
-            const afterLink = html.slice(html.indexOf(match[0]) + match[0].length, html.indexOf(match[0]) + match[0].length + 500);
-            const snippetMatch = afterLink.match(/<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/);
+            // Extract snippet from <a class="result__snippet"> nearby
+            const matchPos = html.indexOf(match[0]);
+            const afterLink = html.slice(matchPos, matchPos + 2000);
+            const snippetMatch = afterLink.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
             const snippet = snippetMatch ? stripHtml(snippetMatch[1]).trim() : '';
 
             results.push({ title, url: resultUrl, snippet });
@@ -266,78 +340,14 @@ const BUILT_IN_TOOLS = {
         }
       }
 
-      // -----------------------------------------------------------------
-      // Strategy 3: Google HTML scrape (fallback)
-      // -----------------------------------------------------------------
-      async function searchGoogle() {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15_000);
-        try {
-          const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${num_results}&hl=en`;
-          const response = await fetch(url, {
-            headers: {
-              'User-Agent': BROWSER_UA,
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Referer': 'https://www.google.com/'
-            },
-            redirect: 'follow',
-            signal: controller.signal
-          });
-
-          const html = await response.text();
-          const results = [];
-
-          // Google results are in <div class="g"> blocks
-          // Each contains an <a href="URL"> and <h3> for the title
-          const gBlocks = html.split(/<div class="g"/);
-
-          for (let i = 1; i < gBlocks.length && results.length < num_results; i++) {
-            const block = gBlocks[i];
-
-            // Extract the first <a href="..."> that points to an external URL
-            const linkMatch = block.match(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>/);
-            if (!linkMatch) continue;
-            const resultUrl = linkMatch[1];
-
-            // Skip Google's own links
-            if (resultUrl.includes('google.com/search') || resultUrl.includes('accounts.google.com')) continue;
-
-            // Extract title from <h3>
-            const h3Match = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
-            const title = h3Match ? stripHtml(h3Match[1]).trim() : '';
-
-            // Extract snippet — Google uses various containers, look for common patterns
-            let snippet = '';
-            // Try data-sncf attribute spans (common in modern Google)
-            const snipMatch = block.match(/<span[^>]*class="[^"]*"[^>]*>([\s\S]*?)<\/span>\s*<\/div>\s*<\/div>/);
-            if (snipMatch) {
-              snippet = stripHtml(snipMatch[1]).trim();
-            }
-            // Fallback: grab text after the URL display line
-            if (!snippet) {
-              const emMatch = block.match(/<em>([\s\S]*?)<\/em>/);
-              if (emMatch) snippet = stripHtml(emMatch[1]).trim();
-            }
-
-            if (title && resultUrl) {
-              results.push({ title, url: resultUrl, snippet });
-            }
-          }
-
-          return results.length > 0 ? results : null;
-        } finally {
-          clearTimeout(timeout);
-        }
-      }
+      // Google scraping removed — always hits CAPTCHA
 
       // -----------------------------------------------------------------
-      // Execute the search chain: Brave -> DuckDuckGo -> Google
+      // Execute the search chain: Brave -> DuckDuckGo
       // -----------------------------------------------------------------
       const strategies = [
         { name: 'Brave Search API', fn: searchBrave },
-        { name: 'DuckDuckGo', fn: searchDuckDuckGo },
-        { name: 'Google', fn: searchGoogle }
+        { name: 'DuckDuckGo', fn: searchDuckDuckGo }
       ];
 
       for (const strategy of strategies) {
@@ -356,9 +366,9 @@ const BUILT_IN_TOOLS = {
       return JSON.stringify({
         query,
         results: [],
-        error: 'All search engines failed or returned no results.',
-        details: errors.length > 0 ? errors : ['DuckDuckGo and Google returned 0 results. Try a more specific query.'],
-        hint: 'For reliable results, add a Brave Search API key: save it to ~/.nooterra/credentials/brave-search-token.txt or set BRAVE_API_KEY env. Free tier at https://brave.com/search/api/'
+        error: 'Search unavailable. Set BRAVE_API_KEY for reliable search, or use web_fetch to search specific sites directly.',
+        details: errors.length > 0 ? errors : undefined,
+        hint: 'Save a Brave Search API key to ~/.nooterra/credentials/brave-search-token.txt or set BRAVE_API_KEY env. Free tier at https://brave.com/search/api/'
       }, null, 2);
     }
   },
