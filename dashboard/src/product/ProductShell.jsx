@@ -358,19 +358,23 @@ function NooterraLogo({ height = 24, style: extraStyle }) {
    =================================================================== */
 
 const A = {
-  wrap: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "#ffffff", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", WebkitFontSmoothing: "antialiased" },
-  inner: { width: "100%", maxWidth: 400 },
-  logo: { fontSize: 24, fontWeight: 700, color: "#1a1a1a", marginBottom: "3rem", letterSpacing: "-0.02em" },
-  heading: { fontSize: 28, fontWeight: 700, color: "#1a1a1a", marginBottom: "0.5rem", lineHeight: 1.2 },
-  sub: { fontSize: 15, color: "#6b7280", marginBottom: "2rem", lineHeight: 1.5 },
-  input: { display: "block", width: "100%", padding: "14px 20px", fontSize: 15, background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#1a1a1a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
-  inputFocus: { borderColor: "#1a1a1a" },
-  otpInput: { display: "block", width: "100%", padding: "14px 20px", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#1a1a1a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
-  btn: { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "14px 20px", fontSize: 15, fontWeight: 600, background: "#1a1a1a", color: "#ffffff", border: "none", borderRadius: 9999, cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s", letterSpacing: "0.01em" },
-  error: { fontSize: 14, color: "#dc2626", marginBottom: "1rem", lineHeight: 1.4 },
-  links: { display: "flex", justifyContent: "center", gap: "1rem", marginTop: "2.5rem" },
-  link: { fontSize: 13, color: "#6b7280", textDecoration: "none", cursor: "pointer", background: "none", border: "none", fontFamily: "inherit", padding: 0 },
-  resend: { fontSize: 14, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: "1.5rem", textAlign: "center", width: "100%" },
+  wrap: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem 1.5rem", background: "#ffffff", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", WebkitFontSmoothing: "antialiased" },
+  inner: { width: "100%", maxWidth: 380, textAlign: "center" },
+  logo: { fontSize: 28, fontWeight: 800, color: "#0a0a0a", marginBottom: "3.5rem", letterSpacing: "-0.03em", textAlign: "left" },
+  heading: { fontSize: 32, fontWeight: 700, color: "#0a0a0a", marginBottom: "0.75rem", lineHeight: 1.15 },
+  sub: { fontSize: 16, color: "#6b7280", marginBottom: "2.5rem", lineHeight: 1.5 },
+  label: { display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: "0.4rem", textAlign: "left" },
+  input: { display: "block", width: "100%", padding: "16px 22px", fontSize: 16, background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#0a0a0a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s", boxSizing: "border-box" },
+  inputFocus: { borderColor: "#0a0a0a", boxShadow: "0 0 0 1px #0a0a0a" },
+  otpInput: { display: "block", width: "100%", padding: "18px 22px", fontSize: "1.75rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#0a0a0a", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s", boxSizing: "border-box" },
+  btn: { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "16px 22px", fontSize: 16, fontWeight: 600, background: "#0a0a0a", color: "#ffffff", border: "none", borderRadius: 9999, cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s, transform 0.1s", letterSpacing: "0.01em", marginTop: "0.5rem" },
+  error: { fontSize: 14, color: "#dc2626", marginBottom: "1rem", lineHeight: 1.4, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "10px 16px", textAlign: "left" },
+  divider: { display: "flex", alignItems: "center", gap: "1rem", margin: "1.5rem 0", color: "#9ca3af", fontSize: 13 },
+  dividerLine: { flex: 1, height: 1, background: "#e5e7eb" },
+  links: { display: "flex", justifyContent: "center", gap: "0.5rem", marginTop: "3rem", alignItems: "center" },
+  link: { fontSize: 13, color: "#9ca3af", textDecoration: "none", cursor: "pointer", background: "none", border: "none", fontFamily: "inherit", padding: 0 },
+  linkSep: { fontSize: 13, color: "#d1d5db" },
+  resend: { fontSize: 14, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: "1.5rem", textAlign: "center", width: "100%", textDecoration: "underline", textUnderlineOffset: "2px" },
 };
 
 function AuthInput({ style, ...props }) {
