@@ -1,128 +1,124 @@
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
 
 :root {
-  /* Warm-tinted neutral scale */
-  --neutral-950: #0d0c0a;
-  --neutral-900: #161412;
-  --neutral-800: #1f1d1a;
-  --neutral-700: #2e2b27;
-  --neutral-600: #484440;
-  --neutral-500: #6b665f;
-  --neutral-400: #918a82;
-  --neutral-300: #b5afa6;
-  --neutral-200: #d4cfc7;
-  --neutral-100: #ebe8e2;
-  --neutral-50: #f5f3ef;
-
-  /* Brand gold — used sparingly */
+  /* Dark mode (default) */
+  --bg-primary: #1a1a1a;
+  --bg-sidebar: #141414;
+  --bg-surface: #242424;
+  --bg-hover: #2a2a2a;
+  --text-primary: #ececec;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #666666;
+  --border: rgba(255,255,255,0.08);
   --gold: #d2b06f;
   --gold-hover: #c4a05f;
-  --gold-dim: rgba(210, 176, 111, 0.12);
-
-  /* Font stack */
+  --gold-dim: rgba(210,176,111,0.12);
   --font-body: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
-/* ── Base ── */
+[data-theme="light"] {
+  --bg-primary: #f7f5f0;
+  --bg-sidebar: #edeae3;
+  --bg-surface: #ffffff;
+  --bg-hover: #e8e5de;
+  --text-primary: #2d2a24;
+  --text-secondary: #6b665f;
+  --text-tertiary: #9e9890;
+  --border: rgba(0,0,0,0.08);
+  --gold: #b89a5a;
+  --gold-hover: #a68a4a;
+  --gold-dim: rgba(184,154,90,0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] {
+    --bg-primary: #f7f5f0;
+    --bg-sidebar: #edeae3;
+    --bg-surface: #ffffff;
+    --bg-hover: #e8e5de;
+    --text-primary: #2d2a24;
+    --text-secondary: #6b665f;
+    --text-tertiary: #9e9890;
+    --border: rgba(0,0,0,0.08);
+    --gold: #b89a5a;
+    --gold-hover: #a68a4a;
+    --gold-dim: rgba(184,154,90,0.12);
+  }
+}
 
 body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  margin: 0;
 }
 
-/* ── Fade entrance animation ── */
-
+/* Fade entrance */
 .lovable-fade {
   opacity: 0;
   transform: translateY(14px);
-  animation: lovable-fade-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: lovable-fade-in 0.65s cubic-bezier(0.22,1,0.36,1) forwards;
 }
-
 @keyframes lovable-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Pulse for status dots ── */
-
+/* Pulse for status dots */
 @keyframes lovable-pulse {
-  0%, 100% { opacity: 1; }
+  0%,100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+.lovable-pulse { animation: lovable-pulse 2s ease-in-out infinite; }
 
-.lovable-pulse {
-  animation: lovable-pulse 2s ease-in-out infinite;
+/* Popover animation */
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.popover-animate { animation: popover-in 150ms cubic-bezier(0.16,1,0.3,1) forwards; }
+
+/* Modal backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-content {
+  animation: popover-in 150ms cubic-bezier(0.16,1,0.3,1) forwards;
 }
 
-/* ── Reduced motion ── */
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
 
+/* Sidebar collapse */
+.sidebar-wrap {
+  transition: width 200ms cubic-bezier(0.16,1,0.3,1);
+  overflow: hidden;
+}
+
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .lovable-fade {
-    opacity: 1;
-    transform: none;
-    animation: none;
-  }
-
-  .lovable-pulse {
-    animation: none;
-  }
-
-  *,
-  *::before,
-  *::after {
+  .lovable-fade { opacity: 1; transform: none; animation: none; }
+  .lovable-pulse { animation: none; }
+  .popover-animate { animation: none; opacity: 1; transform: none; }
+  .modal-content { animation: none; opacity: 1; transform: none; }
+  .sidebar-wrap { transition: none; }
+  *,*::before,*::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
 
-/* ── Tabular nums for data ── */
+.tabular-nums { font-variant-numeric: tabular-nums; }
 
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Light theme overrides ── */
-
-[data-theme="light"] {
-  --neutral-950: #f5f3ef;
-  --neutral-900: #ebe8e2;
-  --neutral-800: #d4cfc7;
-  --neutral-700: #b5afa6;
-  --neutral-600: #918a82;
-  --neutral-500: #6b665f;
-  --neutral-400: #484440;
-  --neutral-300: #2e2b27;
-  --neutral-200: #1f1d1a;
-  --neutral-100: #161412;
-  --neutral-50: #0d0c0a;
-  --gold: #b89a5a;
-  --gold-hover: #a68a4a;
-}
-
-/* ── Auto follows system preference ── */
-
-@media (prefers-color-scheme: light) {
-  [data-theme="auto"] {
-    --neutral-950: #f5f3ef;
-    --neutral-900: #ebe8e2;
-    --neutral-800: #d4cfc7;
-    --neutral-700: #b5afa6;
-    --neutral-600: #918a82;
-    --neutral-500: #6b665f;
-    --neutral-400: #484440;
-    --neutral-300: #2e2b27;
-    --neutral-200: #1f1d1a;
-    --neutral-100: #161412;
-    --neutral-50: #0d0c0a;
-    --gold: #b89a5a;
-    --gold-hover: #a68a4a;
-  }
-}
+/* Scrollbar styling for sidebar */
+.sidebar-inner::-webkit-scrollbar { width: 4px; }
+.sidebar-inner::-webkit-scrollbar-track { background: transparent; }
+.sidebar-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

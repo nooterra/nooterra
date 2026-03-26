@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   decideApprovalInboxItem,
   DEFAULT_AUTH_BASE_URL,
@@ -77,9 +77,7 @@ const STARTER_TEMPLATES = [
   },
 ];
 
-function cls(...args) {
-  return args.filter(Boolean).join(" ");
-}
+function cls(...args) { return args.filter(Boolean).join(" "); }
 
 function timeAgo(dateStr) {
   if (!dateStr) return "";
@@ -94,39 +92,27 @@ function timeAgo(dateStr) {
 }
 
 function saveRuntime(config) {
-  try {
-    localStorage.setItem(PRODUCT_RUNTIME_STORAGE_KEY, JSON.stringify(config));
-  } catch { /* ignore */ }
+  try { localStorage.setItem(PRODUCT_RUNTIME_STORAGE_KEY, JSON.stringify(config)); } catch { /* ignore */ }
 }
 
 function loadOnboardingState() {
-  try {
-    return JSON.parse(localStorage.getItem(ONBOARDING_STORAGE_KEY) || "null") || null;
-  } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(ONBOARDING_STORAGE_KEY) || "null") || null; } catch { return null; }
 }
 
 function saveOnboardingState(state) {
-  try {
-    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(state));
-  } catch { /* ignore */ }
+  try { localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
 }
 
 function loadTheme() {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY) || "dark";
-  } catch { return "dark"; }
+  try { return localStorage.getItem(THEME_STORAGE_KEY) || "dark"; } catch { return "dark"; }
 }
 
 function saveTheme(theme) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch { /* ignore */ }
+  try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* ignore */ }
   applyTheme(theme);
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-}
+function applyTheme(theme) { document.documentElement.setAttribute("data-theme", theme); }
 
 function navigate(path) {
   window.history.pushState({}, "", path);
@@ -148,10 +134,7 @@ async function workerApiRequest({ pathname, method = "GET", body = null }) {
     baseUrl: WORKER_API_BASE,
     pathname,
     method,
-    headers: {
-      "x-tenant-id": runtime.tenantId,
-      "content-type": "application/json",
-    },
+    headers: { "x-tenant-id": runtime.tenantId, "content-type": "application/json" },
     body,
     credentials: "include",
   });
@@ -175,9 +158,7 @@ async function fetchSessionPrincipal() {
 }
 
 async function logoutSession() {
-  try {
-    await authRequest({ pathname: "/v1/buyer/logout", method: "POST" });
-  } catch { /* ignore */ }
+  try { await authRequest({ pathname: "/v1/buyer/logout", method: "POST" }); } catch { /* ignore */ }
 }
 
 /* ── Template deploy helper ──────────────────────────────── */
@@ -191,61 +172,55 @@ function templateScheduleToApiValue(schedule) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Shared styles
+   Shared inline styles
    ═══════════════════════════════════════════════════════════ */
 
 const S = {
-  shell: { minHeight: "100vh", background: "var(--neutral-950)", color: "var(--neutral-200)", fontFamily: "var(--font-body)", WebkitFontSmoothing: "antialiased" },
+  shell: { minHeight: "100vh", background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: "var(--font-body)", WebkitFontSmoothing: "antialiased" },
   authWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" },
   authBox: { width: "100%", maxWidth: 400 },
-  authTitle: { fontSize: "clamp(1.6rem, 4vw, 2rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.5rem", lineHeight: 1.15 },
-  authSub: { fontSize: "0.95rem", color: "var(--neutral-400)", marginBottom: "2.5rem", lineHeight: 1.5 },
-  label: { display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "0.4rem", letterSpacing: "0.03em", textTransform: "uppercase" },
-  input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s" },
+  authTitle: { fontSize: "clamp(1.6rem, 4vw, 2rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", lineHeight: 1.15 },
+  authSub: { fontSize: "0.95rem", color: "var(--text-secondary)", marginBottom: "2.5rem", lineHeight: 1.5 },
+  label: { display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", marginBottom: "0.4rem", letterSpacing: "0.05em", textTransform: "uppercase" },
+  input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "15px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
   inputFocus: { borderColor: "var(--gold)" },
-  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--gold)", color: "var(--neutral-950)", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
-  btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--neutral-200)", border: "1px solid var(--neutral-700)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--gold)", color: "#1a1a1a", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
+  btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
   btnGhost: { background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
   link: { color: "var(--gold)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
   error: { fontSize: "0.85rem", color: "#c97055", marginBottom: "1rem" },
   success: { fontSize: "0.85rem", color: "#5bb98c", marginBottom: "1rem" },
   appLayout: { display: "flex", minHeight: "100vh" },
-  sidebar: { width: 240, flexShrink: 0, borderRight: "1px solid var(--neutral-800)", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", background: "var(--neutral-950)" },
-  sidebarLogo: { fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", padding: "1.5rem 1.5rem 1rem", letterSpacing: "-0.01em" },
-  navItem: { display: "block", padding: "0.55rem 1.5rem", fontSize: "0.88rem", fontWeight: 500, color: "var(--neutral-400)", cursor: "pointer", textDecoration: "none", transition: "color 0.12s", border: "none", background: "none", width: "100%", textAlign: "left", fontFamily: "inherit" },
-  navItemActive: { color: "var(--neutral-50)" },
-  navSection: { fontSize: "0.7rem", fontWeight: 600, color: "var(--neutral-500)", padding: "1.5rem 1.5rem 0.5rem", letterSpacing: "0.06em", textTransform: "uppercase" },
   main: { flex: 1, padding: "2.5rem 3rem", maxWidth: 960 },
-  pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.3rem" },
-  pageSub: { fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "2rem" },
-  workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1.5rem", padding: "1rem 0", borderBottom: "1px solid var(--neutral-800)", cursor: "pointer", transition: "background 0.1s" },
-  workerName: { fontSize: "0.95rem", fontWeight: 600, color: "var(--neutral-100)" },
-  workerMeta: { fontSize: "0.8rem", color: "var(--neutral-400)", fontVariantNumeric: "tabular-nums" },
-  statusDot: (color) => ({ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, marginRight: 6, verticalAlign: "middle" }),
+  pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" },
+  pageSub: { fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "2rem" },
+  workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1.5rem", padding: "1rem 0", borderBottom: "1px solid var(--border)", cursor: "pointer", transition: "background 0.1s" },
+  workerName: { fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" },
+  workerMeta: { fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" },
+  statusDot: (color) => ({ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, marginRight: 6, verticalAlign: "middle", flexShrink: 0 }),
   charterSection: { marginBottom: "1.5rem" },
-  charterLabel: { fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.5rem" },
-  charterItem: { fontSize: "0.88rem", color: "var(--neutral-300)", padding: "0.3rem 0", lineHeight: 1.5 },
-  approvalRow: { padding: "1.25rem 0", borderBottom: "1px solid var(--neutral-800)" },
+  charterLabel: { fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.5rem" },
+  charterItem: { fontSize: "14px", color: "var(--text-secondary)", padding: "0.3rem 0", lineHeight: 1.6 },
+  approvalRow: { padding: "1.25rem 0", borderBottom: "1px solid var(--border)" },
+  textarea: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "15px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", fontFamily: "inherit", resize: "vertical", minHeight: 120, lineHeight: 1.6, marginBottom: "1.25rem", boxSizing: "border-box" },
+  logEntry: { padding: "0.75rem 0", borderBottom: "1px solid var(--border)" },
+  logTime: { fontSize: "13px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" },
+  logSummary: { fontSize: "14px", color: "var(--text-secondary)", marginTop: "0.2rem", lineHeight: 1.6 },
+  logDetail: { fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.4rem", lineHeight: 1.6, whiteSpace: "pre-wrap", padding: "0.75rem 1rem", background: "var(--bg-surface)", borderRadius: 6 },
+  backLink: { display: "inline-block", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)", marginBottom: "2rem", cursor: "pointer", background: "none", border: "none", padding: 0, fontFamily: "inherit" },
+  otpInput: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
   pricingWrap: { minHeight: "100vh", padding: "6rem 2rem 4rem", maxWidth: 1100, margin: "0 auto" },
-  pricingTitle: { fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.75rem", lineHeight: 1.1 },
-  tier: { padding: "2.5rem 0", borderBottom: "1px solid var(--neutral-800)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem", alignItems: "start" },
-  tierName: { fontSize: "1.25rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.3rem" },
-  tierPrice: { fontSize: "0.95rem", color: "var(--neutral-400)", marginBottom: "1rem" },
-  tierFeature: { fontSize: "0.88rem", color: "var(--neutral-300)", padding: "0.25rem 0", lineHeight: 1.5 },
-  textarea: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", fontFamily: "inherit", resize: "vertical", minHeight: 120, lineHeight: 1.5, marginBottom: "1.25rem" },
-  select: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "0.95rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", fontFamily: "inherit", marginBottom: "1.25rem", appearance: "none" },
-  logEntry: { padding: "0.75rem 0", borderBottom: "1px solid var(--neutral-800)" },
-  logTime: { fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" },
-  logSummary: { fontSize: "0.88rem", color: "var(--neutral-300)", marginTop: "0.2rem", lineHeight: 1.5 },
-  logDetail: { fontSize: "0.82rem", color: "var(--neutral-500)", marginTop: "0.4rem", lineHeight: 1.5, whiteSpace: "pre-wrap", padding: "0.75rem 1rem", background: "var(--neutral-900)", borderRadius: 6 },
-  backLink: { display: "inline-block", fontSize: "0.82rem", fontWeight: 500, color: "var(--neutral-400)", marginBottom: "2rem", cursor: "pointer", background: "none", border: "none", padding: 0, fontFamily: "inherit" },
-  otpInput: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, color: "var(--neutral-100)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s" },
+  pricingTitle: { fontSize: "clamp(2rem, 5vw, 3rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", lineHeight: 1.1 },
+  tier: { padding: "2.5rem 0", borderBottom: "1px solid var(--border)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3rem", alignItems: "start" },
+  tierName: { fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" },
+  tierPrice: { fontSize: "15px", color: "var(--text-secondary)", marginBottom: "1rem" },
+  tierFeature: { fontSize: "14px", color: "var(--text-secondary)", padding: "0.25rem 0", lineHeight: 1.6 },
 };
 
 const STATUS_COLORS = {
   running: "#5bb98c",
   paused: "var(--gold)",
-  ready: "var(--neutral-400)",
+  ready: "var(--text-tertiary)",
   error: "#c97055",
 };
 
@@ -258,11 +233,7 @@ function FocusInput({ style, ...props }) {
   return (
     <input
       {...props}
-      style={{
-        ...S.input,
-        ...style,
-        ...(focused ? S.inputFocus : {}),
-      }}
+      style={{ ...S.input, ...style, ...(focused ? S.inputFocus : {}) }}
       onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
       onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
     />
@@ -270,8 +241,16 @@ function FocusInput({ style, ...props }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SendArrow — inline SVG send button
+   Inline SVG icons
    ═══════════════════════════════════════════════════════════ */
+
+function HamburgerIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" style={{ display: "block" }}>
+      <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function SendArrow({ disabled, onClick }) {
   return (
@@ -279,29 +258,17 @@ function SendArrow({ disabled, onClick }) {
       onClick={onClick}
       disabled={disabled}
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: "50%",
-        background: disabled ? "var(--neutral-700)" : "var(--gold)",
-        border: "none",
-        cursor: disabled ? "default" : "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        transition: "background 0.15s",
-        opacity: disabled ? 0.5 : 1,
+        width: 32, height: 32, borderRadius: "50%",
+        background: disabled ? "var(--bg-hover)" : "var(--text-primary)",
+        border: "none", cursor: disabled ? "default" : "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0, transition: "opacity 150ms",
+        opacity: disabled ? 0.3 : 1,
       }}
       aria-label="Send"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-        <path
-          d="M3 8h10M9 4l4 4-4 4"
-          stroke={disabled ? "var(--neutral-500)" : "var(--neutral-950)"}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M8 12V4M4 8l4-4 4 4" stroke={disabled ? "var(--text-tertiary)" : "var(--bg-primary)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
   );
@@ -312,7 +279,7 @@ function SendArrow({ disabled, onClick }) {
    ═══════════════════════════════════════════════════════════ */
 
 function SignUpView({ onAuth }) {
-  const [step, setStep] = useState("form"); // "form" | "otp"
+  const [step, setStep] = useState("form");
   const [email, setEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -326,42 +293,15 @@ function SignUpView({ onAuth }) {
     try {
       let passkeySuccess = false;
       try {
-        const optionsResp = await authRequest({
-          pathname: "/v1/public/signup/passkey/options",
-          body: { email: email.trim(), company: email.trim().split("@")[0] },
-        });
-
+        const optionsResp = await authRequest({ pathname: "/v1/public/signup/passkey/options", body: { email: email.trim(), company: email.trim().split("@")[0] } });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
           const keypair = await generateBrowserEd25519KeypairPem();
-          const signature = await signBrowserPasskeyChallengeBase64Url({
-            privateKeyPem: keypair.privateKeyPem,
-            challenge: optionsResp.challenge,
-          });
-
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
           const passkeyResp = await authRequest({
             pathname: "/v1/public/signup/passkey",
-            body: {
-              tenantId: optionsResp.tenantId,
-              challengeId: optionsResp.challengeId,
-              challenge: optionsResp.challenge,
-              credentialId: keypair.keyId,
-              publicKeyPem: keypair.publicKeyPem,
-              signature,
-              label: `${navigator.userAgent.split(" ").slice(-1)[0] || "Browser"} passkey`,
-            },
+            body: { tenantId: optionsResp.tenantId, challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: `${navigator.userAgent.split(" ").slice(-1)[0] || "Browser"} passkey` },
           });
-
-          saveStoredBuyerPasskeyBundle({
-            tenantId: optionsResp.tenantId || passkeyResp?.tenantId,
-            email: email.trim(),
-            credentialId: keypair.keyId,
-            publicKeyPem: keypair.publicKeyPem,
-            privateKeyPem: keypair.privateKeyPem,
-            keyId: keypair.keyId,
-            label: "Browser passkey",
-            createdAt: new Date().toISOString(),
-          });
-
+          saveStoredBuyerPasskeyBundle({ tenantId: optionsResp.tenantId || passkeyResp?.tenantId, email: email.trim(), credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
           const principal = await fetchSessionPrincipal();
           const runtime = loadRuntimeConfig();
           const tenantId = optionsResp.tenantId || passkeyResp?.tenantId || principal?.tenantId || runtime.tenantId;
@@ -370,23 +310,15 @@ function SignUpView({ onAuth }) {
           passkeySuccess = true;
           onAuth?.("builder");
         }
-      } catch {
-        // Passkey not supported — fall through to OTP
-      }
-
+      } catch { /* Passkey not supported -- fall through to OTP */ }
       if (!passkeySuccess) {
-        const result = await authRequest({
-          pathname: "/v1/public/signup",
-          body: { email: email.trim(), company: email.trim().split("@")[0] },
-        });
+        const result = await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } });
         setSignupResult(result);
         setStep("otp");
       }
     } catch (err) {
       setError(err?.message || "Sign up failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function handleSubmitOtp(e) {
@@ -395,63 +327,26 @@ function SignUpView({ onAuth }) {
     setLoading(true);
     try {
       const tenantId = signupResult?.tenantId;
-
       if (tenantId) {
-        await authRequest({
-          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
-          body: { email: email.trim(), code: otpCode.trim() },
-        });
+        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`, body: { email: email.trim(), code: otpCode.trim() } });
       }
-
       const principal = await fetchSessionPrincipal();
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId });
       saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-
-      // Try to register a passkey now that we have a session
       try {
         const keypair = await generateBrowserEd25519KeypairPem();
-        const optionsResp = await authRequest({
-          pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
-          body: { email: email.trim(), company: email.trim().split("@")[0] },
-        });
+        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`, body: { email: email.trim(), company: email.trim().split("@")[0] } });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({
-            privateKeyPem: keypair.privateKeyPem,
-            challenge: optionsResp.challenge,
-          });
-          await authRequest({
-            pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`,
-            body: {
-              challengeId: optionsResp.challengeId,
-              challenge: optionsResp.challenge,
-              credentialId: keypair.keyId,
-              publicKeyPem: keypair.publicKeyPem,
-              signature,
-              label: "Browser passkey",
-            },
-          });
-          saveStoredBuyerPasskeyBundle({
-            tenantId,
-            email: email.trim(),
-            credentialId: keypair.keyId,
-            publicKeyPem: keypair.publicKeyPem,
-            privateKeyPem: keypair.privateKeyPem,
-            keyId: keypair.keyId,
-            label: "Browser passkey",
-            createdAt: new Date().toISOString(),
-          });
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
+          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: "Browser passkey" } });
+          saveStoredBuyerPasskeyBundle({ tenantId, email: email.trim(), credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
         }
-      } catch {
-        // Passkey registration is optional
-      }
-
+      } catch { /* Passkey registration is optional */ }
       onAuth?.("builder");
     } catch (err) {
       setError(err?.message || "Invalid code. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   if (step === "otp") {
@@ -459,52 +354,16 @@ function SignUpView({ onAuth }) {
       <div style={S.authWrap}>
         <div style={S.authBox} className="lovable-fade">
           <h1 style={S.authTitle}>Check your email</h1>
-          <p style={S.authSub}>
-            We sent a 6-digit code to <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>.
-            Enter it below to verify your account.
-          </p>
+          <p style={S.authSub}>We sent a 6-digit code to <strong style={{ color: "var(--text-primary)" }}>{email}</strong>. Enter it below to verify your account.</p>
           {error && <div style={S.error}>{error}</div>}
           <form onSubmit={handleSubmitOtp}>
             <label style={S.label}>Verification code</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
-              required
-              autoFocus
-              style={{
-                ...S.otpInput,
-                ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}),
-              }}
-            />
-            <button
-              type="submit"
-              style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }}
-              disabled={loading || otpCode.length < 6}
-            >
-              {loading ? "Verifying..." : "Verify and continue"}
-            </button>
+            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus style={{ ...S.otpInput, ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}) }} />
+            <button type="submit" style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }} disabled={loading || otpCode.length < 6}>{loading ? "Verifying..." : "Verify and continue"}</button>
           </form>
-          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "0.82rem" }}>
+          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "13px" }}>
             Didn't receive a code?{" "}
-            <button
-              style={S.btnGhost}
-              onClick={async () => {
-                setError("");
-                try {
-                  await authRequest({
-                    pathname: "/v1/public/signup",
-                    body: { email: email.trim(), company: email.trim().split("@")[0] },
-                  });
-                } catch { /* ignore */ }
-              }}
-            >
-              Resend
-            </button>
+            <button style={S.btnGhost} onClick={async () => { setError(""); try { await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } }); } catch { /* ignore */ } }}>Resend</button>
           </p>
         </div>
       </div>
@@ -514,37 +373,18 @@ function SignUpView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
-        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
-          nooterra
-        </div>
+        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>nooterra</div>
         <h1 style={S.authTitle}>Get started</h1>
-        <p style={S.authSub}>
-          We'll send a verification code to your email. No password needed.
-        </p>
+        <p style={S.authSub}>We'll send a verification code to your email. No password needed.</p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmitForm}>
           <label style={S.label}>Email</label>
-          <FocusInput
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            autoFocus
-          />
-          <button
-            type="submit"
-            style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
-            disabled={loading || !email.trim()}
-          >
-            {loading ? "One moment..." : "Continue \u2192"}
-          </button>
+          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
+          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading || !email.trim()}>{loading ? "One moment..." : "Continue \u2192"}</button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
           Already have an account?{" "}
-          <a href="/login" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/login"); }}>
-            Sign in
-          </a>
+          <a href="/login" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/login"); }}>Sign in</a>
         </p>
       </div>
     </div>
@@ -556,7 +396,7 @@ function SignUpView({ onAuth }) {
    ═══════════════════════════════════════════════════════════ */
 
 function SignInView({ onAuth }) {
-  const [step, setStep] = useState("form"); // "form" | "otp"
+  const [step, setStep] = useState("form");
   const [tenantId, setTenantId] = useState("");
   const [email, setEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -564,7 +404,6 @@ function SignInView({ onAuth }) {
   const [error, setError] = useState("");
   const [hasStoredPasskey, setHasStoredPasskey] = useState(false);
 
-  // On mount, check for stored passkey and auto-fill
   useEffect(() => {
     try {
       const stored = loadStoredBuyerPasskeyBundle({});
@@ -577,42 +416,16 @@ function SignInView({ onAuth }) {
   }, []);
 
   async function handlePasskeyLogin() {
-    setError("");
-    setLoading(true);
-    const tid = tenantId.trim();
-    const em = email.trim();
+    setError(""); setLoading(true);
+    const tid = tenantId.trim(); const em = email.trim();
     try {
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-      if (!storedPasskey) {
-        setError("No stored passkey found. Please use email sign-in.");
-        setLoading(false);
-        return;
-      }
-
-      const optionsResp = await authRequest({
-        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`,
-        body: { email: em },
-      });
-
+      if (!storedPasskey) { setError("No stored passkey found. Please use email sign-in."); setLoading(false); return; }
+      const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
       if (optionsResp?.challenge && optionsResp?.challengeId) {
-        const signature = await signBrowserPasskeyChallengeBase64Url({
-          privateKeyPem: storedPasskey.privateKeyPem,
-          challenge: optionsResp.challenge,
-        });
-
-        await authRequest({
-          pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`,
-          body: {
-            challengeId: optionsResp.challengeId,
-            challenge: optionsResp.challenge,
-            credentialId: storedPasskey.credentialId,
-            publicKeyPem: storedPasskey.publicKeyPem,
-            signature,
-          },
-        });
-
+        const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
+        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
         touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-
         const principal = await fetchSessionPrincipal();
         const runtime = loadRuntimeConfig();
         saveRuntime({ ...runtime, tenantId: tid });
@@ -620,49 +433,22 @@ function SignInView({ onAuth }) {
         onAuth?.("dashboard");
         return;
       }
-
       setError("Passkey authentication failed. Try email sign-in instead.");
-    } catch (err) {
-      setError(err?.message || "Passkey sign-in failed. Try email sign-in instead.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err?.message || "Passkey sign-in failed. Try email sign-in instead."); }
+    finally { setLoading(false); }
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    const tid = tenantId.trim();
-    const em = email.trim();
+    e.preventDefault(); setError(""); setLoading(true);
+    const tid = tenantId.trim(); const em = email.trim();
     try {
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-
       if (storedPasskey) {
-        const optionsResp = await authRequest({
-          pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`,
-          body: { email: em },
-        });
-
+        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({
-            privateKeyPem: storedPasskey.privateKeyPem,
-            challenge: optionsResp.challenge,
-          });
-
-          await authRequest({
-            pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`,
-            body: {
-              challengeId: optionsResp.challengeId,
-              challenge: optionsResp.challenge,
-              credentialId: storedPasskey.credentialId,
-              publicKeyPem: storedPasskey.publicKeyPem,
-              signature,
-            },
-          });
-
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
+          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
           touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-
           const principal = await fetchSessionPrincipal();
           const runtime = loadRuntimeConfig();
           saveRuntime({ ...runtime, tenantId: tid });
@@ -671,41 +457,24 @@ function SignInView({ onAuth }) {
           return;
         }
       }
-
-      await authRequest({
-        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`,
-        body: { email: em },
-      });
+      await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
       setStep("otp");
-    } catch (err) {
-      setError(err?.message || "Sign in failed. Check your credentials.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err?.message || "Sign in failed. Check your credentials."); }
+    finally { setLoading(false); }
   }
 
   async function handleSubmitOtp(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    const tid = tenantId.trim();
-    const em = email.trim();
+    e.preventDefault(); setError(""); setLoading(true);
+    const tid = tenantId.trim(); const em = email.trim();
     try {
-      await authRequest({
-        pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login`,
-        body: { email: em, code: otpCode.trim() },
-      });
-
+      await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login`, body: { email: em, code: otpCode.trim() } });
       const principal = await fetchSessionPrincipal();
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tid });
       saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
       onAuth?.("dashboard");
-    } catch (err) {
-      setError(err?.message || "Invalid code. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err?.message || "Invalid code. Please try again."); }
+    finally { setLoading(false); }
   }
 
   if (step === "otp") {
@@ -713,76 +482,33 @@ function SignInView({ onAuth }) {
       <div style={S.authWrap}>
         <div style={S.authBox} className="lovable-fade">
           <h1 style={S.authTitle}>Check your email</h1>
-          <p style={S.authSub}>
-            We sent a 6-digit code to <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>.
-          </p>
+          <p style={S.authSub}>We sent a 6-digit code to <strong style={{ color: "var(--text-primary)" }}>{email}</strong>.</p>
           {error && <div style={S.error}>{error}</div>}
           <form onSubmit={handleSubmitOtp}>
             <label style={S.label}>Verification code</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
-              required
-              autoFocus
-              style={{
-                ...S.otpInput,
-                ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}),
-              }}
-            />
-            <button
-              type="submit"
-              style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }}
-              disabled={loading || otpCode.length < 6}
-            >
-              {loading ? "Verifying..." : "Sign in"}
-            </button>
+            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus style={{ ...S.otpInput, ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}) }} />
+            <button type="submit" style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }} disabled={loading || otpCode.length < 6}>{loading ? "Verifying..." : "Sign in"}</button>
           </form>
-          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "0.82rem" }}>
-            <button
-              style={S.btnGhost}
-              onClick={() => { setStep("form"); setOtpCode(""); setError(""); }}
-            >
-              Back to login
-            </button>
+          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "13px" }}>
+            <button style={S.btnGhost} onClick={() => { setStep("form"); setOtpCode(""); setError(""); }}>Back to login</button>
           </p>
         </div>
       </div>
     );
   }
 
-  // If we have a stored passkey, show simplified sign-in
   if (hasStoredPasskey) {
     return (
       <div style={S.authWrap}>
         <div style={S.authBox} className="lovable-fade">
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
-            nooterra
-          </div>
+          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>nooterra</div>
           <h1 style={S.authTitle}>Welcome back</h1>
-          <p style={S.authSub}>
-            Signing in as <strong style={{ color: "var(--neutral-100)" }}>{email}</strong>
-          </p>
+          <p style={S.authSub}>Signing in as <strong style={{ color: "var(--text-primary)" }}>{email}</strong></p>
           {error && <div style={S.error}>{error}</div>}
-          <button
-            style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1, marginBottom: "1rem" }}
-            disabled={loading}
-            onClick={handlePasskeyLogin}
-          >
-            {loading ? "Signing in..." : "Sign in with passkey"}
-          </button>
-          <p style={{ ...S.authSub, marginTop: "1rem", marginBottom: 0, fontSize: "0.82rem" }}>
+          <button style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1, marginBottom: "1rem" }} disabled={loading} onClick={handlePasskeyLogin}>{loading ? "Signing in..." : "Sign in with passkey"}</button>
+          <p style={{ ...S.authSub, marginTop: "1rem", marginBottom: 0, fontSize: "13px" }}>
             Not you?{" "}
-            <button
-              style={S.btnGhost}
-              onClick={() => { setHasStoredPasskey(false); setTenantId(""); setEmail(""); setError(""); }}
-            >
-              Use a different account
-            </button>
+            <button style={S.btnGhost} onClick={() => { setHasStoredPasskey(false); setTenantId(""); setEmail(""); setError(""); }}>Use a different account</button>
           </p>
         </div>
       </div>
@@ -792,47 +518,20 @@ function SignInView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
-        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>
-          nooterra
-        </div>
+        <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "2rem", letterSpacing: "-0.01em" }}>nooterra</div>
         <h1 style={S.authTitle}>Welcome back</h1>
-        <p style={S.authSub}>
-          Sign in to your account.
-        </p>
+        <p style={S.authSub}>Sign in to your account.</p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <label style={S.label}>Email</label>
-          <FocusInput
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            autoFocus
-          />
+          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
           <label style={S.label}>Your account ID</label>
-          <FocusInput
-            type="text"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-            placeholder="tenant_abc123"
-            required
-          />
-          <p style={{ fontSize: "0.78rem", color: "var(--neutral-500)", marginTop: "-0.75rem", marginBottom: "1.25rem", lineHeight: 1.4 }}>
-            Check your signup email for this.
-          </p>
-          <button
-            type="submit"
-            style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
-            disabled={loading}
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
+          <FocusInput type="text" value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="tenant_abc123" required />
+          <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "-0.75rem", marginBottom: "1.25rem", lineHeight: 1.4 }}>Check your signup email for this.</p>
+          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading}>{loading ? "Signing in..." : "Sign in"}</button>
         </form>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1.5rem" }}>
-          <a href="/signup" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/signup"); }}>
-            Create account
-          </a>
+          <a href="/signup" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/signup"); }}>Create account</a>
         </div>
       </div>
     </div>
@@ -871,57 +570,21 @@ function inferCharterRules(taskDescription, capabilities) {
   const desc = taskDescription.toLowerCase();
   for (const cap of capabilities) {
     switch (cap.id) {
-      case "browser":
-        rules.canDo.push("Browse websites and fetch web pages");
-        rules.canDo.push("Extract content from pages");
-        rules.askFirst.push("Fill forms or submit data on websites");
-        break;
-      case "slack":
-        rules.canDo.push("Read messages from allowed channels");
-        rules.canDo.push("Send messages to allowed channels");
-        rules.askFirst.push("Send direct messages to individuals");
-        rules.neverDo.push("Post to channels not in the allowed list");
-        break;
-      case "email":
-        rules.canDo.push("Read emails matching search criteria");
-        if (/send|reply|forward/.test(desc)) rules.askFirst.push("Send emails");
-        rules.neverDo.push("Delete emails permanently");
-        break;
-      case "github":
-        rules.canDo.push("Read repository contents");
-        rules.canDo.push("Create and update issues");
-        rules.askFirst.push("Create or merge pull requests");
-        rules.neverDo.push("Delete branches or repositories");
-        break;
-      case "filesystem":
-        rules.canDo.push("Read files in allowed directories");
-        if (/write|create|save/.test(desc)) rules.canDo.push("Write files in allowed directories");
-        rules.neverDo.push("Access files outside allowed directories");
-        break;
-      case "webSearch":
-        rules.canDo.push("Search the web for information");
-        break;
+      case "browser": rules.canDo.push("Browse websites and fetch web pages"); rules.canDo.push("Extract content from pages"); rules.askFirst.push("Fill forms or submit data on websites"); break;
+      case "slack": rules.canDo.push("Read messages from allowed channels"); rules.canDo.push("Send messages to allowed channels"); rules.askFirst.push("Send direct messages to individuals"); rules.neverDo.push("Post to channels not in the allowed list"); break;
+      case "email": rules.canDo.push("Read emails matching search criteria"); if (/send|reply|forward/.test(desc)) rules.askFirst.push("Send emails"); rules.neverDo.push("Delete emails permanently"); break;
+      case "github": rules.canDo.push("Read repository contents"); rules.canDo.push("Create and update issues"); rules.askFirst.push("Create or merge pull requests"); rules.neverDo.push("Delete branches or repositories"); break;
+      case "filesystem": rules.canDo.push("Read files in allowed directories"); if (/write|create|save/.test(desc)) rules.canDo.push("Write files in allowed directories"); rules.neverDo.push("Access files outside allowed directories"); break;
+      case "webSearch": rules.canDo.push("Search the web for information"); break;
       default: break;
     }
   }
-  if (/monitor|watch|track|alert/.test(desc)) {
-    rules.canDo.push("Monitor specified data sources continuously");
-    rules.canDo.push("Send alerts when conditions are met");
-  }
-  if (/write|draft|create|generate/.test(desc)) {
-    rules.canDo.push("Draft content based on instructions");
-    rules.askFirst.push("Publish or send drafted content");
-    rules.neverDo.push("Publish without human approval");
-  }
-  if (/price|cost|budget|spend/.test(desc)) {
-    rules.askFirst.push("Make purchases above threshold");
-    rules.neverDo.push("Exceed budget limits");
-  }
+  if (/monitor|watch|track|alert/.test(desc)) { rules.canDo.push("Monitor specified data sources continuously"); rules.canDo.push("Send alerts when conditions are met"); }
+  if (/write|draft|create|generate/.test(desc)) { rules.canDo.push("Draft content based on instructions"); rules.askFirst.push("Publish or send drafted content"); rules.neverDo.push("Publish without human approval"); }
+  if (/price|cost|budget|spend/.test(desc)) { rules.askFirst.push("Make purchases above threshold"); rules.neverDo.push("Exceed budget limits"); }
   rules.neverDo.push("Spend money without approval");
   rules.neverDo.push("Access credentials or keys directly");
-  rules.canDo = [...new Set(rules.canDo)];
-  rules.askFirst = [...new Set(rules.askFirst)];
-  rules.neverDo = [...new Set(rules.neverDo)];
+  rules.canDo = [...new Set(rules.canDo)]; rules.askFirst = [...new Set(rules.askFirst)]; rules.neverDo = [...new Set(rules.neverDo)];
   return rules;
 }
 
@@ -941,7 +604,6 @@ function inferSchedule(taskDescription) {
 }
 
 function inferWorkerName(description) {
-  const desc = description.trim().toLowerCase();
   const patterns = [
     /(?:monitor|check|watch|track)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
     /(?:draft|write|create|generate)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
@@ -983,18 +645,7 @@ const BUILDER_STATES = {
 };
 
 function createBuilderConversation() {
-  return {
-    state: BUILDER_STATES.GREETING,
-    messages: [],
-    context: {
-      taskDescription: null,
-      workerName: null,
-      capabilities: [],
-      charter: null,
-      schedule: null,
-      model: "google/gemini-3-flash",
-    },
-  };
+  return { state: BUILDER_STATES.GREETING, messages: [], context: { taskDescription: null, workerName: null, capabilities: [], charter: null, schedule: null, model: "google/gemini-3-flash" } };
 }
 
 function addBuilderMessage(conv, role, content, meta = null) {
@@ -1004,59 +655,38 @@ function addBuilderMessage(conv, role, content, meta = null) {
 function processBuilderInput(conv, userInput) {
   const input = userInput.trim();
   addBuilderMessage(conv, "user", input);
-
   switch (conv.state) {
     case BUILDER_STATES.GREETING:
     case BUILDER_STATES.UNDERSTANDING: {
-      if (input.length < 5) {
-        addBuilderMessage(conv, "builder", "Tell me a bit more -- what should this worker actually do? The more detail, the better.");
-        return;
-      }
+      if (input.length < 5) { addBuilderMessage(conv, "builder", "Tell me a bit more -- what should this worker actually do? The more detail, the better."); return; }
       conv.context.taskDescription = input;
       conv.context.capabilities = inferCapabilities(input);
       conv.context.schedule = inferSchedule(input);
       conv.context.workerName = inferWorkerName(input);
       conv.context.charter = inferCharterRules(input, conv.context.capabilities);
-
       if (conv.context.capabilities.length === 0) {
         addBuilderMessage(conv, "builder", "Got it. I didn't detect any specific integrations from your description. This worker will use built-in tools (web browsing, search, file system). Sound good, or do you need something specific like Slack, Gmail, or GitHub?", { type: "capabilities_fallback" });
         conv.state = BUILDER_STATES.CAPABILITIES_CHECK;
         return;
       }
-
       const capNames = conv.context.capabilities.map(c => c.name).join(", ");
-      addBuilderMessage(conv, "builder",
-        `Got it. I'll call this worker "${conv.context.workerName}".`,
-      );
-      addBuilderMessage(conv, "builder",
-        `This worker will need: ${capNames}. Want to connect them now, or skip for later?`,
-        { type: "capabilities", capabilities: conv.context.capabilities },
-      );
+      addBuilderMessage(conv, "builder", `Got it. I'll call this worker "${conv.context.workerName}".`);
+      addBuilderMessage(conv, "builder", `This worker will need: ${capNames}. Want to connect them now, or skip for later?`, { type: "capabilities", capabilities: conv.context.capabilities });
       conv.state = BUILDER_STATES.CAPABILITIES_CHECK;
       return;
     }
-
     case BUILDER_STATES.CAPABILITIES_CHECK: {
       const lower = input.toLowerCase();
       if (/add|also|slack|gmail|email|github|browser|search/.test(lower)) {
         const additional = inferCapabilities(input);
         const existingIds = new Set(conv.context.capabilities.map(c => c.id));
-        for (const cap of additional) {
-          if (!existingIds.has(cap.id)) {
-            conv.context.capabilities.push(cap);
-          }
-        }
+        for (const cap of additional) { if (!existingIds.has(cap.id)) conv.context.capabilities.push(cap); }
         conv.context.charter = inferCharterRules(conv.context.taskDescription, conv.context.capabilities);
       }
-
-      addBuilderMessage(conv, "builder",
-        "Here's the charter I'd suggest for this worker. Review it and let me know if you want to change anything.",
-        { type: "charter", charter: conv.context.charter },
-      );
+      addBuilderMessage(conv, "builder", "Here's the charter I'd suggest for this worker. Review it and let me know if you want to change anything.", { type: "charter", charter: conv.context.charter });
       conv.state = BUILDER_STATES.CHARTER_REVIEW;
       return;
     }
-
     case BUILDER_STATES.CHARTER_REVIEW: {
       const lower = input.toLowerCase();
       if (/add .+ to (askfirst|ask first|never|can do|cando)/i.test(lower)) {
@@ -1067,51 +697,31 @@ function processBuilderInput(conv, userInput) {
           if (bucket === "askfirst") conv.context.charter.askFirst.push(rule);
           else if (bucket === "never" || bucket === "neverdo") conv.context.charter.neverDo.push(rule);
           else if (bucket === "cando") conv.context.charter.canDo.push(rule);
-          addBuilderMessage(conv, "builder", `Done. Updated the charter.`, { type: "charter", charter: conv.context.charter });
+          addBuilderMessage(conv, "builder", "Done. Updated the charter.", { type: "charter", charter: conv.context.charter });
           return;
         }
       }
-      if (/remove|delete/i.test(lower)) {
-        addBuilderMessage(conv, "builder", "Which rule should I remove? Paste the exact text or tell me which section (canDo, askFirst, neverDo) and what to remove.");
-        return;
-      }
+      if (/remove|delete/i.test(lower)) { addBuilderMessage(conv, "builder", "Which rule should I remove? Paste the exact text or tell me which section (canDo, askFirst, neverDo) and what to remove."); return; }
       const topModels = RECOMMENDED_MODELS.slice(0, 3);
       const currentModel = RECOMMENDED_MODELS.find(m => m.id === conv.context.model) || topModels[0];
-      addBuilderMessage(conv, "builder",
-        `I'd recommend ${currentModel.name} for this type of work -- $${currentModel.inputPer1M.toFixed(2)}/$${currentModel.outputPer1M.toFixed(2)} per 1M tokens. You can change this anytime in settings.`,
-        { type: "models", models: topModels, selected: conv.context.model },
-      );
+      addBuilderMessage(conv, "builder", `I'd recommend ${currentModel.name} for this type of work -- $${currentModel.inputPer1M.toFixed(2)}/$${currentModel.outputPer1M.toFixed(2)} per 1M tokens. You can change this anytime in settings.`, { type: "models", models: topModels, selected: conv.context.model });
       conv.state = BUILDER_STATES.MODEL_SUGGEST;
       return;
     }
-
     case BUILDER_STATES.MODEL_SUGGEST: {
       const lower = input.toLowerCase();
-      for (const m of RECOMMENDED_MODELS) {
-        if (lower.includes(m.name.toLowerCase()) || lower.includes(m.id.toLowerCase())) {
-          conv.context.model = m.id;
-          break;
-        }
-      }
+      for (const m of RECOMMENDED_MODELS) { if (lower.includes(m.name.toLowerCase()) || lower.includes(m.id.toLowerCase())) { conv.context.model = m.id; break; } }
       const schedule = conv.context.schedule;
-      addBuilderMessage(conv, "builder",
-        `Ready to deploy "${conv.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`,
-        { type: "confirm", workerName: conv.context.workerName, schedule },
-      );
+      addBuilderMessage(conv, "builder", `Ready to deploy "${conv.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`, { type: "confirm", workerName: conv.context.workerName, schedule });
       conv.state = BUILDER_STATES.CONFIRM;
       return;
     }
-
     case BUILDER_STATES.CONFIRM: {
       const lower = input.toLowerCase();
-      if (/no|wait|change|edit|back/.test(lower)) {
-        addBuilderMessage(conv, "builder", "No problem. What would you like to change? You can say things like 'change the name', 'edit the charter', or 'pick a different model'.");
-        return;
-      }
+      if (/no|wait|change|edit|back/.test(lower)) { addBuilderMessage(conv, "builder", "No problem. What would you like to change? You can say things like 'change the name', 'edit the charter', or 'pick a different model'."); return; }
       conv.state = BUILDER_STATES.DEPLOYING;
       return;
     }
-
     default:
       addBuilderMessage(conv, "builder", "Something went wrong. Let's start fresh -- what do you need a worker to do?");
       conv.state = BUILDER_STATES.GREETING;
@@ -1130,69 +740,33 @@ function useBuilderState() {
 
   function sendMessage(text) {
     const next = { ...conv, messages: [...conv.messages], context: { ...conv.context } };
-    if (next.context.charter) {
-      next.context.charter = {
-        canDo: [...next.context.charter.canDo],
-        askFirst: [...next.context.charter.askFirst],
-        neverDo: [...next.context.charter.neverDo],
-      };
-    }
-    if (next.context.capabilities) {
-      next.context.capabilities = [...next.context.capabilities];
-    }
+    if (next.context.charter) next.context.charter = { canDo: [...next.context.charter.canDo], askFirst: [...next.context.charter.askFirst], neverDo: [...next.context.charter.neverDo] };
+    if (next.context.capabilities) next.context.capabilities = [...next.context.capabilities];
     processBuilderInput(next, text);
     setConv(next);
-
-    if (next.state === BUILDER_STATES.DEPLOYING) {
-      handleDeploy(next);
-    }
+    if (next.state === BUILDER_STATES.DEPLOYING) handleDeploy(next);
   }
 
   function selectModel(modelId) {
     const next = { ...conv, messages: [...conv.messages], context: { ...conv.context } };
     next.context.model = modelId;
     const m = RECOMMENDED_MODELS.find(r => r.id === modelId);
-    if (m) {
-      addBuilderMessage(next, "user", m.name);
-    }
+    if (m) addBuilderMessage(next, "user", m.name);
     const schedule = next.context.schedule;
-    addBuilderMessage(next, "builder",
-      `Ready to deploy "${next.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`,
-      { type: "confirm", workerName: next.context.workerName, schedule },
-    );
+    addBuilderMessage(next, "builder", `Ready to deploy "${next.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`, { type: "confirm", workerName: next.context.workerName, schedule });
     next.state = BUILDER_STATES.CONFIRM;
     setConv(next);
   }
 
   async function handleDeploy(c) {
-    setDeploying(true);
-    setDeployError("");
+    setDeploying(true); setDeployError("");
     try {
       const charter = c.context.charter || { canDo: [], askFirst: [], neverDo: [] };
-      const result = await workerApiRequest({
-        pathname: "/v1/workers",
-        method: "POST",
-        body: {
-          name: c.context.workerName || "New Worker",
-          description: c.context.taskDescription || "",
-          charter: JSON.stringify(charter),
-          schedule: scheduleToApiValue(c.context.schedule),
-          model: c.context.model,
-        },
-      });
+      const result = await workerApiRequest({ pathname: "/v1/workers", method: "POST", body: { name: c.context.workerName || "New Worker", description: c.context.taskDescription || "", charter: JSON.stringify(charter), schedule: scheduleToApiValue(c.context.schedule), model: c.context.model } });
       setDeployedWorker(result);
-
-      saveOnboardingState({
-        buyer: loadOnboardingState()?.buyer || null,
-        sessionExpected: true,
-        completed: true,
-      });
-
+      saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       const next = { ...c, messages: [...c.messages] };
-      addBuilderMessage(next, "builder",
-        `"${c.context.workerName}" is live.`,
-        { type: "deployed", worker: result, workerName: c.context.workerName },
-      );
+      addBuilderMessage(next, "builder", `"${c.context.workerName}" is live.`, { type: "deployed", worker: result, workerName: c.context.workerName });
       next.state = BUILDER_STATES.DEPLOYED;
       setConv(next);
     } catch (err) {
@@ -1205,12 +779,7 @@ function useBuilderState() {
     setDeploying(false);
   }
 
-  function reset() {
-    const c = createBuilderConversation();
-    setConv(c);
-    setDeployedWorker(null);
-    setDeployError("");
-  }
+  function reset() { setConv(createBuilderConversation()); setDeployedWorker(null); setDeployError(""); }
 
   return { conv, sendMessage, selectModel, deploying, deployError, deployedWorker, reset };
 }
@@ -1228,33 +797,22 @@ function CharterDisplay({ charter, compact = false }) {
   ];
   return (
     <div>
-      {sections.map((sec) =>
-        sec.items.length > 0 ? (
-          <div key={sec.key} style={{ marginBottom: compact ? "0.75rem" : "1.25rem" }}>
-            <div
-              style={{
-                ...S.charterLabel,
-                color: sec.color,
-                fontSize: compact ? "0.7rem" : "0.75rem",
-              }}
-            >
-              {sec.label}
+      {sections.map((sec) => sec.items.length > 0 ? (
+        <div key={sec.key} style={{ marginBottom: compact ? "0.75rem" : "1.25rem" }}>
+          <div style={{ ...S.charterLabel, color: sec.color, fontSize: compact ? "10px" : "11px" }}>{sec.label}</div>
+          {sec.items.map((item, i) => (
+            <div key={i} style={{ ...S.charterItem, fontSize: compact ? "13px" : "14px" }}>
+              <span style={S.statusDot(sec.color)} />{item}
             </div>
-            {sec.items.map((item, i) => (
-              <div key={i} style={{ ...S.charterItem, fontSize: compact ? "0.82rem" : "0.88rem" }}>
-                <span style={S.statusDot(sec.color)} />
-                {item}
-              </div>
-            ))}
-          </div>
-        ) : null
-      )}
+          ))}
+        </div>
+      ) : null)}
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   BuilderMessage — renders a single message in the chat
+   BuilderMessage -- single message in the chat
    ═══════════════════════════════════════════════════════════ */
 
 function BuilderMessage({ msg, onAction, selectedModel }) {
@@ -1262,219 +820,83 @@ function BuilderMessage({ msg, onAction, selectedModel }) {
 
   if (isUser) {
     return (
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }} className="lovable-fade">
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }} className="lovable-fade">
         <div style={{
-          maxWidth: "75%",
-          padding: "0.75rem 1rem",
-          borderRadius: 16,
-          borderBottomRightRadius: 4,
-          fontSize: "0.9rem",
-          lineHeight: 1.55,
-          color: "var(--neutral-100)",
-          background: "var(--neutral-800)",
-          wordBreak: "break-word",
-        }}>
-          {msg.content}
-        </div>
+          maxWidth: "85%", padding: "12px 16px", borderRadius: 18,
+          fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)",
+          background: "var(--bg-surface)", wordBreak: "break-word",
+        }}>{msg.content}</div>
       </div>
     );
   }
 
   const meta = msg.meta;
+  const actionBtnStyle = {
+    padding: "0.4rem 0.85rem", fontSize: "13px", fontWeight: 500,
+    background: "transparent", color: "var(--text-secondary)",
+    border: "1px solid var(--border)", borderRadius: 6,
+    cursor: "pointer", fontFamily: "inherit", transition: "background 150ms",
+  };
 
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
-      <div style={{
-        maxWidth: "85%",
-        fontSize: "0.9rem",
-        lineHeight: 1.6,
-        color: "var(--neutral-200)",
-        wordBreak: "break-word",
-      }}>
+    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.75rem" }} className="lovable-fade">
+      <div style={{ maxWidth: "85%", fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", wordBreak: "break-word" }}>
         <div>{msg.content}</div>
 
-        {/* Capabilities with connect buttons */}
         {meta?.type === "capabilities" && meta.capabilities?.length > 0 && (
           <div style={{ marginTop: "0.75rem", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
             {meta.capabilities.map(cap => (
-              <button
-                key={cap.id}
-                style={{
-                  padding: "0.4rem 0.85rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  background: "rgba(210,176,111,0.08)",
-                  color: "var(--gold)",
-                  border: "1px solid rgba(210,176,111,0.3)",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-                onClick={() => alert(`Integration coming soon. Your worker will use built-in tools for ${cap.name} for now.`)}
-              >
+              <button key={cap.id} style={{ ...actionBtnStyle, color: "var(--gold)", border: "1px solid var(--gold-dim)" }}
+                onClick={() => alert(`Integration coming soon. Your worker will use built-in tools for ${cap.name} for now.`)}>
                 Connect {cap.name}
               </button>
             ))}
-            <button
-              style={{
-                padding: "0.4rem 0.85rem",
-                fontSize: "0.82rem",
-                fontWeight: 500,
-                background: "transparent",
-                color: "var(--neutral-400)",
-                border: "1px solid var(--neutral-700)",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-              onClick={() => onAction?.("skip_capabilities")}
-            >
-              Skip for now
-            </button>
+            <button style={actionBtnStyle} onClick={() => onAction?.("skip_capabilities")}>Skip for now</button>
           </div>
         )}
 
         {meta?.type === "capabilities_fallback" && (
           <div style={{ marginTop: "0.75rem" }}>
-            <button
-              style={{
-                padding: "0.4rem 0.85rem",
-                fontSize: "0.82rem",
-                fontWeight: 500,
-                background: "transparent",
-                color: "var(--neutral-400)",
-                border: "1px solid var(--neutral-700)",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-              onClick={() => onAction?.("skip_capabilities")}
-            >
-              Sounds good, continue
-            </button>
+            <button style={actionBtnStyle} onClick={() => onAction?.("skip_capabilities")}>Sounds good, continue</button>
           </div>
         )}
 
-        {/* Charter preview */}
         {meta?.type === "charter" && meta.charter && (
-          <div style={{
-            marginTop: "0.75rem",
-            padding: "1rem",
-            background: "rgba(0,0,0,0.25)",
-            borderRadius: 10,
-            borderLeft: "3px solid var(--gold)",
-          }}>
+          <div style={{ marginTop: "0.75rem", padding: "1rem", background: "transparent", borderRadius: 10, borderLeft: "2px solid var(--gold)" }}>
             <CharterDisplay charter={meta.charter} compact />
-            <button
-              style={{
-                marginTop: "0.5rem",
-                padding: "0.4rem 0.85rem",
-                fontSize: "0.82rem",
-                fontWeight: 500,
-                background: "transparent",
-                color: "var(--neutral-400)",
-                border: "1px solid var(--neutral-700)",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-              onClick={() => onAction?.("charter_ok")}
-            >
-              Looks good
-            </button>
+            <button style={actionBtnStyle} onClick={() => onAction?.("charter_ok")}>Looks good</button>
           </div>
         )}
 
-        {/* Model selection cards */}
         {meta?.type === "models" && meta.models && (
           <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {meta.models.map(m => (
-              <div
-                key={m.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "0.6rem 0.9rem",
-                  borderRadius: 8,
-                  border: m.id === (selectedModel || meta.selected) ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
-                  background: m.id === (selectedModel || meta.selected) ? "rgba(210,176,111,0.08)" : "transparent",
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-                onClick={() => onAction?.("select_model", m.id)}
-              >
+              <div key={m.id} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "0.6rem 0.9rem", borderRadius: 8, cursor: "pointer", transition: "all 150ms",
+                border: m.id === (selectedModel || meta.selected) ? "1px solid var(--gold)" : "1px solid var(--border)",
+                background: m.id === (selectedModel || meta.selected) ? "var(--gold-dim)" : "transparent",
+              }} onClick={() => onAction?.("select_model", m.id)}>
                 <div>
-                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === (selectedModel || meta.selected) ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span>
-                  <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
+                  <span style={{ fontSize: "14px", fontWeight: 600, color: m.id === (selectedModel || meta.selected) ? "var(--text-primary)" : "var(--text-secondary)" }}>{m.name}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-tertiary)", marginLeft: 8 }}>{m.tag}</span>
                 </div>
-                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
-                  ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M
-                </span>
+                <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M</span>
               </div>
             ))}
-            <button
-              style={{
-                marginTop: "0.25rem",
-                padding: "0.4rem 0.85rem",
-                fontSize: "0.82rem",
-                fontWeight: 500,
-                background: "transparent",
-                color: "var(--neutral-400)",
-                border: "1px solid var(--neutral-700)",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                alignSelf: "flex-start",
-              }}
-              onClick={() => onAction?.("confirm_model")}
-            >
-              Use recommended
-            </button>
+            <button style={{ ...actionBtnStyle, alignSelf: "flex-start", marginTop: "0.25rem" }} onClick={() => onAction?.("confirm_model")}>Use recommended</button>
           </div>
         )}
 
-        {/* Deploy confirmation */}
         {meta?.type === "confirm" && (
           <div style={{ marginTop: "0.75rem" }}>
-            <button
-              style={{
-                padding: "0.6rem 1.5rem",
-                fontSize: "0.88rem",
-                fontWeight: 600,
-                background: "var(--gold)",
-                color: "var(--neutral-950)",
-                border: "none",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-              onClick={() => onAction?.("deploy")}
-            >
-              Deploy worker
-            </button>
+            <button style={{ padding: "0.6rem 1.5rem", fontSize: "14px", fontWeight: 600, background: "var(--gold)", color: "#1a1a1a", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }} onClick={() => onAction?.("deploy")}>Deploy worker</button>
           </div>
         )}
 
-        {/* Deployed success */}
         {meta?.type === "deployed" && (
           <div style={{ marginTop: "0.75rem" }}>
-            <button
-              style={{
-                padding: "0.55rem 1.25rem",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                background: "var(--gold)",
-                color: "var(--neutral-950)",
-                border: "none",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-              onClick={() => onAction?.("view_worker", meta.worker)}
-            >
-              View worker
-            </button>
+            <button style={{ padding: "0.55rem 1.25rem", fontSize: "14px", fontWeight: 600, background: "var(--gold)", color: "#1a1a1a", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }} onClick={() => onAction?.("view_worker", meta.worker)}>View worker</button>
           </div>
         )}
       </div>
@@ -1483,140 +905,143 @@ function BuilderMessage({ msg, onAction, selectedModel }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AutoTextarea — grows with content, min 1 row, max 5 rows
+   AutoTextarea -- grows with content
    ═══════════════════════════════════════════════════════════ */
 
 function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, autoFocus }) {
   const ref = useRef(null);
-
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = "auto";
-      const scrollH = ref.current.scrollHeight;
-      const lineH = 24;
-      const maxH = lineH * 5 + 24; // 5 rows + padding
-      ref.current.style.height = Math.min(scrollH, maxH) + "px";
+      ref.current.style.height = Math.min(ref.current.scrollHeight, 160) + "px";
     }
   }, [value]);
 
   return (
-    <textarea
-      ref={ref}
-      value={value}
-      onChange={onChange}
-      onKeyDown={onKeyDown}
-      placeholder={placeholder}
-      disabled={disabled}
-      autoFocus={autoFocus}
-      rows={1}
+    <textarea ref={ref} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} disabled={disabled} autoFocus={autoFocus} rows={1}
       style={{
-        width: "100%",
-        padding: "0.85rem 1rem",
-        paddingBottom: "2.75rem",
-        fontSize: "0.95rem",
-        background: "transparent",
-        border: "none",
-        color: "var(--neutral-100)",
-        outline: "none",
-        fontFamily: "inherit",
-        resize: "none",
-        lineHeight: "24px",
-        overflow: "auto",
+        width: "100%", padding: "14px 16px", paddingBottom: "2.75rem",
+        fontSize: "15px", background: "transparent", border: "none",
+        color: "var(--text-primary)", outline: "none", fontFamily: "inherit",
+        resize: "none", lineHeight: "24px", overflow: "auto", boxSizing: "border-box",
       }}
     />
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   BuilderInputBox — the fancy input with model selector + send
+   ModelDropdown -- popover dropdown for model selection
+   ═══════════════════════════════════════════════════════════ */
+
+function ModelDropdown({ model, onModelChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selectedModel = RECOMMENDED_MODELS.find(m => m.id === model);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        background: "transparent", border: "none", color: "var(--text-secondary)",
+        fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit",
+        display: "flex", alignItems: "center", gap: 4, borderRadius: 6,
+      }}>
+        {selectedModel?.name || "Select model"}
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
+      </button>
+      {open && (
+        <div className="popover-animate" style={{
+          position: "absolute", bottom: "100%", left: 0, marginBottom: 4,
+          background: "var(--bg-surface)", border: "1px solid var(--border)",
+          borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+          padding: "4px 0", zIndex: 50, minWidth: 300, maxWidth: 380,
+        }}>
+          {RECOMMENDED_MODELS.map(m => (
+            <button key={m.id} onClick={() => { onModelChange(m.id); setOpen(false); }} style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              width: "100%", padding: "8px 12px", fontSize: "14px",
+              background: m.id === model ? "var(--bg-hover)" : "transparent",
+              color: m.id === model ? "var(--text-primary)" : "var(--text-secondary)",
+              border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+              transition: "background 150ms",
+            }}
+              onMouseEnter={e => { if (m.id !== model) e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={e => { if (m.id !== model) e.currentTarget.style.background = "transparent"; }}
+            >
+              <span style={{ fontWeight: m.id === model ? 600 : 400 }}>{m.name}</span>
+              <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>
+                ${m.inputPer1M.toFixed(2)}/${m.outputPer1M.toFixed(2)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BuilderInputBox -- ChatGPT-style input with model selector + send
    ═══════════════════════════════════════════════════════════ */
 
 function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
   const [focused, setFocused] = useState(false);
 
   function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      onSend?.();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); }
   }
-
-  const selectedModel = RECOMMENDED_MODELS.find(m => m.id === model);
 
   return (
     <div
       style={{
-        background: "var(--neutral-900)",
-        border: focused ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
-        borderRadius: 16,
-        transition: "border-color 0.15s",
-        position: "relative",
-        maxWidth: 680,
-        width: "100%",
+        background: "var(--bg-surface)", border: "1px solid var(--border)",
+        borderRadius: 24, transition: "border-color 150ms", position: "relative",
+        maxWidth: 680, width: "100%",
+        boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
+        ...(focused ? { borderColor: "var(--border)" } : {}),
       }}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
     >
-      <AutoTextarea
-        value={value}
-        onChange={onChange}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder || "Describe what you need..."}
-        disabled={disabled}
-        autoFocus
-      />
-      {/* Bottom bar: model selector + send */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 0.75rem 0.65rem",
-      }}>
-        <select
-          value={model}
-          onChange={(e) => onModelChange?.(e.target.value)}
-          style={{
-            background: "transparent",
-            border: "1px solid var(--neutral-700)",
-            borderRadius: 6,
-            color: "var(--neutral-400)",
-            fontSize: "0.78rem",
-            padding: "0.3rem 0.5rem",
-            fontFamily: "inherit",
-            outline: "none",
-            cursor: "pointer",
-            appearance: "none",
-            paddingRight: "1.2rem",
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "right 0.4rem center",
-          }}
-        >
-          {RECOMMENDED_MODELS.map(m => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+      <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px 10px" }}>
+        <ModelDropdown model={model} onModelChange={onModelChange} />
         <SendArrow disabled={disabled || !value.trim()} onClick={onSend} />
       </div>
     </div>
   );
 }
 
-/* ── TemplateCard ── */
+/* ═══════════════════════════════════════════════════════════
+   TemplateCard -- small suggestion card
+   ═══════════════════════════════════════════════════════════ */
 
-function TemplateCard({ template, onDeploy, deploying }) {
+function TemplateCard({ template, onClick }) {
   return (
-    <div style={{ padding: "1.5rem", border: "1px solid var(--neutral-800)", borderRadius: 12, background: "var(--neutral-900)", display: "flex", flexDirection: "column", gap: "0.75rem", transition: "border-color 0.15s", cursor: "default" }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--neutral-600)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--neutral-800)"; }}>
-      <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--neutral-50)" }}>{template.name}</div>
-      <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", lineHeight: 1.5, flex: 1 }}>{template.description}</div>
-      <button style={{ ...S.btnPrimary, width: "auto", alignSelf: "flex-start", padding: "0.5rem 1.25rem", fontSize: "0.82rem", opacity: deploying ? 0.5 : 1 }} disabled={deploying} onClick={() => onDeploy(template)}>{deploying ? "Deploying..." : "Deploy \u2192"}</button>
+    <div
+      style={{
+        padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 12,
+        background: "var(--bg-surface)", cursor: "pointer", transition: "border-color 150ms",
+        display: "flex", flexDirection: "column", gap: "0.4rem",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+      onClick={onClick}
+    >
+      <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{template.name}</div>
+      <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, flex: 1 }}>{template.description}</div>
     </div>
   );
 }
 
-/* ── TemplateCharterReview ── */
+/* ═══════════════════════════════════════════════════════════
+   TemplateCharterReview
+   ═══════════════════════════════════════════════════════════ */
 
 function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
   return (
@@ -1624,8 +1049,8 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
       <button style={S.backLink} onClick={onCustomize}>← Back</button>
       <h2 style={{ ...S.pageTitle, marginBottom: "0.5rem" }}>{template.name}</h2>
       <p style={{ ...S.pageSub, marginBottom: "1.5rem" }}>{template.description}</p>
-      <div style={{ padding: "1.25rem", background: "rgba(0,0,0,0.25)", borderRadius: 10, borderLeft: "3px solid var(--gold)", marginBottom: "2rem" }}>
-        <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>What this worker can do</div>
+      <div style={{ padding: "1.25rem", borderRadius: 10, borderLeft: "2px solid var(--gold)", marginBottom: "2rem" }}>
+        <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "1rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>What this worker can do</div>
         <CharterDisplay charter={template.charter} compact />
       </div>
       <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -1637,8 +1062,7 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   BuilderView — the main builder chat (Claude/ChatGPT style)
-   Now with template selection for first-time users
+   BuilderView -- main builder chat
    ═══════════════════════════════════════════════════════════ */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
@@ -1646,7 +1070,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [inputValue, setInputValue] = useState("");
   const [selectedModel, setSelectedModel] = useState("google/gemini-3-flash");
   const messagesEndRef = useRef(null);
-  const [templateReview, setTemplateReview] = useState(null); // template being reviewed
+  const [templateReview, setTemplateReview] = useState(null);
   const [templateDeploying, setTemplateDeploying] = useState(false);
   const [templateError, setTemplateError] = useState("");
 
@@ -1654,223 +1078,67 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const isDeployed = conv.state === BUILDER_STATES.DEPLOYED;
   const isDeploying = conv.state === BUILDER_STATES.DEPLOYING || deploying;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conv.messages.length]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conv.messages.length]);
 
-  function handleSend() {
-    const text = inputValue.trim();
-    if (!text || isDeploying) return;
-    setInputValue("");
-    sendMessage(text);
-  }
+  function handleSend() { const text = inputValue.trim(); if (!text || isDeploying) return; setInputValue(""); sendMessage(text); }
 
   function handleAction(action, payload) {
     switch (action) {
-      case "skip_capabilities":
-        sendMessage("skip for now");
-        break;
-      case "charter_ok":
-        sendMessage("looks good");
-        break;
-      case "select_model":
-        setSelectedModel(payload);
-        selectModel(payload);
-        break;
-      case "confirm_model":
-        sendMessage("use recommended");
-        break;
-      case "deploy":
-        sendMessage("deploy");
-        break;
-      case "view_worker":
-        if (payload?.id) {
-          onViewWorker?.(payload);
-        } else {
-          onComplete?.();
-        }
-        break;
-      default:
-        break;
+      case "skip_capabilities": sendMessage("skip for now"); break;
+      case "charter_ok": sendMessage("looks good"); break;
+      case "select_model": setSelectedModel(payload); selectModel(payload); break;
+      case "confirm_model": sendMessage("use recommended"); break;
+      case "deploy": sendMessage("deploy"); break;
+      case "view_worker": if (payload?.id) onViewWorker?.(payload); else onComplete?.(); break;
+      default: break;
     }
   }
 
   async function handleTemplateDeploy(template) {
-    setTemplateDeploying(true);
-    setTemplateError("");
+    setTemplateDeploying(true); setTemplateError("");
     try {
-      const result = await workerApiRequest({
-        pathname: "/v1/workers",
-        method: "POST",
-        body: {
-          name: template.name,
-          description: template.description,
-          charter: JSON.stringify(template.charter),
-          schedule: templateScheduleToApiValue(template.schedule),
-          model: template.model,
-        },
-      });
-
-      saveOnboardingState({
-        buyer: loadOnboardingState()?.buyer || null,
-        sessionExpected: true,
-        completed: true,
-      });
-
-      // Go directly to worker detail
-      if (result?.id) {
-        onViewWorker?.(result);
-      } else {
-        onComplete?.();
-      }
-    } catch (err) {
-      setTemplateError(err?.message || "Failed to deploy worker.");
-    }
+      const result = await workerApiRequest({ pathname: "/v1/workers", method: "POST", body: { name: template.name, description: template.description, charter: JSON.stringify(template.charter), schedule: templateScheduleToApiValue(template.schedule), model: template.model } });
+      saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
+      if (result?.id) onViewWorker?.(result); else onComplete?.();
+    } catch (err) { setTemplateError(err?.message || "Failed to deploy worker."); }
     setTemplateDeploying(false);
   }
 
   // Template charter review screen
   if (templateReview) {
     return (
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        minHeight: "calc(100vh - 1px)",
-        padding: "2rem",
-      }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
         {templateError && <div style={{ ...S.error, textAlign: "center", marginBottom: "1rem" }}>{templateError}</div>}
-        <TemplateCharterReview
-          template={templateReview}
-          onDeploy={() => handleTemplateDeploy(templateReview)}
-          onCustomize={() => { setTemplateReview(null); setTemplateError(""); }}
-          deploying={templateDeploying}
-        />
+        <TemplateCharterReview template={templateReview} onDeploy={() => handleTemplateDeploy(templateReview)} onCustomize={() => { setTemplateReview(null); setTemplateError(""); }} deploying={templateDeploying} />
       </div>
     );
   }
 
-  // Welcome screen with templates (shown when no messages and first-time user)
-  if (!hasMessages && isFirstTime) {
-    return (
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        minHeight: "calc(100vh - 1px)",
-        padding: "2rem",
-      }}>
-        <div style={{ flex: 1 }} />
-        <div style={{ textAlign: "center", marginBottom: "2.5rem", maxWidth: 600 }}>
-          <h1 style={{
-            fontSize: "clamp(1.5rem, 4vw, 2.2rem)",
-            fontWeight: 700,
-            color: "var(--neutral-50)",
-            lineHeight: 1.2,
-            marginBottom: "0.5rem",
-          }}>
-            Welcome to Nooterra.
-          </h1>
-          <p style={{ fontSize: "1rem", color: "var(--neutral-400)", marginTop: "0.5rem" }}>
-            Deploy your first worker in 30 seconds.
-          </p>
-        </div>
-
-        {/* Template heading */}
-        <div style={{ marginBottom: "1.25rem", textAlign: "center", width: "100%", maxWidth: 780 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.5rem" }}>
-            <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--neutral-300)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Pick a template
-            </span>
-            <span style={{ fontSize: "0.78rem", color: "var(--neutral-500)" }}>
-              or describe your own below
-            </span>
-          </div>
-        </div>
-
-        {/* Template grid */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "1rem",
-          width: "100%",
-          maxWidth: 780,
-          marginBottom: "2.5rem",
-        }}>
-          {STARTER_TEMPLATES.map(t => (
-            <TemplateCard
-              key={t.id}
-              template={t}
-              onDeploy={(tmpl) => setTemplateReview(tmpl)}
-              deploying={false}
-            />
-          ))}
-        </div>
-
-        {/* Custom worker input */}
-        <div style={{ width: "100%", maxWidth: 680, textAlign: "center" }}>
-          <div style={{ fontSize: "0.82rem", color: "var(--neutral-500)", marginBottom: "0.75rem" }}>
-            Or tell me what you need:
-          </div>
-          <BuilderInputBox
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onSend={handleSend}
-            disabled={false}
-            model={selectedModel}
-            onModelChange={setSelectedModel}
-            placeholder="Describe what you need..."
-          />
-        </div>
-        <div style={{ flex: 1.5 }} />
-      </div>
-    );
-  }
-
-  // Greeting screen for returning users (no messages, not first time -- just the builder chat)
+  // Greeting screen (no messages)
   if (!hasMessages) {
     const greeting = getGreeting();
     const displayName = userName ? userName.split("@")[0] : null;
     return (
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        minHeight: "calc(100vh - 1px)",
-        padding: "2rem",
-      }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
         <div style={{ flex: 1 }} />
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <h1 style={{
-            fontSize: "clamp(1.5rem, 4vw, 2.2rem)",
-            fontWeight: 700,
-            color: "var(--neutral-50)",
-            lineHeight: 1.2,
-            marginBottom: "0.25rem",
-          }}>
+          <h1 style={{ fontSize: 28, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "0.25rem" }}>
             {displayName ? `${greeting}, ${displayName}.` : "What do you need done?"}
           </h1>
-          {displayName && (
-            <p style={{ fontSize: "1rem", color: "var(--neutral-500)", marginTop: "0.5rem" }}>
-              What do you need done?
-            </p>
-          )}
+          <p style={{ fontSize: 16, color: "var(--text-secondary)", marginTop: "0.5rem" }}>
+            {isFirstTime ? "Deploy your first worker in 30 seconds." : "What do you need a worker to do?"}
+          </p>
         </div>
-        <BuilderInputBox
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onSend={handleSend}
-          disabled={false}
-          model={selectedModel}
-          onModelChange={setSelectedModel}
-          placeholder="Describe what you need..."
-        />
+        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} />
+
+        {/* Template suggestions below input */}
+        {isFirstTime && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", width: "100%", maxWidth: 680, marginTop: "1.5rem" }}>
+            {STARTER_TEMPLATES.map(t => (
+              <TemplateCard key={t.id} template={t} onClick={() => setTemplateReview(t)} />
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1.5 }} />
       </div>
     );
@@ -1878,82 +1146,31 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   // Conversation view
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: "100vh",
-    }}>
-      {/* Messages area */}
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "2rem 0",
-        display: "flex",
-        flexDirection: "column",
-      }}>
-        <div style={{
-          maxWidth: 680,
-          width: "100%",
-          margin: "0 auto",
-          padding: "0 1.5rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.25rem",
-        }}>
-          {conv.messages.map((msg) => (
-            <BuilderMessage
-              key={msg.id}
-              msg={msg}
-              onAction={handleAction}
-              selectedModel={selectedModel}
-            />
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "2rem 0", display: "flex", flexDirection: "column" }}>
+        <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          {conv.messages.map(msg => (
+            <BuilderMessage key={msg.id} msg={msg} onAction={handleAction} selectedModel={selectedModel} />
           ))}
           {isDeploying && (
             <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
-              <div style={{ fontSize: "0.9rem", color: "var(--neutral-400)" }}>Deploying...</div>
+              <div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying...</div>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* Input area (fixed at bottom) */}
       {!isDeployed && (
-        <div style={{
-          flexShrink: 0,
-          padding: "1rem 1.5rem 1.5rem",
-          display: "flex",
-          justifyContent: "center",
-          background: "var(--neutral-950)",
-        }}>
-          <BuilderInputBox
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onSend={handleSend}
-            disabled={isDeploying}
-            model={selectedModel}
-            onModelChange={setSelectedModel}
-            placeholder="Type a message..."
-          />
+        <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
+          <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={isDeploying} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." />
         </div>
       )}
 
-      {/* Post-deploy actions */}
       {isDeployed && (
-        <div style={{
-          flexShrink: 0,
-          padding: "1rem 1.5rem 1.5rem",
-          display: "flex",
-          justifyContent: "center",
-          gap: "0.75rem",
-          background: "var(--neutral-950)",
-        }}>
-          <button style={S.btnSecondary} onClick={reset}>
-            Create another worker
-          </button>
-          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onComplete}>
-            Go to dashboard
-          </button>
+        <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", gap: "0.75rem", background: "var(--bg-primary)" }}>
+          <button style={S.btnSecondary} onClick={reset}>Create another worker</button>
+          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onComplete}>Go to dashboard</button>
         </div>
       )}
     </div>
@@ -1961,80 +1178,190 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AppSidebar — persistent sidebar (Claude/ChatGPT style)
+   UserMenu -- popover above email in sidebar
    ═══════════════════════════════════════════════════════════ */
 
-function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker }) {
+function UserMenu({ onClose, onNavigate, onOpenSettings }) {
+  const itemStyle = {
+    display: "block", width: "100%", padding: "8px 12px", fontSize: "14px",
+    color: "var(--text-secondary)", background: "none", border: "none",
+    cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms",
+  };
+  const hover = (e) => { e.currentTarget.style.background = "var(--bg-hover)"; };
+  const unhover = (e) => { e.currentTarget.style.background = "none"; };
+  const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
+
+  return (
+    <div className="popover-animate" style={{
+      position: "absolute", bottom: "100%", left: "12px", right: "12px",
+      background: "var(--bg-surface)", border: "1px solid var(--border)",
+      borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+      padding: "4px 0", zIndex: 100, marginBottom: 4,
+    }}>
+      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onClose(); onOpenSettings(); }}>Settings</button>
+      <a href="https://docs.nooterra.ai" target="_blank" rel="noopener noreferrer" style={{ ...itemStyle, textDecoration: "none" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={onClose}>Help & docs</a>
+      {sep}
+      <a href="/pricing" style={{ ...itemStyle, textDecoration: "none" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade to Pro</a>
+      {sep}
+      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => {
+        onClose();
+        await logoutSession();
+        try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ }
+        try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ }
+        navigate("/login");
+      }}>Log out</button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AppSidebar -- collapsible sidebar (260px)
+   ═══════════════════════════════════════════════════════════ */
+
+function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker, collapsed, onToggle, onOpenSettings }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
     if (!menuOpen) return;
-    function handleClickOutside(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
-    }
+    function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen]);
 
   const navBtn = (key, label, extra) => (
-    <button style={{ ...S.navItem, ...(activeView === key ? S.navItemActive : {}) }} onClick={() => onNavigate(key)}>{label}{extra}</button>
+    <button
+      style={{
+        display: "flex", alignItems: "center",
+        padding: "8px 12px", margin: "0 12px", borderRadius: 8,
+        fontSize: "14px", fontWeight: 500,
+        color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)",
+        background: activeView === key ? "var(--bg-hover)" : "transparent",
+        cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left",
+        transition: "background 150ms, color 150ms",
+        boxSizing: "border-box", width: "calc(100% - 24px)",
+      }}
+      onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
+      onClick={() => onNavigate(key)}
+    >
+      {label}{extra}
+    </button>
   );
 
   return (
-    <nav style={S.sidebar}>
-      <div style={S.sidebarLogo}>nooterra</div>
-      <div style={{ padding: "0 1rem 1rem" }}>
-        <button onClick={onNewWorker} style={{ display: "block", width: "100%", padding: "0.6rem 1rem", fontSize: "0.85rem", fontWeight: 600, background: "var(--gold)", color: "var(--neutral-950)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s" }}>New worker</button>
-      </div>
-      {navBtn("workers", "Workers")}
-      {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "0.72rem", fontWeight: 700, color: "var(--gold)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
-      {navBtn("receipts", "History")}
-      {navBtn("settings", "Settings")}
-      <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.75rem 1.5rem" }} />
-      {workers && workers.length > 0 ? (
-        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          <div style={{ ...S.navSection, paddingTop: "0.5rem" }}>Active Workers</div>
-          {workers.map(w => (
-            <button key={w.id} style={{ ...S.navItem, fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "0.5rem" }} onClick={() => onNavigate("workerDetail", w.id)}>
-              <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
-            </button>
-          ))}
+    <div className="sidebar-wrap" style={{ width: collapsed ? 0 : 260, flexShrink: 0 }}>
+      <nav style={{
+        width: 260, height: "100vh", position: "sticky", top: 0,
+        display: "flex", flexDirection: "column",
+        background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)",
+        overflow: "hidden",
+      }}>
+        {/* Header: toggle + logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 16px 12px", height: 56, boxSizing: "border-box" }}>
+          <button onClick={onToggle} style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: "var(--text-secondary)", padding: 4, borderRadius: 6,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "background 150ms",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+          >
+            <HamburgerIcon />
+          </button>
+          <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>nooterra</span>
         </div>
-      ) : <div style={{ flex: 1 }} />}
-      <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "0.5rem 1.5rem" }} />
 
-      {/* User info + dropdown menu */}
-      <div style={{ padding: "0.75rem 1.5rem", position: "relative" }} ref={menuRef}>
-        {menuOpen && (() => {
-          const mStyle = { display: "block", width: "100%", padding: "0.6rem 1rem", fontSize: "0.85rem", color: "var(--neutral-200)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", textDecoration: "none" };
-          const hover = (e) => { e.currentTarget.style.background = "var(--neutral-800)"; };
-          const unhover = (e) => { e.currentTarget.style.background = "none"; };
-          const sep = <div style={{ borderTop: "1px solid var(--neutral-700)", margin: "0.25rem 0" }} />;
-          return (
-            <div style={{ position: "absolute", bottom: "100%", left: "0.75rem", right: "0.75rem", background: "var(--neutral-900)", border: "1px solid var(--neutral-700)", borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.3)", padding: "0.25rem 0", zIndex: 100, marginBottom: "0.25rem" }}>
-              <button style={{ ...mStyle, display: "flex", justifyContent: "space-between", alignItems: "center" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { setMenuOpen(false); onNavigate("settings"); }}>
-                <span>Settings</span><span style={{ fontSize: "0.75rem", color: "var(--neutral-500)" }}>&#8984;,</span>
+        {/* New worker button */}
+        <div style={{ padding: "0 12px 12px" }}>
+          <button onClick={onNewWorker} style={{
+            display: "block", width: "100%", padding: "8px 12px",
+            fontSize: "14px", fontWeight: 600, background: "var(--gold)",
+            color: "#1a1a1a", border: "none", borderRadius: 8,
+            cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms",
+          }}>+ New worker</button>
+        </div>
+
+        {/* Section: Workers */}
+        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", padding: "12px 24px 6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>Workers</div>
+        {workers && workers.length > 0 ? (
+          <div className="sidebar-inner" style={{ overflowY: "auto", minHeight: 0, flex: 0 }}>
+            {workers.map(w => (
+              <button key={w.id} style={{
+                display: "flex", alignItems: "center", gap: 8, width: "calc(100% - 24px)",
+                padding: "8px 12px", margin: "0 12px", borderRadius: 8,
+                fontSize: "14px", fontWeight: 400, color: "var(--text-secondary)",
+                background: "transparent", cursor: "pointer", border: "none",
+                fontFamily: "inherit", textAlign: "left", transition: "background 150ms",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                onClick={() => onNavigate("workerDetail", w.id)}
+              >
+                <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
               </button>
-              <a href="https://docs.nooterra.ai" target="_blank" rel="noopener noreferrer" style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => setMenuOpen(false)}>Get help</a>
-              {sep}
-              <a href="/pricing" style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); setMenuOpen(false); navigate("/pricing"); }}>Upgrade to Pro</a>
-              {sep}
-              <button style={mStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => { setMenuOpen(false); await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Log out</button>
-            </div>
-          );
-        })()}
-        {userEmail && (
-          <button style={{ display: "block", width: "100%", fontSize: "0.8rem", color: "var(--neutral-300)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0, marginBottom: "0.3rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => setMenuOpen(!menuOpen)}>{userEmail}</button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: "4px 24px", fontSize: "13px", color: "var(--text-tertiary)" }}>No workers yet</div>
         )}
-        {creditBalance != null && (
-          <div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)} credits</div>
-        )}
-      </div>
-    </nav>
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "16px 16px" }} />
+
+        {/* Nav items */}
+        {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--gold)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
+        {navBtn("receipts", "History")}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "8px 16px" }} />
+
+        {/* User info */}
+        <div style={{ padding: "12px 16px", position: "relative" }} ref={menuRef}>
+          {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} />}
+          {userEmail && (
+            <button style={{
+              display: "block", width: "100%", fontSize: "14px",
+              color: "var(--text-secondary)", background: "none", border: "none",
+              cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+              padding: 0, marginBottom: 4, overflow: "hidden",
+              textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }} onClick={() => setMenuOpen(!menuOpen)}>{userEmail}</button>
+          )}
+          {creditBalance != null && (
+            <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)} remaining</div>
+          )}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Floating sidebar toggle (when collapsed)
+   ═══════════════════════════════════════════════════════════ */
+
+function FloatingToggle({ onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      position: "fixed", top: 16, left: 16, zIndex: 50,
+      background: "var(--bg-surface)", border: "1px solid var(--border)",
+      borderRadius: 8, padding: 8, cursor: "pointer",
+      color: "var(--text-secondary)", display: "flex",
+      alignItems: "center", justifyContent: "center",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+      transition: "background 150ms",
+    }}
+      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-surface)"; }}
+    >
+      <HamburgerIcon />
+    </button>
   );
 }
 
@@ -2048,12 +1375,7 @@ function WorkersListView({ onSelect, onCreate }) {
 
   useEffect(() => {
     (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.items || result || []);
-      } catch {
-        setWorkers([]);
-      }
+      try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); }
       setLoading(false);
     })();
   }, []);
@@ -2064,68 +1386,35 @@ function WorkersListView({ onSelect, onCreate }) {
         <div>
           <h1 style={S.pageTitle}>Workers</h1>
           <p style={{ ...S.pageSub, marginBottom: 0 }}>
-            {loading
-              ? "Loading..."
-              : workers.length === 0
-                ? "No workers yet. Create one to get started."
-                : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
+            {loading ? "Loading..." : workers.length === 0 ? "No workers yet. Create one to get started." : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>
-          Create worker
-        </button>
+        <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
       </div>
 
       {!loading && workers.length === 0 && (
-        <div
-          style={{
-            padding: "4rem 2rem",
-            textAlign: "center",
-            border: "1px dashed var(--neutral-700)",
-            borderRadius: 12,
-          }}
-        >
-          <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "0.5rem" }}>
-            Your first worker is waiting
-          </div>
-          <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)", marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>
-            Describe what you need done, set a schedule, review the charter, and deploy.
-          </div>
-          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>
-            Create worker
-          </button>
+        <div style={{ padding: "4rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+          <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your first worker is waiting</div>
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>Describe what you need done, set a schedule, review the charter, and deploy.</div>
+          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
         </div>
       )}
 
       {workers.length > 0 && (
         <div>
-          <div
-            style={{
-              ...S.workerRow,
-              cursor: "default",
-              borderBottom: "1px solid var(--neutral-700)",
-              padding: "0 0 0.5rem",
-            }}
-          >
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--neutral-300)" }}>Name</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--neutral-300)" }}>Status</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--neutral-300)" }}>Last run</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--neutral-300)" }}>Schedule</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--neutral-300)" }}>Cost</div>
+          <div style={{ ...S.workerRow, cursor: "default", borderBottom: "1px solid var(--border)", padding: "0 0 0.5rem" }}>
+            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Name</div>
+            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Status</div>
+            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Last run</div>
+            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Schedule</div>
+            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Cost</div>
           </div>
-          {workers.map((w) => (
-            <div
-              key={w.id}
-              style={S.workerRow}
-              onClick={() => onSelect(w)}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--neutral-900)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-            >
+          {workers.map(w => (
+            <div key={w.id} style={S.workerRow} onClick={() => onSelect(w)}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
               <div style={S.workerName}>{w.name}</div>
-              <div style={S.workerMeta}>
-                <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
-                {w.status}
-              </div>
+              <div style={S.workerMeta}><span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />{w.status}</div>
               <div style={S.workerMeta}>{w.lastRun || w.lastRunAt ? timeAgo(w.lastRun || w.lastRunAt) : "never"}</div>
               <div style={S.workerMeta}>{w.schedule || "manual"}</div>
               <div style={S.workerMeta}>{w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : "--"}</div>
@@ -2152,12 +1441,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
 
   useEffect(() => {
     (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
-        setWorker(result);
-      } catch {
-        setWorker(null);
-      }
+      try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch { setWorker(null); }
       setLoading(false);
     })();
   }, [workerId]);
@@ -2166,212 +1450,102 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
     if (tab === "activity" && workerId) {
       setLogsLoading(true);
       (async () => {
-        try {
-          const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" });
-          setLogs(result?.items || result || []);
-        } catch {
-          setLogs([]);
-        }
+        try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.items || result || []); } catch { setLogs([]); }
         setLogsLoading(false);
       })();
     }
   }, [tab, workerId]);
 
-  // Auto-poll for new deploy to catch first execution
   useEffect(() => {
     if (!isNewDeploy || !workerId) return;
     const interval = setInterval(async () => {
       try {
         const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
         setWorker(result);
-        if (tab === "activity") {
-          const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" });
-          setLogs(logResult?.items || logResult || []);
-        }
+        if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); }
       } catch { /* ignore */ }
     }, 5000);
     return () => clearInterval(interval);
   }, [isNewDeploy, workerId, tab]);
 
   async function handleRunNow() {
-    setRunningAction(true);
-    setError("");
-    try {
-      await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" });
-      const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
-      setWorker(result);
-    } catch (err) {
-      setError(err?.message || "Failed to run worker.");
-    }
+    setRunningAction(true); setError("");
+    try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); }
+    catch (err) { setError(err?.message || "Failed to run worker."); }
     setRunningAction(false);
   }
 
   async function handlePauseResume() {
     if (!worker) return;
-    setRunningAction(true);
-    setError("");
+    setRunningAction(true); setError("");
     const newStatus = worker.status === "paused" ? "ready" : "paused";
-    try {
-      await workerApiRequest({
-        pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
-        method: "PUT",
-        body: { status: newStatus },
-      });
-      setWorker((prev) => prev ? { ...prev, status: newStatus } : prev);
-    } catch (err) {
-      setError(err?.message || "Failed to update worker.");
-    }
+    try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); }
+    catch (err) { setError(err?.message || "Failed to update worker."); }
     setRunningAction(false);
   }
 
-  if (loading) {
-    return (
-      <div>
-        <button style={S.backLink} onClick={onBack}>← All workers</button>
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
-      </div>
-    );
-  }
-
-  if (!worker) {
-    return (
-      <div>
-        <button style={S.backLink} onClick={onBack}>← All workers</button>
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Worker not found.</div>
-      </div>
-    );
-  }
+  if (loading) return (<div><button style={S.backLink} onClick={onBack}>← All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div></div>);
+  if (!worker) return (<div><button style={S.backLink} onClick={onBack}>← All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Worker not found.</div></div>);
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
-
-  const tabs = [
-    { key: "charter", label: "Charter" },
-    { key: "activity", label: "Activity" },
-    { key: "settings", label: "Settings" },
-  ];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "activity", label: "Activity" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
-      <button style={S.backLink} onClick={onBack}>
-        ← All workers
-      </button>
-
+      <button style={S.backLink} onClick={onBack}>← All workers</button>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.3rem" }}>
         <h1 style={{ ...S.pageTitle, marginBottom: 0 }}>{worker.name}</h1>
         <span style={S.statusDot(STATUS_COLORS[worker.status] || STATUS_COLORS.ready)} />
-        <span style={{ fontSize: "0.82rem", color: "var(--neutral-400)" }}>{worker.status}</span>
+        <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{worker.status}</span>
       </div>
       <p style={S.pageSub}>{worker.description || "No description"}</p>
-
       {error && <div style={S.error}>{error}</div>}
-
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
-        <button
-          style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }}
-          disabled={runningAction}
-          onClick={handleRunNow}
-        >
-          {runningAction ? "Running..." : "Run now"}
-        </button>
-        <button
-          style={S.btnSecondary}
-          disabled={runningAction}
-          onClick={handlePauseResume}
-        >
-          {worker.status === "paused" ? "Resume" : "Pause"}
-        </button>
+        <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }} disabled={runningAction} onClick={handleRunNow}>{runningAction ? "Running..." : "Run now"}</button>
+        <button style={S.btnSecondary} disabled={runningAction} onClick={handlePauseResume}>{worker.status === "paused" ? "Resume" : "Pause"}</button>
       </div>
-
       {worker.cost != null && (
-        <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "2rem" }}>
-          Cost this period: <span style={{ color: "var(--neutral-200)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span>
+        <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "2rem" }}>
+          Cost this period: <span style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span>
         </div>
       )}
-
-      <div style={{ display: "flex", gap: "0.25rem", borderBottom: "1px solid var(--neutral-800)", marginBottom: "2rem" }}>
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              padding: "0.6rem 1rem",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              color: tab === t.key ? "var(--neutral-50)" : "var(--neutral-400)",
-              background: "none",
-              border: "none",
-              borderBottom: tab === t.key ? "2px solid var(--gold)" : "2px solid transparent",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              marginBottom: -1,
-            }}
-          >
-            {t.label}
-          </button>
+      <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border)", marginBottom: "2rem" }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600,
+            color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)",
+            background: "none", border: "none",
+            borderBottom: tab === t.key ? "2px solid var(--gold)" : "2px solid transparent",
+            cursor: "pointer", fontFamily: "inherit", marginBottom: -1,
+          }}>{t.label}</button>
         ))}
       </div>
-
-      {tab === "charter" && (
-        <CharterDisplay charter={charter} />
-      )}
-
+      {tab === "charter" && <CharterDisplay charter={charter} />}
       {tab === "activity" && (
         <div>
           {isNewDeploy && logs.length === 0 && !logsLoading && (
-            <div style={{
-              padding: "2rem",
-              textAlign: "center",
-              border: "1px dashed var(--neutral-700)",
-              borderRadius: 12,
-            }}>
-              <div style={{
-                fontSize: "0.95rem",
-                fontWeight: 600,
-                color: "var(--neutral-300)",
-                marginBottom: "0.5rem",
-              }}>
-                Your worker is queued and will run shortly.
-              </div>
-              <div style={{
-                width: 24,
-                height: 24,
-                border: "2px solid var(--neutral-700)",
-                borderTop: "2px solid var(--gold)",
-                borderRadius: "50%",
-                animation: "spin 1s linear infinite",
-                margin: "1rem auto 0",
-              }} />
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+              <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your worker is queued and will run shortly.</div>
+              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--gold)", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "1rem auto 0" }} />
             </div>
           )}
           {logsLoading ? (
-            <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading logs...</div>
+            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div>
           ) : logs.length === 0 && !isNewDeploy ? (
-            <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>
-              No activity yet. This worker hasn't run.
-            </div>
+            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div>
           ) : (
-            logs.map((entry, i) => (
-              <ActivityLogEntry key={entry.id || i} entry={entry} />
-            ))
+            logs.map((entry, i) => <ActivityLogEntry key={entry.id || i} entry={entry} />)
           )}
         </div>
       )}
-
       {tab === "settings" && (
         <div style={{ maxWidth: 480 }}>
           <label style={S.label}>Schedule</label>
-          <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", marginBottom: "1rem" }}>
-            {worker.schedule || "Manual (on-demand)"}
-          </div>
-          {worker.model && (
-            <>
-              <label style={S.label}>Model</label>
-              <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", marginBottom: "2rem" }}>
-                {RECOMMENDED_MODELS.find((m) => m.id === worker.model)?.name || worker.model}
-              </div>
-            </>
-          )}
+          <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{worker.schedule || "Manual (on-demand)"}</div>
+          {worker.model && (<>
+            <label style={S.label}>Model</label>
+            <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{RECOMMENDED_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div>
+          </>)}
         </div>
       )}
     </div>
@@ -2384,17 +1558,10 @@ function ActivityLogEntry({ entry }) {
     <div style={S.logEntry}>
       <div style={S.logTime}>{entry.time ? timeAgo(entry.time) : ""}</div>
       <div style={S.logSummary}>{entry.summary}</div>
-      {entry.detail && (
-        <>
-          <button
-            style={{ ...S.btnGhost, marginTop: "0.4rem", fontSize: "0.78rem" }}
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? "Hide details" : "Show details"}
-          </button>
-          {expanded && <div style={S.logDetail}>{entry.detail}</div>}
-        </>
-      )}
+      {entry.detail && (<>
+        <button style={{ ...S.btnGhost, marginTop: "0.4rem", fontSize: "12px" }} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide details" : "Show details"}</button>
+        {expanded && <div style={S.logDetail}>{entry.detail}</div>}
+      </>)}
     </div>
   );
 }
@@ -2409,136 +1576,72 @@ function ApprovalsView() {
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState(null);
 
-  useEffect(() => {
-    loadApprovals();
-  }, []);
+  useEffect(() => { loadApprovals(); }, []);
 
   async function loadApprovals() {
     setLoading(true);
     try {
       const runtime = loadRuntimeConfig();
-      const [pending, decided] = await Promise.all([
-        fetchApprovalInbox(runtime, { status: "pending" }),
-        fetchApprovalInbox(runtime, { status: "decided" }),
-      ]);
+      const [pending, decided] = await Promise.all([fetchApprovalInbox(runtime, { status: "pending" }), fetchApprovalInbox(runtime, { status: "decided" })]);
       setItems(pending?.items || pending || []);
       setHistory(decided?.items || decided || []);
-    } catch {
-      setItems([]);
-      setHistory([]);
-    }
+    } catch { setItems([]); setHistory([]); }
     setLoading(false);
   }
 
   async function handleDecide(requestId, approved) {
     setDeciding(requestId);
-    try {
-      const runtime = loadRuntimeConfig();
-      await decideApprovalInboxItem(runtime, requestId, { approved });
-      await loadApprovals();
-    } catch { /* ignore */ }
+    try { const runtime = loadRuntimeConfig(); await decideApprovalInboxItem(runtime, requestId, { approved }); await loadApprovals(); } catch { /* ignore */ }
     setDeciding(null);
   }
 
   return (
     <div>
       <h1 style={S.pageTitle}>Approvals</h1>
-      <p style={S.pageSub}>
-        Workers ask before taking sensitive actions. Review and decide here.
-      </p>
-
+      <p style={S.pageSub}>Workers ask before taking sensitive actions. Review and decide here.</p>
       {loading ? (
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
-      ) : (
-        <>
-          {items.length === 0 ? (
-            <div style={{
-              padding: "3rem 2rem",
-              textAlign: "center",
-              border: "1px dashed var(--neutral-700)",
-              borderRadius: 12,
-              marginBottom: "3rem",
-            }}>
-              <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--neutral-300)", marginBottom: "0.3rem" }}>
-                Nothing pending
+        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
+      ) : (<>
+        {items.length === 0 ? (
+          <div style={{ padding: "3rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, marginBottom: "3rem" }}>
+            <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Nothing pending</div>
+            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>When a worker needs your approval, it will appear here.</div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: "3rem" }}>
+            {items.map(item => (
+              <div key={item.requestId || item.id} style={S.approvalRow}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>{item.workerName || item.agentName || "Worker"}</div>
+                    <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>{item.action || item.summary || item.description || "Action requires approval"}</div>
+                    {item.detail && <div style={{ fontSize: "13px", color: "var(--text-tertiary)", lineHeight: 1.5 }}>{item.detail}</div>}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-tertiary)", flexShrink: 0, marginLeft: "1rem" }}>{item.createdAt ? timeAgo(item.createdAt) : ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                  <button style={{ ...S.btnPrimary, width: "auto", padding: "0.5rem 1.25rem", fontSize: "13px" }} disabled={deciding === (item.requestId || item.id)} onClick={() => handleDecide(item.requestId || item.id, true)}>Approve</button>
+                  <button style={{ ...S.btnSecondary, padding: "0.5rem 1.25rem", fontSize: "13px" }} disabled={deciding === (item.requestId || item.id)} onClick={() => handleDecide(item.requestId || item.id, false)}>Deny</button>
+                </div>
               </div>
-              <div style={{ fontSize: "0.85rem", color: "var(--neutral-500)" }}>
-                When a worker needs your approval, it will appear here.
+            ))}
+          </div>
+        )}
+        {history.length > 0 && (<>
+          <div style={{ ...S.label, marginBottom: "1rem" }}>Recent decisions</div>
+          {history.slice(0, 20).map(item => (
+            <div key={item.requestId || item.id} style={{ ...S.approvalRow, opacity: 0.7 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>{item.workerName || item.agentName || "Worker"}</span>
+                  <span style={{ fontSize: "13px", color: "var(--text-tertiary)", marginLeft: "0.75rem" }}>{item.action || item.summary || "Action"}</span>
+                </div>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: item.approved || item.decision === "approved" ? "#5bb98c" : "#c97055" }}>{item.approved || item.decision === "approved" ? "Approved" : "Denied"}</span>
               </div>
             </div>
-          ) : (
-            <div style={{ marginBottom: "3rem" }}>
-              {items.map((item) => (
-                <div key={item.requestId || item.id} style={S.approvalRow}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--neutral-100)", marginBottom: "0.25rem" }}>
-                        {item.workerName || item.agentName || "Worker"}
-                      </div>
-                      <div style={{ fontSize: "0.85rem", color: "var(--neutral-300)", marginBottom: "0.25rem" }}>
-                        {item.action || item.summary || item.description || "Action requires approval"}
-                      </div>
-                      {item.detail && (
-                        <div style={{ fontSize: "0.82rem", color: "var(--neutral-500)", lineHeight: 1.5 }}>
-                          {item.detail}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--neutral-500)", flexShrink: 0, marginLeft: "1rem" }}>
-                      {item.createdAt ? timeAgo(item.createdAt) : ""}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                    <button
-                      style={{ ...S.btnPrimary, width: "auto", padding: "0.5rem 1.25rem", fontSize: "0.82rem" }}
-                      disabled={deciding === (item.requestId || item.id)}
-                      onClick={() => handleDecide(item.requestId || item.id, true)}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      style={{ ...S.btnSecondary, padding: "0.5rem 1.25rem", fontSize: "0.82rem" }}
-                      disabled={deciding === (item.requestId || item.id)}
-                      onClick={() => handleDecide(item.requestId || item.id, false)}
-                    >
-                      Deny
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <>
-              <div style={{ ...S.label, marginBottom: "1rem" }}>Recent decisions</div>
-              {history.slice(0, 20).map((item) => (
-                <div key={item.requestId || item.id} style={{ ...S.approvalRow, opacity: 0.7 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <div>
-                      <span style={{ fontSize: "0.85rem", color: "var(--neutral-300)" }}>
-                        {item.workerName || item.agentName || "Worker"}
-                      </span>
-                      <span style={{ fontSize: "0.82rem", color: "var(--neutral-500)", marginLeft: "0.75rem" }}>
-                        {item.action || item.summary || "Action"}
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: "0.78rem",
-                        fontWeight: 600,
-                        color: item.approved || item.decision === "approved" ? "#5bb98c" : "#c97055",
-                      }}
-                    >
-                      {item.approved || item.decision === "approved" ? "Approved" : "Denied"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </>
-      )}
+          ))}
+        </>)}
+      </>)}
     </div>
   );
 }
@@ -2553,13 +1656,7 @@ function ReceiptsView() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const runtime = loadRuntimeConfig();
-        const result = await fetchWorkOrderReceipts(runtime, { limit: 50 });
-        setReceipts(result?.items || result || []);
-      } catch {
-        setReceipts([]);
-      }
+      try { const runtime = loadRuntimeConfig(); const result = await fetchWorkOrderReceipts(runtime, { limit: 50 }); setReceipts(result?.items || result || []); } catch { setReceipts([]); }
       setLoading(false);
     })();
   }, []);
@@ -2568,28 +1665,19 @@ function ReceiptsView() {
     <div>
       <h1 style={S.pageTitle}>History</h1>
       <p style={S.pageSub}>Execution log across all workers.</p>
-
       {loading ? (
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
+        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
       ) : receipts.length === 0 ? (
-        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>No executions yet.</div>
+        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No executions yet.</div>
       ) : (
-        receipts.map((r) => (
+        receipts.map(r => (
           <div key={r.id || r.receiptId} style={S.logEntry}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)" }}>
-                  {r.workerName || r.agentName || r.summary || r.id || "Execution"}
-                </div>
-                <div style={S.logTime}>
-                  {r.completedAt ? formatDateTime(r.completedAt) : r.createdAt ? formatDateTime(r.createdAt) : ""}
-                </div>
+                <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{r.workerName || r.agentName || r.summary || r.id || "Execution"}</div>
+                <div style={S.logTime}>{r.completedAt ? formatDateTime(r.completedAt) : r.createdAt ? formatDateTime(r.createdAt) : ""}</div>
               </div>
-              {r.cost != null && (
-                <div style={{ ...S.workerMeta, color: "var(--neutral-300)" }}>
-                  {typeof r.cost === "number" ? `$${r.cost.toFixed(2)}` : formatCurrency(r.cost)}
-                </div>
-              )}
+              {r.cost != null && <div style={{ ...S.workerMeta, color: "var(--text-secondary)" }}>{typeof r.cost === "number" ? `$${r.cost.toFixed(2)}` : formatCurrency(r.cost)}</div>}
             </div>
           </div>
         ))
@@ -2599,23 +1687,27 @@ function ReceiptsView() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SETTINGS VIEW
+   SETTINGS MODAL -- overlay, not a page
    ═══════════════════════════════════════════════════════════ */
 
 function ToggleSwitch({ on, onToggle }) {
   return (
-    <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--gold)" : "var(--neutral-700)", position: "relative", flexShrink: 0, transition: "background 0.15s" }}>
-      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 0.15s" }} />
+    <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--gold)" : "var(--bg-hover)", position: "relative", flexShrink: 0, transition: "background 150ms" }}>
+      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 150ms" }} />
     </button>
   );
 }
 
 function ThemePreview({ opt, selected, onClick }) {
-  const base = { padding: "0.75rem", borderRadius: 10, border: selected ? "2px solid var(--gold)" : "2px solid var(--neutral-700)", background: selected ? "var(--gold-dim)" : "transparent", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "border-color 0.15s", flex: 1 };
   return (
-    <button onClick={onClick} style={base}>
+    <button onClick={onClick} style={{
+      padding: "0.75rem", borderRadius: 10, cursor: "pointer", textAlign: "center",
+      fontFamily: "inherit", transition: "border-color 150ms", flex: 1,
+      border: selected ? "2px solid var(--gold)" : "2px solid var(--border)",
+      background: selected ? "var(--gold-dim)" : "transparent",
+    }}>
       {opt.key === "auto" ? (
-        <div style={{ width: 80, height: 50, borderRadius: 6, margin: "0 auto 0.5rem", display: "flex", overflow: "hidden" }}>
+        <div style={{ width: 80, height: 50, borderRadius: 8, margin: "0 auto 0.5rem", display: "flex", overflow: "hidden" }}>
           <div style={{ flex: 1, background: opt.bgLeft, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 4 }}>
             <div style={{ width: "70%", height: 8, borderRadius: 2, background: opt.fgLeft }} />
           </div>
@@ -2624,20 +1716,20 @@ function ThemePreview({ opt, selected, onClick }) {
           </div>
         </div>
       ) : (
-        <div style={{ width: 80, height: 50, borderRadius: 6, margin: "0 auto 0.5rem", background: opt.bg, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 6 }}>
+        <div style={{ width: 80, height: 50, borderRadius: 8, margin: "0 auto 0.5rem", background: opt.bg, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 6 }}>
           <div style={{ width: "80%", height: 8, borderRadius: 2, background: opt.fg }} />
         </div>
       )}
-      <div style={{ fontSize: "0.82rem", fontWeight: 600, color: selected ? "var(--neutral-100)" : "var(--neutral-400)" }}>{opt.label}</div>
+      <div style={{ fontSize: "13px", fontWeight: 600, color: selected ? "var(--text-primary)" : "var(--text-secondary)" }}>{opt.label}</div>
     </button>
   );
 }
 
-function SettingsView({ userEmail }) {
+function SettingsModal({ userEmail, onClose }) {
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saveState, setSaveState] = useState("idle"); // "idle" | "saving" | "saved"
   const [tab, setTab] = useState("account");
   const [theme, setTheme] = useState(() => loadTheme());
   const [defaultModel, setDefaultModel] = useState("google/gemini-3-flash");
@@ -2657,96 +1749,152 @@ function SettingsView({ userEmail }) {
     })();
   }, []);
 
+  // Close on Escape
+  useEffect(() => {
+    function handleKey(e) { if (e.key === "Escape") onClose(); }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
   async function handleSave() {
-    setSaving(true); setSaved(false);
-    try { await updateTenantSettings(runtime, { displayName: displayName.trim(), defaultModel }); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch { /* ignore */ }
-    setSaving(false);
+    setSaveState("saving");
+    try {
+      await updateTenantSettings(runtime, { displayName: displayName.trim(), defaultModel });
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1500);
+    } catch { setSaveState("idle"); }
   }
 
   function handleThemeChange(t) { setTheme(t); saveTheme(t); }
 
-  const tabs = [{ key: "account", label: "Account" }, { key: "appearance", label: "Appearance" }, { key: "model", label: "Default Model" }, { key: "notifications", label: "Notifications" }, { key: "danger", label: "Danger Zone" }];
+  const tabs = [{ key: "account", label: "Account" }, { key: "appearance", label: "Appearance" }, { key: "model", label: "Model" }, { key: "notifications", label: "Notifications" }];
   const themes = [
-    { key: "light", label: "Light", bg: "#f5f3ef", fg: "#d4cfc7" },
-    { key: "auto", label: "Auto", bgLeft: "#f5f3ef", bgRight: "#0d0c0a", fgLeft: "#d4cfc7", fgRight: "#1f1d1a" },
-    { key: "dark", label: "Dark", bg: "#0d0c0a", fg: "#1f1d1a" },
+    { key: "light", label: "Light", bg: "#f7f5f0", fg: "#e8e5de" },
+    { key: "auto", label: "Auto", bgLeft: "#f7f5f0", bgRight: "#1a1a1a", fgLeft: "#e8e5de", fgRight: "#2a2a2a" },
+    { key: "dark", label: "Dark", bg: "#1a1a1a", fg: "#2a2a2a" },
   ];
-  const saveBtn = (label = "Save") => (<button style={{ ...S.btnPrimary, width: "auto", opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={handleSave}>{saving ? "Saving..." : saved ? "Saved" : label}</button>);
 
-  if (loading) return (<div><h1 style={S.pageTitle}>Settings</h1><p style={S.pageSub}>Loading...</p></div>);
+  function SaveButton({ label = "Save" }) {
+    const isSaved = saveState === "saved";
+    const isSaving = saveState === "saving";
+    return (
+      <button style={{
+        ...S.btnPrimary, width: "auto", opacity: isSaving ? 0.6 : 1,
+        background: isSaved ? "#5bb98c" : "var(--gold)",
+        transition: "background 300ms, opacity 150ms",
+      }} disabled={isSaving} onClick={handleSave}>
+        {isSaving ? "Saving..." : isSaved ? "Saved \u2713" : label}
+      </button>
+    );
+  }
 
   return (
-    <div>
-      <h1 style={S.pageTitle}>Settings</h1>
-      <p style={S.pageSub}>Manage your account and preferences.</p>
-      <div style={{ maxWidth: 560 }}>
-        <div style={{ display: "flex", gap: "0.25rem", borderBottom: "1px solid var(--neutral-800)", marginBottom: "2rem", flexWrap: "wrap" }}>
-          {tabs.map((s) => (
-            <button key={s.key} onClick={() => setTab(s.key)} style={{ padding: "0.6rem 1rem", fontSize: "0.85rem", fontWeight: 600, color: tab === s.key ? "var(--neutral-50)" : "var(--neutral-400)", background: "none", border: "none", borderBottom: tab === s.key ? "2px solid var(--gold)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{s.label}</button>
+    <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-content" style={{
+        width: "100%", maxWidth: 600, maxHeight: "85vh",
+        background: "var(--bg-surface)", borderRadius: 16,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
+        overflow: "hidden", display: "flex", flexDirection: "column",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 0" }}>
+          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Settings</h2>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: "20px", color: "var(--text-secondary)", padding: "4px 8px",
+            fontFamily: "inherit", lineHeight: 1,
+          }}>{"\u2715"}</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: "4px", padding: "16px 24px 0", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+          {tabs.map(s => (
+            <button key={s.key} onClick={() => setTab(s.key)} style={{
+              padding: "8px 12px", fontSize: "14px", fontWeight: 600,
+              color: tab === s.key ? "var(--text-primary)" : "var(--text-secondary)",
+              background: "none", border: "none",
+              borderBottom: tab === s.key ? "2px solid var(--gold)" : "2px solid transparent",
+              cursor: "pointer", fontFamily: "inherit", marginBottom: -1,
+            }}>{s.label}</button>
           ))}
         </div>
 
-        {tab === "account" && (<div>
-          <label style={S.label}>Display name</label>
-          <FocusInput type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
-          <div style={{ marginBottom: "2rem" }}>{saveBtn()}</div>
-          <div style={{ borderTop: "1px solid var(--neutral-800)", margin: "2rem 0" }} />
-          <label style={S.label}>Email</label>
-          <div style={{ fontSize: "0.88rem", color: "var(--neutral-300)", marginBottom: "1.5rem" }}>{userEmail || "Not available"}</div>
-          <label style={S.label}>Account ID</label>
-          <div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>{runtime.tenantId}</div>
-        </div>)}
+        {/* Content */}
+        <div style={{ padding: "24px", overflowY: "auto", flex: 1 }}>
+          {loading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div> : (<>
+            {tab === "account" && (<div>
+              <label style={S.label}>Display name</label>
+              <FocusInput type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+              <div style={{ marginBottom: "2rem" }}><SaveButton /></div>
+              <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
+              <label style={S.label}>Email</label>
+              <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{userEmail || "Not available"}</div>
+              <label style={S.label}>Account ID</label>
+              <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>{runtime.tenantId}</div>
+              <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
+              {!showDeleteConfirm ? (
+                <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
+              ) : (
+                <div style={{ padding: "1.25rem", border: "1px solid #c97055", borderRadius: 10, background: "rgba(201,112,85,0.06)" }}>
+                  <div style={{ fontSize: "15px", fontWeight: 600, color: "#c97055", marginBottom: "0.5rem" }}>Are you sure?</div>
+                  <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.5 }}>This will permanently delete your account and all workers. This action cannot be undone.</div>
+                  <div style={{ display: "flex", gap: "0.75rem" }}>
+                    <button style={{ ...S.btnPrimary, width: "auto", background: "#c97055" }} onClick={async () => { await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Yes, delete my account</button>
+                    <button style={S.btnSecondary} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>)}
 
-        {tab === "appearance" && (<div>
-          <label style={S.label}>Color mode</label>
-          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", marginTop: 0 }}>Choose how nooterra looks for you.</p>
-          <div style={{ display: "flex", gap: "1rem" }}>
-            {themes.map((opt) => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}
-          </div>
-        </div>)}
-
-        {tab === "model" && (<div>
-          <label style={S.label}>Default model</label>
-          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", marginTop: 0 }}>This model will be used for new workers by default. You can change it per worker.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            {RECOMMENDED_MODELS.map((m) => (
-              <div key={m.id} onClick={() => setDefaultModel(m.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.7rem 1rem", borderRadius: 8, cursor: "pointer", border: m.id === defaultModel ? "1px solid var(--gold)" : "1px solid var(--neutral-700)", background: m.id === defaultModel ? "rgba(210,176,111,0.08)" : "transparent", transition: "all 0.15s" }}>
-                <div><span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === defaultModel ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span><span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span></div>
-                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M</span>
+            {tab === "appearance" && (<div>
+              <label style={S.label}>Color mode</label>
+              <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", marginTop: 0 }}>Choose how nooterra looks for you.</p>
+              <div style={{ display: "flex", gap: "1rem" }}>
+                {themes.map(opt => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: "1.5rem" }}>{saveBtn("Save default model")}</div>
-        </div>)}
+            </div>)}
 
-        {tab === "notifications" && (<div>
-          <label style={S.label}>Notifications</label>
-          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1.5rem", marginTop: 0 }}>Control how you get notified about worker activity.</p>
-          {[{ label: "Email me when a worker needs approval", desc: "Get notified when a worker is waiting for your decision.", on: notifApproval, toggle: () => setNotifApproval(!notifApproval) },
-            { label: "Weekly worker report", desc: "Receive a weekly summary of all worker activity.", on: notifWeekly, toggle: () => setNotifWeekly(!notifWeekly) }].map((n, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--neutral-800)" }}>
-              <div><div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", fontWeight: 500 }}>{n.label}</div><div style={{ fontSize: "0.78rem", color: "var(--neutral-500)", marginTop: "0.15rem" }}>{n.desc}</div></div>
-              <ToggleSwitch on={n.on} onToggle={n.toggle} />
-            </div>
-          ))}
-        </div>)}
-
-        {tab === "danger" && (<div>
-          <label style={{ ...S.label, color: "#c97055" }}>Danger Zone</label>
-          <p style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1.5rem", marginTop: 0 }}>Irreversible actions. Please be certain.</p>
-          {!showDeleteConfirm ? (
-            <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
-          ) : (
-            <div style={{ padding: "1.25rem", border: "1px solid #c97055", borderRadius: 10, background: "rgba(201,112,85,0.06)" }}>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "#c97055", marginBottom: "0.5rem" }}>Are you sure?</div>
-              <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem", lineHeight: 1.5 }}>This will permanently delete your account and all workers. This action cannot be undone.</div>
-              <div style={{ display: "flex", gap: "0.75rem" }}>
-                <button style={{ ...S.btnPrimary, width: "auto", background: "#c97055" }} onClick={async () => { await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Yes, delete my account</button>
-                <button style={S.btnSecondary} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+            {tab === "model" && (<div>
+              <label style={S.label}>Default model</label>
+              <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", marginTop: 0 }}>This model will be used for new workers by default.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {RECOMMENDED_MODELS.map(m => (
+                  <div key={m.id} onClick={() => setDefaultModel(m.id)} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "0.7rem 1rem", borderRadius: 8, cursor: "pointer",
+                    border: m.id === defaultModel ? "1px solid var(--gold)" : "1px solid var(--border)",
+                    background: m.id === defaultModel ? "var(--gold-dim)" : "transparent",
+                    transition: "all 150ms",
+                  }}>
+                    <div>
+                      <span style={{ fontSize: "14px", fontWeight: 600, color: m.id === defaultModel ? "var(--text-primary)" : "var(--text-secondary)" }}>{m.name}</span>
+                      <span style={{ fontSize: "12px", color: "var(--text-tertiary)", marginLeft: 8 }}>{m.tag}</span>
+                    </div>
+                    <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M</span>
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
-        </div>)}
+              <div style={{ marginTop: "1.5rem" }}><SaveButton label="Save default model" /></div>
+            </div>)}
+
+            {tab === "notifications" && (<div>
+              <label style={S.label}>Notifications</label>
+              <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem", marginTop: 0 }}>Control how you get notified about worker activity.</p>
+              {[
+                { label: "Email me when a worker needs approval", desc: "Get notified when a worker is waiting for your decision.", on: notifApproval, toggle: () => setNotifApproval(!notifApproval) },
+                { label: "Weekly worker report", desc: "Receive a weekly summary of all worker activity.", on: notifWeekly, toggle: () => setNotifWeekly(!notifWeekly) },
+              ].map((n, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
+                  <div>
+                    <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{n.label}</div>
+                    <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{n.desc}</div>
+                  </div>
+                  <ToggleSwitch on={n.on} onToggle={n.toggle} />
+                </div>
+              ))}
+            </div>)}
+          </>)}
+        </div>
       </div>
     </div>
   );
@@ -2758,106 +1906,40 @@ function SettingsView({ userEmail }) {
 
 function PricingView() {
   const tiers = [
-    {
-      name: "Free",
-      price: "Free forever",
-      features: [
-        "Local CLI workers",
-        "Any AI provider (bring your own key)",
-        "Unlimited workers and runs",
-        "Charter-based governance",
-        "Full activity logs",
-      ],
-      cta: "Install CLI",
-      ctaHref: "https://docs.nooterra.ai",
-      primary: false,
-    },
-    {
-      name: "Pro",
-      price: "$29 / month",
-      features: [
-        "Everything in Free",
-        "Cloud-hosted workers",
-        "Web dashboard",
-        "Slack approval integration",
-        "Email notifications",
-        "Priority support",
-      ],
-      cta: "Start free trial",
-      ctaAction: () => navigate("/signup"),
-      primary: true,
-    },
-    {
-      name: "Team",
-      price: "$99 / month",
-      features: [
-        "Everything in Pro",
-        "Shared team dashboard",
-        "SSO / SAML",
-        "Audit log export",
-        "Custom worker templates",
-        "Dedicated support",
-      ],
-      cta: "Contact us",
-      ctaHref: "mailto:team@nooterra.ai",
-      primary: false,
-    },
+    { name: "Free", price: "Free forever", features: ["Local CLI workers", "Any AI provider (bring your own key)", "Unlimited workers and runs", "Charter-based governance", "Full activity logs"], cta: "Install CLI", ctaHref: "https://docs.nooterra.ai", primary: false },
+    { name: "Pro", price: "$29 / month", features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approval integration", "Email notifications", "Priority support"], cta: "Start free trial", ctaAction: () => navigate("/signup"), primary: true },
+    { name: "Team", price: "$99 / month", features: ["Everything in Pro", "Shared team dashboard", "SSO / SAML", "Audit log export", "Custom worker templates", "Dedicated support"], cta: "Contact us", ctaHref: "mailto:team@nooterra.ai", primary: false },
   ];
 
   return (
     <div style={S.pricingWrap} className="lovable-fade">
       <h1 style={S.pricingTitle}>Simple, honest pricing</h1>
-      <p style={{ fontSize: "1.05rem", color: "var(--neutral-400)", marginBottom: "3rem", maxWidth: 520, lineHeight: 1.6 }}>
-        Start free with local workers. Upgrade when you want cloud hosting and team features.
-      </p>
-
+      <p style={{ fontSize: "1.05rem", color: "var(--text-secondary)", marginBottom: "3rem", maxWidth: 520, lineHeight: 1.6 }}>Start free with local workers. Upgrade when you want cloud hosting and team features.</p>
       {tiers.map((tier, i) => (
         <div key={tier.name} style={{ ...S.tier, borderBottom: i < tiers.length - 1 ? S.tier.borderBottom : "none" }}>
           <div>
             <div style={S.tierName}>{tier.name}</div>
             <div style={S.tierPrice}>{tier.price}</div>
-            {tier.features.map((f, j) => (
-              <div key={j} style={S.tierFeature}>{f}</div>
-            ))}
+            {tier.features.map((f, j) => <div key={j} style={S.tierFeature}>{f}</div>)}
           </div>
           <div style={{ paddingTop: "0.5rem" }}>
             {tier.ctaHref ? (
-              <a
-                href={tier.ctaHref}
-                target={tier.ctaHref.startsWith("http") ? "_blank" : undefined}
-                rel={tier.ctaHref.startsWith("http") ? "noopener noreferrer" : undefined}
-                style={{
-                  ...(tier.primary ? S.btnPrimary : S.btnSecondary),
-                  textDecoration: "none",
-                  display: "inline-flex",
-                  width: "auto",
-                }}
-              >
-                {tier.cta}
-              </a>
+              <a href={tier.ctaHref} target={tier.ctaHref.startsWith("http") ? "_blank" : undefined} rel={tier.ctaHref.startsWith("http") ? "noopener noreferrer" : undefined} style={{ ...(tier.primary ? S.btnPrimary : S.btnSecondary), textDecoration: "none", display: "inline-flex", width: "auto" }}>{tier.cta}</a>
             ) : (
-              <button
-                style={{ ...(tier.primary ? S.btnPrimary : S.btnSecondary), width: "auto" }}
-                onClick={tier.ctaAction}
-              >
-                {tier.cta}
-              </button>
+              <button style={{ ...(tier.primary ? S.btnPrimary : S.btnSecondary), width: "auto" }} onClick={tier.ctaAction}>{tier.cta}</button>
             )}
           </div>
         </div>
       ))}
-
       <div style={{ marginTop: "3rem" }}>
-        <a href="/" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/"); }}>
-          ← Back to home
-        </a>
+        <a href="/" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/"); }}>← Back to home</a>
       </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   APP SHELL — unified layout with persistent sidebar
+   APP SHELL -- unified layout with collapsible sidebar
    ═══════════════════════════════════════════════════════════ */
 
 function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
@@ -2867,84 +1949,32 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [workers, setWorkers] = useState([]);
   const [creditBalance, setCreditBalance] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Load sidebar data
   useEffect(() => {
-    (async () => {
-      try {
-        const runtime = loadRuntimeConfig();
-        const result = await fetchApprovalInbox(runtime, { status: "pending" });
-        const items = result?.items || result || [];
-        setPendingApprovals(Array.isArray(items) ? items.length : 0);
-      } catch { /* ignore */ }
-    })();
-
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.items || result || []);
-      } catch { /* ignore */ }
-    })();
-
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" });
-        if (result?.balance != null) setCreditBalance(result.balance);
-        else if (result?.remaining != null) setCreditBalance(result.remaining);
-      } catch { /* ignore */ }
-    })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; setPendingApprovals(Array.isArray(items) ? items.length : 0); } catch { /* ignore */ } })();
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
   }, []);
 
   function handleNavigate(dest, workerId) {
-    if (dest === "workerDetail" && workerId) {
-      setSelectedWorkerId(workerId);
-      setIsNewDeploy(false);
-      setView("workerDetail");
-    } else {
-      setView(dest);
-      setSelectedWorkerId(null);
-      setIsNewDeploy(false);
-    }
+    if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); }
+    else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); }
   }
 
-  function handleSelectWorker(worker) {
-    setSelectedWorkerId(worker.id);
-    setIsNewDeploy(false);
-    setView("workerDetail");
-  }
-
-  function handleNewWorker() {
-    setView("builder");
-    setSelectedWorkerId(null);
-    setIsNewDeploy(false);
-  }
+  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
+  function handleNewWorker() { setView("builder"); setSelectedWorkerId(null); setIsNewDeploy(false); }
 
   function handleBuilderComplete() {
-    // Reload workers list
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.items || result || []);
-      } catch { /* ignore */ }
-    })();
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     setView("workers");
   }
 
   function handleViewWorker(w) {
-    // Reload workers list
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.items || result || []);
-      } catch { /* ignore */ }
-    })();
-    if (w?.id) {
-      setSelectedWorkerId(w.id);
-      setIsNewDeploy(true);
-      setView("workerDetail");
-    } else {
-      setView("workers");
-    }
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
+    if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); }
+    else setView("workers");
   }
 
   const sidebarActiveView = view === "workerDetail" || view === "builder" ? "workers" : view;
@@ -2959,153 +1989,77 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
         userEmail={userEmail}
         creditBalance={creditBalance}
         onNewWorker={handleNewWorker}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
+      {sidebarCollapsed && <FloatingToggle onClick={() => setSidebarCollapsed(false)} />}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {view === "builder" && (
-          <BuilderView
-            onComplete={handleBuilderComplete}
-            onViewWorker={handleViewWorker}
-            userName={userEmail}
-            isFirstTime={isFirstTime && workers.length === 0}
-          />
-        )}
-        {view === "workers" && (
-          <div style={S.main}>
-            <WorkersListView
-              onSelect={handleSelectWorker}
-              onCreate={handleNewWorker}
-            />
-          </div>
-        )}
-        {view === "workerDetail" && selectedWorkerId && (
-          <div style={S.main}>
-            <WorkerDetailView
-              workerId={selectedWorkerId}
-              onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }}
-              isNewDeploy={isNewDeploy}
-            />
-          </div>
-        )}
-        {view === "approvals" && (
-          <div style={S.main}>
-            <ApprovalsView />
-          </div>
-        )}
-        {view === "receipts" && (
-          <div style={S.main}>
-            <ReceiptsView />
-          </div>
-        )}
-        {view === "settings" && (
-          <div style={S.main}>
-            <SettingsView userEmail={userEmail} />
-          </div>
-        )}
+        {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
+        {view === "workers" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
+        {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }} isNewDeploy={isNewDeploy} /></div>}
+        {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
+        {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
       </div>
+      {settingsOpen && <SettingsModal userEmail={userEmail} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PRODUCT SHELL — top-level mode router with session check
+   PRODUCT SHELL -- top-level mode router with session check
    ═══════════════════════════════════════════════════════════ */
 
 export default function ProductShell({ mode, launchId, agentId, runId, requestedPath }) {
-  const [currentMode, setCurrentMode] = useState(null); // null = checking session
+  const [currentMode, setCurrentMode] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
   const [isFirstTime, setIsFirstTime] = useState(false);
 
-  // Apply theme on mount
-  useEffect(() => {
-    applyTheme(loadTheme());
-  }, []);
+  useEffect(() => { applyTheme(loadTheme()); }, []);
 
-  // On mount, check for an existing session
   useEffect(() => {
     let cancelled = false;
-
     async function checkSession() {
-      // If the mode is explicitly an auth page, skip session check
-      if (mode === "signup" || mode === "pricing") {
-        setCurrentMode(mode);
-        setSessionChecked(true);
-        return;
-      }
-
+      if (mode === "signup" || mode === "pricing") { setCurrentMode(mode); setSessionChecked(true); return; }
       try {
         const principal = await fetchSessionPrincipal();
         if (!cancelled && principal && principal.email) {
           setUserEmail(principal.email);
           const runtime = loadRuntimeConfig();
-          if (principal.tenantId) {
-            saveRuntime({ ...runtime, tenantId: principal.tenantId });
-          }
-          saveOnboardingState({
-            ...loadOnboardingState(),
-            buyer: principal,
-            sessionExpected: true,
-            completed: true,
-          });
-
-          // Check if user has any workers to determine first-time status
-          try {
-            const workersResult = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-            const workersList = workersResult?.items || workersResult || [];
-            if (workersList.length === 0) {
-              setIsFirstTime(true);
-            }
-          } catch { /* ignore */ }
-
-          // Authenticated user — map mode to view
-          if (mode === "login" || mode === "signup") {
-            setCurrentMode("dashboard");
-          } else {
-            setCurrentMode(mode || "dashboard");
-          }
+          if (principal.tenantId) saveRuntime({ ...runtime, tenantId: principal.tenantId });
+          saveOnboardingState({ ...loadOnboardingState(), buyer: principal, sessionExpected: true, completed: true });
+          try { const workersResult = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); if ((workersResult?.items || workersResult || []).length === 0) setIsFirstTime(true); } catch { /* ignore */ }
+          if (mode === "login" || mode === "signup") setCurrentMode("dashboard"); else setCurrentMode(mode || "dashboard");
           setSessionChecked(true);
           return;
         }
-      } catch {
-        // No valid session
-      }
-
+      } catch { /* No valid session */ }
       if (!cancelled) {
-        if (mode === "login" || mode === "signup" || mode === "pricing") {
-          setCurrentMode(mode);
-        } else {
-          setCurrentMode("login");
-        }
+        if (mode === "login" || mode === "signup" || mode === "pricing") setCurrentMode(mode); else setCurrentMode("login");
         setSessionChecked(true);
       }
     }
-
     checkSession();
     return () => { cancelled = true; };
   }, [mode]);
 
-  // Update mode when prop changes (after initial session check)
   useEffect(() => {
     if (sessionChecked) {
       const onboardState = loadOnboardingState();
-      if (onboardState?.sessionExpected) {
-        setCurrentMode(mode);
-      } else if (mode === "signup" || mode === "login" || mode === "pricing") {
-        setCurrentMode(mode);
-      }
+      if (onboardState?.sessionExpected) setCurrentMode(mode);
+      else if (mode === "signup" || mode === "login" || mode === "pricing") setCurrentMode(mode);
     }
   }, [mode, sessionChecked]);
 
   function handleAuth(dest) {
     if (dest === "builder") {
-      // Signup flow: first-time user, show templates
       const onboardState = loadOnboardingState();
       setUserEmail(onboardState?.buyer?.email || null);
       setIsFirstTime(true);
       setCurrentMode("dashboard");
       navigate("/wallet");
     } else {
-      // Login flow: returning user, go to workers list
       const onboardState = loadOnboardingState();
       setUserEmail(onboardState?.buyer?.email || null);
       setIsFirstTime(false);
@@ -3114,18 +2068,13 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
     }
   }
 
-  // Show loading state while checking session
   if (!sessionChecked) {
     return (
       <div style={S.shell}>
         <div style={S.authWrap}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--neutral-50)", marginBottom: "0.5rem" }}>
-              nooterra
-            </div>
-            <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>
-              Loading...
-            </div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>nooterra</div>
+            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
           </div>
         </div>
       </div>
@@ -3134,33 +2083,21 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
   const resolvedMode = currentMode;
 
-  // Determine the initial view for AppShell based on mode and first-time status
   function getInitialView() {
-    // First-time users (from signup or no workers) get the builder with templates
     if (isFirstTime) return "builder";
     switch (resolvedMode) {
       case "approvals": return "approvals";
       case "receipts": return "receipts";
-      case "workspace": return "settings";
-      default: return "workers"; // Returning users see workers list
+      case "workspace": return "workers";
+      default: return "workers";
     }
   }
 
   return (
     <div style={S.shell}>
-      {resolvedMode === "signup" && (
-        <SignUpView onAuth={handleAuth} />
-      )}
-
-      {resolvedMode === "login" && (
-        <SignInView onAuth={handleAuth} />
-      )}
-
-      {resolvedMode === "pricing" && (
-        <PricingView />
-      )}
-
-      {/* All authenticated views use the unified AppShell */}
+      {resolvedMode === "signup" && <SignUpView onAuth={handleAuth} />}
+      {resolvedMode === "login" && <SignInView onAuth={handleAuth} />}
+      {resolvedMode === "pricing" && <PricingView />}
       {!["signup", "login", "pricing"].includes(resolvedMode) && resolvedMode != null && (
         <AppShell initialView={getInitialView()} userEmail={userEmail} isFirstTime={isFirstTime} />
       )}
