@@ -86,23 +86,26 @@ export async function handleChatRequest(req, res, pool) {
     return;
   }
 
-  const selectedModel = model || 'google/gemini-3-flash';
+  const selectedModel = model || 'nvidia/nemotron-3-super-120b-a12b:free';
 
-  // Check tenant credits
-  try {
-    const creditResult = await pool.query(
-      'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
-      [tenantId]
-    );
-    const balance = creditResult.rows[0]?.balance_usd ?? 0;
-    if (parseFloat(balance) <= 0) {
-      res.writeHead(402, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: "You're out of credits. Top up to continue." }));
-      return;
+  // Check tenant credits (skip for free models)
+  const isFreeModel = selectedModel.includes(':free');
+  if (!isFreeModel) {
+    try {
+      const creditResult = await pool.query(
+        'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
+        [tenantId]
+      );
+      const balance = creditResult.rows[0]?.balance_usd ?? 0;
+      if (parseFloat(balance) <= 0) {
+        res.writeHead(402, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: "You're out of credits. Top up to continue, or switch to a free model." }));
+        return;
+      }
+    } catch (err) {
+      log('error', `Credit check failed for tenant ${tenantId}: ${err.message}`);
+      // Allow chat to proceed if credit check fails (table may not exist yet)
     }
-  } catch (err) {
-    log('error', `Credit check failed for tenant ${tenantId}: ${err.message}`);
-    // Allow chat to proceed if credit check fails (table may not exist yet)
   }
 
   // Prepend system message
