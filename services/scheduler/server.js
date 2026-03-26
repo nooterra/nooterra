@@ -19,6 +19,7 @@ import pg from 'pg';
 const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
+import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -612,6 +613,90 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && req.url === '/v1/chat') {
     handleChatRequest(req, res, pool);
+    return;
+  }
+
+  // --- Billing routes ---
+
+  if (req.method === 'POST' && req.url === '/v1/billing/checkout') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const tenantId = req.headers['x-tenant-id'] || data.tenantId;
+        if (!tenantId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing tenant ID' }));
+          return;
+        }
+
+        let result;
+        if (data.type === 'credits') {
+          result = await createCreditPurchase({
+            tenantId,
+            email: data.email,
+            amount: data.amount,
+            successUrl: data.successUrl,
+            cancelUrl: data.cancelUrl,
+          }, pool);
+        } else {
+          result = await createCheckoutSession({
+            tenantId,
+            email: data.email,
+            plan: data.plan || 'pro',
+            successUrl: data.successUrl,
+            cancelUrl: data.cancelUrl,
+          }, pool);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        log('error', `Billing checkout error: ${err.message}`);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/v1/billing/webhook') {
+    // Collect raw body for signature verification
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', async () => {
+      try {
+        const rawBody = Buffer.concat(chunks).toString('utf8');
+        const signature = req.headers['stripe-signature'] || '';
+        const result = await handleStripeWebhook(rawBody, signature, pool, log);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        log('error', `Webhook error: ${err.message}`);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/v1/billing/status') {
+    const tenantId = req.headers['x-tenant-id'];
+    if (!tenantId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      return;
+    }
+    try {
+      const status = await getBillingStatus(tenantId, pool);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(status));
+    } catch (err) {
+      log('error', `Billing status error: ${err.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 

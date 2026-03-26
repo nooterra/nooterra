@@ -10,6 +10,10 @@
       "destination": "https://api.nooterra.ai/:match*"
     },
     {
+      "source": "/__nooterra/v1/billing/:match*",
+      "destination": "https://nooterra-scheduler-production.up.railway.app/v1/billing/:match*"
+    },
+    {
       "source": "/__nooterra/v1/chat",
       "destination": "https://nooterra-scheduler-production.up.railway.app/v1/chat"
     },
