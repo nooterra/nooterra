@@ -1969,8 +1969,12 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
     try {
       await updateTenantSettings(runtime, { displayName: displayName.trim(), callMe: callMe.trim(), workFunction, preferences: preferences.trim(), defaultModel });
       setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 1500);
-    } catch { setSaveState("idle"); }
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch (err) {
+      console.error("Settings save failed:", err);
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 2000);
+    }
   }
 
   function handleThemeChange(t) { setTheme(t); saveTheme(t); }
@@ -2001,13 +2005,16 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   function SaveButton({ label = "Save" }) {
     const isSaved = saveState === "saved";
     const isSaving = saveState === "saving";
+    const isError = saveState === "error";
     return (
       <button style={{
-        ...S.btnPrimary, width: "auto", opacity: isSaving ? 0.6 : 1,
-        background: isSaved ? "#5bb98c" : "var(--gold)",
-        transition: "background 300ms, opacity 150ms",
+        ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px",
+        opacity: isSaving ? 0.6 : 1,
+        background: isSaved ? "#5bb98c" : isError ? "#c97055" : "var(--gold)",
+        transition: "background 300ms, opacity 150ms, transform 150ms",
+        transform: isSaved ? "scale(1.02)" : "scale(1)",
       }} disabled={isSaving} onClick={handleSave}>
-        {isSaving ? "Saving..." : isSaved ? "Saved \u2713" : label}
+        {isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed — try again" : label}
       </button>
     );
   }
@@ -2462,12 +2469,11 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
   const resolvedMode = currentMode;
 
   function getInitialView() {
-    if (isFirstTime) return "builder";
     switch (resolvedMode) {
       case "approvals": return "approvals";
       case "receipts": return "receipts";
-      case "workspace": return "workers";
-      default: return "workers";
+      case "workspace": return "settings";
+      default: return "builder"; // Always land on chat, like Claude/ChatGPT
     }
   }
 
