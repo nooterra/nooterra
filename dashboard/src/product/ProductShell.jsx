@@ -2491,20 +2491,8 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
     }
   }, [mode, sessionChecked]);
 
-  function handleAuth(dest) {
-    if (dest === "builder") {
-      const onboardState = loadOnboardingState();
-      setUserEmail(onboardState?.buyer?.email || null);
-      setIsFirstTime(true);
-      setCurrentMode("dashboard");
-      navigate("/dashboard");
-    } else {
-      const onboardState = loadOnboardingState();
-      setUserEmail(onboardState?.buyer?.email || null);
-      setIsFirstTime(false);
-      setCurrentMode("dashboard");
-      navigate("/dashboard");
-    }
+  function handleAuth() {
+    window.location.href = "/dashboard";
   }
 
   if (!sessionChecked) {
