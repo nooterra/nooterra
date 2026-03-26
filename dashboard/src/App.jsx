@@ -21,25 +21,18 @@ function getRouteMode() {
   if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/approvals") return { mode: "approvals", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/wallet") return { mode: "wallet", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/dashboard") return { mode: "dashboard", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/product") return { mode: "product", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/pricing") return { mode: "pricing", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/integrations") return { mode: "integrations", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
-  if (path === "/onboarding") {
-    return {
-      mode: wantsManagedOnboarding ? "workspace" : "onboarding",
-      launchId: null,
-      agentId: null,
-      runId: null,
-      requestedPath: null
-    };
-  }
+  if (path === "/onboarding") return { mode: "onboarding", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/account") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/workspace") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/signup") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/login") return { mode: "workspace", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/signup") return { mode: "signup", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/login") return { mode: "login", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/studio") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/developers") return { mode: "developers", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs") return { mode: "docs", launchId: null, agentId: null, runId: null, requestedPath: null };
