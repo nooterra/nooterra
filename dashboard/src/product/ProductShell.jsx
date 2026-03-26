@@ -310,7 +310,7 @@ function SignUpView({ onAuth }) {
       try {
         const optionsResp = await authRequest({
           pathname: "/v1/public/signup/passkey/options",
-          body: { email: email.trim() },
+          body: { email: email.trim(), company: email.trim().split("@")[0] },
         });
 
         if (optionsResp?.challenge && optionsResp?.challengeId) {
@@ -359,7 +359,7 @@ function SignUpView({ onAuth }) {
       if (!passkeySuccess) {
         const result = await authRequest({
           pathname: "/v1/public/signup",
-          body: { email: email.trim() },
+          body: { email: email.trim(), company: email.trim().split("@")[0] },
         });
         setSignupResult(result);
         setStep("otp");
@@ -395,7 +395,7 @@ function SignUpView({ onAuth }) {
         const keypair = await generateBrowserEd25519KeypairPem();
         const optionsResp = await authRequest({
           pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`,
-          body: { email: email.trim() },
+          body: { email: email.trim(), company: email.trim().split("@")[0] },
         });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
           const signature = await signBrowserPasskeyChallengeBase64Url({
@@ -480,7 +480,7 @@ function SignUpView({ onAuth }) {
                 try {
                   await authRequest({
                     pathname: "/v1/public/signup",
-                    body: { email: email.trim() },
+                    body: { email: email.trim(), company: email.trim().split("@")[0] },
                   });
                 } catch { /* ignore */ }
               }}
@@ -501,7 +501,7 @@ function SignUpView({ onAuth }) {
         </div>
         <h1 style={S.authTitle}>Get started</h1>
         <p style={S.authSub}>
-          AI workers that run 24/7 with hard boundaries on what they can and can't do.
+          We'll send a verification code to your email. No password needed.
         </p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmitForm}>
@@ -517,9 +517,9 @@ function SignUpView({ onAuth }) {
           <button
             type="submit"
             style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
-            disabled={loading}
+            disabled={loading || !email.trim()}
           >
-            {loading ? "Creating..." : "Continue \u2192"}
+            {loading ? "Sending code..." : "Continue \u2192"}
           </button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
