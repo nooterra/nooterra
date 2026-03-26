@@ -354,167 +354,77 @@ function NooterraLogo({ height = 24, style: extraStyle }) {
 }
 
 /* ===================================================================
-   AUTH: SignUpView
+   AUTH: AuthView (unified sign-up + sign-in, OpenAI-style light page)
    =================================================================== */
 
-function SignUpView({ onAuth }) {
-  const [step, setStep] = useState("form");
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [signupResult, setSignupResult] = useState(null);
+const A = {
+  wrap: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "#ffffff", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", WebkitFontSmoothing: "antialiased" },
+  inner: { width: "100%", maxWidth: 400 },
+  logo: { fontSize: 24, fontWeight: 700, color: "#1a1a1a", marginBottom: "3rem", letterSpacing: "-0.02em" },
+  heading: { fontSize: 28, fontWeight: 700, color: "#1a1a1a", marginBottom: "0.5rem", lineHeight: 1.2 },
+  sub: { fontSize: 15, color: "#6b7280", marginBottom: "2rem", lineHeight: 1.5 },
+  input: { display: "block", width: "100%", padding: "14px 20px", fontSize: 15, background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#1a1a1a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
+  inputFocus: { borderColor: "#1a1a1a" },
+  otpInput: { display: "block", width: "100%", padding: "14px 20px", fontSize: "1.5rem", fontWeight: 700, letterSpacing: "0.5em", textAlign: "center", background: "#ffffff", border: "1px solid #d1d5db", borderRadius: 9999, color: "#1a1a1a", outline: "none", marginBottom: "1rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
+  btn: { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "14px 20px", fontSize: 15, fontWeight: 600, background: "#1a1a1a", color: "#ffffff", border: "none", borderRadius: 9999, cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.15s", letterSpacing: "0.01em" },
+  error: { fontSize: 14, color: "#dc2626", marginBottom: "1rem", lineHeight: 1.4 },
+  links: { display: "flex", justifyContent: "center", gap: "1rem", marginTop: "2.5rem" },
+  link: { fontSize: 13, color: "#6b7280", textDecoration: "none", cursor: "pointer", background: "none", border: "none", fontFamily: "inherit", padding: 0 },
+  resend: { fontSize: 14, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: "1.5rem", textAlign: "center", width: "100%" },
+};
 
-  async function handleSubmitForm(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const result = await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } });
-      setSignupResult(result);
-      setStep("otp");
-    } catch (err) {
-      setError(err?.message || "Sign up failed. Please try again.");
-    } finally { setLoading(false); }
-  }
-
-  async function handleSubmitOtp(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const tenantId = signupResult?.tenantId;
-      if (tenantId) {
-        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`, body: { email: email.trim(), code: otpCode.trim() } });
-      }
-      const principal = await fetchSessionPrincipal();
-      const runtime = loadRuntimeConfig();
-      saveRuntime({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId });
-      saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-      // Save name to tenant settings and localStorage
-      if (fullName.trim()) {
-        try {
-          await updateTenantSettings({ ...runtime, tenantId: tenantId || principal?.tenantId || runtime.tenantId }, { displayName: fullName.trim(), callMe: fullName.trim().split(" ")[0] });
-          localStorage.setItem("nooterra_user_name", fullName.trim());
-        } catch { /* non-fatal */ }
-      }
-      try {
-        const keypair = await generateBrowserEd25519KeypairPem();
-        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey/options`, body: { email: email.trim(), company: email.trim().split("@")[0] } });
-        if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
-          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: "Browser passkey" } });
-          saveStoredBuyerPasskeyBundle({ tenantId, email: email.trim(), credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
-        }
-      } catch { /* Passkey registration is optional */ }
-      onAuth?.("builder");
-    } catch (err) {
-      setError(err?.message || "Invalid code. Please try again.");
-    } finally { setLoading(false); }
-  }
-
-  if (step === "otp") {
-    return (
-      <div style={S.authWrap}>
-        <div style={S.authBox} className="lovable-fade">
-          <h1 style={S.authTitle}>Check your email</h1>
-          <p style={S.authSub}>We sent a 6-digit code to <strong style={{ color: "var(--text-primary)" }}>{email}</strong>. Enter it below to verify your account.</p>
-          {error && <div style={S.error}>{error}</div>}
-          <form onSubmit={handleSubmitOtp}>
-            <label style={S.label}>Verification code</label>
-            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus style={{ ...S.otpInput, ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}) }} />
-            <button type="submit" style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }} disabled={loading || otpCode.length < 6}>{loading ? "Verifying..." : "Verify and continue"}</button>
-          </form>
-          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "13px" }}>
-            Didn't receive a code?{" "}
-            <button style={S.btnGhost} onClick={async () => { setError(""); try { await authRequest({ pathname: "/v1/public/signup", body: { email: email.trim(), company: email.trim().split("@")[0] } }); } catch { /* ignore */ } }}>Resend</button>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+function AuthInput({ style, ...props }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <div style={S.authWrap}>
-      <div style={S.authBox} className="lovable-fade">
-        <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
-        <h1 style={S.authTitle}>Get started</h1>
-        <p style={S.authSub}>We'll send a verification code to your email. No password needed.</p>
-        {error && <div style={S.error}>{error}</div>}
-        <form onSubmit={handleSubmitForm}>
-          <label style={S.label}>Name</label>
-          <FocusInput type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" required autoFocus />
-          <label style={S.label}>Email</label>
-          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
-          <button type="submit" style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }} disabled={loading || !email.trim() || !fullName.trim()}>{loading ? "One moment..." : "Continue \u2192"}</button>
-        </form>
-        <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
-          Already have an account?{" "}
-          <a href="/login" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/login"); }}>Sign in</a>
-        </p>
-      </div>
-    </div>
+    <input
+      {...props}
+      style={{ ...A.input, ...style, ...(focused ? A.inputFocus : {}) }}
+      onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
+      onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
+    />
   );
 }
 
-/* ===================================================================
-   AUTH: SignInView
-   =================================================================== */
-
-function SignInView({ onAuth }) {
-  const [step, setStep] = useState("form");
-  const [tenantId, setTenantId] = useState("");
+function AuthView({ onAuth }) {
+  const [step, setStep] = useState("form"); // "form" | "otp"
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [tenantId, setTenantId] = useState("");
+  const [isNewAccount, setIsNewAccount] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [hasStoredPasskey, setHasStoredPasskey] = useState(false);
 
+  // Auto-login with stored passkey on mount
   useEffect(() => {
-    try {
-      const stored = loadStoredBuyerPasskeyBundle({});
-      if (stored && stored.tenantId && stored.email) {
-        setTenantId(stored.tenantId);
-        setEmail(stored.email);
-        setHasStoredPasskey(true);
-      }
-    } catch { /* ignore */ }
-  }, []);
+    (async () => {
+      try {
+        const stored = loadStoredBuyerPasskeyBundle({});
+        if (!stored?.tenantId || !stored?.email) return;
+        const tid = stored.tenantId; const em = stored.email;
+        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
+        if (optionsResp?.challenge && optionsResp?.challengeId) {
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: stored.privateKeyPem, challenge: optionsResp.challenge });
+          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: stored.credentialId, publicKeyPem: stored.publicKeyPem, signature } });
+          touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
+          const principal = await fetchSessionPrincipal();
+          saveRuntime({ ...loadRuntimeConfig(), tenantId: tid });
+          saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+          onAuth?.("dashboard");
+        }
+      } catch { /* no stored passkey or it failed — show form */ }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handlePasskeyLogin() {
-    setError(""); setLoading(true);
-    const tid = tenantId.trim(); const em = email.trim();
-    try {
-      const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-      if (!storedPasskey) { setError("No stored passkey found. Please use email sign-in."); setLoading(false); return; }
-      const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
-      if (optionsResp?.challenge && optionsResp?.challengeId) {
-        const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
-        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
-        touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-        const principal = await fetchSessionPrincipal();
-        const runtime = loadRuntimeConfig();
-        saveRuntime({ ...runtime, tenantId: tid });
-        saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-        onAuth?.("dashboard");
-        return;
-      }
-      setError("Passkey authentication failed. Try email sign-in instead.");
-    } catch (err) { setError(err?.message || "Passkey sign-in failed. Try email sign-in instead."); }
-    finally { setLoading(false); }
-  }
-
-  async function handleSubmit(e) {
+  async function handleContinue(e) {
     e.preventDefault(); setError(""); setLoading(true);
     const em = email.trim();
     try {
-      // Use signup endpoint to get tenant ID — it returns existing tenant for known emails
       const result = await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
       const tid = result?.tenantId;
-      if (!tid) { setError("Could not find your account. Try signing up instead."); setLoading(false); return; }
+      if (!tid) { setError("Something went wrong. Please try again."); setLoading(false); return; }
       setTenantId(tid);
-      // Try passkey login first
+      // Try passkey login first for returning users
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
       if (storedPasskey) {
         try {
@@ -531,14 +441,18 @@ function SignInView({ onAuth }) {
           }
         } catch { /* passkey failed, fall through to OTP */ }
       }
-      // Fall through to OTP
-      await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
+      // Determine if new account (otpIssued flag) or send OTP for existing
+      const newAccount = !!result?.otpIssued;
+      setIsNewAccount(newAccount);
+      if (!newAccount) {
+        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
+      }
       setStep("otp");
-    } catch (err) { setError(err?.message || "Sign in failed. Please try again."); }
+    } catch (err) { setError(err?.message || "Something went wrong. Please try again."); }
     finally { setLoading(false); }
   }
 
-  async function handleSubmitOtp(e) {
+  async function handleVerify(e) {
     e.preventDefault(); setError(""); setLoading(true);
     const tid = tenantId.trim(); const em = email.trim();
     try {
@@ -547,63 +461,89 @@ function SignInView({ onAuth }) {
       const runtime = loadRuntimeConfig();
       saveRuntime({ ...runtime, tenantId: tid });
       saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
-      onAuth?.("dashboard");
+      // Save name for new accounts
+      if (isNewAccount && fullName.trim()) {
+        try {
+          await updateTenantSettings({ ...runtime, tenantId: tid }, { displayName: fullName.trim(), callMe: fullName.trim().split(" ")[0] });
+          localStorage.setItem("nooterra_user_name", fullName.trim());
+        } catch { /* non-fatal */ }
+      }
+      // Register passkey
+      try {
+        const keypair = await generateBrowserEd25519KeypairPem();
+        const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em, company: em.split("@")[0] } });
+        if (optionsResp?.challenge && optionsResp?.challengeId) {
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
+          await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: "Browser passkey" } });
+          saveStoredBuyerPasskeyBundle({ tenantId: tid, email: em, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
+        }
+      } catch { /* Passkey registration is optional */ }
+      onAuth?.(isNewAccount ? "builder" : "dashboard");
     } catch (err) { setError(err?.message || "Invalid code. Please try again."); }
     finally { setLoading(false); }
   }
 
+  async function handleResend() {
+    setError("");
+    const em = email.trim(); const tid = tenantId.trim();
+    try {
+      if (isNewAccount) {
+        await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
+      } else {
+        await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
+      }
+    } catch { /* ignore */ }
+  }
+
+  // --- OTP step ---
   if (step === "otp") {
     return (
-      <div style={S.authWrap}>
-        <div style={S.authBox} className="lovable-fade">
-          <h1 style={S.authTitle}>Check your email</h1>
-          <p style={S.authSub}>We sent a 6-digit code to <strong style={{ color: "var(--text-primary)" }}>{email}</strong>.</p>
-          {error && <div style={S.error}>{error}</div>}
-          <form onSubmit={handleSubmitOtp}>
-            <label style={S.label}>Verification code</label>
-            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" required autoFocus style={{ ...S.otpInput, ...(otpCode.length === 6 ? { borderColor: "var(--gold)" } : {}) }} />
-            <button type="submit" style={{ ...S.btnPrimary, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }} disabled={loading || otpCode.length < 6}>{loading ? "Verifying..." : "Sign in"}</button>
+      <div style={A.wrap}>
+        <div style={A.inner} className="lovable-fade">
+          <div style={A.logo}>nooterra</div>
+          <h1 style={A.heading}>Enter your code</h1>
+          <p style={A.sub}>We sent a verification code to <strong style={{ color: "#1a1a1a" }}>{email}</strong>.</p>
+          {error && <div style={A.error}>{error}</div>}
+          <form onSubmit={handleVerify}>
+            {isNewAccount && (
+              <AuthInput type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" autoFocus />
+            )}
+            <input
+              type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+              value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000" required autoFocus={!isNewAccount}
+              style={{ ...A.otpInput, ...(otpCode.length === 6 ? { borderColor: "#1a1a1a" } : {}) }}
+            />
+            <button type="submit" style={{ ...A.btn, opacity: loading || otpCode.length < 6 ? 0.5 : 1 }} disabled={loading || otpCode.length < 6}>
+              {loading ? "Verifying..." : "Verify"}
+            </button>
           </form>
-          <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0, fontSize: "13px" }}>
-            <button style={S.btnGhost} onClick={() => { setStep("form"); setOtpCode(""); setError(""); }}>Back to login</button>
-          </p>
+          <div style={{ textAlign: "center" }}>
+            <button style={A.resend} onClick={handleResend}>Resend code</button>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (hasStoredPasskey) {
-    return (
-      <div style={S.authWrap}>
-        <div style={S.authBox} className="lovable-fade">
-          <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
-          <h1 style={S.authTitle}>Welcome back</h1>
-          <p style={S.authSub}>Signing in as <strong style={{ color: "var(--text-primary)" }}>{email}</strong></p>
-          {error && <div style={S.error}>{error}</div>}
-          <button style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1, marginBottom: "1rem" }} disabled={loading} onClick={handlePasskeyLogin}>{loading ? "Signing in..." : "Sign in with passkey"}</button>
-          <p style={{ ...S.authSub, marginTop: "1rem", marginBottom: 0, fontSize: "13px" }}>
-            Not you?{" "}
-            <button style={S.btnGhost} onClick={() => { setHasStoredPasskey(false); setTenantId(""); setEmail(""); setError(""); }}>Use a different account</button>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // --- Email form step ---
   return (
-    <div style={S.authWrap}>
-      <div style={S.authBox} className="lovable-fade">
-        <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
-        <h1 style={S.authTitle}>Welcome back</h1>
-        <p style={S.authSub}>We'll send a verification code to your email.</p>
-        {error && <div style={S.error}>{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <label style={S.label}>Email</label>
-          <FocusInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
-          <button type="submit" style={{ ...S.btnPrimary, opacity: loading || !email.trim() ? 0.5 : 1 }} disabled={loading || !email.trim()}>{loading ? "Sending code..." : "Continue \u2192"}</button>
+    <div style={A.wrap}>
+      <div style={A.inner} className="lovable-fade">
+        <div style={A.logo}>nooterra</div>
+        <h1 style={A.heading}>Log in or create account</h1>
+        <p style={A.sub}>AI workers that handle real work.</p>
+        {error && <div style={A.error}>{error}</div>}
+        <form onSubmit={handleContinue}>
+          <AuthInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" required autoFocus />
+          <button type="submit" style={{ ...A.btn, opacity: loading || !email.trim() ? 0.5 : 1 }} disabled={loading || !email.trim()}>
+            {loading ? "One moment..." : "Continue"}
+          </button>
         </form>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1.5rem" }}>
-          <a href="/signup" style={S.link} onClick={(e) => { e.preventDefault(); navigate("/signup"); }}>Create account</a>
+        <div style={A.links}>
+          <a href="https://nooterra.com/terms" target="_blank" rel="noopener noreferrer" style={A.link}>Terms of Use</a>
+          <span style={{ color: "#d1d5db" }}>|</span>
+          <a href="https://nooterra.com/privacy" target="_blank" rel="noopener noreferrer" style={A.link}>Privacy Policy</a>
         </div>
       </div>
     </div>
@@ -2521,8 +2461,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
   return (
     <div style={S.shell}>
-      {resolvedMode === "signup" && <SignUpView onAuth={handleAuth} />}
-      {resolvedMode === "login" && <SignInView onAuth={handleAuth} />}
+      {(resolvedMode === "signup" || resolvedMode === "login") && <AuthView onAuth={handleAuth} />}
       {resolvedMode === "pricing" && <PricingView />}
       {!["signup", "login", "pricing"].includes(resolvedMode) && resolvedMode != null && (
         <AppShell initialView={getInitialView()} userEmail={userEmail} isFirstTime={isFirstTime} />
