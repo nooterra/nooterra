@@ -1955,17 +1955,25 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const [notifErrors, setNotifErrors] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [showCreditPicker, setShowCreditPicker] = useState(false);
   const runtime = loadRuntimeConfig();
 
   useEffect(() => {
+    // Load from localStorage first (instant), then try backend
+    try {
+      const stored = JSON.parse(localStorage.getItem("nooterra_settings") || "{}");
+      if (stored.displayName) setDisplayName(stored.displayName);
+      if (stored.callMe) setCallMe(stored.callMe);
+      if (stored.workFunction) setWorkFunction(stored.workFunction);
+      if (stored.preferences) setPreferences(stored.preferences);
+      if (stored.defaultModel) setDefaultModel(stored.defaultModel);
+    } catch { /* ignore */ }
     (async () => {
       try {
         const result = await fetchTenantSettings(runtime);
-        setDisplayName(result?.displayName || result?.name || "");
-        if (result?.callMe) setCallMe(result.callMe);
-        if (result?.workFunction) setWorkFunction(result.workFunction);
-        if (result?.preferences) setPreferences(result.preferences);
-        if (result?.defaultModel) setDefaultModel(result.defaultModel);
+        if (result?.displayName) setDisplayName(result.displayName);
+        if (result?.name && !displayName) setDisplayName(result.name);
       } catch { /* ignore */ }
       setLoading(false);
     })();
@@ -1980,7 +1988,12 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   async function handleSave() {
     setSaveState("saving");
     try {
-      await updateTenantSettings(runtime, { displayName: displayName.trim(), callMe: callMe.trim(), workFunction, preferences: preferences.trim(), defaultModel });
+      // Save all settings to localStorage (reliable, works immediately)
+      const settingsData = { displayName: displayName.trim(), callMe: callMe.trim(), workFunction, preferences: preferences.trim(), defaultModel };
+      localStorage.setItem("nooterra_settings", JSON.stringify(settingsData));
+      if (displayName.trim()) localStorage.setItem("nooterra_user_name", displayName.trim());
+      // Try saving displayName to backend (best-effort, may not accept custom fields)
+      try { await updateTenantSettings(runtime, { displayName: displayName.trim() }); } catch { /* backend may reject custom fields */ }
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (err) {
@@ -1994,6 +2007,22 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   function handleCopyAccountId() {
     try { navigator.clipboard.writeText(runtime.tenantId); setCopiedAccountId(true); setTimeout(() => setCopiedAccountId(false), 1500); } catch { /* ignore */ }
+  }
+
+  async function handleBillingCheckout(payload) {
+    setBillingLoading(true);
+    try {
+      const result = await workerApiRequest({ pathname: "/v1/billing/checkout", method: "POST", body: { ...payload, email: userEmail } });
+      if (result?.url) {
+        window.location.href = result.url;
+      } else {
+        console.error("No checkout URL returned", result);
+        setBillingLoading(false);
+      }
+    } catch (err) {
+      console.error("Billing checkout failed:", err);
+      setBillingLoading(false);
+    }
   }
 
   const sidebarTabs = [
@@ -2216,7 +2245,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 </div>
 
                 {currentTier === "free" && (
-                  <button style={{ ...S.btnPrimary, width: "auto", marginBottom: "2rem" }} onClick={() => { onClose(); navigate("/pricing"); }}>Upgrade to Pro</button>
+                  <button style={{ ...S.btnPrimary, width: "auto", marginBottom: "2rem", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "Redirecting..." : "Upgrade to Pro"}</button>
                 )}
 
                 <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
@@ -2273,7 +2302,19 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   ))}
                 </div>
 
-                <button style={{ ...S.btnPrimary, width: "auto" }} onClick={() => { onClose(); navigate("/pricing"); }}>Top up credits</button>
+                {!showCreditPicker ? (
+                  <button style={{ ...S.btnPrimary, width: "auto" }} onClick={() => setShowCreditPicker(true)}>Top up credits</button>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "0.75rem" }}>Select amount:</div>
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      {[5, 20, 50, 100].map((amt) => (
+                        <button key={amt} style={{ ...S.btnSecondary, width: "auto", padding: "8px 18px", fontSize: "14px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ type: "credits", amount: amt })}>${amt}</button>
+                      ))}
+                    </div>
+                    <button style={{ background: "none", border: "none", color: "var(--text-tertiary)", fontSize: "13px", marginTop: "0.5rem", cursor: "pointer", padding: 0 }} onClick={() => setShowCreditPicker(false)}>Cancel</button>
+                  </div>
+                )}
               </div>)}
             </>)}
           </div>
