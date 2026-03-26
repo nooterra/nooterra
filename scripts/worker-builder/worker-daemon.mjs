@@ -97,52 +97,77 @@ function buildSystemPrompt(charter) {
 }
 
 /**
+ * Check if a charter rule looks like a tool name (snake_case identifier)
+ * vs. a natural language phrase.
+ */
+function isToolNameRule(rule) {
+  return /^[a-z][a-z0-9_]*$/i.test(rule.trim());
+}
+
+/**
+ * Match a charter rule against a tool call.
+ * - If the rule looks like a tool name (snake_case), match exactly against toolName.
+ * - If the rule is natural language, match against both toolName and toolName + stringified args.
+ * All matching is case-insensitive.
+ */
+function ruleMatchesToolCall(rule, toolName, toolArgs) {
+  const ruleLower = rule.toLowerCase().trim();
+  const toolNameLower = toolName.toLowerCase();
+
+  if (isToolNameRule(rule)) {
+    // Exact tool name match
+    return ruleLower === toolNameLower;
+  }
+
+  // Natural language rule — check against tool name + args description
+  const fullDesc = `${toolName} ${JSON.stringify(toolArgs)}`.toLowerCase();
+  return fullDesc.includes(ruleLower) || toolNameLower.includes(ruleLower);
+}
+
+/**
  * Classify a tool call against charter rules.
- * Returns 'canDo' | 'askFirst' | 'neverDo' | 'unknown'.
+ * Returns 'canDo' | 'askFirst' | 'neverDo'.
+ *
+ * Safety model:
+ *   1. SAFE_TOOLS are always canDo (read-only built-ins).
+ *   2. neverDo rules are checked first (strictest).
+ *   3. askFirst rules next.
+ *   4. canDo rules last.
+ *   5. Default: askFirst (fail-closed).
  */
 function classifyAction(toolName, toolArgs, charter) {
-  const actionDesc = `${toolName} ${JSON.stringify(toolArgs)}`.toLowerCase();
+  return classifyToolCall(toolName, toolArgs, charter);
+}
 
+function classifyToolCall(toolName, toolArgs, charter) {
   // Built-in read-only tools are always safe — no approval needed
-  const SAFE_TOOLS = ['web_fetch', 'web_search', 'read_file', 'send_notification', '__save_memory'];
+  const SAFE_TOOLS = ['web_fetch', 'web_search', 'read_file', '__save_memory'];
   if (SAFE_TOOLS.includes(toolName)) {
     return { verdict: 'canDo', rule: `built-in safe tool: ${toolName}` };
   }
 
   // Check neverDo first — strictest
   for (const rule of charter.neverDo || []) {
-    const keywords = rule.toLowerCase().split(/\s+/);
-    if (keywords.every(kw => actionDesc.includes(kw))) {
+    if (ruleMatchesToolCall(rule, toolName, toolArgs)) {
       return { verdict: 'neverDo', rule };
     }
   }
 
   // Check askFirst
   for (const rule of charter.askFirst || []) {
-    const keywords = rule.toLowerCase().split(/\s+/);
-    if (keywords.every(kw => actionDesc.includes(kw))) {
+    if (ruleMatchesToolCall(rule, toolName, toolArgs)) {
       return { verdict: 'askFirst', rule };
     }
   }
 
   // Check canDo
   for (const rule of charter.canDo || []) {
-    const keywords = rule.toLowerCase().split(/\s+/);
-    if (keywords.every(kw => actionDesc.includes(kw))) {
+    if (ruleMatchesToolCall(rule, toolName, toolArgs)) {
       return { verdict: 'canDo', rule };
     }
   }
 
-  // Default: if the tool is in a connected capability, treat as canDo.
-  // Otherwise require approval to be safe.
-  const capIds = (charter.capabilities || []).map(c => c.id);
-  const toolLower = toolName.toLowerCase();
-  for (const capId of capIds) {
-    if (toolLower.includes(capId)) {
-      return { verdict: 'canDo', rule: `implicit capability: ${capId}` };
-    }
-  }
-
+  // Default: fail-closed — require approval
   return { verdict: 'askFirst', rule: 'no matching charter rule — defaulting to askFirst' };
 }
 
@@ -1222,6 +1247,9 @@ export async function executeWorkerStreaming(worker, mcpManager, notificationBus
 export {
   buildSystemPrompt,
   classifyAction,
+  classifyToolCall,
+  isToolNameRule,
+  ruleMatchesToolCall,
   callOpenAI,
   callAnthropic,
   callProvider,

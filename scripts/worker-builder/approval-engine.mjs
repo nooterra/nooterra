@@ -7,6 +7,7 @@
  * timeouts, deduplicates cross-channel responses, and persists history.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -234,34 +235,62 @@ export function createApprovalEngine(options = {}) {
   }
 
   /**
+   * Create a deterministic hash of a tool call for exact-match auto-approve.
+   * Sorts args keys so key order doesn't matter.
+   */
+  function hashToolCall(toolName, toolArgs) {
+    const sortedArgs = toolArgs && typeof toolArgs === 'object'
+      ? JSON.stringify(toolArgs, Object.keys(toolArgs).sort())
+      : JSON.stringify(toolArgs ?? '');
+    const payload = `${toolName}:${sortedArgs}`;
+    return crypto.createHash('sha256').update(payload).digest('hex');
+  }
+
+  /**
    * Check auto-approve policies:
-   * 1. Action is in worker's canDo list
-   * 2. Same action approved 3+ times in last 24h by same user
+   * 1. Action is in worker's canDo list (charter-based, handled by classifyAction)
+   * 2. EXACT same tool call (name + args hash) approved 3+ times in last 24h
+   *
+   * Uses exact matching to prevent "send email to sarah" from auto-approving
+   * "send email to entire company".
    */
   function shouldAutoApprove(workerId, action, charter) {
-    // Policy 1: action is in canDo
+    // Policy 1: action is in canDo — defer to classifyAction in worker-daemon,
+    // but also check here for backward compat when charter is passed directly.
     if (charter && charter.canDo) {
-      const actionLower = action.toLowerCase();
       for (const rule of charter.canDo) {
-        const keywords = rule.toLowerCase().split(/\s+/);
-        if (keywords.every(kw => actionLower.includes(kw))) {
+        if (rule.toLowerCase() === action.toLowerCase()) {
           return { autoApprove: true, reason: `canDo rule: ${rule}` };
         }
       }
     }
 
-    // Policy 2: same action approved 3+ times in 24h
+    // Policy 2: exact same action approved 3+ times in 24h
+    // Uses exact string match on the action field (which should be the hash
+    // when callers use requestApproval with toolName+args).
     const cutoff = Date.now() - AUTO_APPROVE_WINDOW_MS;
     const history = loadApprovalHistory(workerId);
     const recentApprovals = history.filter(
       (r) =>
         r.status === 'approved' &&
         r.action === action &&
+        r.actionHash && r.actionHash === (action) &&
         new Date(r.requestedAt).getTime() > cutoff
     );
 
-    if (recentApprovals.length >= AUTO_APPROVE_THRESHOLD) {
-      return { autoApprove: true, reason: `auto-approved: ${recentApprovals.length} approvals in last 24h` };
+    // Also check by exact action string as fallback (for records without hash)
+    const recentExactApprovals = history.filter(
+      (r) =>
+        r.status === 'approved' &&
+        r.action === action &&
+        new Date(r.requestedAt).getTime() > cutoff
+    );
+
+    const matchCount = Math.max(recentApprovals.length, recentExactApprovals.length);
+
+    if (matchCount >= AUTO_APPROVE_THRESHOLD) {
+      console.log(`[approval-engine] Auto-approve triggered for worker=${workerId} action="${action}" (${matchCount} exact matches in 24h)`);
+      return { autoApprove: true, reason: `auto-approved: ${matchCount} exact-match approvals in last 24h` };
     }
 
     return { autoApprove: false };
@@ -283,6 +312,7 @@ export function createApprovalEngine(options = {}) {
       id,
       workerId,
       action,
+      actionHash: requestOptions.actionHash || action,
       description,
       channels: channels.map(ch => ch.id),
       status: 'pending',
@@ -298,6 +328,7 @@ export function createApprovalEngine(options = {}) {
       record.status = 'approved';
       record.respondedAt = new Date().toISOString();
       record.respondedBy = `auto:${autoResult.reason}`;
+      console.log(`[approval-engine] Auto-approved: worker=${workerId} action="${action}" reason="${autoResult.reason}"`);
       persistApproval(record);
       return record;
     }
@@ -447,6 +478,7 @@ export function createApprovalEngine(options = {}) {
     getHistory,
     getPending,
     approveAll,
+    hashToolCall,
     channels,
   };
 }
