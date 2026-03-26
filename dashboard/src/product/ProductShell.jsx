@@ -968,23 +968,24 @@ function SignInView({ onAuth }) {
    ═══════════════════════════════════════════════════════════ */
 
 const AI_PROVIDERS = [
+  { id: "chatgpt", name: "ChatGPT (use your subscription)" },
   { id: "anthropic", name: "Anthropic (Claude)" },
-  { id: "openai", name: "OpenAI" },
+  { id: "openai", name: "OpenAI API" },
   { id: "google", name: "Google (Gemini)" },
-  { id: "aws-bedrock", name: "AWS Bedrock" },
-  { id: "azure-openai", name: "Azure OpenAI" },
+  { id: "openrouter", name: "OpenRouter (200+ models)" },
+  { id: "groq", name: "Groq (fast, free tier)" },
+  { id: "ollama", name: "Ollama (local, free)" },
 ];
 
 function OnboardingView({ onComplete }) {
   const [step, setStep] = useState(1);
-  const [companyName, setCompanyName] = useState("");
   const [provider, setProvider] = useState("");
   const [providerKey, setProviderKey] = useState("");
   const [workerDesc, setWorkerDesc] = useState("");
   const [saving, setSaving] = useState(false);
 
   function handleNext() {
-    if (step < 4) setStep(step + 1);
+    if (step < 3) setStep(step + 1);
   }
 
   function handleBack() {
@@ -994,17 +995,10 @@ function OnboardingView({ onComplete }) {
   async function handleFinish() {
     setSaving(true);
     try {
-      const runtime = loadRuntimeConfig();
-      if (companyName.trim()) {
-        try {
-          await updateTenantSettings(runtime, { displayName: companyName.trim() });
-        } catch { /* non-fatal */ }
-      }
       saveOnboardingState({
         buyer: loadOnboardingState()?.buyer || null,
         sessionExpected: true,
         completed: true,
-        companyName: companyName.trim(),
         provider,
       });
     } catch { /* ignore */ }
@@ -1017,11 +1011,11 @@ function OnboardingView({ onComplete }) {
   return (
     <div style={S.onboardWrap}>
       <div style={S.onboardBox} className="lovable-fade" key={step}>
-        <div style={S.onboardStep}>Step {step} of 4</div>
+        <div style={S.onboardStep}>Step {step} of 3</div>
 
         {/* Step indicator */}
         <div style={{ display: "flex", gap: 6, marginBottom: "2rem" }}>
-          {[1, 2, 3, 4].map((s) => (
+          {[1, 2, 3].map((s) => (
             <div
               key={s}
               style={{
@@ -1037,50 +1031,31 @@ function OnboardingView({ onComplete }) {
 
         {step === 1 && (
           <>
-            <h1 style={S.onboardTitle}>What's your company name?</h1>
-            <FocusInput
-              type="text"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="Acme Corp"
-              autoFocus
-            />
-            <button
-              style={{ ...S.btnPrimary, opacity: !companyName.trim() ? 0.5 : 1 }}
-              disabled={!companyName.trim()}
-              onClick={handleNext}
-            >
-              Continue
-            </button>
-          </>
-        )}
-
-        {step === 2 && (
-          <>
             <h1 style={S.onboardTitle}>Connect your AI provider</h1>
-            <p style={{ ...S.authSub, marginBottom: "1.5rem" }}>
-              Workers need an AI model to reason with. Pick your provider and paste your API key.
-            </p>
+            <p style={S.onboardSub}>Workers need an AI model to reason with. Pick your provider and paste your API key.</p>
             <label style={S.label}>Provider</label>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: "1.25rem" }}>
               {AI_PROVIDERS.map((p) => (
                 <button
                   key={p.id}
-                  style={{
-                    ...S.btnSecondary,
-                    width: "100%",
-                    textAlign: "left",
-                    justifyContent: "flex-start",
-                    borderColor: provider === p.id ? "var(--gold)" : "var(--neutral-700)",
-                    color: provider === p.id ? "var(--neutral-50)" : "var(--neutral-300)",
-                  }}
                   onClick={() => setProvider(p.id)}
+                  style={{
+                    textAlign: "left",
+                    padding: "0.7rem 1rem",
+                    borderRadius: 8,
+                    border: provider === p.id ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
+                    background: provider === p.id ? "rgba(210,176,111,0.08)" : "var(--neutral-900)",
+                    color: provider === p.id ? "var(--neutral-100)" : "var(--neutral-400)",
+                    fontSize: "0.88rem",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
                 >
                   {p.name}
                 </button>
               ))}
             </div>
-            {provider && (
+            {provider && provider !== "chatgpt" && provider !== "ollama" && (
               <>
                 <label style={S.label}>API Key</label>
                 <FocusInput
@@ -1091,23 +1066,30 @@ function OnboardingView({ onComplete }) {
                 />
               </>
             )}
-            <div style={{ display: "flex", gap: "0.75rem" }}>
-              <button style={S.btnSecondary} onClick={handleBack}>Back</button>
-              <button
-                style={{ ...S.btnPrimary, flex: 1, opacity: !provider ? 0.5 : 1 }}
-                disabled={!provider}
-                onClick={handleNext}
-              >
-                Continue
-              </button>
-            </div>
+            {provider === "chatgpt" && (
+              <p style={{ fontSize: "0.85rem", color: "var(--neutral-500)", marginBottom: "1rem" }}>
+                ChatGPT subscription auth will be configured in the dashboard after setup.
+              </p>
+            )}
+            {provider === "ollama" && (
+              <p style={{ fontSize: "0.85rem", color: "var(--neutral-500)", marginBottom: "1rem" }}>
+                Ollama runs locally — no API key needed. Make sure Ollama is running on your machine.
+              </p>
+            )}
+            <button
+              style={{ ...S.btnPrimary, opacity: !provider ? 0.5 : 1 }}
+              disabled={!provider}
+              onClick={handleNext}
+            >
+              Continue
+            </button>
           </>
         )}
 
-        {step === 3 && (
+        {step === 2 && (
           <>
             <h1 style={S.onboardTitle}>Create your first worker</h1>
-            <p style={{ ...S.authSub, marginBottom: "1.5rem" }}>
+            <p style={S.onboardSub}>
               Describe what you need done. We'll generate a charter — the rules your worker follows.
             </p>
             <label style={S.label}>What should this worker do?</label>
@@ -1137,12 +1119,11 @@ function OnboardingView({ onComplete }) {
           </>
         )}
 
-        {step === 4 && (
+        {step === 3 && (
           <>
             <h1 style={S.onboardTitle}>You're all set</h1>
-            <p style={{ ...S.authSub, marginBottom: "0.75rem" }}>
-              Your workspace <strong style={{ color: "var(--neutral-100)" }}>{companyName}</strong> is
-              ready. Your first worker will start once you deploy it from the dashboard.
+            <p style={{ ...S.onboardSub, marginBottom: "0.75rem" }}>
+              Your workspace is ready. Your first worker will start once you deploy it from the dashboard.
             </p>
             <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "2rem", lineHeight: 1.6 }}>
               Connected to {AI_PROVIDERS.find((p) => p.id === provider)?.name || provider}
