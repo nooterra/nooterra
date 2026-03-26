@@ -296,7 +296,11 @@ async function handleRunWorker({ worker: nameOrId }) {
   let apiKey;
   try {
     apiKey = await loadProviderCredential(provider);
-  } catch {
+  } catch (authErr) {
+    // If this is an OAuth expiration error, surface it directly
+    if (authErr.message && authErr.message.includes('OAuth token expired')) {
+      throw authErr;
+    }
     apiKey = loadApiKey(provider);
   }
   if (!apiKey) {

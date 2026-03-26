@@ -1013,7 +1013,16 @@ export class WorkerDaemon extends EventEmitter {
     try {
       // Get provider credentials (handles both API keys and OAuth tokens)
       const provider = state.worker.provider || 'openai';
-      const credentials = provider === 'local' ? 'local' : await loadProviderCredential(provider);
+      let credentials;
+      try {
+        credentials = provider === 'local' ? 'local' : await loadProviderCredential(provider);
+      } catch (authErr) {
+        // Surface OAuth expiration errors with actionable message
+        if (authErr.message && authErr.message.includes('OAuth token expired')) {
+          throw authErr;
+        }
+        credentials = null;
+      }
 
       if (!credentials) {
         throw createError(ERROR_CODES.PROVIDER_NOT_CONFIGURED, { provider });

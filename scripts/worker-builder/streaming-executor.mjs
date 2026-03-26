@@ -9,6 +9,9 @@
  */
 
 import { EventEmitter } from 'events';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { PROVIDERS, loadProviderCredential } from './provider-auth.mjs';
 import { buildSystemPrompt, classifyAction, buildToolDefs, saveReceipt } from './worker-daemon.mjs';
 import { ERROR_CODES, createError } from './error-handling.mjs';
@@ -24,6 +27,65 @@ const CIRCUIT_BREAKER_THRESHOLD = 3;
 const CIRCUIT_BREAKER_COOLDOWN_MS = 60_000;
 const MAX_TOOL_ROUNDS = 25;
 const REQUEST_TIMEOUT_MS = 120_000;
+
+// ---------------------------------------------------------------------------
+// Budget Tracking
+// ---------------------------------------------------------------------------
+
+const WORKERS_DIR = path.join(os.homedir(), '.nooterra', 'workers');
+
+function getBudgetPath(workerId) {
+  return path.join(WORKERS_DIR, `${workerId}.budget.json`);
+}
+
+/**
+ * Load budget tracking data for a worker. Resets the spend counter
+ * when the current period has elapsed since lastReset.
+ */
+function loadBudgetTracker(workerId) {
+  const budgetPath = getBudgetPath(workerId);
+  let tracker = { period: 'monthly', spent: 0, lastReset: new Date().toISOString().slice(0, 10) };
+
+  try {
+    if (fs.existsSync(budgetPath)) {
+      tracker = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
+    }
+  } catch { /* use defaults */ }
+
+  // Check if period has rolled over and reset if so
+  const now = new Date();
+  const lastReset = new Date(tracker.lastReset);
+  let shouldReset = false;
+
+  if (tracker.period === 'daily') {
+    shouldReset = now.toISOString().slice(0, 10) !== lastReset.toISOString().slice(0, 10);
+  } else if (tracker.period === 'weekly') {
+    const diffDays = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60 * 24);
+    shouldReset = diffDays >= 7;
+  } else {
+    // monthly (default)
+    shouldReset = now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear();
+  }
+
+  if (shouldReset) {
+    tracker.spent = 0;
+    tracker.lastReset = now.toISOString().slice(0, 10);
+  }
+
+  return tracker;
+}
+
+/**
+ * Save updated budget tracker to disk.
+ */
+function saveBudgetTracker(workerId, tracker) {
+  try {
+    if (!fs.existsSync(WORKERS_DIR)) {
+      fs.mkdirSync(WORKERS_DIR, { recursive: true });
+    }
+    fs.writeFileSync(getBudgetPath(workerId), JSON.stringify(tracker, null, 2));
+  } catch { /* non-fatal */ }
+}
 
 // ---------------------------------------------------------------------------
 // Circuit Breaker
@@ -551,6 +613,11 @@ export function createStreamingExecutor(worker, options = {}) {
     let finalContent = '';
     let executionError = null;
 
+    // Budget enforcement state (populated inside try block, used in receipt)
+    const charterBudget = worker.charter?.budget;
+    let budgetTracker = null;
+    let budgetExceeded = false;
+
     try {
       // Check circuit breaker
       if (!circuitBreaker.canCall(provider)) {
@@ -622,10 +689,31 @@ export function createStreamingExecutor(worker, options = {}) {
       const taskPrompt = task || `Execute your purpose: ${charter.purpose}\n\nPerform your scheduled task now.`;
       const messages = [{ role: 'user', content: taskPrompt }];
 
+      // Budget enforcement: load cumulative spend for the current period
+      if (charterBudget && charterBudget.amount > 0 && worker.id) {
+        budgetTracker = loadBudgetTracker(worker.id);
+        budgetTracker.period = charterBudget.period || 'monthly';
+      }
+
       // Agentic loop
       for (let round = 0; round < maxToolRounds; round++) {
         if (abortController.signal.aborted) {
           throw new Error('Execution cancelled');
+        }
+
+        // Budget check before each AI call
+        if (budgetTracker && charterBudget) {
+          const currentCostEstimate =
+            (totalTokensUsed.prompt / 1000) * 0.01 +
+            (totalTokensUsed.completion / 1000) * 0.03;
+          const cumulativeSpend = budgetTracker.spent + currentCostEstimate;
+          if (cumulativeSpend >= charterBudget.amount) {
+            const msg = `Worker stopped: budget limit of $${charterBudget.amount} per ${charterBudget.period} reached. Spent: $${cumulativeSpend.toFixed(4)}`;
+            emitter.emit('execution:error', { error: msg, code: 'BUDGET_EXCEEDED' });
+            finalContent += `\n[${msg}]`;
+            budgetExceeded = true;
+            break;
+          }
         }
 
         totalRounds = round + 1;
@@ -880,6 +968,12 @@ export function createStreamingExecutor(worker, options = {}) {
       (totalTokensUsed.prompt / 1000) * 0.01 +
       (totalTokensUsed.completion / 1000) * 0.03;
 
+    // Update budget tracker with this execution's spend
+    if (budgetTracker && worker.id) {
+      budgetTracker.spent += Math.round(estimatedCost * 10000) / 10000;
+      saveBudgetTracker(worker.id, budgetTracker);
+    }
+
     // Build receipt
     receipt = {
       schemaVersion: 'StreamingExecutionReceipt.v1',
@@ -902,9 +996,10 @@ export function createStreamingExecutor(worker, options = {}) {
         currency: 'USD',
         amount: Math.round(estimatedCost * 10000) / 10000
       },
+      budgetExceeded: budgetExceeded || false,
       timeline: timeline.toJSON(),
-      success: !executionError,
-      error: executionError ? executionError.message : null,
+      success: !executionError && !budgetExceeded,
+      error: executionError ? executionError.message : (budgetExceeded ? 'Budget limit exceeded' : null),
       response: finalContent
     };
 

@@ -321,7 +321,14 @@ export default function App() {
     chatHistory.current.push({ role: 'user', content: userMessage });
 
     try {
-      const credential = await loadProviderCredential(provider);
+      let credential;
+      try {
+        credential = await loadProviderCredential(provider);
+      } catch (authErr) {
+        addMessage('error', authErr.message);
+        setLoading(false);
+        return;
+      }
       if (!credential) {
         addMessage('nooterra', "No credentials found. Run /auth to reconnect.");
         setLoading(false);
@@ -394,7 +401,14 @@ The user has ${listWorkers().length} workers and is using ${PROVIDERS[provider]?
     try {
       const { runWorkerExecution } = await import('../worker-daemon.mjs');
       const { getConnectionManager } = await import('../mcp-integration.mjs');
-      const credential = await loadProviderCredential(provider);
+      let credential;
+      try {
+        credential = await loadProviderCredential(provider);
+      } catch (authErr) {
+        addMessage('error', authErr.message);
+        setLoading(false);
+        return;
+      }
       if (!credential) { addMessage('error', 'No credentials. Run /auth.'); setLoading(false); return; }
 
       const mcpManager = getConnectionManager();

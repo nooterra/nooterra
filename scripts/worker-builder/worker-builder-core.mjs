@@ -357,8 +357,8 @@ function handleCapabilityConfirmation(conversation, userInput) {
 /**
  * Start setting up capabilities
  *
- * Skip individual capability OAuth/setup questions — MCP connections happen
- * at runtime, not during creation. Go straight to provider selection.
+ * Check each capability for required auth. If credentials are missing,
+ * inform the user so they can connect later. Then proceed to provider selection.
  */
 function startCapabilitySetup(conversation) {
   // Mark all capabilities as confirmed — they'll connect via MCP at runtime
@@ -366,9 +366,39 @@ function startCapabilitySetup(conversation) {
     cap.confirmed = true;
   }
 
-  const capNames = conversation.context.capabilities.map(c => `${c.icon} ${c.name}`).join(', ');
+  // Check which capabilities need auth and whether credentials already exist
+  const credDir = path.join(os.homedir(), '.nooterra', 'credentials');
+  const AUTH_CREDENTIAL_FILES = {
+    slack: 'slack-token.txt',
+    github: 'github-token.txt',
+    email: 'email-config.json'
+  };
 
-  // Skip to provider selection
+  const missingAuth = [];
+  for (const cap of conversation.context.capabilities) {
+    const credFile = AUTH_CREDENTIAL_FILES[cap.id];
+    if (!credFile) continue; // no auth required for this capability
+
+    const credPath = path.join(credDir, credFile);
+    const hasEnvFallback = (cap.id === 'github' && process.env.GITHUB_TOKEN);
+    if (!fs.existsSync(credPath) && !hasEnvFallback) {
+      const toolName = cap.id === 'email' ? 'email' : cap.id;
+      missingAuth.push({ name: cap.name, tool: toolName });
+    }
+  }
+
+  if (missingAuth.length > 0) {
+    const notices = missingAuth.map(
+      m => `  - Your worker needs ${m.name}. Run 'nooterra add ${m.tool}' to connect it, or skip for now and connect later.`
+    ).join('\n');
+
+    // Prepend the notice to the provider selection response
+    const providerResponse = startProviderSelection(conversation);
+    providerResponse.message = `Heads up — some tools aren't connected yet:\n${notices}\n\n${providerResponse.message}`;
+    return providerResponse;
+  }
+
+  // All capabilities have credentials — proceed directly
   return startProviderSelection(conversation);
 }
 

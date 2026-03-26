@@ -659,6 +659,7 @@ async function refreshOAuthToken(providerId) {
 /**
  * Get a valid access token for an OAuth provider.
  * Automatically refreshes if expired.
+ * Throws a descriptive error when token is expired and refresh fails.
  */
 export async function getOAuthAccessToken(providerId) {
   let tokens = loadOAuthTokens(providerId);
@@ -666,7 +667,13 @@ export async function getOAuthAccessToken(providerId) {
 
   if (tokens.expired && tokens.refresh_token) {
     tokens = await refreshOAuthToken(providerId);
-    if (!tokens) return null;
+    if (!tokens) {
+      throw new Error(`OAuth token expired. Run "nooterra" to re-authenticate with ${providerId === 'chatgpt' ? 'ChatGPT' : providerId}.`);
+    }
+  }
+
+  if (tokens.expired) {
+    throw new Error(`OAuth token expired. Run "nooterra" to re-authenticate with ${providerId === 'chatgpt' ? 'ChatGPT' : providerId}.`);
   }
 
   return tokens.access_token;

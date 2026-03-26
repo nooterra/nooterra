@@ -58,14 +58,18 @@ export function buildCharterFromContext(context) {
     charter.purpose = context.taskDescription;
   }
 
-  // Capabilities
+  // Capabilities — merge in any capabilityConfigs collected during setup
   if (context.capabilities && context.capabilities.length > 0) {
-    charter.capabilities = context.capabilities.map(cap => ({
-      id: cap.id,
-      name: cap.name,
-      config: cap.config || {},
-      summary: getCapabilitySummary(cap.id, cap.config)
-    }));
+    const capConfigs = context.capabilityConfigs || {};
+    charter.capabilities = context.capabilities.map(cap => {
+      const config = { ...(cap.config || {}), ...(capConfigs[cap.id] || {}) };
+      return {
+        id: cap.id,
+        name: cap.name,
+        config,
+        summary: getCapabilitySummary(cap.id, config)
+      };
+    });
   }
 
   // Can Do - autonomous actions

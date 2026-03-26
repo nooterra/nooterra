@@ -367,7 +367,13 @@ async function runWorker(nameOrId) {
     const { runWorkerExecution } = await import('./worker-daemon.mjs');
     const { getConnectionManager } = await import('./mcp-integration.mjs');
 
-    const credential = await loadProviderCredential(provider);
+    let credential;
+    try {
+      credential = await loadProviderCredential(provider);
+    } catch (authErr) {
+      console.log(`  ${c.red}✗${c.reset} ${authErr.message}\n`);
+      return;
+    }
     if (!credential) {
       console.log(`  ${c.red}✗${c.reset} No credentials for ${provider}. Run /auth.\n`);
       return;

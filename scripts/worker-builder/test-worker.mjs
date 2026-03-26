@@ -80,7 +80,13 @@ async function main() {
   } catch {}
 
   // Get credentials
-  const credential = await loadProviderCredential(provider);
+  let credential;
+  try {
+    credential = await loadProviderCredential(provider);
+  } catch (authErr) {
+    console.error(`  ${RED}✗${RESET} ${authErr.message}\n`);
+    process.exit(1);
+  }
   if (!credential) {
     console.error(`  ${RED}✗${RESET} No credentials for ${provider}. Run /auth.\n`);
     process.exit(1);
