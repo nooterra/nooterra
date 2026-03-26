@@ -537,7 +537,7 @@ function SignUpView({ onAuth }) {
             style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1 }}
             disabled={loading || !email.trim()}
           >
-            {loading ? "Sending code..." : "Continue \u2192"}
+            {loading ? "One moment..." : "Continue \u2192"}
           </button>
         </form>
         <p style={{ ...S.authSub, marginTop: "1.5rem", marginBottom: 0 }}>
