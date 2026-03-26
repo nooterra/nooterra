@@ -32,8 +32,6 @@ function NooterraLogo({ className = "" }) {
       <path d="M0 0 C11.88 0 23.76 0 36 0 C36 14.19 36 28.38 36 43 C47.55 43 59.1 43 71 43 C71 53.23 71 63.46 71 74 C59.45 74 47.9 74 36 74 C36.03274174 87.08619255 36.03274174 87.08619255 36.11132812 100.171875 C36.15357243 105.51535221 36.19064463 110.85848947 36.19555664 116.20214844 C36.19986033 120.51429204 36.2284928 124.8256723 36.27343178 129.13757706 C36.28634105 130.77600774 36.29073794 132.41453009 36.28615379 134.05300522 C36.26665023 143.14735166 36.33094866 151.37084452 42 159 C47.1846131 163.53653646 51.7820912 163.39719636 58.5234375 163.23828125 C62.69294248 162.95250619 66.84627471 162.46152503 71 162 C71 172.56 71 183.12 71 194 C65.32778561 195.13444288 60.07422298 195.1839889 54.3125 195.1875 C53.27416016 195.19974609 52.23582031 195.21199219 51.16601562 195.22460938 C36.26253624 195.252641 25.20710147 191.76966519 14.2578125 181.38671875 C1.0539493 167.42900177 -0.31488961 150.68475242 -0.1953125 132.3984375 C-0.19157557 130.70879281 -0.18873181 129.01914593 -0.18673706 127.32949829 C-0.17915411 122.91381697 -0.1595524 118.49827027 -0.1373291 114.0826416 C-0.11675474 109.5642275 -0.10771072 105.04579134 -0.09765625 100.52734375 C-0.07630069 91.68482761 -0.041163 82.84244614 0 74 C-9.9 74 -19.8 74 -30 74 C-30 63.77 -30 53.54 -30 43 C-20.1 43 -10.2 43 0 43 C0 28.81 0 14.62 0 0 Z " transform="translate(1049,250)"/>
       <path d="M0 0 C0.90492187 0.00064453 1.80984375 0.00128906 2.7421875 0.00195312 C9.35916241 0.04666241 9.35916241 0.04666241 10.5 1.1875 C10.58855161 3.8537603 10.61524673 6.49397114 10.59765625 9.16015625 C10.5962413 9.95779892 10.59482635 10.75544159 10.59336853 11.57725525 C10.58775316 14.13487435 10.57519812 16.69240718 10.5625 19.25 C10.55748698 20.97981645 10.55292373 22.70963426 10.54882812 24.43945312 C10.53777875 28.68883553 10.52050386 32.93815312 10.5 37.1875 C2.83496094 36.25537109 2.83496094 36.25537109 -0.1796875 35.64453125 C-9.83060076 33.74359379 -18.66366318 35.55702276 -26.98046875 40.73046875 C-35.85693042 47.22797922 -41.50934269 55.58812356 -44.5 66.1875 C-45.41131387 72.87147495 -45.22328438 79.65961893 -45.20703125 86.390625 C-45.22016871 88.32405134 -45.23547916 90.25746402 -45.25285339 92.19085693 C-45.29247673 97.24110244 -45.30287915 102.29098706 -45.30688477 107.34136963 C-45.31625919 112.51024161 -45.35369943 117.6789053 -45.38867188 122.84765625 C-45.45301692 132.96097739 -45.48384726 143.07398697 -45.5 153.1875 C-57.38 153.1875 -69.26 153.1875 -81.5 153.1875 C-81.5 103.3575 -81.5 53.5275 -81.5 2.1875 C-69.62 2.1875 -57.74 2.1875 -45.5 2.1875 C-45.005 11.5925 -45.005 11.5925 -44.5 21.1875 C-42.97375 19.5375 -41.4475 17.8875 -39.875 16.1875 C-28.63610681 4.63393156 -15.99899264 -0.22417468 0 0 Z " transform="translate(1384.5,290.8125)"/>
       <path d="M0 0 C0 12.54 0 25.08 0 38 C-5 37 -5 37 -8 36 C-20.25561881 35.01632533 -30.37940325 36.85429127 -39.9296875 44.8984375 C-52.27289586 57.42795844 -52.4544444 72.83128671 -52.51171875 89.328125 C-52.52859583 91.17186657 -52.54675007 93.01559686 -52.56611633 94.85931396 C-52.61329385 99.67271392 -52.64331066 104.48606807 -52.66955566 109.29962158 C-52.69952532 114.22718345 -52.74599861 119.15458795 -52.79101562 124.08203125 C-52.87668124 133.72128921 -52.94265993 143.36053189 -53 153 C-64.55 153 -76.1 153 -88 153 C-88 103.5 -88 54 -88 3 C-76.45 3 -64.9 3 -53 3 C-52.505 12.405 -52.505 12.405 -52 22 C-50.6078125 20.2675 -50.6078125 20.2675 -49.1875 18.5 C-35.28119913 2.69102617 -20.62520751 0 0 0 Z " transform="translate(1503,290)"/>
-      <path d="M0 0 C1.64061953 0.01005123 3.28124503 0.01917328 4.921875 0.02734375 C8.90639965 0.04918451 12.89063259 0.0835957 16.875 0.125 C17.18724316 11.82833637 14.96742323 20.86522901 7.15625 29.9296875 C-0.46529234 37.26411694 -9.14026585 40.48357531 -19.5625 40.4375 C-20.65014648 40.46166992 -20.65014648 40.46166992 -21.75976562 40.48632812 C-27.67740424 40.49164496 -32.45655354 39.4578609 -37.05078125 35.44140625 C-37.50839844 34.86261719 -37.96601562 34.28382813 -38.4375 33.6875 C-39.14326172 32.82318359 -39.14326172 32.82318359 -39.86328125 31.94140625 C-43.61855509 26.53520707 -44.12232153 21.6120824 -43.125 15.125 C-40.58915304 9.39764983 -36.21969374 6.10384188 -30.859375 3.1328125 C-20.80060978 -0.57456097 -10.5539275 -0.11300165 0 0 Z " transform="translate(1593.125,376.875)"/>
-      <path d="M0 0 C4.9674064 3.73353243 7.88954144 8.8571178 9.88671875 14.68359375 C10.38171875 18.64359375 10.38171875 18.64359375 10.88671875 22.68359375 C-11.55328125 22.68359375 -33.99328125 22.68359375 -57.11328125 22.68359375 C-54.62660698 11.49355954 -50.5893648 4.27416717 -41.11328125 -2.31640625 C-28.3828423 -10.18274695 -12.10716152 -7.54179932 0 0 Z " transform="translate(1231.11328125,326.31640625)"/>
     </svg>
   );
 }
@@ -314,15 +312,12 @@ function HomePage() {
             <div>
               <FadeIn>
                 <h1 style={{ fontSize: "clamp(2.25rem, 5vw, 3.75rem)", lineHeight: 1.06, letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                  Describe the job.{" "}
-                  <br />
-                  The worker{" "}
-                  <span style={{ color: "var(--gold)" }}>handles it.</span>
+                  Your next hire never sleeps.
                 </h1>
               </FadeIn>
               <FadeIn delay={0.08}>
                 <p className="mt-7 max-w-md" style={{ fontSize: "clamp(1rem, 1.5vw, 1.125rem)", lineHeight: 1.65, color: "var(--neutral-500)" }}>
-                  AI workers that run 24/7 with hard boundaries on what they can and can't do. You stay in control. They do the work.
+                  AI workers that handle real work -- with rules, approvals, and a complete audit trail.
                 </p>
               </FadeIn>
               <FadeIn delay={0.14}>
@@ -359,45 +354,36 @@ function HomePage() {
         </div>
       </section>
 
-      {/* How it works — editorial numbered list */}
+      {/* Section 1: You describe it. It runs. */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
-          <FadeIn>
-            <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-              How it works
-            </h2>
-          </FadeIn>
-          <div className="mt-14 space-y-0">
-            {[
-              { num: "01", title: "Describe", desc: "Tell Nooterra what you need in plain English. It infers the tools, schedule, and generates a charter with canDo, askFirst, and neverDo rules." },
-              { num: "02", title: "Deploy", desc: "Review the charter, adjust if needed, and deploy. The worker runs as a daemon -- on a schedule, webhook trigger, or continuously." },
-              { num: "03", title: "Supervise", desc: "Watch the live activity feed. Approve escalations from Slack, email, or your dashboard. Every action is logged." }
-            ].map((item, i) => (
-              <FadeIn key={item.num} delay={i * 0.08}>
-                <div className="flex gap-8 md:gap-12 py-10" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
-                  <span className="text-[clamp(2.5rem,4vw,3.5rem)] font-bold tabular-nums shrink-0" style={{ color: "rgba(235, 232, 226, 0.06)", lineHeight: 1, letterSpacing: "-0.04em", minWidth: "4rem" }}>
-                    {item.num}
-                  </span>
-                  <div className="pt-1">
-                    <h3 className="text-[17px] font-semibold" style={{ color: "var(--neutral-100)" }}>{item.title}</h3>
-                    <p className="mt-2 max-w-lg text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>{item.desc}</p>
-                  </div>
-                </div>
-              </FadeIn>
-            ))}
+          <div className="grid gap-14 md:grid-cols-2 items-center">
+            <FadeIn>
+              <div>
+                <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
+                  You describe it. It runs.
+                </h2>
+                <p className="mt-5 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
+                  Tell Nooterra what you need in plain English. It builds the worker, infers the tools, sets the schedule, and generates a charter you can review before anything runs.
+                </p>
+              </div>
+            </FadeIn>
+            <FadeIn delay={0.12}>
+              <WorkerCard />
+            </FadeIn>
           </div>
         </div>
       </section>
 
-      {/* Charter system — two column */}
+      {/* Section 2: Rules it can't break. */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
           <div className="grid gap-14 md:grid-cols-2 items-start">
             <FadeIn>
               <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                Guardrails that are actually enforced.
+                Rules it can't break.
               </h2>
               <p className="mt-5 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
                 Every worker gets a charter with three rule types. These aren't prompt suggestions -- they're enforced at runtime before every action.
@@ -465,161 +451,85 @@ function HomePage() {
         </div>
       </section>
 
-      {/* Feature grid — varied layout */}
+      {/* Section 3: Bold outcome claim */}
       <section>
         <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
-            <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-              Built for work that matters.
-            </h2>
-          </FadeIn>
-          <div className="mt-14 grid gap-px md:grid-cols-2" style={{ backgroundColor: "rgba(235, 232, 226, 0.04)", borderRadius: "10px", overflow: "hidden" }}>
-            {[
-              { title: "Approvals", desc: "Sensitive actions pause and wait for you. Approve from Slack, email, or your phone. First response wins.", large: true },
-              { title: "Runs 24/7", desc: "Real daemon with crash recovery, cron schedules, and auto-start on login. Not a chat session.", large: true },
-              { title: "Any provider", desc: "Claude, GPT, Gemini, Llama, Groq, or Ollama. Bring your keys. Swap anytime.", large: false },
-              { title: "Full audit", desc: "Every action, tool call, and decision logged automatically. Exportable. No black boxes.", large: false }
-            ].map((item, i) => (
-              <FadeIn key={item.title} delay={i * 0.06}>
-                <div style={{ backgroundColor: "var(--neutral-950)", padding: item.large ? "2.5rem" : "2rem" }}>
-                  <h3 className="font-semibold" style={{ fontSize: item.large ? "17px" : "15px", color: "var(--neutral-100)" }}>{item.title}</h3>
-                  <p className="mt-2 leading-relaxed" style={{ fontSize: item.large ? "15px" : "13px", color: "var(--neutral-500)", maxWidth: item.large ? "28rem" : "24rem" }}>{item.desc}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Comparison — editorial table */}
-      <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
-          <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
-          <FadeIn>
-            <h2 className="mb-12" style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-              Not another chatbot.
-            </h2>
-          </FadeIn>
-          <FadeIn delay={0.08}>
-            <div className="overflow-x-auto -mx-6 px-6">
-              <table className="w-full text-[13px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
-                <thead>
-                  <tr>
-                    <th className="text-left font-medium py-3 pr-4" style={{ color: "var(--neutral-600)", borderBottom: "1px solid rgba(235, 232, 226, 0.08)" }}></th>
-                    <th className="text-left font-normal py-3 px-4" style={{ color: "var(--neutral-600)", borderBottom: "1px solid rgba(235, 232, 226, 0.08)" }}>ChatGPT / LLM</th>
-                    <th className="text-left font-normal py-3 px-4" style={{ color: "var(--neutral-600)", borderBottom: "1px solid rgba(235, 232, 226, 0.08)" }}>Custom agent</th>
-                    <th className="text-left font-normal py-3 px-4" style={{ color: "var(--neutral-600)", borderBottom: "1px solid rgba(235, 232, 226, 0.08)" }}>Zapier / Make</th>
-                    <th className="text-left font-semibold py-3 px-4" style={{ color: "var(--gold)", borderBottom: "1px solid rgba(235, 232, 226, 0.08)" }}>Nooterra</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    ["Guardrails", "None", "DIY", "Rigid rules", "canDo / askFirst / neverDo"],
-                    ["Approvals", "None", "Build it", "Limited", "Built-in, multi-channel"],
-                    ["Audit trail", "None", "Custom", "Partial", "Every action, automatic"],
-                    ["AI provider", "Locked", "Your choice", "Their choice", "Any, swappable"],
-                    ["Runs 24/7", "No", "If you build infra", "Yes", "Daemon mode"],
-                    ["Setup", "Minutes", "Weeks", "Hours", "Minutes"]
-                  ].map(([feature, ...cols], rowIdx) => (
-                    <tr
-                      key={feature}
-                      className="transition-colors"
-                      style={{ backgroundColor: rowIdx % 2 === 1 ? "rgba(235, 232, 226, 0.015)" : "transparent" }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "rgba(235, 232, 226, 0.03)"}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rowIdx % 2 === 1 ? "rgba(235, 232, 226, 0.015)" : "transparent"}
-                    >
-                      <td className="py-3.5 pr-4 font-medium" style={{ color: "var(--neutral-200)" }}>{feature}</td>
-                      {cols.map((val, i) => (
-                        <td key={i} className="py-3.5 px-4" style={{ color: i === 3 ? "var(--gold)" : "var(--neutral-600)" }}>{val}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="text-center" style={{ maxWidth: "36rem", margin: "0 auto" }}>
+              <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)", lineHeight: 1.15 }}>
+                One worker handles 127 requests a week.
+              </h2>
+              <p className="mt-6 text-[15px] leading-relaxed" style={{ color: "var(--neutral-500)" }}>
+                Runs 24/7 as a real daemon. Cron schedules, crash recovery, auto-restart. Every action logged, every decision auditable. Your keys, any provider.
+              </p>
             </div>
           </FadeIn>
         </div>
       </section>
 
-      {/* Templates — simple list */}
+      {/* Section 4: One-line comparison */}
       <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
+        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
-            <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-              Start with a template.
-            </h2>
-            <p className="mt-3 text-[15px]" style={{ color: "var(--neutral-500)" }}>Or describe anything and Nooterra builds the charter for you.</p>
+            <div className="text-center">
+              <p style={{ fontSize: "clamp(1.125rem, 2vw, 1.375rem)", lineHeight: 1.65, color: "var(--neutral-400)", fontWeight: 500, letterSpacing: "-0.01em" }}>
+                Unlike chatbots, workers take action. Unlike automation, they think.
+              </p>
+            </div>
           </FadeIn>
-          <div className="mt-12">
-            {[
-              { title: "Customer Support", desc: "Triage tickets, draft responses, escalate edge cases." },
-              { title: "Data Monitor", desc: "Watch websites, detect changes, alert on Slack." },
-              { title: "Sales Researcher", desc: "Find leads, enrich data, draft personalized outreach." },
-              { title: "Competitor Tracker", desc: "Monitor pricing, features, and announcements." },
-              { title: "Content Moderator", desc: "Review submissions, flag violations, approve or reject." },
-              { title: "Invoice Processor", desc: "Extract data, match POs, route for approval." }
-            ].map((item, i) => (
-              <FadeIn key={item.title} delay={i * 0.04}>
-                <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-6 py-4" style={i > 0 ? { borderTop: "1px solid rgba(235, 232, 226, 0.05)" } : {}}>
-                  <span className="text-[14px] font-semibold shrink-0" style={{ color: "var(--neutral-200)", minWidth: "12rem" }}>{item.title}</span>
-                  <span className="text-[14px]" style={{ color: "var(--neutral-500)" }}>{item.desc}</span>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
         </div>
       </section>
 
-      {/* Providers — simple two-column list */}
+      {/* Section 5: Start in 30 seconds */}
       <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "5rem", paddingBottom: "5rem" }}>
+        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "3rem", paddingBottom: "5rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "5rem" }} />
           <FadeIn>
-            <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
-              Works with every major AI.
-            </h2>
-            <p className="mt-3 text-[15px]" style={{ color: "var(--neutral-500)" }}>Your keys. Your choice. Switch providers without changing your workers.</p>
+            <div className="text-center" style={{ maxWidth: "32rem", margin: "0 auto" }}>
+              <h2 style={{ fontSize: "clamp(1.5rem, 3vw, 2rem)", letterSpacing: "-0.02em", fontWeight: 700, color: "var(--neutral-100)" }}>
+                Start in 30 seconds.
+              </h2>
+              <div className="mt-8">
+                <a
+                  href="/signup"
+                  className="inline-flex items-center gap-2 px-6 py-3 text-[14px] font-semibold transition-all duration-150"
+                  style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "8px", width: "100%", justifyContent: "center" }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "var(--gold)"}
+                >
+                  Describe your first worker
+                </a>
+              </div>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                {["Customer support", "Price tracking", "Inbox summary"].map((t) => (
+                  <span
+                    key={t}
+                    className="px-3 py-1.5 text-[12px]"
+                    style={{ borderRadius: "9999px", border: "1px solid rgba(235, 232, 226, 0.08)", color: "var(--neutral-500)" }}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
           </FadeIn>
-          <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-x-12 gap-y-5">
-            {[
-              { name: "OpenAI", detail: "GPT-4o, GPT-4o-mini" },
-              { name: "Anthropic", detail: "Claude Sonnet, Opus" },
-              { name: "Google", detail: "Gemini Pro, Flash" },
-              { name: "OpenRouter", detail: "200+ models" },
-              { name: "ChatGPT", detail: "Use your subscription" },
-              { name: "Groq", detail: "Fast, free tier" },
-              { name: "Ollama", detail: "Local, fully private" },
-              { name: "More", detail: "Any OpenAI-compatible API" }
-            ].map((p, i) => (
-              <FadeIn key={p.name} delay={i * 0.03}>
-                <div className="py-2">
-                  <span className="text-[14px] font-semibold" style={{ color: "var(--neutral-200)" }}>{p.name}</span>
-                  <p className="mt-0.5 text-[12px]" style={{ color: "var(--neutral-600)" }}>{p.detail}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
         </div>
       </section>
 
       {/* CTA */}
       <section>
-        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "6rem", paddingBottom: "8rem" }}>
+        <div className="mx-auto max-w-6xl px-6" style={{ paddingTop: "4rem", paddingBottom: "8rem" }}>
           <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(235, 232, 226, 0.07) 20%, rgba(235, 232, 226, 0.07) 80%, transparent)", marginBottom: "6rem" }} />
           <FadeIn>
             <div className="text-center">
               <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.5rem)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--neutral-100)" }}>
-                Stop managing tasks.<br />Start managing outcomes.
+                Your next worker is one conversation away.
               </h2>
-              <p className="mx-auto mt-5 max-w-md text-[15px]" style={{ color: "var(--neutral-500)" }}>
-                Describe the work. Deploy a worker. Stay in control.
-              </p>
               <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
                 <a
-                  href={DOCS_GETTING_STARTED}
-                  target="_blank" rel="noopener noreferrer"
+                  href="/signup"
                   className="inline-flex items-center gap-2 px-6 py-2.5 text-[14px] font-semibold transition-all duration-150"
                   style={{ backgroundColor: "var(--gold)", color: "var(--neutral-950)", borderRadius: "6px" }}
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--gold-hover)"}
@@ -759,7 +669,7 @@ function SupportPage() {
 /* ── STATUS PAGE ── */
 
 const PUBLIC_STATUS_CHECKS = Object.freeze([
-  { id: "home", label: "Homepage", path: "/", type: "html", needle: "consequential" }
+  { id: "home", label: "Homepage", path: "/", type: "html", needle: "conversation" }
 ]);
 
 function normalizeStatusPathname(value) {

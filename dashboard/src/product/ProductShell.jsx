@@ -221,7 +221,7 @@ const S = {
   label: { display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", marginBottom: "0.4rem", letterSpacing: "0.05em", textTransform: "uppercase" },
   input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "15px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
   inputFocus: { borderColor: "var(--gold)" },
-  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--gold)", color: "#1a1a1a", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--accent, #fff)", color: "var(--accent-text, #1a1a1a)", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "background 0.15s, opacity 0.15s", width: "100%", fontFamily: "inherit" },
   btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
   btnGhost: { background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
   link: { color: "var(--gold)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
@@ -438,7 +438,7 @@ function SignUpView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
-        <div style={{ marginBottom: "2rem" }}><NooterraLogo height={22} style={{ color: "var(--text-primary)" }} /></div>
+        <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
         <h1 style={S.authTitle}>Get started</h1>
         <p style={S.authSub}>We'll send a verification code to your email. No password needed.</p>
         {error && <div style={S.error}>{error}</div>}
@@ -576,7 +576,7 @@ function SignInView({ onAuth }) {
     return (
       <div style={S.authWrap}>
         <div style={S.authBox} className="lovable-fade">
-          <div style={{ marginBottom: "2rem" }}><NooterraLogo height={22} style={{ color: "var(--text-primary)" }} /></div>
+          <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
           <h1 style={S.authTitle}>Welcome back</h1>
           <p style={S.authSub}>Signing in as <strong style={{ color: "var(--text-primary)" }}>{email}</strong></p>
           {error && <div style={S.error}>{error}</div>}
@@ -593,7 +593,7 @@ function SignInView({ onAuth }) {
   return (
     <div style={S.authWrap}>
       <div style={S.authBox} className="lovable-fade">
-        <div style={{ marginBottom: "2rem" }}><NooterraLogo height={22} style={{ color: "var(--text-primary)" }} /></div>
+        <div style={{ marginBottom: "2rem" }}><img src="/logo.png" alt="nooterra" style={{ height: 32, mixBlendMode: "screen" }} /></div>
         <h1 style={S.authTitle}>Welcome back</h1>
         <p style={S.authSub}>We'll send a verification code to your email.</p>
         {error && <div style={S.error}>{error}</div>}
