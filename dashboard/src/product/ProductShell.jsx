@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  buildHeaders,
-  createClientId,
   decideApprovalInboxItem,
   DEFAULT_AUTH_BASE_URL,
   fetchApprovalInbox,
@@ -27,8 +25,17 @@ import "./product.css";
    ═══════════════════════════════════════════════════════════ */
 
 const ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
-const WORKERS_STORAGE_KEY = "nooterra_workers_v1";
 const AUTH_BASE = "/__magic";
+const WORKER_API_BASE = "/__nooterra";
+
+const RECOMMENDED_MODELS = [
+  { id: "google/gemini-3-flash", name: "Gemini 3 Flash", inputPer1M: 0.50, outputPer1M: 3.00, tag: "Fast & cheap" },
+  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", inputPer1M: 2.00, outputPer1M: 12.00, tag: "Smartest" },
+  { id: "openai/gpt-5.4", name: "GPT-5.4", inputPer1M: 2.50, outputPer1M: 15.00, tag: "Best for agents" },
+  { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", inputPer1M: 3.00, outputPer1M: 15.00, tag: "Best for writing" },
+  { id: "anthropic/claude-haiku-4.5", name: "Claude Haiku 4.5", inputPer1M: 1.00, outputPer1M: 5.00, tag: "Budget" },
+  { id: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini", inputPer1M: 0.75, outputPer1M: 4.50, tag: "High volume" },
+];
 
 function cls(...args) {
   return args.filter(Boolean).join(" ");
@@ -67,6 +74,23 @@ function saveOnboardingState(state) {
 function navigate(path) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+/* ── Worker API helpers ──────────────────────────────────── */
+
+async function workerApiRequest({ pathname, method = "GET", body = null }) {
+  const runtime = loadRuntimeConfig();
+  return requestJson({
+    baseUrl: WORKER_API_BASE,
+    pathname,
+    method,
+    headers: {
+      "x-tenant-id": runtime.tenantId,
+      "content-type": "application/json",
+    },
+    body,
+    credentials: "include",
+  });
 }
 
 /* ── Auth helpers ────────────────────────────────────────── */
@@ -967,43 +991,83 @@ function SignInView({ onAuth }) {
    ONBOARDING
    ═══════════════════════════════════════════════════════════ */
 
-const AI_PROVIDERS = [
-  { id: "chatgpt", name: "ChatGPT (use your subscription)" },
-  { id: "anthropic", name: "Anthropic (Claude)" },
-  { id: "openai", name: "OpenAI API" },
-  { id: "google", name: "Google (Gemini)" },
-  { id: "openrouter", name: "OpenRouter (200+ models)" },
-  { id: "groq", name: "Groq (fast, free tier)" },
-  { id: "ollama", name: "Ollama (local, free)" },
-];
+function ModelSelector({ selected, onSelect }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: "1.25rem" }}>
+      {RECOMMENDED_MODELS.map((m) => (
+        <button
+          key={m.id}
+          onClick={() => onSelect(m.id)}
+          style={{
+            textAlign: "left",
+            padding: "0.7rem 1rem",
+            borderRadius: 8,
+            border: selected === m.id ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
+            background: selected === m.id ? "rgba(210,176,111,0.08)" : "var(--neutral-900)",
+            color: selected === m.id ? "var(--neutral-100)" : "var(--neutral-400)",
+            fontSize: "0.88rem",
+            cursor: "pointer",
+            transition: "all 0.15s",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>
+            {m.name}
+            <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
+          </span>
+          <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
+            ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M tokens
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function OnboardingView({ onComplete }) {
   const [step, setStep] = useState(1);
-  const [provider, setProvider] = useState("");
-  const [providerKey, setProviderKey] = useState("");
   const [workerDesc, setWorkerDesc] = useState("");
+  const [model, setModel] = useState("google/gemini-3-flash");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   function handleNext() {
-    if (step < 3) setStep(step + 1);
+    if (step < 2) setStep(step + 1);
   }
 
   function handleBack() {
     if (step > 1) setStep(step - 1);
   }
 
-  async function handleFinish() {
+  async function handleDeploy() {
+    if (!workerDesc.trim()) return;
     setSaving(true);
+    setError("");
     try {
+      const charter = generateCharterPreview(workerDesc);
+      await workerApiRequest({
+        pathname: "/v1/workers",
+        method: "POST",
+        body: {
+          name: deriveWorkerName(workerDesc),
+          description: workerDesc.trim(),
+          charter: JSON.stringify(charter),
+          schedule: "daily",
+          model,
+        },
+      });
       saveOnboardingState({
         buyer: loadOnboardingState()?.buyer || null,
         sessionExpected: true,
         completed: true,
-        provider,
       });
-    } catch { /* ignore */ }
+      onComplete?.();
+    } catch (err) {
+      setError(err?.message || "Failed to deploy worker. Please try again.");
+    }
     setSaving(false);
-    onComplete?.();
   }
 
   const charterPreview = workerDesc.trim() ? generateCharterPreview(workerDesc) : null;
@@ -1011,11 +1075,11 @@ function OnboardingView({ onComplete }) {
   return (
     <div style={S.onboardWrap}>
       <div style={S.onboardBox} className="lovable-fade" key={step}>
-        <div style={S.onboardStep}>Step {step} of 3</div>
+        <div style={S.onboardStep}>Step {step} of 2</div>
 
         {/* Step indicator */}
         <div style={{ display: "flex", gap: 6, marginBottom: "2rem" }}>
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div
               key={s}
               style={{
@@ -1031,66 +1095,9 @@ function OnboardingView({ onComplete }) {
 
         {step === 1 && (
           <>
-            <h1 style={S.onboardTitle}>Connect your AI provider</h1>
-            <p style={S.onboardSub}>Workers need an AI model to reason with. Pick your provider and paste your API key.</p>
-            <label style={S.label}>Provider</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: "1.25rem" }}>
-              {AI_PROVIDERS.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setProvider(p.id)}
-                  style={{
-                    textAlign: "left",
-                    padding: "0.7rem 1rem",
-                    borderRadius: 8,
-                    border: provider === p.id ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
-                    background: provider === p.id ? "rgba(210,176,111,0.08)" : "var(--neutral-900)",
-                    color: provider === p.id ? "var(--neutral-100)" : "var(--neutral-400)",
-                    fontSize: "0.88rem",
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-            {provider && provider !== "chatgpt" && provider !== "ollama" && (
-              <>
-                <label style={S.label}>API Key</label>
-                <FocusInput
-                  type="password"
-                  value={providerKey}
-                  onChange={(e) => setProviderKey(e.target.value)}
-                  placeholder="sk-..."
-                />
-              </>
-            )}
-            {provider === "chatgpt" && (
-              <p style={{ fontSize: "0.85rem", color: "var(--neutral-500)", marginBottom: "1rem" }}>
-                ChatGPT subscription auth will be configured in the dashboard after setup.
-              </p>
-            )}
-            {provider === "ollama" && (
-              <p style={{ fontSize: "0.85rem", color: "var(--neutral-500)", marginBottom: "1rem" }}>
-                Ollama runs locally — no API key needed. Make sure Ollama is running on your machine.
-              </p>
-            )}
-            <button
-              style={{ ...S.btnPrimary, opacity: !provider ? 0.5 : 1 }}
-              disabled={!provider}
-              onClick={handleNext}
-            >
-              Continue
-            </button>
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <h1 style={S.onboardTitle}>Create your first worker</h1>
-            <p style={S.onboardSub}>
-              Describe what you need done. We'll generate a charter — the rules your worker follows.
+            <h1 style={S.onboardTitle}>Describe your first worker</h1>
+            <p style={{ fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "1.5rem", lineHeight: 1.5 }}>
+              Tell us what you need done. We'll generate a charter — the rules your worker follows.
             </p>
             <label style={S.label}>What should this worker do?</label>
             <textarea
@@ -1100,6 +1107,28 @@ function OnboardingView({ onComplete }) {
               placeholder="e.g. Monitor our support inbox and draft replies for common questions"
               autoFocus
             />
+            <label style={S.label}>Pick a model</label>
+            <ModelSelector selected={model} onSelect={setModel} />
+            <button
+              style={{ ...S.btnPrimary, opacity: !workerDesc.trim() ? 0.5 : 1 }}
+              disabled={!workerDesc.trim()}
+              onClick={handleNext}
+            >
+              Continue
+            </button>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <h1 style={S.onboardTitle}>Review charter and deploy</h1>
+            <p style={{ fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "1.5rem", lineHeight: 1.5 }}>
+              Review the charter below. Once you're happy, deploy your first worker.
+            </p>
+            {error && <div style={S.error}>{error}</div>}
+            <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem" }}>
+              Model: {RECOMMENDED_MODELS.find((m) => m.id === model)?.name || model}
+            </div>
             {charterPreview && (
               <div style={{ marginBottom: "1.5rem" }}>
                 <div style={{ ...S.label, color: "var(--neutral-400)" }}>Charter preview</div>
@@ -1109,32 +1138,13 @@ function OnboardingView({ onComplete }) {
             <div style={{ display: "flex", gap: "0.75rem" }}>
               <button style={S.btnSecondary} onClick={handleBack}>Back</button>
               <button
-                style={{ ...S.btnPrimary, flex: 1, opacity: !workerDesc.trim() ? 0.5 : 1 }}
-                disabled={!workerDesc.trim()}
-                onClick={handleNext}
+                style={{ ...S.btnPrimary, flex: 1, opacity: saving ? 0.5 : 1 }}
+                disabled={saving}
+                onClick={handleDeploy}
               >
-                Continue
+                {saving ? "Deploying..." : "Deploy worker"}
               </button>
             </div>
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <h1 style={S.onboardTitle}>You're all set</h1>
-            <p style={{ ...S.onboardSub, marginBottom: "0.75rem" }}>
-              Your workspace is ready. Your first worker will start once you deploy it from the dashboard.
-            </p>
-            <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "2rem", lineHeight: 1.6 }}>
-              Connected to {AI_PROVIDERS.find((p) => p.id === provider)?.name || provider}
-            </div>
-            <button
-              style={{ ...S.btnPrimary, opacity: saving ? 0.6 : 1 }}
-              disabled={saving}
-              onClick={handleFinish}
-            >
-              {saving ? "Setting up..." : "Go to dashboard"}
-            </button>
           </>
         )}
       </div>
@@ -1221,6 +1231,21 @@ function CharterDisplay({ charter, compact = false }) {
    ═══════════════════════════════════════════════════════════ */
 
 function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
+  const [creditBalance, setCreditBalance] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" });
+        if (result?.balance != null) {
+          setCreditBalance(result.balance);
+        } else if (result?.remaining != null) {
+          setCreditBalance(result.remaining);
+        }
+      } catch { /* ignore — credits endpoint may not exist yet */ }
+    })();
+  }, []);
+
   return (
     <nav style={S.sidebar}>
       <div style={S.sidebarLogo}>nooterra</div>
@@ -1263,6 +1288,24 @@ function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
         Settings
       </button>
 
+      {creditBalance != null && (
+        <div style={{ padding: "1rem 1.5rem", marginTop: "0.5rem" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--neutral-500)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.3rem" }}>
+            Credits
+          </div>
+          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--neutral-100)", fontVariantNumeric: "tabular-nums" }}>
+            ${(creditBalance / 100).toFixed(2)} remaining
+          </div>
+          <a
+            href="/settings"
+            onClick={(e) => { e.preventDefault(); onNavigate("settings"); }}
+            style={{ fontSize: "0.78rem", color: "var(--gold)", textDecoration: "none", fontWeight: 500 }}
+          >
+            Top up
+          </a>
+        </div>
+      )}
+
       <div style={{ flex: 1 }} />
 
       <div style={S.navSection}>Resources</div>
@@ -1291,16 +1334,33 @@ function Sidebar({ activeView, onNavigate, pendingApprovals = 0 }) {
    DASHBOARD: WorkersListView
    ═══════════════════════════════════════════════════════════ */
 
-function WorkersListView({ workers, onSelect, onCreate }) {
+function WorkersListView({ onSelect, onCreate }) {
+  const [workers, setWorkers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        setWorkers(result?.items || result || []);
+      } catch {
+        setWorkers([]);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
         <div>
           <h1 style={S.pageTitle}>Workers</h1>
           <p style={{ ...S.pageSub, marginBottom: 0 }}>
-            {workers.length === 0
-              ? "No workers yet. Create one to get started."
-              : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
+            {loading
+              ? "Loading..."
+              : workers.length === 0
+                ? "No workers yet. Create one to get started."
+                : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}
           </p>
         </div>
         <button style={S.btnPrimary} onClick={onCreate}>
@@ -1308,7 +1368,7 @@ function WorkersListView({ workers, onSelect, onCreate }) {
         </button>
       </div>
 
-      {workers.length === 0 && (
+      {!loading && workers.length === 0 && (
         <div
           style={{
             padding: "4rem 2rem",
@@ -1359,9 +1419,9 @@ function WorkersListView({ workers, onSelect, onCreate }) {
                 <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
                 {w.status}
               </div>
-              <div style={S.workerMeta}>{w.lastRun ? timeAgo(w.lastRun) : "never"}</div>
+              <div style={S.workerMeta}>{w.lastRun || w.lastRunAt ? timeAgo(w.lastRun || w.lastRunAt) : "never"}</div>
               <div style={S.workerMeta}>{w.schedule || "manual"}</div>
-              <div style={S.workerMeta}>{w.cost != null ? `$${w.cost.toFixed(2)}` : "--"}</div>
+              <div style={S.workerMeta}>{w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : "--"}</div>
             </div>
           ))}
         </div>
@@ -1374,21 +1434,93 @@ function WorkersListView({ workers, onSelect, onCreate }) {
    DASHBOARD: WorkerDetailView
    ═══════════════════════════════════════════════════════════ */
 
-function WorkerDetailView({ worker, onBack, onUpdate, onDelete }) {
+function WorkerDetailView({ workerId, onBack }) {
+  const [worker, setWorker] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("charter");
-  const [editing, setEditing] = useState(false);
-  const [editCharter, setEditCharter] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [runningAction, setRunningAction] = useState(false);
+  const [error, setError] = useState("");
 
-  function handlePauseResume() {
-    const newStatus = worker.status === "paused" ? "ready" : "paused";
-    onUpdate?.({ ...worker, status: newStatus });
-  }
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
+        setWorker(result);
+      } catch {
+        setWorker(null);
+      }
+      setLoading(false);
+    })();
+  }, [workerId]);
 
-  function handleDelete() {
-    if (window.confirm(`Delete worker "${worker.name}"? This cannot be undone.`)) {
-      onDelete?.(worker.id);
+  useEffect(() => {
+    if (tab === "activity" && workerId) {
+      setLogsLoading(true);
+      (async () => {
+        try {
+          const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" });
+          setLogs(result?.items || result || []);
+        } catch {
+          setLogs([]);
+        }
+        setLogsLoading(false);
+      })();
     }
+  }, [tab, workerId]);
+
+  async function handleRunNow() {
+    setRunningAction(true);
+    setError("");
+    try {
+      await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" });
+      // Reload worker to get updated status
+      const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
+      setWorker(result);
+    } catch (err) {
+      setError(err?.message || "Failed to run worker.");
+    }
+    setRunningAction(false);
   }
+
+  async function handlePauseResume() {
+    if (!worker) return;
+    setRunningAction(true);
+    setError("");
+    const newStatus = worker.status === "paused" ? "ready" : "paused";
+    try {
+      await workerApiRequest({
+        pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
+        method: "PUT",
+        body: { status: newStatus },
+      });
+      setWorker((prev) => prev ? { ...prev, status: newStatus } : prev);
+    } catch (err) {
+      setError(err?.message || "Failed to update worker.");
+    }
+    setRunningAction(false);
+  }
+
+  if (loading) {
+    return (
+      <div>
+        <button style={S.backLink} onClick={onBack}>← All workers</button>
+        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!worker) {
+    return (
+      <div>
+        <button style={S.backLink} onClick={onBack}>← All workers</button>
+        <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Worker not found.</div>
+      </div>
+    );
+  }
+
+  const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
 
   const tabs = [
     { key: "charter", label: "Charter" },
@@ -1409,10 +1541,30 @@ function WorkerDetailView({ worker, onBack, onUpdate, onDelete }) {
       </div>
       <p style={S.pageSub}>{worker.description || "No description"}</p>
 
+      {error && <div style={S.error}>{error}</div>}
+
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
+        <button
+          style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }}
+          disabled={runningAction}
+          onClick={handleRunNow}
+        >
+          {runningAction ? "Running..." : "Run now"}
+        </button>
+        <button
+          style={S.btnSecondary}
+          disabled={runningAction}
+          onClick={handlePauseResume}
+        >
+          {worker.status === "paused" ? "Resume" : "Pause"}
+        </button>
+      </div>
+
       {/* Cost summary */}
       {worker.cost != null && (
         <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "2rem" }}>
-          Cost this period: <span style={{ color: "var(--neutral-200)", fontVariantNumeric: "tabular-nums" }}>${worker.cost.toFixed(2)}</span>
+          Cost this period: <span style={{ color: "var(--neutral-200)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span>
         </div>
       )}
 
@@ -1441,18 +1593,20 @@ function WorkerDetailView({ worker, onBack, onUpdate, onDelete }) {
       </div>
 
       {tab === "charter" && (
-        <CharterDisplay charter={worker.charter} />
+        <CharterDisplay charter={charter} />
       )}
 
       {tab === "activity" && (
         <div>
-          {(!worker.activityLog || worker.activityLog.length === 0) ? (
+          {logsLoading ? (
+            <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>Loading logs...</div>
+          ) : logs.length === 0 ? (
             <div style={{ fontSize: "0.88rem", color: "var(--neutral-500)" }}>
               No activity yet. This worker hasn't run.
             </div>
           ) : (
-            worker.activityLog.map((entry, i) => (
-              <ActivityLogEntry key={i} entry={entry} />
+            logs.map((entry, i) => (
+              <ActivityLogEntry key={entry.id || i} entry={entry} />
             ))
           )}
         </div>
@@ -1461,21 +1615,17 @@ function WorkerDetailView({ worker, onBack, onUpdate, onDelete }) {
       {tab === "settings" && (
         <div style={{ maxWidth: 480 }}>
           <label style={S.label}>Schedule</label>
-          <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", marginBottom: "2rem" }}>
+          <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", marginBottom: "1rem" }}>
             {worker.schedule || "Manual (on-demand)"}
           </div>
-
-          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <button style={S.btnSecondary} onClick={handlePauseResume}>
-              {worker.status === "paused" ? "Resume" : "Pause"}
-            </button>
-            <button
-              style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}
-              onClick={handleDelete}
-            >
-              Delete worker
-            </button>
-          </div>
+          {worker.model && (
+            <>
+              <label style={S.label}>Model</label>
+              <div style={{ fontSize: "0.88rem", color: "var(--neutral-200)", marginBottom: "2rem" }}>
+                {RECOMMENDED_MODELS.find((m) => m.id === worker.model)?.name || worker.model}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1518,51 +1668,35 @@ function CreateWorkerView({ onBack, onCreate }) {
   const [description, setDescription] = useState("");
   const [schedule, setSchedule] = useState("daily");
   const [customCron, setCustomCron] = useState("");
+  const [model, setModel] = useState("google/gemini-3-flash");
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
 
   const charter = description.trim() ? generateCharterPreview(description) : null;
 
   async function handleDeploy() {
     if (!description.trim()) return;
     setCreating(true);
-    const worker = {
-      id: createClientId("wkr"),
-      name: deriveWorkerName(description),
-      description: description.trim(),
-      status: "ready",
-      schedule: schedule === "custom" ? customCron || "custom" : schedule,
-      charter: charter || { canDo: [], askFirst: [], neverDo: [] },
-      cost: 0,
-      lastRun: null,
-      activityLog: [],
-      createdAt: new Date().toISOString(),
-    };
-    // Persist locally
+    setError("");
     try {
-      const existing = JSON.parse(localStorage.getItem(WORKERS_STORAGE_KEY) || "[]");
-      existing.push(worker);
-      localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(existing));
-    } catch { /* ignore */ }
-
-    // Try API
-    try {
-      const runtime = loadRuntimeConfig();
-      await requestJson({
-        baseUrl: runtime.baseUrl,
+      const name = deriveWorkerName(description);
+      const scheduleValue = schedule === "custom" ? customCron || "custom" : schedule;
+      const result = await workerApiRequest({
         pathname: "/v1/workers",
         method: "POST",
-        headers: buildHeaders({ ...runtime, write: true }),
         body: {
-          name: worker.name,
-          description: worker.description,
-          schedule: worker.schedule,
-          charter: worker.charter,
+          name,
+          description: description.trim(),
+          charter: JSON.stringify(charter || { canDo: [], askFirst: [], neverDo: [] }),
+          schedule: scheduleValue,
+          model,
         },
       });
-    } catch { /* non-fatal — local state is primary */ }
-
+      onCreate?.(result);
+    } catch (err) {
+      setError(err?.message || "Failed to create worker. Please try again.");
+    }
     setCreating(false);
-    onCreate?.(worker);
   }
 
   return (
@@ -1575,8 +1709,10 @@ function CreateWorkerView({ onBack, onCreate }) {
           Create a worker
         </h1>
         <p style={{ ...S.pageSub, marginBottom: "2rem" }}>
-          Describe the job, pick a schedule, review the charter, deploy.
+          Describe the job, pick a model and schedule, review the charter, deploy.
         </p>
+
+        {error && <div style={S.error}>{error}</div>}
 
         <label style={S.label}>What do you need a worker to do?</label>
         <textarea
@@ -1586,6 +1722,9 @@ function CreateWorkerView({ onBack, onCreate }) {
           placeholder="e.g. Check our Stripe dashboard every morning and post a revenue summary to Slack"
           autoFocus
         />
+
+        <label style={S.label}>Model</label>
+        <ModelSelector selected={model} onSelect={setModel} />
 
         <label style={S.label}>How often?</label>
         <div style={{ display: "flex", gap: 6, marginBottom: "1.25rem", flexWrap: "wrap" }}>
@@ -2037,17 +2176,10 @@ function PricingView() {
 
 function DashboardShell({ initialView = "workers" }) {
   const [view, setView] = useState(initialView);
-  const [selectedWorker, setSelectedWorker] = useState(null);
-  const [workers, setWorkers] = useState([]);
+  const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
 
   useEffect(() => {
-    // Load workers from localStorage
-    try {
-      const stored = JSON.parse(localStorage.getItem(WORKERS_STORAGE_KEY) || "[]");
-      if (Array.isArray(stored)) setWorkers(stored);
-    } catch { /* ignore */ }
-
     // Check pending approvals count
     (async () => {
       try {
@@ -2061,37 +2193,21 @@ function DashboardShell({ initialView = "workers" }) {
 
   function handleNavigate(dest) {
     setView(dest);
-    setSelectedWorker(null);
+    setSelectedWorkerId(null);
   }
 
   function handleSelectWorker(worker) {
-    setSelectedWorker(worker);
+    setSelectedWorkerId(worker.id);
     setView("workerDetail");
   }
 
-  function handleCreateWorker(worker) {
-    setWorkers((prev) => [...prev, worker]);
-    setSelectedWorker(worker);
-    setView("workerDetail");
-  }
-
-  function handleUpdateWorker(updated) {
-    setWorkers((prev) => {
-      const next = prev.map((w) => (w.id === updated.id ? updated : w));
-      try { localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-    setSelectedWorker(updated);
-  }
-
-  function handleDeleteWorker(id) {
-    setWorkers((prev) => {
-      const next = prev.filter((w) => w.id !== id);
-      try { localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-    setSelectedWorker(null);
-    setView("workers");
+  function handleCreateWorker(result) {
+    if (result?.id) {
+      setSelectedWorkerId(result.id);
+      setView("workerDetail");
+    } else {
+      setView("workers");
+    }
   }
 
   return (
@@ -2104,17 +2220,14 @@ function DashboardShell({ initialView = "workers" }) {
       <main style={S.main}>
         {view === "workers" && (
           <WorkersListView
-            workers={workers}
             onSelect={handleSelectWorker}
             onCreate={() => setView("createWorker")}
           />
         )}
-        {view === "workerDetail" && selectedWorker && (
+        {view === "workerDetail" && selectedWorkerId && (
           <WorkerDetailView
-            worker={selectedWorker}
-            onBack={() => { setSelectedWorker(null); setView("workers"); }}
-            onUpdate={handleUpdateWorker}
-            onDelete={handleDeleteWorker}
+            workerId={selectedWorkerId}
+            onBack={() => { setSelectedWorkerId(null); setView("workers"); }}
           />
         )}
         {view === "createWorker" && (
