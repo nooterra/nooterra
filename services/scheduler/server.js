@@ -18,6 +18,7 @@ import http from 'node:http';
 import pg from 'pg';
 const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
+import { handleChatRequest } from './chat.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -576,7 +577,28 @@ async function pollCycle() {
 // Health Endpoint
 // ---------------------------------------------------------------------------
 
+const CORS_ORIGINS = ['https://nooterra.ai', 'https://www.nooterra.ai'];
+
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  if (origin && CORS_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-tenant-id');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+}
+
 const server = http.createServer((req, res) => {
+  setCorsHeaders(req, res);
+
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -585,6 +607,11 @@ const server = http.createServer((req, res) => {
       uptime: process.uptime(),
       memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/v1/chat') {
+    handleChatRequest(req, res, pool);
     return;
   }
 
