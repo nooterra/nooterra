@@ -86,7 +86,7 @@ function SiteNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <a
-            href={ossLinks.repo}
+            href={DOCS_GETTING_STARTED}
             className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white"
             target="_blank" rel="noopener noreferrer"
           >
@@ -117,7 +117,7 @@ function SiteNav() {
               </a>
             ))}
             <div className="pt-2">
-              <a href={ossLinks.repo} onClick={() => setMobileOpen(false)} className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-sm font-medium text-stone-900" target="_blank" rel="noopener noreferrer">
+              <a href={DOCS_GETTING_STARTED} onClick={() => setMobileOpen(false)} className="inline-flex items-center rounded-md bg-stone-100 px-3.5 py-1.5 text-sm font-medium text-stone-900" target="_blank" rel="noopener noreferrer">
                 Get started
               </a>
             </div>
@@ -302,7 +302,7 @@ function HomePage() {
               </FadeIn>
               <FadeIn delay={0.14}>
                 <div className="mt-8 flex flex-wrap items-center gap-3">
-                  <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white" target="_blank" rel="noopener noreferrer">
+                  <a href={DOCS_GETTING_STARTED} className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-4 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white" target="_blank" rel="noopener noreferrer">
                     Get started <ArrowRight size={14} />
                   </a>
                   <a href={DOCS_EXTERNAL} className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-4 py-2.5 text-[13px] text-stone-500 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-200" target="_blank" rel="noopener noreferrer">
@@ -556,7 +556,7 @@ function HomePage() {
               Describe the work. Deploy a worker. Stay in control.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <a href={ossLinks.repo} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-5 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
+              <a href={DOCS_GETTING_STARTED} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-md bg-stone-100 px-5 py-2.5 text-[13px] font-medium text-stone-900 transition-all duration-150 hover:bg-white">
                 Get started <ArrowRight size={14} />
               </a>
               <a href={ossLinks.repo} className="inline-flex items-center gap-2 rounded-md border border-white/[0.08] px-5 py-2.5 text-[13px] font-medium text-stone-400 transition-all duration-150 hover:border-white/[0.15] hover:text-stone-200" target="_blank" rel="noopener noreferrer">
