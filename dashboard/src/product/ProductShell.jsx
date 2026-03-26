@@ -988,166 +988,820 @@ function SignInView({ onAuth }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ONBOARDING
+   BUILDER: Inference logic (ported from worker-builder-core)
    ═══════════════════════════════════════════════════════════ */
 
-function ModelSelector({ selected, onSelect }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: "1.25rem" }}>
-      {RECOMMENDED_MODELS.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => onSelect(m.id)}
-          style={{
-            textAlign: "left",
-            padding: "0.7rem 1rem",
-            borderRadius: 8,
-            border: selected === m.id ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
-            background: selected === m.id ? "rgba(210,176,111,0.08)" : "var(--neutral-900)",
-            color: selected === m.id ? "var(--neutral-100)" : "var(--neutral-400)",
-            fontSize: "0.88rem",
-            cursor: "pointer",
-            transition: "all 0.15s",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>
-            {m.name}
-            <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
-          </span>
-          <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
-            ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M tokens
-          </span>
-        </button>
-      ))}
-    </div>
-  );
+const CAPABILITY_CATALOG = {
+  browser:    { id: "browser",    name: "Web Browser",    category: "browsing",      requiredAuth: null,             label: "Browse websites and extract content" },
+  slack:      { id: "slack",      name: "Slack",          category: "communication", requiredAuth: "oauth_or_token", label: "Send and read Slack messages" },
+  email:      { id: "email",      name: "Email (Gmail)",  category: "communication", requiredAuth: "oauth",          label: "Read and send emails" },
+  github:     { id: "github",     name: "GitHub",         category: "development",   requiredAuth: "oauth_or_token", label: "Repos, issues, pull requests" },
+  filesystem: { id: "filesystem", name: "File System",    category: "development",   requiredAuth: null,             label: "Read and write local files" },
+  webSearch:  { id: "webSearch",  name: "Web Search",     category: "search",        requiredAuth: null,             label: "Search the web" },
+  memory:     { id: "memory",     name: "Worker Memory",  category: "core",          requiredAuth: null,             label: "Persistent memory across runs" },
+};
+
+function inferCapabilities(taskDescription) {
+  const desc = taskDescription.toLowerCase();
+  const ids = [];
+  if (/browse|website|web page|scrape|url|http|click|form|screenshot|price|competitor|amazon|ebay|linkedin|twitter|reddit|news|blog|article|review/.test(desc)) ids.push("browser");
+  if (/slack|channel|message|dm|thread/.test(desc)) ids.push("slack");
+  if (/email|inbox|gmail|outlook|send mail|mail/.test(desc)) ids.push("email");
+  if (/github|\brepo(?:sitory)?\b|issue|pull request|pull_request|\bpr\b|commit|branch|merge/.test(desc)) ids.push("github");
+  if (/file|folder|directory|read file|write file|local/.test(desc)) ids.push("filesystem");
+  if (/search|google|find|lookup|research/.test(desc)) ids.push("webSearch");
+  if (/remember|track|history|previous|last time|context/.test(desc)) ids.push("memory");
+  return [...new Set(ids)].map(id => CAPABILITY_CATALOG[id]).filter(Boolean);
 }
 
-function OnboardingView({ onComplete }) {
-  const [step, setStep] = useState(1);
-  const [workerDesc, setWorkerDesc] = useState("");
-  const [model, setModel] = useState("google/gemini-3-flash");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+function inferCharterRules(taskDescription, capabilities) {
+  const rules = { canDo: [], askFirst: [], neverDo: [] };
+  const desc = taskDescription.toLowerCase();
+  for (const cap of capabilities) {
+    switch (cap.id) {
+      case "browser":
+        rules.canDo.push("Browse websites and fetch web pages");
+        rules.canDo.push("Extract content from pages");
+        rules.askFirst.push("Fill forms or submit data on websites");
+        break;
+      case "slack":
+        rules.canDo.push("Read messages from allowed channels");
+        rules.canDo.push("Send messages to allowed channels");
+        rules.askFirst.push("Send direct messages to individuals");
+        rules.neverDo.push("Post to channels not in the allowed list");
+        break;
+      case "email":
+        rules.canDo.push("Read emails matching search criteria");
+        if (/send|reply|forward/.test(desc)) rules.askFirst.push("Send emails");
+        rules.neverDo.push("Delete emails permanently");
+        break;
+      case "github":
+        rules.canDo.push("Read repository contents");
+        rules.canDo.push("Create and update issues");
+        rules.askFirst.push("Create or merge pull requests");
+        rules.neverDo.push("Delete branches or repositories");
+        break;
+      case "filesystem":
+        rules.canDo.push("Read files in allowed directories");
+        if (/write|create|save/.test(desc)) rules.canDo.push("Write files in allowed directories");
+        rules.neverDo.push("Access files outside allowed directories");
+        break;
+      case "webSearch":
+        rules.canDo.push("Search the web for information");
+        break;
+      default: break;
+    }
+  }
+  if (/monitor|watch|track|alert/.test(desc)) {
+    rules.canDo.push("Monitor specified data sources continuously");
+    rules.canDo.push("Send alerts when conditions are met");
+  }
+  if (/write|draft|create|generate/.test(desc)) {
+    rules.canDo.push("Draft content based on instructions");
+    rules.askFirst.push("Publish or send drafted content");
+    rules.neverDo.push("Publish without human approval");
+  }
+  if (/price|cost|budget|spend/.test(desc)) {
+    rules.askFirst.push("Make purchases above threshold");
+    rules.neverDo.push("Exceed budget limits");
+  }
+  rules.neverDo.push("Spend money without approval");
+  rules.neverDo.push("Access credentials or keys directly");
+  rules.canDo = [...new Set(rules.canDo)];
+  rules.askFirst = [...new Set(rules.askFirst)];
+  rules.neverDo = [...new Set(rules.neverDo)];
+  return rules;
+}
 
-  function handleNext() {
-    if (step < 2) setStep(step + 1);
+function inferSchedule(taskDescription) {
+  const desc = taskDescription.toLowerCase();
+  if (/continuous|always|24\/7|constantly/.test(desc)) return { type: "continuous", value: null, label: "Continuously" };
+  const hourMatch = desc.match(/every\s+(\d+)\s*hours?/);
+  if (hourMatch) return { type: "interval", value: `${hourMatch[1]}h`, label: `Every ${hourMatch[1]}h` };
+  const minMatch = desc.match(/every\s+(\d+)\s*min(ute)?s?/);
+  if (minMatch) return { type: "interval", value: `${minMatch[1]}m`, label: `Every ${minMatch[1]}m` };
+  if (/hourly|every hour/.test(desc)) return { type: "interval", value: "1h", label: "Every hour" };
+  if (/daily|every day|once a day/.test(desc)) return { type: "cron", value: "0 9 * * *", label: "Daily at 9 AM" };
+  if (/weekly|every week/.test(desc)) return { type: "cron", value: "0 9 * * 1", label: "Weekly on Monday" };
+  if (/monitor|watch|track|alert|check|scan/.test(desc)) return { type: "interval", value: "1h", label: "Every hour" };
+  if (/morning|every morning/.test(desc)) return { type: "cron", value: "0 8 * * *", label: "Every morning at 8 AM" };
+  return { type: "trigger", value: "on_demand", label: "On demand" };
+}
+
+function inferWorkerName(description) {
+  const desc = description.trim().toLowerCase();
+  // Try to extract a meaningful name
+  const patterns = [
+    /(?:monitor|check|watch|track)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
+    /(?:draft|write|create|generate)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+and|\s+every|\s+daily|\s+hourly|$)/i,
+    /(?:send|forward|post)\s+(?:my\s+|our\s+|the\s+)?(.{3,30}?)(?:\s+to|\s+and|\s+every|$)/i,
+  ];
+  for (const pat of patterns) {
+    const m = description.match(pat);
+    if (m && m[1]) {
+      const words = m[1].trim().split(/\s+/).slice(0, 3);
+      return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") + " Worker";
+    }
+  }
+  // Fallback: first 3-4 meaningful words
+  const words = description.trim().split(/\s+/).filter(w => !["a", "an", "the", "my", "our", "to", "and", "or", "for", "in", "on", "at", "i", "we"].includes(w.toLowerCase())).slice(0, 3);
+  if (words.length === 0) return "New Worker";
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") + " Worker";
+}
+
+function scheduleToApiValue(schedule) {
+  if (!schedule) return "daily";
+  if (schedule.type === "continuous") return "continuous";
+  if (schedule.type === "interval") return schedule.value || "1h";
+  if (schedule.type === "cron") return schedule.value || "0 9 * * *";
+  return "on_demand";
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUILDER: State machine
+   ═══════════════════════════════════════════════════════════ */
+
+const BUILDER_STATES = {
+  GREETING: "greeting",
+  UNDERSTANDING: "understanding",
+  CAPABILITIES_CHECK: "capabilities_check",
+  CHARTER_REVIEW: "charter_review",
+  MODEL_SUGGEST: "model_suggest",
+  CONFIRM: "confirm",
+  DEPLOYING: "deploying",
+  DEPLOYED: "deployed",
+};
+
+function createBuilderConversation() {
+  return {
+    state: BUILDER_STATES.GREETING,
+    messages: [],
+    context: {
+      taskDescription: null,
+      workerName: null,
+      capabilities: [],
+      charter: null,
+      schedule: null,
+      model: "google/gemini-3-flash",
+    },
+  };
+}
+
+function addBuilderMessage(conv, role, content, meta = null) {
+  conv.messages.push({ id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, role, content, meta, ts: Date.now() });
+}
+
+function processBuilderInput(conv, userInput) {
+  const input = userInput.trim();
+  addBuilderMessage(conv, "user", input);
+
+  switch (conv.state) {
+    case BUILDER_STATES.GREETING:
+    case BUILDER_STATES.UNDERSTANDING: {
+      if (input.length < 5) {
+        addBuilderMessage(conv, "builder", "Tell me a bit more -- what should this worker actually do? The more detail, the better.");
+        return;
+      }
+      conv.context.taskDescription = input;
+      conv.context.capabilities = inferCapabilities(input);
+      conv.context.schedule = inferSchedule(input);
+      conv.context.workerName = inferWorkerName(input);
+      conv.context.charter = inferCharterRules(input, conv.context.capabilities);
+
+      if (conv.context.capabilities.length === 0) {
+        addBuilderMessage(conv, "builder", "Got it. I didn't detect any specific integrations from your description. This worker will use built-in tools (web browsing, search, file system). Sound good, or do you need something specific like Slack, Gmail, or GitHub?", { type: "capabilities_fallback" });
+        conv.state = BUILDER_STATES.CAPABILITIES_CHECK;
+        return;
+      }
+
+      const capNames = conv.context.capabilities.map(c => c.name).join(", ");
+      addBuilderMessage(conv, "builder",
+        `Got it. I'll call this worker "${conv.context.workerName}".`,
+      );
+      addBuilderMessage(conv, "builder",
+        `This worker will need: ${capNames}. Want to connect them now, or skip for later?`,
+        { type: "capabilities", capabilities: conv.context.capabilities },
+      );
+      conv.state = BUILDER_STATES.CAPABILITIES_CHECK;
+      return;
+    }
+
+    case BUILDER_STATES.CAPABILITIES_CHECK: {
+      const lower = input.toLowerCase();
+      // Check if they want to add more capabilities
+      if (/add|also|slack|gmail|email|github|browser|search/.test(lower)) {
+        const additional = inferCapabilities(input);
+        const existingIds = new Set(conv.context.capabilities.map(c => c.id));
+        for (const cap of additional) {
+          if (!existingIds.has(cap.id)) {
+            conv.context.capabilities.push(cap);
+          }
+        }
+        // Re-infer charter with new capabilities
+        conv.context.charter = inferCharterRules(conv.context.taskDescription, conv.context.capabilities);
+      }
+
+      // Show charter review
+      addBuilderMessage(conv, "builder",
+        "Here's the charter I'd suggest for this worker. Review it and let me know if you want to change anything.",
+        { type: "charter", charter: conv.context.charter },
+      );
+      conv.state = BUILDER_STATES.CHARTER_REVIEW;
+      return;
+    }
+
+    case BUILDER_STATES.CHARTER_REVIEW: {
+      const lower = input.toLowerCase();
+      if (/add .+ to (askfirst|ask first|never|can do|cando)/i.test(lower)) {
+        const addMatch = input.match(/add (.+?) to (askfirst|ask first|never|neverdo|can do|cando)/i);
+        if (addMatch) {
+          const rule = addMatch[1].trim();
+          const bucket = addMatch[2].toLowerCase().replace(/\s+/g, "");
+          if (bucket === "askfirst") conv.context.charter.askFirst.push(rule);
+          else if (bucket === "never" || bucket === "neverdo") conv.context.charter.neverDo.push(rule);
+          else if (bucket === "cando") conv.context.charter.canDo.push(rule);
+          addBuilderMessage(conv, "builder", `Done. Updated the charter.`, { type: "charter", charter: conv.context.charter });
+          return;
+        }
+      }
+      if (/remove|delete/i.test(lower)) {
+        addBuilderMessage(conv, "builder", "Which rule should I remove? Paste the exact text or tell me which section (canDo, askFirst, neverDo) and what to remove.");
+        return;
+      }
+      // Looks good / continue
+      // Show model options
+      const topModels = RECOMMENDED_MODELS.slice(0, 3);
+      const currentModel = RECOMMENDED_MODELS.find(m => m.id === conv.context.model) || topModels[0];
+      addBuilderMessage(conv, "builder",
+        `I'd recommend ${currentModel.name} for this type of work -- $${currentModel.inputPer1M.toFixed(2)}/$${currentModel.outputPer1M.toFixed(2)} per 1M tokens. You can change this anytime in settings.`,
+        { type: "models", models: topModels, selected: conv.context.model },
+      );
+      conv.state = BUILDER_STATES.MODEL_SUGGEST;
+      return;
+    }
+
+    case BUILDER_STATES.MODEL_SUGGEST: {
+      // Check if they picked a model by name or just confirmed
+      const lower = input.toLowerCase();
+      for (const m of RECOMMENDED_MODELS) {
+        if (lower.includes(m.name.toLowerCase()) || lower.includes(m.id.toLowerCase())) {
+          conv.context.model = m.id;
+          break;
+        }
+      }
+      const schedule = conv.context.schedule;
+      addBuilderMessage(conv, "builder",
+        `Ready to deploy "${conv.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`,
+        { type: "confirm", workerName: conv.context.workerName, schedule },
+      );
+      conv.state = BUILDER_STATES.CONFIRM;
+      return;
+    }
+
+    case BUILDER_STATES.CONFIRM: {
+      const lower = input.toLowerCase();
+      if (/no|wait|change|edit|back/.test(lower)) {
+        addBuilderMessage(conv, "builder", "No problem. What would you like to change? You can say things like 'change the name', 'edit the charter', or 'pick a different model'.");
+        return;
+      }
+      conv.state = BUILDER_STATES.DEPLOYING;
+      return; // deployment handled by the component
+    }
+
+    default:
+      addBuilderMessage(conv, "builder", "Something went wrong. Let's start fresh -- what do you need a worker to do?");
+      conv.state = BUILDER_STATES.GREETING;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUILDER: useBuilderState hook
+   ═══════════════════════════════════════════════════════════ */
+
+function useBuilderState() {
+  const [conv, setConv] = useState(() => {
+    const c = createBuilderConversation();
+    addBuilderMessage(c, "builder", "What do you need a worker to do?");
+    return c;
+  });
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState("");
+  const [deployedWorker, setDeployedWorker] = useState(null);
+
+  function sendMessage(text) {
+    const next = { ...conv, messages: [...conv.messages], context: { ...conv.context } };
+    // Deep-copy charter if it exists
+    if (next.context.charter) {
+      next.context.charter = {
+        canDo: [...next.context.charter.canDo],
+        askFirst: [...next.context.charter.askFirst],
+        neverDo: [...next.context.charter.neverDo],
+      };
+    }
+    if (next.context.capabilities) {
+      next.context.capabilities = [...next.context.capabilities];
+    }
+    processBuilderInput(next, text);
+    setConv(next);
+
+    // If state just moved to DEPLOYING, kick off the API call
+    if (next.state === BUILDER_STATES.DEPLOYING) {
+      handleDeploy(next);
+    }
   }
 
-  function handleBack() {
-    if (step > 1) setStep(step - 1);
+  function selectModel(modelId) {
+    const next = { ...conv, messages: [...conv.messages], context: { ...conv.context } };
+    next.context.model = modelId;
+    const m = RECOMMENDED_MODELS.find(r => r.id === modelId);
+    if (m) {
+      addBuilderMessage(next, "user", m.name);
+    }
+    const schedule = next.context.schedule;
+    addBuilderMessage(next, "builder",
+      `Ready to deploy "${next.context.workerName}"? Schedule: ${schedule?.label || "on demand"}.`,
+      { type: "confirm", workerName: next.context.workerName, schedule },
+    );
+    next.state = BUILDER_STATES.CONFIRM;
+    setConv(next);
   }
 
-  async function handleDeploy() {
-    if (!workerDesc.trim()) return;
-    setSaving(true);
-    setError("");
+  async function handleDeploy(c) {
+    setDeploying(true);
+    setDeployError("");
     try {
-      const charter = generateCharterPreview(workerDesc);
-      await workerApiRequest({
+      const charter = c.context.charter || { canDo: [], askFirst: [], neverDo: [] };
+      const result = await workerApiRequest({
         pathname: "/v1/workers",
         method: "POST",
         body: {
-          name: deriveWorkerName(workerDesc),
-          description: workerDesc.trim(),
+          name: c.context.workerName || "New Worker",
+          description: c.context.taskDescription || "",
           charter: JSON.stringify(charter),
-          schedule: "daily",
-          model,
+          schedule: scheduleToApiValue(c.context.schedule),
+          model: c.context.model,
         },
       });
+      setDeployedWorker(result);
+
+      // Mark onboarding complete
       saveOnboardingState({
         buyer: loadOnboardingState()?.buyer || null,
         sessionExpected: true,
         completed: true,
       });
-      onComplete?.();
+
+      const next = { ...c, messages: [...c.messages] };
+      addBuilderMessage(next, "builder",
+        `"${c.context.workerName}" is live.`,
+        { type: "deployed", worker: result, workerName: c.context.workerName },
+      );
+      next.state = BUILDER_STATES.DEPLOYED;
+      setConv(next);
     } catch (err) {
-      setError(err?.message || "Failed to deploy worker. Please try again.");
+      setDeployError(err?.message || "Failed to deploy worker.");
+      const next = { ...c, messages: [...c.messages] };
+      addBuilderMessage(next, "builder", `Deploy failed: ${err?.message || "Unknown error"}. Try again?`);
+      next.state = BUILDER_STATES.CONFIRM;
+      setConv(next);
     }
-    setSaving(false);
+    setDeploying(false);
   }
 
-  const charterPreview = workerDesc.trim() ? generateCharterPreview(workerDesc) : null;
+  function reset() {
+    const c = createBuilderConversation();
+    addBuilderMessage(c, "builder", "What do you need a worker to do?");
+    setConv(c);
+    setDeployedWorker(null);
+    setDeployError("");
+  }
+
+  return { conv, sendMessage, selectModel, deploying, deployError, deployedWorker, reset };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUILDER: Chat styles
+   ═══════════════════════════════════════════════════════════ */
+
+const BS = {
+  wrap: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    minHeight: "100vh",
+  },
+  wrapInline: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    minHeight: 0,
+  },
+  header: {
+    padding: "2rem 2.5rem 1rem",
+    borderBottom: "1px solid var(--neutral-800)",
+    flexShrink: 0,
+  },
+  headerTitle: {
+    fontSize: "1.1rem",
+    fontWeight: 700,
+    color: "var(--neutral-50)",
+  },
+  headerSub: {
+    fontSize: "0.82rem",
+    color: "var(--neutral-500)",
+    marginTop: "0.2rem",
+  },
+  messagesArea: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "1.5rem 2.5rem",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+  },
+  bubbleRow: (isUser) => ({
+    display: "flex",
+    justifyContent: isUser ? "flex-end" : "flex-start",
+  }),
+  bubble: (isUser) => ({
+    maxWidth: "75%",
+    padding: "0.75rem 1rem",
+    borderRadius: 12,
+    fontSize: "0.9rem",
+    lineHeight: 1.55,
+    color: "var(--neutral-100)",
+    background: isUser ? "var(--neutral-800)" : "var(--neutral-900)",
+    borderLeft: isUser ? "none" : "3px solid var(--gold)",
+    wordBreak: "break-word",
+  }),
+  inputBar: {
+    display: "flex",
+    gap: "0.5rem",
+    padding: "1rem 2.5rem 1.5rem",
+    borderTop: "1px solid var(--neutral-800)",
+    flexShrink: 0,
+    background: "var(--neutral-950)",
+  },
+  chatInput: {
+    flex: 1,
+    padding: "0.7rem 1rem",
+    fontSize: "0.9rem",
+    background: "var(--neutral-900)",
+    border: "1px solid var(--neutral-700)",
+    borderRadius: 8,
+    color: "var(--neutral-100)",
+    outline: "none",
+    fontFamily: "inherit",
+    transition: "border-color 0.15s",
+  },
+  sendBtn: {
+    padding: "0.7rem 1.25rem",
+    fontSize: "0.85rem",
+    fontWeight: 600,
+    background: "var(--gold)",
+    color: "var(--neutral-950)",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "opacity 0.15s",
+    flexShrink: 0,
+  },
+  capBtn: {
+    display: "inline-block",
+    padding: "0.45rem 0.9rem",
+    fontSize: "0.82rem",
+    fontWeight: 600,
+    background: "var(--gold-dim)",
+    color: "var(--gold)",
+    border: "1px solid var(--gold)",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginRight: "0.5rem",
+    marginTop: "0.5rem",
+    transition: "background 0.15s",
+  },
+  skipBtn: {
+    display: "inline-block",
+    padding: "0.45rem 0.9rem",
+    fontSize: "0.82rem",
+    fontWeight: 500,
+    background: "transparent",
+    color: "var(--neutral-400)",
+    border: "1px solid var(--neutral-700)",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginTop: "0.5rem",
+    transition: "border-color 0.15s",
+  },
+  charterBlock: {
+    marginTop: "0.75rem",
+    padding: "0.75rem 1rem",
+    background: "rgba(0,0,0,0.2)",
+    borderRadius: 8,
+    border: "1px solid var(--neutral-800)",
+  },
+  modelCard: (isSelected) => ({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "0.6rem 0.9rem",
+    borderRadius: 8,
+    border: isSelected ? "1px solid var(--gold)" : "1px solid var(--neutral-700)",
+    background: isSelected ? "rgba(210,176,111,0.08)" : "transparent",
+    cursor: "pointer",
+    marginTop: "0.4rem",
+    transition: "all 0.15s",
+  }),
+  deployBtn: {
+    display: "inline-block",
+    padding: "0.6rem 1.5rem",
+    fontSize: "0.88rem",
+    fontWeight: 600,
+    background: "var(--gold)",
+    color: "var(--neutral-950)",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginTop: "0.75rem",
+    transition: "opacity 0.15s",
+  },
+  viewWorkerBtn: {
+    display: "inline-block",
+    padding: "0.55rem 1.25rem",
+    fontSize: "0.85rem",
+    fontWeight: 600,
+    background: "var(--gold)",
+    color: "var(--neutral-950)",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    marginTop: "0.75rem",
+    transition: "opacity 0.15s",
+  },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   BUILDER: BuilderMessage — renders typed messages
+   ═══════════════════════════════════════════════════════════ */
+
+function BuilderMessage({ msg, onAction }) {
+  const isUser = msg.role === "user";
+
+  if (isUser) {
+    return (
+      <div style={BS.bubbleRow(true)} className="lovable-fade">
+        <div style={BS.bubble(true)}>{msg.content}</div>
+      </div>
+    );
+  }
+
+  // Builder messages
+  const meta = msg.meta;
 
   return (
-    <div style={S.onboardWrap}>
-      <div style={S.onboardBox} className="lovable-fade" key={step}>
-        <div style={S.onboardStep}>Step {step} of 2</div>
+    <div style={BS.bubbleRow(false)} className="lovable-fade">
+      <div style={BS.bubble(false)}>
+        <div>{msg.content}</div>
 
-        {/* Step indicator */}
-        <div style={{ display: "flex", gap: 6, marginBottom: "2rem" }}>
-          {[1, 2].map((s) => (
-            <div
-              key={s}
-              style={{
-                height: 3,
-                flex: 1,
-                borderRadius: 2,
-                background: s <= step ? "var(--gold)" : "var(--neutral-800)",
-                transition: "background 0.2s",
-              }}
-            />
-          ))}
-        </div>
-
-        {step === 1 && (
-          <>
-            <h1 style={S.onboardTitle}>Describe your first worker</h1>
-            <p style={{ fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-              Tell us what you need done. We'll generate a charter — the rules your worker follows.
-            </p>
-            <label style={S.label}>What should this worker do?</label>
-            <textarea
-              style={S.textarea}
-              value={workerDesc}
-              onChange={(e) => setWorkerDesc(e.target.value)}
-              placeholder="e.g. Monitor our support inbox and draft replies for common questions"
-              autoFocus
-            />
-            <label style={S.label}>Pick a model</label>
-            <ModelSelector selected={model} onSelect={setModel} />
-            <button
-              style={{ ...S.btnPrimary, opacity: !workerDesc.trim() ? 0.5 : 1 }}
-              disabled={!workerDesc.trim()}
-              onClick={handleNext}
-            >
-              Continue
+        {/* Capabilities with connect buttons */}
+        {meta?.type === "capabilities" && meta.capabilities?.length > 0 && (
+          <div style={{ marginTop: "0.6rem" }}>
+            {meta.capabilities.map(cap => (
+              <button
+                key={cap.id}
+                style={BS.capBtn}
+                onClick={() => alert(`Integration coming soon. Your worker will use built-in tools for ${cap.name} for now.`)}
+              >
+                Connect {cap.name}
+              </button>
+            ))}
+            <button style={BS.skipBtn} onClick={() => onAction?.("skip_capabilities")}>
+              Skip for now
             </button>
-          </>
+          </div>
         )}
 
-        {step === 2 && (
-          <>
-            <h1 style={S.onboardTitle}>Review charter and deploy</h1>
-            <p style={{ fontSize: "0.9rem", color: "var(--neutral-400)", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-              Review the charter below. Once you're happy, deploy your first worker.
-            </p>
-            {error && <div style={S.error}>{error}</div>}
-            <div style={{ fontSize: "0.85rem", color: "var(--neutral-400)", marginBottom: "1rem" }}>
-              Model: {RECOMMENDED_MODELS.find((m) => m.id === model)?.name || model}
-            </div>
-            {charterPreview && (
-              <div style={{ marginBottom: "1.5rem" }}>
-                <div style={{ ...S.label, color: "var(--neutral-400)" }}>Charter preview</div>
-                <CharterDisplay charter={charterPreview} compact />
-              </div>
-            )}
-            <div style={{ display: "flex", gap: "0.75rem" }}>
-              <button style={S.btnSecondary} onClick={handleBack}>Back</button>
-              <button
-                style={{ ...S.btnPrimary, flex: 1, opacity: saving ? 0.5 : 1 }}
-                disabled={saving}
-                onClick={handleDeploy}
+        {meta?.type === "capabilities_fallback" && (
+          <div style={{ marginTop: "0.6rem" }}>
+            <button style={BS.skipBtn} onClick={() => onAction?.("skip_capabilities")}>
+              Sounds good, continue
+            </button>
+          </div>
+        )}
+
+        {/* Charter preview */}
+        {meta?.type === "charter" && meta.charter && (
+          <div style={BS.charterBlock}>
+            <CharterDisplay charter={meta.charter} compact />
+            <button
+              style={{ ...BS.skipBtn, marginTop: "0.75rem" }}
+              onClick={() => onAction?.("charter_ok")}
+            >
+              Looks good
+            </button>
+          </div>
+        )}
+
+        {/* Model selection cards */}
+        {meta?.type === "models" && meta.models && (
+          <div style={{ marginTop: "0.5rem" }}>
+            {meta.models.map(m => (
+              <div
+                key={m.id}
+                style={BS.modelCard(m.id === meta.selected)}
+                onClick={() => onAction?.("select_model", m.id)}
               >
-                {saving ? "Deploying..." : "Deploy worker"}
-              </button>
-            </div>
-          </>
+                <div>
+                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: m.id === meta.selected ? "var(--neutral-100)" : "var(--neutral-300)" }}>{m.name}</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", marginLeft: 8 }}>{m.tag}</span>
+                </div>
+                <span style={{ fontSize: "0.75rem", color: "var(--neutral-500)", fontVariantNumeric: "tabular-nums" }}>
+                  ${m.inputPer1M.toFixed(2)} / ${m.outputPer1M.toFixed(2)} per 1M
+                </span>
+              </div>
+            ))}
+            <button
+              style={{ ...BS.skipBtn, marginTop: "0.6rem" }}
+              onClick={() => onAction?.("confirm_model")}
+            >
+              Use recommended
+            </button>
+          </div>
+        )}
+
+        {/* Deploy confirmation */}
+        {meta?.type === "confirm" && (
+          <div>
+            <button
+              style={BS.deployBtn}
+              onClick={() => onAction?.("deploy")}
+            >
+              Deploy worker
+            </button>
+          </div>
+        )}
+
+        {/* Deployed success */}
+        {meta?.type === "deployed" && (
+          <div>
+            <button
+              style={BS.viewWorkerBtn}
+              onClick={() => onAction?.("view_worker", meta.worker)}
+            >
+              View worker
+            </button>
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUILDER: BuilderChat component
+   ═══════════════════════════════════════════════════════════ */
+
+function BuilderChat({ fullScreen = false, onComplete, onViewWorker, onBack }) {
+  const { conv, sendMessage, selectModel, deploying, deployedWorker, reset } = useBuilderState();
+  const [inputValue, setInputValue] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
+  const messagesEndRef = useRef(null);
+  const messagesAreaRef = useRef(null);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conv.messages.length]);
+
+  function handleSend() {
+    const text = inputValue.trim();
+    if (!text || deploying) return;
+    setInputValue("");
+    sendMessage(text);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  function handleAction(action, payload) {
+    switch (action) {
+      case "skip_capabilities":
+        sendMessage("skip for now");
+        break;
+      case "charter_ok":
+        sendMessage("looks good");
+        break;
+      case "select_model":
+        selectModel(payload);
+        break;
+      case "confirm_model":
+        sendMessage("use recommended");
+        break;
+      case "deploy":
+        sendMessage("deploy");
+        break;
+      case "view_worker":
+        if (payload?.id) {
+          onViewWorker?.(payload);
+        } else {
+          onComplete?.();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  const isDeployed = conv.state === BUILDER_STATES.DEPLOYED;
+  const isDeploying = conv.state === BUILDER_STATES.DEPLOYING || deploying;
+
+  return (
+    <div style={fullScreen ? BS.wrap : BS.wrapInline}>
+      {/* Header */}
+      <div style={BS.header}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={BS.headerTitle}>
+              {fullScreen ? "nooterra" : "New worker"}
+            </div>
+            <div style={BS.headerSub}>
+              {fullScreen
+                ? "Tell me what you need done. I'll build a worker for it."
+                : "Describe the job and I'll set it up."
+              }
+            </div>
+          </div>
+          {!fullScreen && onBack && (
+            <button style={S.btnGhost} onClick={onBack}>Cancel</button>
+          )}
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={BS.messagesArea} ref={messagesAreaRef}>
+        {conv.messages.map((msg) => (
+          <BuilderMessage key={msg.id} msg={msg} onAction={handleAction} />
+        ))}
+        {isDeploying && (
+          <div style={BS.bubbleRow(false)} className="lovable-fade">
+            <div style={{ ...BS.bubble(false), color: "var(--neutral-400)" }}>Deploying...</div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      {!isDeployed && (
+        <div style={BS.inputBar}>
+          <input
+            type="text"
+            style={{
+              ...BS.chatInput,
+              ...(inputFocused ? { borderColor: "var(--gold)" } : {}),
+            }}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            placeholder={
+              conv.state === BUILDER_STATES.GREETING || conv.state === BUILDER_STATES.UNDERSTANDING
+                ? "e.g. Monitor competitor prices and post a daily summary to Slack"
+                : "Type a message..."
+            }
+            disabled={isDeploying}
+            autoFocus
+          />
+          <button
+            style={{ ...BS.sendBtn, opacity: !inputValue.trim() || isDeploying ? 0.5 : 1 }}
+            onClick={handleSend}
+            disabled={!inputValue.trim() || isDeploying}
+          >
+            Send
+          </button>
+        </div>
+      )}
+
+      {/* Post-deploy: offer to create another or go to dashboard */}
+      {isDeployed && (
+        <div style={{ ...BS.inputBar, justifyContent: "center", gap: "1rem" }}>
+          <button style={S.btnSecondary} onClick={reset}>
+            Create another worker
+          </button>
+          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onComplete}>
+            Go to dashboard
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1654,126 +2308,11 @@ function ActivityLogEntry({ entry }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   DASHBOARD: CreateWorkerView
+   DASHBOARD: CreateWorkerView (now uses BuilderChat)
    ═══════════════════════════════════════════════════════════ */
 
-const SCHEDULE_OPTIONS = [
-  { value: "continuous", label: "Continuous" },
-  { value: "hourly", label: "Every hour" },
-  { value: "daily", label: "Once a day" },
-  { value: "custom", label: "Custom cron" },
-];
-
-function CreateWorkerView({ onBack, onCreate }) {
-  const [description, setDescription] = useState("");
-  const [schedule, setSchedule] = useState("daily");
-  const [customCron, setCustomCron] = useState("");
-  const [model, setModel] = useState("google/gemini-3-flash");
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
-
-  const charter = description.trim() ? generateCharterPreview(description) : null;
-
-  async function handleDeploy() {
-    if (!description.trim()) return;
-    setCreating(true);
-    setError("");
-    try {
-      const name = deriveWorkerName(description);
-      const scheduleValue = schedule === "custom" ? customCron || "custom" : schedule;
-      const result = await workerApiRequest({
-        pathname: "/v1/workers",
-        method: "POST",
-        body: {
-          name,
-          description: description.trim(),
-          charter: JSON.stringify(charter || { canDo: [], askFirst: [], neverDo: [] }),
-          schedule: scheduleValue,
-          model,
-        },
-      });
-      onCreate?.(result);
-    } catch (err) {
-      setError(err?.message || "Failed to create worker. Please try again.");
-    }
-    setCreating(false);
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-      <div style={{ width: "100%", maxWidth: 580 }} className="lovable-fade">
-        <button style={S.backLink} onClick={onBack}>
-          ← Back
-        </button>
-        <h1 style={{ ...S.pageTitle, fontSize: "clamp(1.5rem, 4vw, 2rem)", marginBottom: "0.5rem" }}>
-          Create a worker
-        </h1>
-        <p style={{ ...S.pageSub, marginBottom: "2rem" }}>
-          Describe the job, pick a model and schedule, review the charter, deploy.
-        </p>
-
-        {error && <div style={S.error}>{error}</div>}
-
-        <label style={S.label}>What do you need a worker to do?</label>
-        <textarea
-          style={S.textarea}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="e.g. Check our Stripe dashboard every morning and post a revenue summary to Slack"
-          autoFocus
-        />
-
-        <label style={S.label}>Model</label>
-        <ModelSelector selected={model} onSelect={setModel} />
-
-        <label style={S.label}>How often?</label>
-        <div style={{ display: "flex", gap: 6, marginBottom: "1.25rem", flexWrap: "wrap" }}>
-          {SCHEDULE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              style={{
-                ...S.btnSecondary,
-                borderColor: schedule === opt.value ? "var(--gold)" : "var(--neutral-700)",
-                color: schedule === opt.value ? "var(--neutral-50)" : "var(--neutral-300)",
-              }}
-              onClick={() => setSchedule(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        {schedule === "custom" && (
-          <FocusInput
-            type="text"
-            value={customCron}
-            onChange={(e) => setCustomCron(e.target.value)}
-            placeholder="0 9 * * 1-5"
-          />
-        )}
-
-        {charter && (
-          <div style={{ marginBottom: "2rem" }}>
-            <div style={{ ...S.label, color: "var(--neutral-400)" }}>Charter preview</div>
-            <CharterDisplay charter={charter} compact />
-          </div>
-        )}
-
-        <button
-          style={{ ...S.btnPrimary, opacity: !description.trim() || creating ? 0.5 : 1 }}
-          disabled={!description.trim() || creating}
-          onClick={handleDeploy}
-        >
-          {creating ? "Deploying..." : "Deploy worker"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function deriveWorkerName(description) {
-  const words = description.trim().split(/\s+/).slice(0, 4);
-  if (words.length === 0) return "Worker";
-  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  return inferWorkerName(description);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2231,9 +2770,10 @@ function DashboardShell({ initialView = "workers" }) {
           />
         )}
         {view === "createWorker" && (
-          <CreateWorkerView
+          <BuilderChat
             onBack={() => setView("workers")}
-            onCreate={handleCreateWorker}
+            onComplete={() => setView("workers")}
+            onViewWorker={(w) => { if (w?.id) { setSelectedWorkerId(w.id); setView("workerDetail"); } else { setView("workers"); } }}
           />
         )}
         {view === "approvals" && <ApprovalsView />}
@@ -2366,7 +2906,11 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       )}
 
       {resolvedMode === "onboarding" && (
-        <OnboardingView onComplete={handleOnboardingComplete} />
+        <BuilderChat
+          fullScreen
+          onComplete={handleOnboardingComplete}
+          onViewWorker={(w) => { handleOnboardingComplete(); }}
+        />
       )}
 
       {resolvedMode === "pricing" && (
