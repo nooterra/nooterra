@@ -1,18 +1,21 @@
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
 
 :root {
-  /* Dark mode (default) */
-  --bg-primary: #1a1a1a;
-  --bg-sidebar: #141414;
-  --bg-surface: #242424;
-  --bg-hover: #2a2a2a;
-  --text-primary: #ececec;
-  --text-secondary: #a0a0a0;
-  --text-tertiary: #666666;
-  --border: rgba(255,255,255,0.08);
-  --gold: #d2b06f;
-  --gold-hover: #c4a05f;
-  --gold-dim: rgba(210,176,111,0.12);
+  /* Dark mode (default) — clean like ChatGPT */
+  --bg-primary: #212121;
+  --bg-sidebar: #171717;
+  --bg-surface: #2f2f2f;
+  --bg-hover: #3a3a3a;
+  --text-primary: #eeeeee;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #777777;
+  --border: rgba(255,255,255,0.06);
+  --accent: #eeeeee;
+  --accent-hover: #ffffff;
+  --accent-text: #171717;
+  --gold: #eeeeee;
+  --gold-hover: #ffffff;
+  --gold-dim: rgba(255,255,255,0.08);
   --font-body: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 
   /* Legacy aliases for marketing site (LovableSite.jsx) */
@@ -38,6 +41,9 @@
   --text-secondary: #7a7567;
   --text-tertiary: #a09a8f;
   --border: rgba(0,0,0,0.08);
+  --accent: #da7756;
+  --accent-hover: #c96745;
+  --accent-text: #ffffff;
   --gold: #da7756;
   --gold-hover: #c96745;
   --gold-dim: rgba(218,119,86,0.12);
