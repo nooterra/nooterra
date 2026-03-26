@@ -364,6 +364,128 @@ export function validateKeyFormat(providerId, apiKey) {
 }
 
 /**
+ * Validate an API key by making a lightweight test call to the provider.
+ * Returns { valid: true, models: [...] } or { valid: false, error: "..." }
+ */
+export async function validateApiKey(providerId, apiKey) {
+  const provider = PROVIDERS[providerId];
+  if (!provider) {
+    return { valid: false, error: `Unknown provider: ${providerId}` };
+  }
+
+  try {
+    let response;
+
+    switch (providerId) {
+      case 'openai': {
+        response = await fetch('https://api.openai.com/v1/models', {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          return { valid: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        const models = (data.data || []).map(m => m.id).slice(0, 20);
+        return { valid: true, models };
+      }
+
+      case 'anthropic': {
+        response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: 'claude-3-haiku-20240307',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'hi' }]
+          }),
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          // 401 = bad key, other errors might still mean key is valid
+          if (response.status === 401) {
+            return { valid: false, error: `Authentication failed: ${text.slice(0, 200)}` };
+          }
+          // 400/overloaded can still mean key is valid
+          if (response.status === 529 || response.status === 400) {
+            return { valid: true, models: provider.models };
+          }
+          return { valid: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        return { valid: true, models: provider.models };
+      }
+
+      case 'groq': {
+        response = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          return { valid: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        const models = (data.data || []).map(m => m.id).slice(0, 20);
+        return { valid: true, models };
+      }
+
+      case 'openrouter': {
+        response = await fetch('https://openrouter.ai/api/v1/models', {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          return { valid: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        const models = (data.data || []).map(m => m.id).slice(0, 20);
+        return { valid: true, models };
+      }
+
+      case 'google': {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`, {
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          return { valid: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        const data = await response.json();
+        const models = (data.models || []).map(m => m.name?.replace('models/', '') || m.name).slice(0, 20);
+        return { valid: true, models };
+      }
+
+      case 'local': {
+        response = await fetch('http://localhost:11434/api/tags', {
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) {
+          return { valid: false, error: `Ollama returned HTTP ${response.status}` };
+        }
+        const data = await response.json();
+        const models = (data.models || []).map(m => m.name);
+        return { valid: true, models };
+      }
+
+      default:
+        return { valid: false, error: `No validation implemented for provider: ${providerId}` };
+    }
+  } catch (err) {
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+      return { valid: false, error: 'Connection timed out — is the service reachable?' };
+    }
+    return { valid: false, error: err.message };
+  }
+}
+
+/**
  * Get provider status summary
  */
 export function getProviderStatus() {
@@ -418,6 +540,13 @@ export function getSetupQuestions(providerId) {
         return `Invalid key format. ${provider.name} keys start with "${provider.keyPrefix}"`;
       }
       return null;
+    },
+    asyncValidate: async (key) => {
+      const result = await validateApiKey(providerId, key.trim());
+      if (!result.valid) {
+        return { error: `API key validation failed: ${result.error}. Please try again.` };
+      }
+      return { success: true, models: result.models, message: `Key valid! Available models: ${(result.models || []).slice(0, 5).join(', ')}${(result.models || []).length > 5 ? '...' : ''}` };
     }
   }];
 }
@@ -702,5 +831,6 @@ export default {
   runChatGPTOAuthFlow,
   loadOAuthTokens,
   getOAuthAccessToken,
-  loadProviderCredential
+  loadProviderCredential,
+  validateApiKey
 };

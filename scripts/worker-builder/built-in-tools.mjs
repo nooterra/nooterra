@@ -781,7 +781,7 @@ const BUILT_IN_TOOLS = {
           `MAIL FROM:<${from}>\r\n`,
           `RCPT TO:<${to}>\r\n`,
           'DATA\r\n',
-          `From: ${from}\r\nTo: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\nDate: ${new Date().toUTCString()}\r\n\r\n${body}\r\n.\r\n`,
+          `From: ${from}\r\nTo: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\nDate: ${new Date().toUTCString()}\r\n\r\n${body.split('\n').map(line => line.startsWith('.') ? '.' + line : line).join('\n')}\r\n.\r\n`,
           'QUIT\r\n'
         ];
 

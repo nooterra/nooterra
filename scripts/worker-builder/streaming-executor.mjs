@@ -798,6 +798,19 @@ export function createStreamingExecutor(worker, options = {}) {
           timeline.complete();
         }
 
+        // Truncate oversized tool results before feeding back
+        const TOOL_RESULT_MAX_CHARS = 50_000;
+        for (const tr of toolResults) {
+          if (tr.result && tr.result.length > TOOL_RESULT_MAX_CHARS) {
+            const originalLength = tr.result.length;
+            tr.result = tr.result.slice(0, TOOL_RESULT_MAX_CHARS) +
+              `\n\n[Result truncated from ${originalLength} chars to ${TOOL_RESULT_MAX_CHARS} chars. Use more specific queries to get smaller results.]`;
+            emitter.emit('execution:thinking', {
+              message: `Truncated tool result for "${tr.name}" from ${originalLength} to ${TOOL_RESULT_MAX_CHARS} chars`
+            });
+          }
+        }
+
         // Feed tool results back into conversation
         if (provider === 'anthropic') {
           messages.push({
