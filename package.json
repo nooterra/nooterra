@@ -215,8 +215,9 @@
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
-    "@sentry/node": "^10.16.0",
     "@coinbase/cdp-sdk": "^1.44.1",
+    "@playwright/test": "^1.58.2",
+    "@sentry/node": "^10.16.0",
     "pg": "^8.19.0"
   },
   "devDependencies": {
