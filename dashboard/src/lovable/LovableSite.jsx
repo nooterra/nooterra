@@ -302,7 +302,7 @@ function HomePage() {
                   fontSize: "var(--text-display)", lineHeight: 1.04, letterSpacing: "-0.04em",
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                 }}>
-                  Tell us your business.<br />We'll send you <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>a team</span>.
+                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>Hire AI.</span>
                 </h1>
               </InView>
               <InView delay={0.1}>
@@ -310,7 +310,7 @@ function HomePage() {
                   marginTop: 28, maxWidth: 460,
                   fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
-                  AI workers that answer calls, manage inboxes, send invoices, and handle the work you don't have time for. They learn your rules, earn your trust, and get better every day.
+                  Describe your business. Get a team of AI workers that handle calls, emails, invoicing, and scheduling&mdash;while you do the real work.
                 </p>
               </InView>
               <InView delay={0.15}>
@@ -325,7 +325,7 @@ function HomePage() {
                     onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                     onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
                   >
-                    Get your team &rarr;
+                    Start hiring &rarr;
                   </a>
                   <a href={ossLinks.repo} style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
@@ -383,10 +383,10 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16 }}>
-              How it works.
+              60 seconds to your first team.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              From signup to a working AI team in under 60 seconds. No technical skills needed.
+              No code. No configuration. No AI expertise.
             </p>
           </InView>
 
@@ -394,21 +394,21 @@ function HomePage() {
             {[
               {
                 step: "01",
-                title: "Describe your business",
-                desc: "Tell us what you do, how big your team is, and what's eating your time. We'll search for your business and tailor a team to your exact needs.",
-                mono: 'nooterra.ai/start \u2192 "I run a plumbing company in Denver"',
+                title: "Tell us what you do",
+                desc: "\"I run a plumbing company in Denver with 5 techs.\" That's it. We figure out the rest.",
+                mono: 'nooterra.ai \u2192 6 workers proposed in 4 seconds',
               },
               {
                 step: "02",
-                title: "Meet your team",
-                desc: "We propose a team of AI workers \u2014 each with a clear role, rules they follow, and actions that need your approval. Review, adjust, and activate.",
-                mono: "Reception \u00b7 Dispatch \u00b7 Billing \u00b7 Reviews",
+                title: "Review your team",
+                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, boundaries, and a clear job description. Adjust anything.",
+                mono: "Reception \u00b7 Dispatch \u00b7 Billing \u00b7 Reviews \u00b7 Inventory",
               },
               {
                 step: "03",
-                title: "Watch them earn your trust",
-                desc: "Every worker starts in shadow mode \u2014 showing you what it would do before doing it. As you approve actions, it earns more autonomy. Full audit trail of everything.",
-                mono: "trust: 94% \u00b7 847 tasks \u00b7 0 violations",
+                title: "They get better every day",
+                desc: "Workers start careful and earn autonomy. The more you approve, the more they handle. You stay in control\u2014always.",
+                mono: "trust: 94% \u00b7 847 tasks \u00b7 $0.003/task \u00b7 0 violations",
               },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
@@ -429,10 +429,10 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px" }}>
-              They follow your rules. Always.
+              Rules they can't break.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 48 }}>
-              Every worker has clear boundaries &mdash; enforced at runtime, not just suggested. You decide what they can do, what needs your approval, and what's off-limits.
+              Not suggestions. Not guidelines. Hard limits enforced before every action. You set the rules. The system enforces them.
             </p>
           </InView>
 
@@ -469,10 +469,10 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
-              Teams for every business.
+              Any industry. Any size.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              From plumbers to law firms, restaurants to e-commerce. Tell us your industry and we'll propose the right workers.
+              Plumbers, law firms, restaurants, e-commerce, trucking, dental, salons&mdash;if you run a business, you get a team.
             </p>
           </InView>
 
@@ -524,7 +524,7 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 48px" }}>
-              Built for business owners.
+              The fine print.
             </h2>
           </InView>
 
@@ -557,10 +557,10 @@ function HomePage() {
               fontSize: "var(--text-display)", letterSpacing: "-0.04em", fontWeight: 800,
               color: "var(--text-100)", margin: "0 0 20px",
             }}>
-              Your AI team is ready.
+              Your team is waiting.
             </h2>
             <p style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", maxWidth: 440, margin: "0 auto 40px", lineHeight: 1.7 }}>
-              Describe your business. We'll propose the right workers, connect your tools, and start working. 60 seconds to your first team.
+              60 seconds from now, you could have an AI team handling the work you don't have time for.
             </p>
           </InView>
           <InView delay={0.08}>
@@ -575,7 +575,7 @@ function HomePage() {
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
               >
-                Get your team &rarr;
+                Start hiring &rarr;
               </a>
               <a href={DOCS_GETTING_STARTED} style={{
                 display: "inline-flex", alignItems: "center", padding: "16px 40px",
