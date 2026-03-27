@@ -1353,38 +1353,105 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    =================================================================== */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
-  const [phase, setPhase] = useState("input"); // "input" | "team"
+  const [phase, setPhase] = useState("input"); // "input" | "generating" | "team"
   const [description, setDescription] = useState("");
   const [teamProposal, setTeamProposal] = useState(null);
   const [roiEstimate, setRoiEstimate] = useState(null);
   const [integrations, setIntegrations] = useState([]);
   const [industryResult, setIndustryResult] = useState(null);
-  const [expandedCard, setExpandedCard] = useState(null); // index of expanded worker card
-  const [transitioning, setTransitioning] = useState(false);
+  const [expandedCard, setExpandedCard] = useState(null);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
   const textareaRef = useRef(null);
 
-  function handleGo() {
+  function parseTeamProposal(text) {
+    const match = text.match(/\[TEAM_PROPOSAL\]([\s\S]*?)\[\/TEAM_PROPOSAL\]/);
+    if (!match) return null;
+    const block = match[1];
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    let teamName = "";
+    const workers = [];
+    let current = null;
+    for (const line of lines) {
+      const [key, ...rest] = line.split(":");
+      const k = key.trim().toLowerCase();
+      const v = rest.join(":").trim();
+      if (k === "team_name") { teamName = v; }
+      else if (k === "worker") { if (current) workers.push(current); current = { role: v, title: "", description: "", canDo: [], askFirst: [], neverDo: [], schedule: "continuous", integrations: [] }; }
+      else if (current && k === "title") current.title = v;
+      else if (current && k === "description") current.description = v;
+      else if (current && k === "cando") current.canDo = v.split(",").map(s => s.trim()).filter(Boolean);
+      else if (current && k === "askfirst") current.askFirst = v.split(",").map(s => s.trim()).filter(Boolean);
+      else if (current && k === "neverdo") current.neverDo = v.split(",").map(s => s.trim()).filter(Boolean);
+      else if (current && k === "schedule") current.schedule = v;
+    }
+    if (current) workers.push(current);
+    if (workers.length === 0) return null;
+    return { teamName: teamName || "Your Team", workers };
+  }
+
+  async function handleGo() {
     const text = description.trim();
     if (!text) return;
+    setPhase("generating");
+    setError("");
 
+    // Get industry context for ROI (instant, local)
     const ir = identifyIndustry(text);
-    const team = proposeTeam(ir);
-    const intg = identifyIntegrations(team.workers);
-    const roi = estimateROI(ir, team.workers);
-
     setIndustryResult(ir);
-    setTeamProposal(team);
-    setIntegrations(intg);
-    setRoiEstimate(roi);
 
-    // Animated transition
-    setTransitioning(true);
-    setTimeout(() => {
+    // Call AI to generate custom team
+    const runtime = loadRuntimeConfig();
+    try {
+      const res = await fetch("/__nooterra/v1/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
+        credentials: "include",
+        body: JSON.stringify({ messages: [{ role: "user", content: text }], model: "nvidia/nemotron-3-super-120b-a12b:free" }),
+      });
+
+      if (!res.ok) throw new Error("AI service unavailable");
+
+      // Read SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          try { const p = JSON.parse(data); const d = p.choices?.[0]?.delta?.content || ""; if (d) fullResponse += d; } catch {}
+        }
+      }
+
+      // Parse team from AI response
+      const aiTeam = parseTeamProposal(fullResponse);
+      if (aiTeam && aiTeam.workers.length > 0) {
+        setTeamProposal(aiTeam);
+        const intg = identifyIntegrations(aiTeam.workers);
+        setIntegrations(intg);
+        const roi = estimateROI(ir, aiTeam.workers);
+        setRoiEstimate(roi);
+        setPhase("team");
+        return;
+      }
+
+      // AI didn't return a team — fall back to BI engine
+      throw new Error("fallback");
+    } catch {
+      // Fallback: use business intelligence engine
+      const team = proposeTeam(ir);
+      const intg = identifyIntegrations(team.workers);
+      const roi = estimateROI(ir, team.workers);
+      setTeamProposal(team);
+      setIntegrations(intg);
+      setRoiEstimate(roi);
       setPhase("team");
-      setTransitioning(false);
-    }, 350);
+    }
   }
 
   function handleExampleClick(text) {
@@ -1432,6 +1499,21 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   }
 
   // =============================================
+  // GENERATING STATE
+  // =============================================
+  if (phase === "generating") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 48, height: 48, border: "3px solid var(--border)", borderTop: "3px solid var(--text-100)", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 24px" }} />
+          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-100)", marginBottom: 8 }}>Building your team</h2>
+          <p style={{ fontSize: "14px", color: "var(--text-300)" }}>Analyzing your business and creating custom workers...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // =============================================
   // PHASE 1: INPUT
   // =============================================
   if (phase === "input") {
@@ -1439,7 +1521,6 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
         justifyContent: "center", minHeight: "100vh", padding: "2rem",
-        opacity: transitioning ? 0 : 1,
         transition: "opacity 300ms ease",
       }}>
         <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
@@ -3281,7 +3362,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [view, setView] = useState(() => {
     // First-time users go to builder; returning users go to inbox or team
     if (isFirstTime) return "builder";
-    return initialView === "home" ? "team" : initialView;
+    return initialView === "home" ? "builder" : initialView;
   });
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
@@ -3319,14 +3400,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   }
 
   // =============================================
-  // BUILDER VIEW: Full screen, no sidebar
-  // =============================================
-  if (view === "builder") {
-    return <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />;
-  }
-
-  // =============================================
-  // MANAGEMENT DASHBOARD: Sidebar + content
+  // ALL VIEWS: Sidebar + content
   // =============================================
 
   // --- Icons ---
@@ -3394,6 +3468,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   // --- Determine what content shows ---
   function MainContent() {
+    if (view === "builder") return <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />;
     if (view === "team") return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>;
     if (view === "workerDetail" && selectedWorkerId) return <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>;
     if (view === "inbox" || view === "approvals") return <div style={S.main}><InboxView /></div>;
