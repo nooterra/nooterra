@@ -461,9 +461,8 @@ function AuthView({ onAuth }) {
     return (
       <div style={A.wrap}>
         <div style={A.inner} className="lovable-fade">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: "3rem" }}>
-            <img src="/logo.png" alt="" style={{ height: 28 }} />
-            <span style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-100, #111110)", letterSpacing: "-0.02em" }}>nooterra</span>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "3rem" }}>
+            <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 24 }} />
           </div>
           <h1 style={A.heading}>Enter your code</h1>
           <p style={A.sub}>We sent a verification code to <strong style={{ color: "#1a1a1a" }}>{email}</strong>.</p>
@@ -493,9 +492,8 @@ function AuthView({ onAuth }) {
   const socialBtnStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "13px 20px", fontSize: 15, fontWeight: 500, background: "var(--bg-400, #ffffff)", color: "var(--text-100, #111110)", border: "1px solid var(--border, #e5e3dd)", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", transition: "background 0.15s, border-color 0.15s", marginBottom: "0.6rem" };
   return (
     <div style={A.wrap}>
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "1.5rem 1.5rem", display: "flex", alignItems: "center", gap: 8 }}>
-        <img src="/logo.png" alt="" style={{ height: 28 }} />
-        <span style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-100, #111110)", letterSpacing: "-0.02em" }}>nooterra</span>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, padding: "1.5rem 1.5rem" }}>
+        <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 24 }} />
       </div>
       <div style={A.inner} className="lovable-fade">
         <h1 style={A.heading}>Log in or sign up</h1>
@@ -1091,7 +1089,7 @@ function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, us
           onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
           onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
         ><SidebarToggleIcon /></button>
-        <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>nooterra</span>
+        <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
       </div>
       <div style={{ padding: "0 12px 12px" }}>
         <button onClick={onNewWorker} style={{ display: "block", width: "100%", padding: "8px 12px", fontSize: "14px", fontWeight: 600, background: "var(--accent-subtle, rgba(196,97,58,0.07))", color: "var(--accent)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms" }}>+ New worker</button>

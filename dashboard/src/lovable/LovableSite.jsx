@@ -95,9 +95,8 @@ function SiteNav() {
   return (
     <nav style={navStyle}>
       <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
-          <img src="/logo.png" alt="" style={{ height: 28 }} />
-          <span style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-100)", letterSpacing: "-0.02em" }}>nooterra</span>
+        <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
+          <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 22 }} />
         </a>
 
         {/* Desktop links */}
@@ -143,9 +142,8 @@ function SiteFooter() {
       <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "48px 24px 32px" }}>
         <div className="footer-grid" style={{ marginBottom: 40 }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-              <img src="/logo.png" alt="" style={{ height: 20 }} />
-              <span style={{ fontWeight: 700, color: "var(--text-100)", letterSpacing: "-0.02em" }}>nooterra</span>
+            <div style={{ marginBottom: 16 }}>
+              <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 20 }} />
             </div>
             <p style={{ fontSize: "0.875rem", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
               The AI workforce platform for consequential work. Open source.
@@ -352,13 +350,13 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ═══ LOGOS / SCROLLING MARQUEE ═══ */}
-      <section style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "18px 0" }}>
+      {/* ═══ INTEGRATIONS MARQUEE ═══ */}
+      <section style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "18px 24px", overflow: "hidden" }}>
           <div className="logo-marquee">
             <div className="logo-marquee-track">
-              {[...Array(2)].map((_, setIdx) => (
-                <div key={setIdx} style={{ display: "flex", alignItems: "center", gap: 56, paddingRight: 56 }}>
+              {[...Array(4)].map((_, setIdx) => (
+                <div key={setIdx} style={{ display: "flex", alignItems: "center", gap: 48, paddingRight: 48, flexShrink: 0 }}>
                   <IntegrationLogo name="OpenAI" />
                   <IntegrationLogo name="Anthropic" />
                   <IntegrationLogo name="Google" />
