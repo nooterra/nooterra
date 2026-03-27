@@ -1439,12 +1439,31 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             {isFirstTime ? "Deploy your first worker in 30 seconds." : "Ask me anything, or describe a worker you need."}
           </p>
         </div>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} onPlusAction={handlePlusAction} />
-        {isFirstTime && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", width: "100%", maxWidth: 680, marginTop: "1.5rem" }}>
-            {STARTER_TEMPLATES.map(t => <TemplateCard key={t.id} template={t} onClick={() => handleTemplateClick(t)} />)}
-          </div>
-        )}
+        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxWidth: 680, width: "100%", marginTop: "1rem", justifyContent: "center" }}>
+          {STARTER_TEMPLATES.map(t => (
+            <button key={t.id} onClick={() => handleTemplateClick(t)} style={{
+              padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
+              border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
+              cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "transparent"; }}
+            >
+              {t.name}
+            </button>
+          ))}
+          <button onClick={() => setInputValue("I need a worker that ")} style={{
+            padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--accent)",
+            border: "1px solid var(--accent)", borderRadius: 20, background: "transparent",
+            cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms",
+          }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.7"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+          >
+            Custom worker
+          </button>
+        </div>
         <div style={{ flex: 1.5 }} />
       </div>
     );
@@ -1488,7 +1507,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         </div>
       </div>
       <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." onPlusAction={handlePlusAction} />
+        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." />
       </div>
     </div>
   );
@@ -1552,7 +1571,6 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
       {iconBtn("workers", "Workers", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>)}
       {iconBtn("approvals", "Approvals", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, pendingApprovals)}
       {iconBtn("receipts", "History", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
-      {iconBtn("integrations", "Integrations", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2v3M10 2v3M6 11v3M10 11v3M2 6h3M2 10h3M11 6h3M11 10h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><rect x="5" y="5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
       <div style={{ flex: 1 }} />
       <button onClick={onOpenSettings} style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
@@ -1617,7 +1635,6 @@ function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, us
       <div style={{ borderTop: "1px solid var(--border)", margin: "16px 16px" }} />
       {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--accent)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
       {navBtn("receipts", "History")}
-      {navBtn("integrations", "Integrations")}
       <div style={{ flex: 1 }} />
       <div style={{ borderTop: "1px solid var(--border)", margin: "8px 16px" }} />
       <div style={{ padding: "12px 16px", position: "relative" }} ref={menuRef}>
@@ -1731,6 +1748,18 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
       </div>
       <p style={S.pageSub}>{worker.description || "No description"}</p>
       {error && <div style={S.error}>{error}</div>}
+
+      {/* Integration setup prompt for new deploys */}
+      {isNewDeploy && (
+        <div style={{ padding: "16px 20px", borderRadius: 12, border: "1px solid var(--accent)", background: "var(--accent-subtle, rgba(196,97,58,0.04))", marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>Connect integrations</div>
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: 2 }}>This worker may need access to external services to run effectively.</div>
+          </div>
+          <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", flexShrink: 0 }} onClick={() => setTab("integrations")}>Set up</button>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
         <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }} disabled={runningAction} onClick={handleRunNow}>{runningAction ? "Running..." : "Run now"}</button>
         <button style={S.btnSecondary} disabled={runningAction} onClick={handlePauseResume}>{worker.status === "paused" ? "Resume" : "Pause"}</button>
@@ -2461,7 +2490,6 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
         {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }} isNewDeploy={isNewDeploy} /></div>}
         {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
         {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
-        {view === "integrations" && <div style={S.main}><IntegrationsView /></div>}
       </div>
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
     </div>
