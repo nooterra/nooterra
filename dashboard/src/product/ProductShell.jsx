@@ -1216,9 +1216,8 @@ function PlusMenu({ onClose, onAction }) {
    BuilderInputBox
    =================================================================== */
 
-function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder, onPlusAction }) {
+function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
   const [focused, setFocused] = useState(false);
-  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   function handleKeyDown(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); } }
   return (
     <div style={{ position: "relative", maxWidth: 680, width: "100%" }}>
@@ -1226,21 +1225,11 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, transition: "border-color 150ms, box-shadow 150ms", position: "relative", boxShadow: focused ? "var(--shadow-md)" : "var(--shadow-sm)" }}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       >
-        <button onClick={() => setPlusMenuOpen(!plusMenuOpen)} style={{ position: "absolute", left: 10, top: 12, zIndex: 2, width: 28, height: 28, borderRadius: "50%", background: "var(--bg-hover)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", transition: "background 150ms" }}
-          onMouseEnter={e => { e.currentTarget.style.background = "var(--border)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-        >
-          <PlusIcon size={16} />
-        </button>
-        {plusMenuOpen && <PlusMenu onClose={() => setPlusMenuOpen(false)} onAction={onPlusAction} />}
-        <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus />
+        <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus style={{ paddingLeft: "1rem" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px 10px" }}>
           <ModelDropdown model={model} onModelChange={onModelChange} />
           <SendArrow disabled={disabled || !value.trim()} onClick={onSend} />
         </div>
-      </div>
-      <div style={{ textAlign: "center", marginTop: 8, fontSize: "12px", color: "var(--text-tertiary)", lineHeight: 1.4 }}>
-        Nooterra can make mistakes. Review worker actions before approving.
       </div>
     </div>
   );
@@ -2082,64 +2071,46 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 <SaveButton />
               </div>)}
               {tab === "notifications" && (<div>
-                <div style={{ marginBottom: "2rem" }}>
-                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Email notifications</div>
-                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Receive notifications via email when events occur.</p>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-                    <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>Enable email notifications</div></div>
-                    <ToggleSwitch on={notifEmailEnabled} onToggle={() => setNotifEmailEnabled(!notifEmailEnabled)} />
-                  </div>
-                  {notifEmailEnabled && (
-                    <div style={{ marginTop: "0.75rem" }}>
-                      <label style={S.label}>Email address</label>
-                      <FocusInput type="email" value={notifEmailAddress} onChange={(e) => setNotifEmailAddress(e.target.value)} placeholder="you@example.com" />
-                    </div>
-                  )}
-                </div>
-                <div style={{ marginBottom: "2rem" }}>
-                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Slack notifications</div>
-                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Get notified in Slack when workers need approval, complete tasks, or encounter errors.</p>
-                  {notifSlackEnabled && notifSlackWebhook ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)" }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green, #2a9d6e)" }} />
-                      <span style={{ flex: 1, fontSize: "14px", color: "var(--text-primary)" }}>Slack connected</span>
-                      <button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }} onClick={() => { setNotifSlackEnabled(false); setNotifSlackWebhook(""); }}>Disconnect</button>
-                    </div>
-                  ) : (
+                <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Notification channels</div>
+                <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1.5rem" }}>Choose how you want to be notified about worker activity.</p>
+
+                {[
+                  { key: "email", label: "Email", desc: "Get notifications delivered to your inbox", enabled: notifEmailEnabled, onToggle: () => setNotifEmailEnabled(!notifEmailEnabled) },
+                  { key: "slack", label: "Slack", desc: "Get notifications in a Slack channel", enabled: notifSlackEnabled, onToggle: () => setNotifSlackEnabled(!notifSlackEnabled) },
+                  { key: "dashboard", label: "Dashboard", desc: "See notifications in your Nooterra dashboard", enabled: true, onToggle: () => {} },
+                ].map((ch) => (
+                  <div key={ch.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
                     <div>
-                      <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noopener noreferrer" style={{
-                        display: "inline-flex", alignItems: "center", gap: 10, padding: "10px 20px",
-                        fontSize: "14px", fontWeight: 600, background: "#4A154B", color: "#fff",
-                        borderRadius: 8, textDecoration: "none", transition: "opacity 150ms", cursor: "pointer",
-                      }} onMouseEnter={e => e.currentTarget.style.opacity = "0.85"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                        <svg width="18" height="18" viewBox="0 0 24 24"><path d="M5.04 15.28a2.18 2.18 0 0 1-2.18 2.18A2.18 2.18 0 0 1 .68 15.28a2.18 2.18 0 0 1 2.18-2.18h2.18v2.18zm1.09 0a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18v5.45a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-5.45z" fill="#E01E5A"/><path d="M8.31 5.04a2.18 2.18 0 0 1-2.18-2.18A2.18 2.18 0 0 1 8.31.68a2.18 2.18 0 0 1 2.18 2.18v2.18H8.31zm0 1.1a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18H2.86A2.18 2.18 0 0 1 .68 8.32 2.18 2.18 0 0 1 2.86 6.14h5.45z" fill="#36C5F0"/><path d="M18.96 8.32a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-2.18V8.32zm-1.09 0a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18V2.86A2.18 2.18 0 0 1 15.69.68a2.18 2.18 0 0 1 2.18 2.18v5.46z" fill="#2EB67D"/><path d="M15.69 18.96a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-2.18h2.18zm0-1.09a2.18 2.18 0 0 1-2.18-2.18 2.18 2.18 0 0 1 2.18-2.18h5.45a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-5.45z" fill="#ECB22E"/></svg>
-                        Add to Slack
-                      </a>
-                      <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 8, marginBottom: 0 }}>After creating a webhook, paste the URL below:</p>
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <FocusInput type="url" value={notifSlackWebhook} onChange={(e) => setNotifSlackWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/..." style={{ marginBottom: 0, flex: 1 }} />
-                        <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px", fontSize: "13px" }} onClick={() => { if (notifSlackWebhook.trim()) setNotifSlackEnabled(true); }}>Connect</button>
-                      </div>
+                      <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{ch.label}</div>
+                      <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 2 }}>{ch.desc}</div>
                     </div>
-                  )}
-                </div>
-                <div style={{ marginBottom: "2rem" }}>
-                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Notification events</div>
+                    <ToggleSwitch on={ch.enabled} onToggle={ch.onToggle} />
+                  </div>
+                ))}
+
+                <div style={{ marginTop: "2rem", marginBottom: "1rem" }}>
+                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Events</div>
                   <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Choose which events trigger notifications.</p>
-                  {[
-                    { key: "approvalRequired", label: "Approval required", desc: "When a worker needs human approval to proceed." },
-                    { key: "workerCompleted", label: "Worker completed", desc: "When a scheduled run finishes successfully." },
-                    { key: "workerError", label: "Worker error", desc: "When a worker execution fails." },
-                    { key: "budgetAlert", label: "Budget alert", desc: "When credits run low." },
-                    { key: "securityAlert", label: "Security alert", desc: "When an anomaly is detected." },
-                  ].map((evt) => (
-                    <div key={evt.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{evt.label}</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{evt.desc}</div></div>
-                      <ToggleSwitch on={notifEvents[evt.key]} onToggle={() => toggleNotifEvent(evt.key)} />
-                    </div>
-                  ))}
                 </div>
-                <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "#1a1a1a", transition: "background 300ms, opacity 150ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : notifSaveState === "error" ? "Failed -- try again" : "Save"}</button>
+                {[
+                  { key: "approvalRequired", label: "Approval needed", desc: "Worker is waiting for your approval" },
+                  { key: "workerCompleted", label: "Run completed", desc: "A scheduled run finished" },
+                  { key: "workerError", label: "Run failed", desc: "Something went wrong during execution" },
+                  { key: "budgetAlert", label: "Low credits", desc: "Credits are running low" },
+                  { key: "securityAlert", label: "Security alert", desc: "Anomaly or policy violation detected" },
+                ].map((evt) => (
+                  <div key={evt.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                    <div>
+                      <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{evt.label}</div>
+                      <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>{evt.desc}</div>
+                    </div>
+                    <ToggleSwitch on={notifEvents[evt.key]} onToggle={() => toggleNotifEvent(evt.key)} />
+                  </div>
+                ))}
+
+                <div style={{ marginTop: "1.5rem" }}>
+                  <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "#1a1a1a", transition: "background 300ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : "Save"}</button>
+                </div>
               </div>)}
               {tab === "account" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Account</div>
