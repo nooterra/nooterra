@@ -3331,7 +3331,7 @@ function AppShell({ initialView = "team", userEmail, isFirstTime }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
   const [searchQuery, setSearchQuery] = useState("");
-  const [tenantName, setTenantName] = useState("Your Business");
+  const [tenantName, setTenantName] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
@@ -3340,7 +3340,7 @@ function AppShell({ initialView = "team", userEmail, isFirstTime }) {
       setShowOnboarding(true);
     }
 
-    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "team") setView("approvals"); } catch { /* ignore */ } })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "team") setView("inbox"); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); if (settings?.displayName) setTenantName(settings.displayName); else if (settings?.name) setTenantName(settings.name); } catch { /* ignore */ } })();
@@ -3399,7 +3399,7 @@ function AppShell({ initialView = "team", userEmail, isFirstTime }) {
         <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 24px" }}>
           <input
             type="text"
-            placeholder="Search workers, approvals, activity..."
+            placeholder="Search team, inbox, activity..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{
@@ -3498,9 +3498,9 @@ function AppShell({ initialView = "team", userEmail, isFirstTime }) {
                     borderRadius: 8, border: "none", cursor: "pointer",
                     fontFamily: "var(--font-body)", fontSize: "14px",
                     fontWeight: active ? 600 : 400,
-                    color: active ? "var(--text-100)" : "var(--text-200)",
-                    background: active ? "var(--bg-300, var(--bg-hover))" : "transparent",
-                    borderLeft: active ? "3px solid var(--accent)" : "3px solid transparent",
+                    color: active ? "var(--text-100)" : "var(--text-300)",
+                    background: active ? "var(--bg-100)" : "transparent",
+                    borderLeft: "none",
                     transition: "all 150ms", position: "relative", width: "100%",
                   }}
                   onMouseEnter={e => { if (!active) e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
@@ -3572,10 +3572,11 @@ function AppShell({ initialView = "team", userEmail, isFirstTime }) {
           {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
           {view === "team" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
           {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>}
-          {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
+          {(view === "approvals" || view === "inbox") && <div style={S.main}><InboxView /></div>}
           {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
-          {view === "performance" && <div style={S.main}><h1 style={S.pageTitle}>Performance</h1><p style={S.pageSub}>Worker performance metrics and analytics. Coming soon.</p></div>}
-          {view === "integrations" && <div style={S.main}><IntegrationsView /></div>}
+          {view === "activity" && <div style={S.main}><ReceiptsView /></div>}
+          {view === "performance" && <div style={S.main}><div style={{ padding: "3rem 2rem", textAlign: "center" }}><h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-100)" }}>Performance</h2><p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 8 }}>Business outcomes and worker metrics. Coming soon.</p></div></div>}
+          {(view === "integrations" || view === "connections") && <div style={S.main}><IntegrationsView /></div>}
         </div>
       </div>
 
