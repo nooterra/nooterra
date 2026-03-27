@@ -78,16 +78,21 @@ export async function handleAuthorize(req, res, toolkit) {
   }
 
   try {
-    const authConfigId = getAuthConfigId(toolkit);
-    const initOpts = { callbackUrl: CALLBACK_URL };
+    // Find the auth config for this toolkit
+    const configs = await client.authConfigs.list();
+    const config = (configs.items || []).find(c =>
+      (c.appName || c.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase()
+    );
 
-    let connRequest;
-    if (authConfigId) {
-      connRequest = await client.connectedAccounts.initiate(tenantId, authConfigId, initOpts);
-    } else {
-      // Let Composio use its default auth config for this toolkit
-      connRequest = await client.connectedAccounts.initiate(tenantId, toolkit, initOpts);
+    if (!config) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `No auth config found for ${toolkit}. Set it up in Composio dashboard.` }));
+      return;
     }
+
+    const connRequest = await client.connectedAccounts.initiate(tenantId, config.id, {
+      callbackUrl: CALLBACK_URL,
+    });
 
     log('info', `OAuth initiated: tenant=${tenantId} toolkit=${toolkit}`);
 
