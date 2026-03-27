@@ -302,7 +302,7 @@ function HomePage() {
                   fontSize: "var(--text-display)", lineHeight: 1.04, letterSpacing: "-0.04em",
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                 }}>
-                  Your next hire<br /><span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>never sleeps</span>.
+                  Tell us your business.<br />We'll send you <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>a team</span>.
                 </h1>
               </InView>
               <InView delay={0.1}>
@@ -310,7 +310,7 @@ function HomePage() {
                   marginTop: 28, maxWidth: 460,
                   fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
-                  Deploy AI workers with runtime-enforced guardrails, human-in-the-loop approvals, and a complete audit trail. Describe what you need&mdash;Nooterra handles the rest.
+                  AI workers that answer calls, manage inboxes, send invoices, and handle the work you don't have time for. They learn your rules, earn your trust, and get better every day.
                 </p>
               </InView>
               <InView delay={0.15}>
@@ -325,7 +325,7 @@ function HomePage() {
                     onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                     onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
                   >
-                    Start building &rarr;
+                    Get your team &rarr;
                   </a>
                   <a href={ossLinks.repo} style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
@@ -383,10 +383,10 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16 }}>
-              Describe it. Deploy it. Control it.
+              How it works.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              Go from idea to running AI worker in minutes. Every worker gets a charter that defines exactly what it can and can't do.
+              From signup to a working AI team in under 60 seconds. No technical skills needed.
             </p>
           </InView>
 
@@ -394,21 +394,21 @@ function HomePage() {
             {[
               {
                 step: "01",
-                title: "Describe your worker",
-                desc: "Tell Nooterra what you need in plain English. \"Monitor support inbox, draft replies, escalate refunds over $100.\"",
-                mono: "nooterra create support-worker",
+                title: "Describe your business",
+                desc: "Tell us what you do, how big your team is, and what's eating your time. We'll search for your business and tailor a team to your exact needs.",
+                mono: 'nooterra.ai/start \u2192 "I run a plumbing company in Denver"',
               },
               {
                 step: "02",
-                title: "Set the boundaries",
-                desc: "Define canDo, askFirst, and neverDo rules. These aren't suggestions\u2014they're enforced at runtime before every action.",
-                mono: "canDo: [read_email, draft_reply]",
+                title: "Meet your team",
+                desc: "We propose a team of AI workers \u2014 each with a clear role, rules they follow, and actions that need your approval. Review, adjust, and activate.",
+                mono: "Reception \u00b7 Dispatch \u00b7 Billing \u00b7 Reviews",
               },
               {
                 step: "03",
-                title: "Deploy and approve",
-                desc: "Workers run 24/7 on your schedule. Sensitive actions pause and ask you first. Full audit trail of everything.",
-                mono: "status: running \u00b7 3 actions/hr",
+                title: "Watch them earn your trust",
+                desc: "Every worker starts in shadow mode \u2014 showing you what it would do before doing it. As you approve actions, it earns more autonomy. Full audit trail of everything.",
+                mono: "trust: 94% \u00b7 847 tasks \u00b7 0 violations",
               },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
@@ -429,18 +429,18 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px" }}>
-              Rules it can't break.
+              They follow your rules. Always.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 48 }}>
-              Every worker gets a charter with three rule types. These aren't prompt suggestions&mdash;they're enforced at runtime before every action.
+              Every worker has clear boundaries &mdash; enforced at runtime, not just suggested. You decide what they can do, what needs your approval, and what's off-limits.
             </p>
           </InView>
 
           <div className="rules-grid">
             {[
-              { color: "var(--green)", bg: "var(--green-bg)", label: "canDo", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
-              { color: "var(--amber)", bg: "var(--amber-bg)", label: "askFirst", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
-              { color: "var(--red)", bg: "var(--red-bg)", label: "neverDo", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
+              { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
+              { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
+              { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
             ].map((rule, i) => (
               <InView key={rule.label} delay={i * 0.08}>
                 <div style={{ padding: 28, borderRadius: 14, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
@@ -469,32 +469,32 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
-              Workers that actually work.
+              Teams for every business.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              Start with a template or describe your own. Every worker runs on your schedule with your rules.
+              From plumbers to law firms, restaurants to e-commerce. Tell us your industry and we'll propose the right workers.
             </p>
           </InView>
 
           <div className="use-cases-grid">
             {[
               {
-                title: "Support Monitor",
-                desc: "Watch your inbox 24/7. Categorize, draft replies, and escalate the tricky ones.",
-                schedule: "Continuous",
-                rules: "4 canDo \u00b7 3 askFirst \u00b7 3 neverDo",
+                title: "Home Services",
+                desc: "Reception, dispatch, billing, and reviews. For plumbers, electricians, HVAC, and contractors.",
+                schedule: "5-6 workers \u00b7 Continuous",
+                rules: "Connects: Phone, Email, Calendar, CRM",
               },
               {
-                title: "Price Tracker",
-                desc: "Monitor competitor pricing pages daily. Get Slack alerts when prices change.",
-                schedule: "Daily at 9am",
-                rules: "3 canDo \u00b7 2 askFirst \u00b7 2 neverDo",
+                title: "Professional Services",
+                desc: "Client intake, scheduling, document prep, and follow-ups. For law firms, accountants, and consultants.",
+                schedule: "5-6 workers \u00b7 Continuous",
+                rules: "Connects: Phone, Email, Calendar, CRM",
               },
               {
-                title: "Inbox Summary",
-                desc: "Morning digest of your emails, categorized by priority. Skip the scroll.",
-                schedule: "Weekdays at 8am",
-                rules: "3 canDo \u00b7 2 askFirst \u00b7 3 neverDo",
+                title: "E-Commerce",
+                desc: "Customer support, order tracking, returns, and review management. For online stores of any size.",
+                schedule: "5-6 workers \u00b7 Continuous",
+                rules: "Connects: Phone, Email, Calendar, CRM",
               },
             ].map((uc, i) => (
               <InView key={uc.title} delay={i * 0.08}>
@@ -524,18 +524,18 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 48px" }}>
-              Everything you need. Nothing you don't.
+              Built for business owners.
             </h2>
           </InView>
 
           <div className="features-grid">
             {[
-              { title: "Any AI provider", desc: "OpenAI, Anthropic, Google, or bring your own. Switch models per worker without changing anything else." },
-              { title: "Human-in-the-loop", desc: "Sensitive actions pause and ask. Approve from the dashboard, Slack, or email. Never lose control." },
-              { title: "Full audit trail", desc: "Every action, decision, and approval logged with timestamps. Export anytime. Built for compliance." },
-              { title: "Runs on your schedule", desc: "Continuous, cron, or event-triggered. Workers run 24/7 in the cloud or locally from the CLI." },
-              { title: "Real cost tracking", desc: "See exactly what each worker costs per run. Set budgets and alerts. No surprise bills." },
-              { title: "Open source", desc: "Apache 2.0. Run it on your infrastructure, fork it, extend it. No vendor lock-in." },
+              { title: "Always asks first", desc: "Risky actions pause and ask you. Refunds, schedule changes, anything that matters \u2014 you stay in control." },
+              { title: "Earns your trust", desc: "Every worker starts careful. As you approve more actions, it learns what's safe and handles more on its own." },
+              { title: "Works around the clock", desc: "Your workers don't take breaks, don't call in sick, and don't forget. 24/7, every day." },
+              { title: "Pennies per task", desc: "Most tasks cost less than a penny. See exactly what each worker costs. No surprise bills." },
+              { title: "Connects to your tools", desc: "Gmail, Slack, QuickBooks, Shopify, Twilio \u2014 your workers use the tools you already have." },
+              { title: "You own everything", desc: "Full audit trail. Export anytime. Cancel and your data is deleted. Open source." },
             ].map((feat, i) => (
               <InView key={feat.title} delay={i * 0.05}>
                 <div style={{ padding: "24px 0", borderBottom: "1px solid var(--border)" }}>
@@ -557,10 +557,10 @@ function HomePage() {
               fontSize: "var(--text-display)", letterSpacing: "-0.04em", fontWeight: 800,
               color: "var(--text-100)", margin: "0 0 20px",
             }}>
-              Your next worker is one conversation away.
+              Your AI team is ready.
             </h2>
             <p style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", maxWidth: 440, margin: "0 auto 40px", lineHeight: 1.7 }}>
-              Start free on your machine. Scale to the cloud when you're ready. No credit card required.
+              Describe your business. We'll propose the right workers, connect your tools, and start working. 60 seconds to your first team.
             </p>
           </InView>
           <InView delay={0.08}>
@@ -575,7 +575,7 @@ function HomePage() {
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
               >
-                Start building &rarr;
+                Get your team &rarr;
               </a>
               <a href={DOCS_GETTING_STARTED} style={{
                 display: "inline-flex", alignItems: "center", padding: "16px 40px",
@@ -587,7 +587,7 @@ function HomePage() {
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.backgroundColor = "transparent"; }}
                 target="_blank" rel="noopener noreferrer"
               >
-                Read the docs
+                See how it works
               </a>
             </div>
           </InView>
