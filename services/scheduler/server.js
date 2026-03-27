@@ -20,7 +20,7 @@ const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
-import { handleAuthorize, handleCallback, handleStatus as handleIntegrationStatus, executeTool, getAvailableTools } from './integrations.js';
+import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import {
@@ -283,7 +283,7 @@ async function executeWorker(worker, executionId, triggerType) {
     // Build tools: merge charter-defined tools with connected integration tools
     let tools = charter.tools && Array.isArray(charter.tools) ? [...charter.tools] : [];
     try {
-      const integrationTools = await getAvailableTools(pool, worker.tenant_id);
+      const integrationTools = await getAvailableTools(worker.tenant_id);
       if (integrationTools.length > 0) {
         tools.push(...integrationTools);
         addActivity('tools_loaded', `${integrationTools.length} integration tool(s) available`);
@@ -424,7 +424,7 @@ async function executeWorker(worker, executionId, triggerType) {
           const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
           addActivity('tool_exec', `Executing ${tc.name}`);
 
-          const toolResult = await executeTool(pool, worker.tenant_id, tc.name, args);
+          const toolResult = await executeTool(worker.tenant_id, tc.name, args);
           const resultStr = toolResult.success
             ? JSON.stringify(toolResult.result)
             : `Error: ${toolResult.error}`;
@@ -1116,24 +1116,25 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // --- Integration OAuth routes ---
+  // --- Integration routes (powered by Composio) ---
 
-  // GET /v1/integrations/:service/authorize → redirect to OAuth consent
+  // GET /v1/integrations/:toolkit/authorize → redirect to OAuth consent
   const authMatch = pathname.match(/^\/v1\/integrations\/([\w_]+)\/authorize$/);
   if (req.method === 'GET' && authMatch) {
     handleAuthorize(req, res, authMatch[1]);
     return;
   }
 
-  // GET /v1/integrations/callback → OAuth callback from Google
-  if (req.method === 'GET' && pathname === '/v1/integrations/callback') {
-    handleCallback(req, res, pool);
+  // POST /v1/integrations/:toolkit/disconnect → remove connection
+  const disconnectMatch = pathname.match(/^\/v1\/integrations\/([\w_]+)\/disconnect$/);
+  if (req.method === 'POST' && disconnectMatch) {
+    handleDisconnect(req, res, disconnectMatch[1]);
     return;
   }
 
-  // GET /v1/integrations/status → which services are connected
+  // GET /v1/integrations/status → which toolkits are connected
   if (req.method === 'GET' && pathname === '/v1/integrations/status') {
-    handleIntegrationStatus(req, res, pool);
+    handleIntegrationStatus(req, res);
     return;
   }
 
