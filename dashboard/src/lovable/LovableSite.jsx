@@ -401,7 +401,7 @@ function HomePage() {
               {
                 step: "02",
                 title: "Review your team",
-                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, boundaries, and a clear job description. Adjust anything.",
+                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, integrations, and a clear job description. Adjust anything.",
                 mono: "Reception \u00b7 Dispatch \u00b7 Billing \u00b7 Reviews \u00b7 Inventory",
               },
               {
