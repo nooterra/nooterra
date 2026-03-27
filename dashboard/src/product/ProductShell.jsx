@@ -3461,7 +3461,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   const sidebarActiveView = view === "workerDetail" || view === "builder" ? "team" : (view === "approvals" ? "inbox" : view);
   const hasMessages = messages.length > 0;
-  const showRightPane = view === "home" || view === "builder";
+  const showRightPane = (view === "home" || view === "builder") && rightPaneContent === "team" && teamProposal;
 
   // --- Example prompts ---
   const examplePrompts = [
@@ -3755,31 +3755,12 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
                 </div>
               </div>
             ))}
-            {aiStreaming && streamingText && (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
-                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                    fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
-                  }}>n</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: 4, color: "var(--text-200)" }}>nooterra</div>
-                    <div style={{ fontSize: "14px", lineHeight: 1.6, color: "var(--text-100)", whiteSpace: "pre-wrap" }}>
-                      {streamingText}<span style={{ display: "inline-block", width: 6, height: 14, background: "var(--accent)", marginLeft: 2, borderRadius: 1, animation: "blink 1s step-end infinite" }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {aiStreaming && !streamingText && (
+            {aiStreaming && (
               <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                  fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
-                }}>n</div>
-                <div style={{ padding: "8px 0", fontSize: "14px", color: "var(--text-300)" }}>Thinking...</div>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "12px", fontWeight: 700, color: "var(--text-300)" }}>n</div>
+                <div style={{ fontSize: "14px", color: "var(--text-300)", paddingTop: 6 }}>
+                  <span className="lovable-pulse">Thinking...</span>
+                </div>
               </div>
             )}
             <div ref={threadEndRef} />
@@ -3817,7 +3798,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   // --- Right pane content ---
   function RightPaneContent() {
     if (rightPaneContent === "team" && teamProposal) return <TeamProposalPane />;
-    return <ExampleTeamPreview />;
+    return null;
   }
 
   return (
@@ -3829,9 +3810,12 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
         height: "100vh", overflow: "hidden",
       }}>
-        {/* Logo */}
-        <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center" }}>
+        {/* Logo + collapse */}
+        <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
+          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-300)", padding: 4, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", transition: "color 120ms" }} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
         </div>
 
         {/* New thread button */}
