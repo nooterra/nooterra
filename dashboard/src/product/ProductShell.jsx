@@ -3612,8 +3612,8 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         {roiEstimate && (
           <div style={{ marginTop: 16, padding: "12px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-100)" }}>
             <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Estimated savings</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--green, #5bb98c)" }}>{roiEstimate.monthlySavingsFormatted || "$" + (roiEstimate.monthlySavings || 0).toLocaleString()}/mo</div>
-            <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 4 }}>{roiEstimate.hoursPerWeek || 0} hours/week automated</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--green, #5bb98c)" }}>{roiEstimate.equivalentHiringCost || roiEstimate.estimatedMonthlyCost || "--"} equivalent</div>
+            <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 4 }}>{roiEstimate.estimatedHoursSavedPerWeek || 0} hours/week saved &middot; {roiEstimate.estimatedMonthlyCost || "--"} AI cost</div>
           </div>
         )}
       </div>
@@ -3632,7 +3632,13 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         </h1>
 
         <div style={{ width: "100%", marginBottom: 24 }}>
-          <ComposerBox large />
+          {/* Composer (large) */}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: "var(--bg-400)", border: "1px solid var(--border)", borderRadius: 16, padding: "12px 16px", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}>
+            <textarea ref={composerRef} value={composerValue} onChange={e => setComposerValue(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Describe your business or ask for one worker..." disabled={aiStreaming} rows={1} style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontSize: "15px", lineHeight: 1.5, color: "var(--text-100)", fontFamily: "var(--font-body)", resize: "none", minHeight: 24, maxHeight: 160 }} />
+            <button onClick={() => handleComposerSubmit()} disabled={!composerValue.trim() || aiStreaming} style={{ width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer", background: composerValue.trim() ? "var(--text-100)" : "var(--bg-300)", color: composerValue.trim() ? "var(--bg-100)" : "var(--text-300)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", marginBottom: 28 }}>
@@ -3711,15 +3717,40 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
                     }}>
                       {msg.role === "assistant" ? "nooterra" : (userEmail || "You")}
                     </div>
-                    <div style={{
-                      fontSize: "14px", lineHeight: 1.6, color: msg.isError ? "var(--red, #c97055)" : "var(--text-100)",
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                      background: msg.role === "user" ? "var(--bg-200)" : "transparent",
-                      padding: msg.role === "user" ? "10px 14px" : 0,
-                      borderRadius: msg.role === "user" ? 12 : 0,
-                    }}>
-                      {msg.content}
-                    </div>
+                    {(() => {
+                      const raw = msg.content || "";
+                      const optMatch = raw.match(/\[OPTIONS\]([\s\S]*?)\[\/OPTIONS\]/);
+                      const displayText = optMatch ? raw.replace(/\[OPTIONS\][\s\S]*?\[\/OPTIONS\]/, "").trim() : raw;
+                      const options = optMatch ? optMatch[1].trim().split("\n").map(o => o.trim()).filter(Boolean).filter(o => o !== "Custom...") : [];
+                      return (
+                        <>
+                          <div style={{
+                            fontSize: "14px", lineHeight: 1.6, color: msg.isError ? "var(--red, #c97055)" : "var(--text-100)",
+                            whiteSpace: "pre-wrap", wordBreak: "break-word",
+                            background: msg.role === "user" ? "var(--bg-200)" : "transparent",
+                            padding: msg.role === "user" ? "10px 14px" : 0,
+                            borderRadius: msg.role === "user" ? 12 : 0,
+                          }}>
+                            {displayText}
+                          </div>
+                          {options.length > 0 && msg.role === "assistant" && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                              {options.map((opt, oi) => (
+                                <button key={oi} onClick={() => handleComposerSubmit(opt)} style={{
+                                  padding: "6px 14px", fontSize: "13px", fontWeight: 500,
+                                  color: "var(--text-200)", border: "1px solid var(--border)",
+                                  borderRadius: 8, background: "var(--bg-400)", cursor: "pointer",
+                                  fontFamily: "var(--font-body)", transition: "all 120ms",
+                                }} onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.background = "var(--bg-200)"; }}
+                                   onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-400)"; }}>
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -3755,7 +3786,15 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
           </div>
         </div>
         <div style={{ maxWidth: 680, margin: "0 auto", width: "100%", padding: "0 24px 16px" }}>
-          <ComposerBox />
+          {/* Composer (small) */}
+          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: "var(--bg-200)", border: "1px solid var(--border)", borderRadius: 12, padding: "8px 12px" }}>
+              <textarea value={composerValue} onChange={e => setComposerValue(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Message..." disabled={aiStreaming} rows={1} style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontSize: "14px", lineHeight: 1.5, color: "var(--text-100)", fontFamily: "var(--font-body)", resize: "none", minHeight: 20, maxHeight: 120 }} />
+              <button onClick={() => handleComposerSubmit()} disabled={!composerValue.trim() || aiStreaming} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", cursor: "pointer", background: composerValue.trim() ? "var(--text-100)" : "var(--bg-300)", color: composerValue.trim() ? "var(--bg-100)" : "var(--text-300)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -3800,9 +3839,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
           <button
             onClick={handleNewThread}
             style={{
-              width: "100%", padding: "9px 16px", borderRadius: 20, border: "none",
-              background: "var(--accent)", color: "#fff", fontSize: "13px", fontWeight: 600,
-              cursor: "pointer", fontFamily: "var(--font-body)", transition: "opacity 120ms",
+              width: "100%", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)",
+              background: "transparent", color: "var(--text-200)", fontSize: "13px", fontWeight: 500,
+              cursor: "pointer", fontFamily: "var(--font-body)", transition: "all 120ms",
               display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
             }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
