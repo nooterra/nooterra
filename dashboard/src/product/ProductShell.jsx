@@ -1353,507 +1353,464 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    =================================================================== */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
-  // Phase: "describe" | "configure" | "deploying"
-  const [phase, setPhase] = useState("describe");
+  const [phase, setPhase] = useState("input"); // "input" | "team"
   const [description, setDescription] = useState("");
-  const [workerName, setWorkerName] = useState("");
-  const [charter, setCharter] = useState({ canDo: [], askFirst: [], neverDo: [] });
-  const [schedule, setSchedule] = useState(null);
-  const [model, setModel] = useState("nvidia/nemotron-3-super-120b-a12b:free");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [newRuleInputs, setNewRuleInputs] = useState({ canDo: "", askFirst: "", neverDo: "" });
-  const [addingRuleKey, setAddingRuleKey] = useState(null);
-  const [deployingWorker, setDeployingWorker] = useState(false);
-  const [teamProposal, setTeamProposal] = useState(null); // from business intelligence
+  const [teamProposal, setTeamProposal] = useState(null);
   const [roiEstimate, setRoiEstimate] = useState(null);
+  const [integrations, setIntegrations] = useState([]);
+  const [industryResult, setIndustryResult] = useState(null);
+  const [expandedCard, setExpandedCard] = useState(null); // index of expanded worker card
+  const [transitioning, setTransitioning] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [error, setError] = useState("");
   const textareaRef = useRef(null);
 
-  // Template review (kept from original)
-  const [templateReview, setTemplateReview] = useState(null);
-  const [templateDeploying, setTemplateDeploying] = useState(false);
-  const [templateError, setTemplateError] = useState("");
+  function handleGo() {
+    const text = description.trim();
+    if (!text) return;
 
-  // --- AI request: stream SSE and collect full response ---
-  async function sendToAI(userDescription) {
-    setLoading(true);
-    setError("");
+    const ir = identifyIndustry(text);
+    const team = proposeTeam(ir);
+    const intg = identifyIntegrations(team.workers);
+    const roi = estimateROI(ir, team.workers);
 
-    // Run business intelligence first (instant, free, no API call)
-    const industryResult = identifyIndustry(userDescription);
-    const team = proposeTeam(industryResult);
-    const integrations = identifyIntegrations(team.workers);
-    const roi = estimateROI(industryResult, team.workers);
+    setIndustryResult(ir);
     setTeamProposal(team);
+    setIntegrations(intg);
     setRoiEstimate(roi);
 
-    // Use the first worker's charter as the primary worker config
-    // (team-based deploy is future; for now, propose the most relevant worker)
-    const primaryWorker = team.workers[0];
-    if (primaryWorker) {
-      setWorkerName(primaryWorker.role + " — " + (industryResult.location || industryResult.subIndustry || "Your Business"));
-      setCharter({
-        canDo: primaryWorker.canDo || [],
-        askFirst: primaryWorker.askFirst || [],
-        neverDo: primaryWorker.neverDo || [],
-      });
-      setSchedule(primaryWorker.schedule === "continuous" ? { type: "continuous" } : { type: "cron", value: "0 9 * * *" });
-    }
-
-    const runtime = loadRuntimeConfig();
-    try {
-      const res = await fetch("/__nooterra/v1/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
-        credentials: "include",
-        body: JSON.stringify({
-          messages: [{ role: "user", content: userDescription }],
-          model: model,
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ error: "Request failed" }));
-        const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
-          ? "Could not connect to the AI service. The backend may be starting up -- try again in a moment."
-          : errBody.error || "Something went wrong. Please try again.";
-        setError(errMsg);
-        setLoading(false);
-        return;
-      }
-      // Read SSE stream and accumulate full response
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content || "";
-            if (delta) fullResponse += delta;
-          } catch { /* skip malformed chunks */ }
-        }
-      }
-      // Parse the AI response
-      const workerDef = parseWorkerDefinition(fullResponse);
-      let newCharter = { canDo: [], askFirst: [], neverDo: [] };
-      let newName = "";
-      let newSchedule = null;
-      if (workerDef) {
-        newCharter.canDo = workerDef.canDo || [];
-        newCharter.askFirst = workerDef.askFirst || [];
-        newCharter.neverDo = workerDef.neverDo || [];
-        newName = workerDef.name || "";
-        if (workerDef.schedule) newSchedule = inferSchedule(workerDef.schedule);
-        if (workerDef.model) setModel(workerDef.model);
-      }
-      // Fallback: infer from user description if AI response was sparse
-      const caps = inferCapabilities(userDescription);
-      const inferred = inferCharterRules(userDescription, caps);
-      if (newCharter.canDo.length === 0) newCharter.canDo = inferred.canDo;
-      if (newCharter.askFirst.length === 0) newCharter.askFirst = inferred.askFirst;
-      if (newCharter.neverDo.length === 0) newCharter.neverDo = inferred.neverDo;
-      if (!newName) newName = inferWorkerName(userDescription);
-      if (!newSchedule) newSchedule = inferSchedule(userDescription);
-      setCharter(newCharter);
-      setWorkerName(newName);
-      setSchedule(newSchedule);
-      setPhase("configure");
-    } catch (err) {
-      setError(err?.message || "Something went wrong. Please try again.");
-    }
-    setLoading(false);
+    // Animated transition
+    setTransitioning(true);
+    setTimeout(() => {
+      setPhase("team");
+      setTransitioning(false);
+    }, 350);
   }
 
-  function handleCreate() {
-    const text = description.trim();
-    if (!text || loading) return;
-    sendToAI(text);
+  function handleExampleClick(text) {
+    setDescription(text);
   }
 
-  function handleRemoveRule(key, index) {
-    setCharter(prev => ({ ...prev, [key]: prev[key].filter((_, i) => i !== index) }));
-  }
-
-  function handleAddRule(key) {
-    const text = newRuleInputs[key]?.trim();
-    if (!text) return;
-    setCharter(prev => ({ ...prev, [key]: [...(prev[key] || []), text] }));
-    setNewRuleInputs(prev => ({ ...prev, [key]: "" }));
-    setAddingRuleKey(null);
-  }
-
-  function handleBack() {
-    setPhase("describe");
+  function goBackToPhase1() {
+    setPhase("input");
+    setTeamProposal(null);
+    setRoiEstimate(null);
+    setIntegrations([]);
+    setExpandedCard(null);
     setError("");
   }
 
-  async function handleDeploy() {
-    if (!workerName || !charter) return;
-    setDeployingWorker(true);
+  async function handleActivate() {
+    if (!teamProposal || activating) return;
+    setActivating(true);
     setError("");
     try {
-      const scheduleValue = schedule ? scheduleToApiValue(schedule) : "on_demand";
-      const result = await workerApiRequest({
-        pathname: "/v1/workers", method: "POST",
-        body: {
-          name: workerName,
-          description: description || "",
-          charter: JSON.stringify(charter),
-          schedule: scheduleValue,
-          model: model,
-        },
-      });
+      for (const worker of teamProposal.workers) {
+        const charter = {
+          canDo: worker.canDo || [],
+          askFirst: worker.askFirst || [],
+          neverDo: worker.neverDo || [],
+        };
+        const scheduleValue = worker.schedule === "continuous" ? "continuous" : "0 9 * * *";
+        await workerApiRequest({
+          pathname: "/v1/workers", method: "POST",
+          body: {
+            name: worker.role + (industryResult?.location ? " — " + industryResult.location : ""),
+            description: worker.description || "",
+            charter: JSON.stringify(charter),
+            schedule: scheduleValue,
+            model: "nvidia/nemotron-3-super-120b-a12b:free",
+          },
+        });
+      }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
-      if (result?.id) onViewWorker?.(result); else onComplete?.();
+      onComplete?.();
     } catch (err) {
-      setError(`Deploy failed: ${err?.message || "Unknown error"}`);
+      setError("Activation failed: " + (err?.message || "Unknown error"));
     }
-    setDeployingWorker(false);
+    setActivating(false);
   }
-
-  async function handleTemplateDeploy(template) {
-    setTemplateDeploying(true); setTemplateError("");
-    try {
-      const result = await workerApiRequest({ pathname: "/v1/workers", method: "POST", body: { name: template.name, description: template.description, charter: JSON.stringify(template.charter), schedule: templateScheduleToApiValue(template.schedule), model: template.model } });
-      saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
-      if (result?.id) onViewWorker?.(result); else onComplete?.();
-    } catch (err) { setTemplateError(err?.message || "Failed to deploy worker."); }
-    setTemplateDeploying(false);
-  }
-
-  // Template review flow (kept from original)
-  if (templateReview) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
-        {templateError && <div style={{ ...S.error, textAlign: "center", marginBottom: "1rem" }}>{templateError}</div>}
-        <TemplateCharterReview template={templateReview} onDeploy={() => handleTemplateDeploy(templateReview)} onCustomize={() => { setTemplateReview(null); setTemplateError(""); }} deploying={templateDeploying} />
-      </div>
-    );
-  }
-
-  const canDeploy = workerName &&
-    (charter.canDo || []).length >= 1 &&
-    (charter.neverDo || []).length >= 1;
-
-  // --- Section label style ---
-  const sectionLabel = (color) => ({
-    fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-    letterSpacing: "0.08em", fontFamily: "var(--font-mono)",
-    color: color, marginBottom: 8,
-  });
-
-  // --- Rule list renderer ---
-  const renderRuleSection = (key, label, color) => {
-    const rules = charter[key] || [];
-    return (
-      <div style={{ marginBottom: 20 }}>
-        <div style={sectionLabel(color)}>{label}</div>
-        <div style={{
-          border: "1px solid var(--border)", borderRadius: 8,
-          borderLeft: `3px solid ${color}`, overflow: "hidden",
-          background: "var(--bg-100, var(--bg-primary))",
-        }}>
-          {rules.map((rule, i) => (
-            <div
-              key={i}
-              className="builder-rule-item"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "10px 14px", fontSize: "14px", color: "var(--text-100, var(--text-primary))",
-                borderBottom: i < rules.length - 1 ? "1px solid var(--border)" : "none",
-                lineHeight: 1.5,
-              }}
-            >
-              <span style={{ flex: 1 }}>{rule}</span>
-              <button
-                onClick={() => handleRemoveRule(key, i)}
-                className="builder-rule-remove"
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "var(--text-300, var(--text-tertiary))", fontSize: "16px",
-                  padding: "0 0 0 12px", lineHeight: 1, opacity: 0,
-                  transition: "opacity 120ms, color 120ms", flexShrink: 0,
-                }}
-              >&times;</button>
-            </div>
-          ))}
-          {/* Add rule row */}
-          {addingRuleKey === key ? (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "8px 14px",
-              borderTop: rules.length > 0 ? "1px solid var(--border)" : "none",
-            }}>
-              <input
-                value={newRuleInputs[key] || ""}
-                onChange={e => setNewRuleInputs(prev => ({ ...prev, [key]: e.target.value }))}
-                onKeyDown={e => {
-                  if (e.key === "Enter") { e.preventDefault(); handleAddRule(key); }
-                  if (e.key === "Escape") setAddingRuleKey(null);
-                }}
-                placeholder="Type a rule..."
-                autoFocus
-                style={{
-                  flex: 1, padding: "6px 0", fontSize: "14px",
-                  border: "none", outline: "none", background: "transparent",
-                  color: "var(--text-100, var(--text-primary))", fontFamily: "inherit",
-                }}
-              />
-              <button
-                onClick={() => handleAddRule(key)}
-                style={{ ...S.btnGhost, fontSize: "13px", color: color }}
-              >Add</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setAddingRuleKey(key)}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "10px 14px", fontSize: "13px",
-                color: "var(--text-300, var(--text-tertiary))",
-                background: "none", border: "none", cursor: "pointer",
-                fontFamily: "inherit", transition: "color 120ms",
-                borderTop: rules.length > 0 ? "1px solid var(--border)" : "none",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = color; }}
-              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300, var(--text-tertiary))"; }}
-            >+ Add rule</button>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // =============================================
-  // PHASE 1: DESCRIBE
+  // PHASE 1: INPUT
   // =============================================
-  if (phase === "describe") {
+  if (phase === "input") {
     return (
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)",
-        padding: "2rem",
+        justifyContent: "center", minHeight: "100vh", padding: "2rem",
+        opacity: transitioning ? 0 : 1,
+        transition: "opacity 300ms ease",
       }}>
-        <div style={{ maxWidth: 520, width: "100%", textAlign: "center" }}>
+        <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
           <h1 style={{
-            fontSize: "18px", fontWeight: 600, color: "var(--text-100, var(--text-primary))",
-            marginBottom: "0.5rem", letterSpacing: "-0.01em",
-          }}>Create a worker</h1>
-          <p style={{
-            fontSize: "14px", color: "var(--text-200, var(--text-secondary))",
-            marginBottom: "2rem", lineHeight: 1.5,
-          }}>Describe what you need in plain language.</p>
+            fontSize: "clamp(1.75rem, 3vw, 2.5rem)", fontWeight: 800,
+            letterSpacing: "-0.03em", color: "var(--text-100)",
+            marginBottom: 12, lineHeight: 1.15,
+          }}>
+            What does your business do?
+          </h1>
+          <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
+            Describe it in plain language. We'll build your team.
+          </p>
 
           <textarea
             ref={textareaRef}
             value={description}
             onChange={e => setDescription(e.target.value)}
             onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleCreate(); }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleGo(); }
             }}
-            disabled={loading}
-            placeholder="e.g. Watch my support inbox and draft replies to common questions..."
+            placeholder="e.g. We're a plumbing company in Denver with 8 technicians..."
+            rows={3}
             style={{
-              display: "block", width: "100%", minHeight: 120, maxHeight: 300,
-              padding: "14px 16px", fontSize: "16px", lineHeight: 1.6,
-              border: "1px solid var(--border)", borderRadius: 8,
-              background: "var(--bg-100, var(--bg-primary))",
-              color: "var(--text-100, var(--text-primary))",
-              outline: "none", resize: "vertical", fontFamily: "inherit",
-              boxSizing: "border-box", transition: "border-color 150ms",
+              display: "block", width: "100%", padding: "16px 18px",
+              fontSize: "16px", lineHeight: 1.6, fontFamily: "inherit",
+              border: "1px solid var(--border)", borderRadius: 12,
+              background: "var(--bg-400)", color: "var(--text-100)",
+              outline: "none", resize: "vertical", boxSizing: "border-box",
+              transition: "border-color 150ms",
             }}
             onFocus={e => { e.currentTarget.style.borderColor = "var(--border-strong, var(--accent))"; }}
             onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
           />
 
-          {error && (
-            <div style={{ ...S.error, textAlign: "left", marginTop: "0.75rem" }}>{error}</div>
-          )}
-
           <button
-            onClick={handleCreate}
-            disabled={!description.trim() || loading}
+            onClick={handleGo}
+            disabled={!description.trim()}
             style={{
-              ...S.btnPrimary,
-              width: "100%", padding: "12px 24px", fontSize: "14px",
-              borderRadius: 8, marginTop: "1rem",
-              opacity: (!description.trim() || loading) ? 0.4 : 1,
+              display: "block", width: "100%", padding: "14px 24px",
+              fontSize: "14px", fontWeight: 700, marginTop: 12,
+              background: "var(--text-100)", color: "var(--bg-100)",
+              border: "none", borderRadius: 10, cursor: "pointer",
+              fontFamily: "inherit", transition: "opacity 150ms",
+              opacity: description.trim() ? 1 : 0.35,
             }}
           >
-            {loading ? "Creating your worker..." : "Create"}
+            Go
           </button>
 
-          {!loading && (
-            <div style={{
-              marginTop: "1.5rem", fontSize: "13px",
-              color: "var(--text-300, var(--text-tertiary))", lineHeight: 1.8,
-            }}>
-              <span>e.g. </span>
-              {["Customer support agent", "Price monitoring", "Daily inbox summary"].map((chip, i) => (
-                <span key={chip}>
-                  {i > 0 && <span style={{ margin: "0 4px" }}>&middot;</span>}
-                  <button
-                    onClick={() => { setDescription(chip); }}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: "var(--text-200, var(--text-secondary))",
-                      fontFamily: "inherit", fontSize: "13px", padding: 0,
-                      textDecoration: "underline", textDecorationColor: "var(--border)",
-                      textUnderlineOffset: "3px", transition: "color 120ms",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100, var(--text-primary))"; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-200, var(--text-secondary))"; }}
-                  >{chip}</button>
-                </span>
-              ))}
-            </div>
-          )}
+          <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
+            {["Plumbing company in Denver", "Shopify store selling supplements", "Personal injury law firm"].map((example, i) => (
+              <span key={example}>
+                {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
+                <span
+                  onClick={() => handleExampleClick(example)}
+                  style={{
+                    cursor: "pointer", textDecoration: "underline",
+                    textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
+                    transition: "color 120ms",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+                >{example}</span>
+              </span>
+            ))}
+          </div>
         </div>
-
-        <style>{`
-          @keyframes builder-spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   }
 
   // =============================================
-  // PHASE 2: CONFIGURE
+  // PHASE 2: TEAM REVIEW
   // =============================================
+  const workers = teamProposal?.workers || [];
+  const roi = roiEstimate || {};
+
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      height: "100%", minHeight: "calc(100vh - 1px)",
-      overflowY: "auto", padding: "2rem 1rem",
+      minHeight: "100vh", padding: "2rem 1.5rem", background: "var(--bg-100)",
+      overflowY: "auto",
+      opacity: transitioning ? 0 : 1,
+      transition: "opacity 300ms ease",
     }}>
-      <div style={{ maxWidth: 640, width: "100%" }}>
-        {/* Back link */}
+      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+
+        {/* Back button */}
         <button
-          onClick={handleBack}
+          onClick={goBackToPhase1}
           style={{
-            ...S.backLink,
-            display: "inline-flex", alignItems: "center", gap: 4,
-            marginBottom: "1.5rem",
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: "13px", fontWeight: 500, color: "var(--text-300)",
+            padding: 0, fontFamily: "inherit", transition: "color 120ms",
           }}
+          onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+          onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
         >
-          <span style={{ fontSize: "16px", lineHeight: 1 }}>&larr;</span> Back
+          &larr; Start over
         </button>
 
-        {/* Team summary (from business intelligence) */}
-        {teamProposal && (
-          <div style={{ marginBottom: "1.5rem", padding: "16px 20px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-200, var(--bg-hover))" }}>
-            <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-100, var(--text-primary))", marginBottom: 4 }}>{teamProposal.teamName}</div>
-            <div style={{ fontSize: "13px", color: "var(--text-200, var(--text-secondary))" }}>
-              {teamProposal.workers.length} workers proposed
-              {roiEstimate && <> &middot; Est. {roiEstimate.estimatedHoursSavedPerWeek} hrs/week saved &middot; {roiEstimate.estimatedMonthlyCost}</>}
-            </div>
-            {teamProposal.workers.length > 1 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                {teamProposal.workers.map((w, i) => (
-                  <span key={i} style={{ padding: "3px 10px", fontSize: "12px", fontWeight: 500, borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-200, var(--text-secondary))", fontFamily: "var(--font-mono)" }}>{w.role}</span>
-                ))}
+        {/* Team header */}
+        <div style={{ marginBottom: 40, marginTop: 16 }}>
+          <h1 style={{
+            fontSize: "clamp(1.5rem, 3vw, 2rem)", fontWeight: 800,
+            letterSpacing: "-0.03em", color: "var(--text-100)",
+            lineHeight: 1.15,
+          }}>
+            {teamProposal?.teamName || "Your Team"}
+          </h1>
+          <p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 6 }}>
+            {workers.length} workers &middot; Est. {roi.estimatedHoursSavedPerWeek || 0} hrs/week saved &middot; {roi.estimatedMonthlyCost || "--"} AI cost
+          </p>
+        </div>
+
+        {/* Worker cards grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 16,
+        }}>
+          {workers.map((worker, idx) => {
+            const isExpanded = expandedCard === idx;
+            const canDoCount = (worker.canDo || []).length;
+            const askFirstCount = (worker.askFirst || []).length;
+            const neverDoCount = (worker.neverDo || []).length;
+
+            return (
+              <div
+                key={idx}
+                onClick={() => setExpandedCard(isExpanded ? null : idx)}
+                style={{
+                  border: "1px solid var(--border)", borderRadius: 12,
+                  background: "var(--bg-400)", padding: 24, cursor: "pointer",
+                  transition: "box-shadow 200ms, border-color 200ms",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.boxShadow = "var(--shadow-sm, 0 1px 4px rgba(0,0,0,0.06))";
+                  e.currentTarget.style.borderColor = "var(--border-strong, var(--border))";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.boxShadow = "none";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-100)", marginBottom: 6 }}>
+                  {worker.role}
+                </div>
+                <div style={{
+                  fontSize: "13px", color: "var(--text-200)", marginBottom: 12,
+                  lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical", overflow: "hidden",
+                }}>
+                  {worker.title || worker.description || ""}
+                </div>
+                <div style={{
+                  fontSize: "12px", fontFamily: "var(--font-mono)",
+                  color: "var(--text-300)",
+                }}>
+                  {canDoCount} autonomous &middot; {askFirstCount} approval &middot; {neverDoCount} blocked
+                </div>
+
+                {/* Expanded rules */}
+                {isExpanded && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    {/* Can Do — green */}
+                    {canDoCount > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{
+                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                          letterSpacing: "0.08em", color: "var(--green, #5bb98c)",
+                          marginBottom: 6, fontFamily: "var(--font-mono)",
+                        }}>Acts on its own</div>
+                        <div style={{ borderLeft: "3px solid var(--green, #5bb98c)", paddingLeft: 12 }}>
+                          {worker.canDo.map((rule, ri) => (
+                            <div key={ri} style={{
+                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
+                              padding: "2px 0",
+                            }}>{rule}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Ask First — amber */}
+                    {askFirstCount > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{
+                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                          letterSpacing: "0.08em", color: "var(--amber, #d4a843)",
+                          marginBottom: 6, fontFamily: "var(--font-mono)",
+                        }}>Asks you first</div>
+                        <div style={{ borderLeft: "3px solid var(--amber, #d4a843)", paddingLeft: 12 }}>
+                          {worker.askFirst.map((rule, ri) => (
+                            <div key={ri} style={{
+                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
+                              padding: "2px 0",
+                            }}>{rule}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Never Do — red */}
+                    {neverDoCount > 0 && (
+                      <div>
+                        <div style={{
+                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                          letterSpacing: "0.08em", color: "var(--red, #c97055)",
+                          marginBottom: 6, fontFamily: "var(--font-mono)",
+                        }}>Never does</div>
+                        <div style={{ borderLeft: "3px solid var(--red, #c97055)", paddingLeft: 12 }}>
+                          {worker.neverDo.map((rule, ri) => (
+                            <div key={ri} style={{
+                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
+                              padding: "2px 0",
+                            }}>{rule}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-            <div style={{ fontSize: "12px", color: "var(--text-300, var(--text-tertiary))", marginTop: 8 }}>
-              Deploying the first worker below. Full team deployment coming soon.
+            );
+          })}
+        </div>
+
+        {/* Integrations section */}
+        {integrations.length > 0 && (
+          <div style={{ marginTop: 48 }}>
+            <h2 style={{
+              fontSize: "15px", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.08em", color: "var(--text-300)", marginBottom: 16,
+            }}>Connect</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {integrations.filter(i => i.required).map((intg, idx) => {
+                const available = intg.provider !== "coming_soon";
+                return (
+                  <div key={idx} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "14px 18px", borderRadius: 10,
+                    border: "1px solid var(--border)", background: "var(--bg-400)",
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
+                        {intg.name}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>
+                        {intg.why}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0, marginLeft: 16 }}>
+                      {available ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
+                          <button style={{
+                            padding: "6px 14px", fontSize: "12px", fontWeight: 600,
+                            border: "1px solid var(--border)", borderRadius: 8,
+                            background: "transparent", color: "var(--text-200)",
+                            cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                          >Connect</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
+                          <span style={{ fontSize: "12px", color: "var(--text-300)", fontStyle: "italic" }}>Coming soon</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {integrations.filter(i => !i.required).map((intg, idx) => {
+                const available = intg.provider !== "coming_soon";
+                return (
+                  <div key={"opt-" + idx} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "14px 18px", borderRadius: 10,
+                    border: "1px solid var(--border)", background: "var(--bg-400)",
+                    opacity: available ? 1 : 0.6,
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
+                        {intg.name}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>
+                        {intg.why}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0, marginLeft: 16 }}>
+                      {available ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
+                          <button style={{
+                            padding: "6px 14px", fontSize: "12px", fontWeight: 600,
+                            border: "1px solid var(--border)", borderRadius: 8,
+                            background: "transparent", color: "var(--text-200)",
+                            cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                          >Connect</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
+                          <span style={{ fontSize: "12px", color: "var(--text-300)", fontStyle: "italic" }}>Coming soon</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Card */}
+        {/* ROI section */}
         <div style={{
-          background: "var(--bg-400, var(--bg-surface))",
-          border: "1px solid var(--border)", borderRadius: 12,
-          padding: "2rem", boxSizing: "border-box",
+          marginTop: 40, padding: 24, borderRadius: 12,
+          border: "1px solid var(--border)", background: "var(--bg-400)",
         }}>
-          {/* Name + Schedule row */}
-          <div style={{
-            display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-            gap: 16, marginBottom: 8,
-          }}>
-            <input
-              value={workerName}
-              onChange={e => setWorkerName(e.target.value)}
-              style={{
-                flex: 1, fontSize: "20px", fontWeight: 700,
-                color: "var(--text-100, var(--text-primary))",
-                background: "transparent", border: "none", outline: "none",
-                padding: "2px 0", fontFamily: "inherit",
-                borderBottom: "1px solid transparent", transition: "border-color 150ms",
-              }}
-              onFocus={e => { e.currentTarget.style.borderBottom = "1px solid var(--border)"; }}
-              onBlur={e => { e.currentTarget.style.borderBottom = "1px solid transparent"; }}
-              placeholder="Worker name"
-            />
+          <div style={{ display: "flex", gap: 40, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-100)" }}>
+                {roi.estimatedHoursSavedPerWeek || 0}h
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>hours/week saved</div>
+            </div>
+            <div>
+              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--green, #5bb98c)" }}>
+                {roi.estimatedMonthlyCost || "--"}
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>monthly AI cost</div>
+            </div>
+            <div>
+              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-100)" }}>
+                {roi.equivalentHiringCost || "--"}
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>equivalent hiring</div>
+            </div>
           </div>
+        </div>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: "var(--border)", margin: "12px 0 24px" }} />
+        {/* Error */}
+        {error && (
+          <div style={{ marginTop: 16, fontSize: "14px", color: "var(--red, #c97055)", textAlign: "center" }}>{error}</div>
+        )}
 
-          {/* Rule sections */}
-          {renderRuleSection("canDo", "Can Do", "var(--green)")}
-          {renderRuleSection("askFirst", "Needs Approval", "var(--amber)")}
-          {renderRuleSection("neverDo", "Never Do", "var(--red)")}
-
-          {/* Schedule */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={sectionLabel("var(--text-300, var(--text-tertiary))")}>Schedule</div>
-            <SchedulePicker schedule={schedule} onScheduleChange={setSchedule} />
-          </div>
-
-          {/* Model */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={sectionLabel("var(--text-300, var(--text-tertiary))")}>Model</div>
-            <ModelDropdown model={model} onModelChange={setModel} />
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div style={{ ...S.error, marginBottom: "1rem" }}>{error}</div>
-          )}
-
-          {/* Deploy button */}
+        {/* Activate button */}
+        <div style={{ marginTop: 40, textAlign: "center", paddingBottom: 40 }}>
           <button
-            onClick={handleDeploy}
-            disabled={!canDeploy || deployingWorker}
+            onClick={handleActivate}
+            disabled={activating}
             style={{
-              ...S.btnPrimary,
-              width: "100%", padding: "14px 24px", fontSize: "14px",
-              borderRadius: 8,
-              opacity: (!canDeploy || deployingWorker) ? 0.4 : 1,
+              padding: "14px 48px", fontSize: "15px", fontWeight: 700,
+              background: "var(--text-100)", color: "var(--bg-100)",
+              border: "none", borderRadius: 10, cursor: "pointer",
+              fontFamily: "inherit", transition: "opacity 150ms",
+              opacity: activating ? 0.5 : 1,
             }}
           >
-            {deployingWorker ? "Deploying..." : "Deploy Worker"}
+            {activating ? "Activating..." : "Activate Team"}
           </button>
-
-          {!canDeploy && workerName && (
-            <div style={{
-              fontSize: "12px", color: "var(--text-300, var(--text-tertiary))",
-              textAlign: "center", marginTop: 8,
-            }}>
-              Add at least 1 &ldquo;Can Do&rdquo; and 1 &ldquo;Never Do&rdquo; rule to deploy.
-            </div>
-          )}
+          <p style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 8 }}>
+            All workers start in learning mode. You approve actions until they earn trust.
+          </p>
         </div>
       </div>
-
-      {/* Hover styles for rule items */}
-      <style>{`
-        .builder-rule-item:hover .builder-rule-remove {
-          opacity: 1 !important;
-        }
-        .builder-rule-remove:hover {
-          color: var(--red) !important;
-        }
-      `}</style>
     </div>
   );
 }
@@ -3321,27 +3278,19 @@ function OnboardingFlow({ onComplete, userEmail }) {
    =================================================================== */
 
 function AppShell({ initialView = "home", userEmail, isFirstTime }) {
-  const [view, setView] = useState(initialView);
+  const [view, setView] = useState(() => {
+    // First-time users go to builder; returning users go to inbox or team
+    if (isFirstTime) return "builder";
+    return initialView === "home" ? "team" : initialView;
+  });
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [workers, setWorkers] = useState([]);
   const [creditBalance, setCreditBalance] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
   const [showOnboarding, setShowOnboarding] = useState(false);
-
-  // Conversational state
-  const [messages, setMessages] = useState([]);
-  const [composerValue, setComposerValue] = useState("");
-  const [rightPaneContent, setRightPaneContent] = useState("preview");
-  const [teamProposal, setTeamProposal] = useState(null);
-  const [roiEstimate, setRoiEstimate] = useState(null);
-  const [aiStreaming, setAiStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
-  const composerRef = useRef(null);
-  const threadEndRef = useRef(null);
 
   useEffect(() => {
     if (isFirstTime && !localStorage.getItem("nooterra_onboarding_complete")) {
@@ -3353,10 +3302,6 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (threadEndRef.current) threadEndRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
-
   function refreshWorkers() {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
   }
@@ -3365,80 +3310,24 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); }
     else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); }
   }
-  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); setRightPaneContent("worker"); }
-  function handleNewThread() { setMessages([]); setTeamProposal(null); setRoiEstimate(null); setStreamingText(""); setRightPaneContent("preview"); setView("home"); setComposerValue(""); }
+  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
   function handleBuilderComplete() { refreshWorkers(); setView("team"); }
   function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
-
-  async function handleComposerSubmit(text) {
-    const input = (text || composerValue).trim();
-    if (!input || aiStreaming) return;
-    setComposerValue("");
-
-    const userMsg = { role: "user", content: input, ts: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
-
-    // Business intelligence (instant, local)
-    const industryResult = identifyIndustry(input);
-    const team = proposeTeam(industryResult);
-    const roi = estimateROI(industryResult, team.workers);
-    setTeamProposal(team);
-    setRoiEstimate(roi);
-    setRightPaneContent("team");
-
-    // Stream AI response
-    setAiStreaming(true);
-    setStreamingText("");
-    const runtime = loadRuntimeConfig();
-    try {
-      const res = await fetch("/__nooterra/v1/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
-        credentials: "include",
-        body: JSON.stringify({ messages: [{ role: "user", content: input }], model: "nvidia/nemotron-3-super-120b-a12b:free" }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ error: "Request failed" }));
-        const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
-          ? "Could not connect to the AI service. Try again in a moment."
-          : errBody.error || "Something went wrong. Please try again.";
-        setMessages(prev => [...prev, { role: "assistant", content: errMsg, ts: Date.now(), isError: true }]);
-        setAiStreaming(false);
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content || "";
-            if (delta) { fullResponse += delta; setStreamingText(fullResponse); }
-          } catch { /* skip */ }
-        }
-      }
-      setMessages(prev => [...prev, { role: "assistant", content: fullResponse, ts: Date.now() }]);
-      setStreamingText("");
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", ts: Date.now(), isError: true }]);
-    }
-    setAiStreaming(false);
-  }
-
-  function handleComposerKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleComposerSubmit(); }
-  }
 
   if (showOnboarding) {
     return <OnboardingFlow onComplete={() => { setShowOnboarding(false); }} userEmail={userEmail} />;
   }
+
+  // =============================================
+  // BUILDER VIEW: Full screen, no sidebar
+  // =============================================
+  if (view === "builder") {
+    return <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />;
+  }
+
+  // =============================================
+  // MANAGEMENT DASHBOARD: Sidebar + content
+  // =============================================
 
   // --- Icons ---
   const iconEnvelope = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
@@ -3459,16 +3348,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     { key: "settings", label: "Settings", icon: iconGear, action: () => setSettingsOpen(true) },
   ];
 
-  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "team" : (view === "approvals" ? "inbox" : view);
-  const hasMessages = messages.length > 0;
-  const showRightPane = (view === "home" || view === "builder") && rightPaneContent === "team" && teamProposal;
-
-  // --- Example prompts ---
-  const examplePrompts = [
-    "I run a plumbing company in Denver with 5 techs",
-    "I need AI to answer our phones",
-    "Show me an AI billing worker",
-  ];
+  const sidebarActiveView = view === "workerDetail" ? "team" : (view === "approvals" ? "inbox" : view);
 
   // --- Sidebar nav item renderer ---
   function NavItem({ item }) {
@@ -3512,293 +3392,15 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     );
   }
 
-  // --- Composer box ---
-  function ComposerBox({ large }) {
-    return (
-      <div style={{
-        padding: large ? 0 : "12px 16px",
-        borderTop: large ? "none" : "1px solid var(--border)",
-        background: large ? "transparent" : "var(--bg-100)",
-      }}>
-        <div style={{
-          display: "flex", alignItems: "flex-end", gap: 8,
-          background: "var(--bg-200)", border: "1px solid var(--border)",
-          borderRadius: 16, padding: "10px 16px",
-          boxShadow: large ? "0 1px 6px rgba(0,0,0,0.06)" : "none",
-        }}>
-          <textarea
-            ref={composerRef}
-            value={composerValue}
-            onChange={e => { setComposerValue(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
-            onKeyDown={handleComposerKeyDown}
-            placeholder={large ? "Describe your business or ask for one worker..." : "Message..."}
-            disabled={aiStreaming}
-            rows={1}
-            style={{
-              flex: 1, border: "none", background: "transparent", outline: "none",
-              fontSize: large ? "15px" : "14px", lineHeight: 1.5,
-              color: "var(--text-100)", fontFamily: "var(--font-body)",
-              resize: "none", minHeight: large ? 24 : 20, maxHeight: 160,
-            }}
-          />
-          <button
-            onClick={() => handleComposerSubmit()}
-            disabled={!composerValue.trim() || aiStreaming}
-            style={{
-              width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer",
-              background: composerValue.trim() ? "var(--accent)" : "var(--bg-300)",
-              color: composerValue.trim() ? "#fff" : "var(--text-300)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "all 120ms", flexShrink: 0,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Right pane: Example team preview ---
-  function ExampleTeamPreview() {
-    const roles = ["Reception", "Dispatch", "Billing", "Reviews", "Inventory"];
-    return (
-      <div style={{ padding: "24px 20px" }}>
-        <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Example team</div>
-        <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)", margin: "8px 0 16px" }}>Home Services Team</h3>
-        {roles.map(role => (
-          <div key={role} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green, #5bb98c)", flexShrink: 0 }} />
-            <span style={{ fontSize: "14px", color: "var(--text-100)" }}>{role}</span>
-          </div>
-        ))}
-        <div style={{ marginTop: 16, fontSize: "12px", color: "var(--text-300)" }}>
-          Shadow mode &middot; Email + Calendar connected
-        </div>
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontSize: "12px", color: "var(--green, #5bb98c)" }}>Acts on its own</span>
-          <span style={{ fontSize: "12px", color: "var(--amber, #d4a843)" }}>Asks when it should</span>
-          <span style={{ fontSize: "12px", color: "var(--red, #c97055)" }}>Never crosses the line</span>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Right pane: Team proposal ---
-  function TeamProposalPane() {
-    if (!teamProposal) return null;
-    return (
-      <div style={{ padding: "24px 20px" }}>
-        <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Your team</div>
-        <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)", margin: "8px 0 16px" }}>{teamProposal.teamName || "Proposed Team"}</h3>
-        {(teamProposal.workers || []).map((w, i) => (
-          <div key={i} style={{
-            padding: "12px", marginBottom: 8, borderRadius: 12,
-            border: "1px solid var(--border)", background: "var(--bg-100)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
-              <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>{w.role}</span>
-            </div>
-            {w.canDo && w.canDo.length > 0 && (
-              <div style={{ marginTop: 4 }}>
-                {w.canDo.slice(0, 3).map((c, j) => (
-                  <div key={j} style={{ fontSize: "12px", color: "var(--text-300)", padding: "1px 0" }}>{c}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        {roiEstimate && (
-          <div style={{ marginTop: 16, padding: "12px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-100)" }}>
-            <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Estimated savings</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--green, #5bb98c)" }}>{roiEstimate.equivalentHiringCost || roiEstimate.estimatedMonthlyCost || "--"} equivalent</div>
-            <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 4 }}>{roiEstimate.estimatedHoursSavedPerWeek || 0} hours/week saved &middot; {roiEstimate.estimatedMonthlyCost || "--"} AI cost</div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // --- Center: Empty / Home state ---
-  function HomeEmptyState() {
-    return (
-      <div style={{
-        flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", padding: "60px 24px 40px", maxWidth: 640, margin: "0 auto", width: "100%",
-      }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 600, color: "var(--text-100)", marginBottom: 24, textAlign: "center" }}>
-          What should your team handle?
-        </h1>
-
-        <div style={{ width: "100%", marginBottom: 24 }}>
-          {/* Composer (large) */}
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: "var(--bg-400)", border: "1px solid var(--border)", borderRadius: 16, padding: "12px 16px", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}>
-            <textarea ref={composerRef} value={composerValue} onChange={e => setComposerValue(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Describe your business or ask for one worker..." disabled={aiStreaming} rows={1} style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontSize: "15px", lineHeight: 1.5, color: "var(--text-100)", fontFamily: "var(--font-body)", resize: "none", minHeight: 24, maxHeight: 160 }} />
-            <button onClick={() => handleComposerSubmit()} disabled={!composerValue.trim() || aiStreaming} style={{ width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer", background: composerValue.trim() ? "var(--text-100)" : "var(--bg-300)", color: composerValue.trim() ? "var(--bg-100)" : "var(--text-300)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms", flexShrink: 0 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", marginBottom: 28 }}>
-          {examplePrompts.map((prompt, i) => (
-            <button
-              key={i}
-              onClick={() => { setComposerValue(prompt); handleComposerSubmit(prompt); }}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                fontSize: "13px", color: "var(--text-300)", padding: "4px 0",
-                textAlign: "left", fontFamily: "var(--font-body)",
-                transition: "color 120ms",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
-              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
-            >
-              &ldquo;{prompt}&rdquo;
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", gap: 12 }}>
-          <button
-            onClick={() => { setComposerValue("Build me a full team for my business"); handleComposerSubmit("Build me a full team for my business"); }}
-            style={{
-              padding: "10px 20px", borderRadius: 8, fontSize: "13px", fontWeight: 500,
-              background: "transparent", border: "1px solid var(--border)",
-              color: "var(--text-200)", cursor: "pointer", fontFamily: "var(--font-body)",
-              transition: "all 120ms",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-          >Start with a team</button>
-          <button
-            onClick={() => { setView("builder"); }}
-            style={{
-              padding: "10px 20px", borderRadius: 8, fontSize: "13px", fontWeight: 500,
-              background: "transparent", border: "1px solid var(--border)",
-              color: "var(--text-200)", cursor: "pointer", fontFamily: "var(--font-body)",
-              transition: "all 120ms",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-          >Start with one worker</button>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Center: Conversation thread ---
-  function ConversationThread() {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px 0" }}>
-          <div style={{ maxWidth: 680, margin: "0 auto" }}>
-            {messages.map((msg, i) => (
-              <div key={i} style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                  {msg.role === "assistant" ? (
-                    <div style={{
-                      width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
-                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                      fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
-                    }}>n</div>
-                  ) : (
-                    <div style={{
-                      width: 28, height: 28, borderRadius: "50%", background: "var(--accent)",
-                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                      fontSize: "12px", fontWeight: 700, color: "#fff",
-                    }}>{getInitials(userEmail)}</div>
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: "13px", fontWeight: 600, marginBottom: 4,
-                      color: msg.role === "assistant" ? "var(--text-200)" : "var(--text-100)",
-                    }}>
-                      {msg.role === "assistant" ? "nooterra" : (userEmail || "You")}
-                    </div>
-                    {(() => {
-                      const raw = msg.content || "";
-                      const optMatch = raw.match(/\[OPTIONS\]([\s\S]*?)\[\/OPTIONS\]/);
-                      const displayText = optMatch ? raw.replace(/\[OPTIONS\][\s\S]*?\[\/OPTIONS\]/, "").trim() : raw;
-                      const options = optMatch ? optMatch[1].trim().split("\n").map(o => o.trim()).filter(Boolean).filter(o => o !== "Custom...") : [];
-                      return (
-                        <>
-                          <div style={{
-                            fontSize: "14px", lineHeight: 1.6, color: msg.isError ? "var(--red, #c97055)" : "var(--text-100)",
-                            whiteSpace: "pre-wrap", wordBreak: "break-word",
-                            background: msg.role === "user" ? "var(--bg-200)" : "transparent",
-                            padding: msg.role === "user" ? "10px 14px" : 0,
-                            borderRadius: msg.role === "user" ? 12 : 0,
-                          }}>
-                            {displayText}
-                          </div>
-                          {options.length > 0 && msg.role === "assistant" && (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                              {options.map((opt, oi) => (
-                                <button key={oi} onClick={() => handleComposerSubmit(opt)} style={{
-                                  padding: "6px 14px", fontSize: "13px", fontWeight: 500,
-                                  color: "var(--text-200)", border: "1px solid var(--border)",
-                                  borderRadius: 8, background: "var(--bg-400)", cursor: "pointer",
-                                  fontFamily: "var(--font-body)", transition: "all 120ms",
-                                }} onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.background = "var(--bg-200)"; }}
-                                   onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-400)"; }}>
-                                  {opt}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {aiStreaming && (
-              <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "12px", fontWeight: 700, color: "var(--text-300)" }}>n</div>
-                <div style={{ fontSize: "14px", color: "var(--text-300)", paddingTop: 6 }}>
-                  <span className="lovable-pulse">Thinking...</span>
-                </div>
-              </div>
-            )}
-            <div ref={threadEndRef} />
-          </div>
-        </div>
-        <div style={{ maxWidth: 680, margin: "0 auto", width: "100%", padding: "0 24px 16px" }}>
-          {/* Composer (small) */}
-          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: "var(--bg-200)", border: "1px solid var(--border)", borderRadius: 12, padding: "8px 12px" }}>
-              <textarea value={composerValue} onChange={e => setComposerValue(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Message..." disabled={aiStreaming} rows={1} style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontSize: "14px", lineHeight: 1.5, color: "var(--text-100)", fontFamily: "var(--font-body)", resize: "none", minHeight: 20, maxHeight: 120 }} />
-              <button onClick={() => handleComposerSubmit()} disabled={!composerValue.trim() || aiStreaming} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", cursor: "pointer", background: composerValue.trim() ? "var(--text-100)" : "var(--bg-300)", color: composerValue.trim() ? "var(--bg-100)" : "var(--text-300)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Determine what center shows ---
-  function CenterContent() {
-    if (view === "home" && !hasMessages) return <HomeEmptyState />;
-    if (view === "home" && hasMessages) return <ConversationThread />;
-    if (view === "builder") return <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />;
-    if (view === "team") return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewThread} /></div>;
+  // --- Determine what content shows ---
+  function MainContent() {
+    if (view === "team") return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>;
     if (view === "workerDetail" && selectedWorkerId) return <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>;
     if (view === "inbox" || view === "approvals") return <div style={S.main}><InboxView /></div>;
     if (view === "activity" || view === "receipts") return <div style={S.main}><ReceiptsView /></div>;
     if (view === "performance") return <div style={S.main}><div style={{ padding: "3rem 2rem", textAlign: "center" }}><h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-100)" }}>Performance</h2><p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 8 }}>Business outcomes and worker metrics. Coming soon.</p></div></div>;
     if (view === "connections" || view === "integrations") return <div style={S.main}><IntegrationsView /></div>;
-    return <HomeEmptyState />;
-  }
-
-  // --- Right pane content ---
-  function RightPaneContent() {
-    if (rightPaneContent === "team" && teamProposal) return <TeamProposalPane />;
-    return null;
+    return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>;
   }
 
   return (
@@ -3810,18 +3412,15 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
         height: "100vh", overflow: "hidden",
       }}>
-        {/* Logo + collapse */}
-        <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Logo */}
+        <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center" }}>
           <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
-          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-300)", padding: 4, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", transition: "color 120ms" }} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-          </button>
         </div>
 
-        {/* New thread button */}
+        {/* New team button */}
         <div style={{ padding: "0 12px 8px" }}>
           <button
-            onClick={handleNewThread}
+            onClick={() => setView("builder")}
             style={{
               width: "100%", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)",
               background: "transparent", color: "var(--text-200)", fontSize: "13px", fontWeight: 500,
@@ -3832,7 +3431,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New thread
+            New team
           </button>
         </div>
 
@@ -3863,24 +3462,13 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         </div>
       </aside>
 
-      {/* ===== CENTER ===== */}
+      {/* ===== MAIN CONTENT ===== */}
       <main style={{
         flex: 1, display: "flex", flexDirection: "column", minWidth: 0,
-        background: "var(--bg-100)", height: "100vh", overflow: "hidden",
+        background: "var(--bg-100)", height: "100vh", overflow: "auto",
       }}>
-        <CenterContent />
+        <MainContent />
       </main>
-
-      {/* ===== RIGHT PANE ===== */}
-      {showRightPane && (
-        <aside style={{
-          width: 380, flexShrink: 0, background: "var(--bg-400)",
-          borderLeft: "1px solid var(--border)", height: "100vh",
-          overflowY: "auto",
-        }}>
-          <RightPaneContent />
-        </aside>
-      )}
 
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
     </div>
