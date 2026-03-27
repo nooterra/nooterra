@@ -19,6 +19,7 @@ import pg from 'pg';
 const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
+import { initChatGPTProvider } from './chatgpt-provider.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import {
@@ -54,6 +55,9 @@ const pool = new Pool({
 pool.on('error', (err) => {
   log('error', `Unexpected pool error: ${err.message}`);
 });
+
+// Initialize ChatGPT provider with Postgres for token persistence
+initChatGPTProvider(pool);
 
 // ---------------------------------------------------------------------------
 // Logging

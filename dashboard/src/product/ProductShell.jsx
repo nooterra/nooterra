@@ -19,7 +19,11 @@ import {
   updateTenantSettings,
 } from "./api.js";
 import "./product.css";
-import { identifyIndustry, proposeTeam, identifyIntegrations, estimateROI } from "./business-intelligence.js";
+// BI engine removed — the AI harness handles all industries dynamically.
+// Stubs for legacy OnboardingFlow (to be removed):
+function identifyIndustry() { return { industry: "general", confidence: 0 }; }
+function proposeTeam() { return { teamName: "Your Team", workers: [] }; }
+function identifyIntegrations() { return { required: [], optional: [] }; }
 
 /* ===================================================================
    Constants & helpers
@@ -1349,6 +1353,26 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
 }
 
 /* ===================================================================
+   TerraDotsInjector — animates "..." after "Terraforming"
+   =================================================================== */
+
+function TerraDotsInjector() {
+  const ref = useRef(null);
+  useEffect(() => {
+    let frame = 0;
+    const dots = ["", ".", "..", "..."];
+    const el = ref.current?.parentElement?.querySelector("[data-terra-dots]");
+    if (!el) return;
+    const id = setInterval(() => {
+      frame = (frame + 1) % dots.length;
+      el.textContent = dots[frame];
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+  return <span ref={ref} style={{ display: "none" }} />;
+}
+
+/* ===================================================================
    BuilderView
    =================================================================== */
 
@@ -1356,9 +1380,6 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [phase, setPhase] = useState("input"); // "input" | "generating" | "team"
   const [description, setDescription] = useState("");
   const [teamProposal, setTeamProposal] = useState(null);
-  const [roiEstimate, setRoiEstimate] = useState(null);
-  const [integrations, setIntegrations] = useState([]);
-  const [industryResult, setIndustryResult] = useState(null);
   const [expandedCard, setExpandedCard] = useState(null);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
@@ -1370,6 +1391,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     const block = match[1];
     const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
     let teamName = "";
+    let summary = "";
     const workers = [];
     let current = null;
     for (const line of lines) {
@@ -1377,17 +1399,20 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       const k = key.trim().toLowerCase();
       const v = rest.join(":").trim();
       if (k === "team_name") { teamName = v; }
-      else if (k === "worker") { if (current) workers.push(current); current = { role: v, title: "", description: "", canDo: [], askFirst: [], neverDo: [], schedule: "continuous", integrations: [] }; }
+      else if (k === "summary" && !current) { summary = v; }
+      else if (k === "worker") { if (current) workers.push(current); current = { role: v, title: "", description: "", canDo: [], askFirst: [], neverDo: [], schedule: "continuous", model: "", integrations: [] }; }
       else if (current && k === "title") current.title = v;
       else if (current && k === "description") current.description = v;
       else if (current && k === "cando") current.canDo = v.split(",").map(s => s.trim()).filter(Boolean);
       else if (current && k === "askfirst") current.askFirst = v.split(",").map(s => s.trim()).filter(Boolean);
       else if (current && k === "neverdo") current.neverDo = v.split(",").map(s => s.trim()).filter(Boolean);
       else if (current && k === "schedule") current.schedule = v;
+      else if (current && k === "model") current.model = v;
+      else if (current && k === "integrations") current.integrations = v.split(",").map(s => s.trim()).filter(Boolean);
     }
     if (current) workers.push(current);
     if (workers.length === 0) return null;
-    return { teamName: teamName || "Your Team", workers };
+    return { teamName: teamName || "Your Team", summary, workers };
   }
 
   async function handleGo() {
@@ -1396,18 +1421,13 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     setPhase("generating");
     setError("");
 
-    // Get industry context for ROI (instant, local)
-    const ir = identifyIndustry(text);
-    setIndustryResult(ir);
-
-    // Call AI to generate custom team
     const runtime = loadRuntimeConfig();
     try {
       const res = await fetch("/__nooterra/v1/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
         credentials: "include",
-        body: JSON.stringify({ messages: [{ role: "user", content: text }], model: "openai/gpt-4o-mini" }),
+        body: JSON.stringify({ messages: [{ role: "user", content: text }] }),
       });
 
       if (!res.ok) throw new Error("AI service unavailable");
@@ -1432,25 +1452,14 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       const aiTeam = parseTeamProposal(fullResponse);
       if (aiTeam && aiTeam.workers.length > 0) {
         setTeamProposal(aiTeam);
-        const intg = identifyIntegrations(aiTeam.workers);
-        setIntegrations(intg);
-        const roi = estimateROI(ir, aiTeam.workers);
-        setRoiEstimate(roi);
         setPhase("team");
         return;
       }
 
-      // AI didn't return a team — fall back to BI engine
-      throw new Error("fallback");
-    } catch {
-      // Fallback: use business intelligence engine
-      const team = proposeTeam(ir);
-      const intg = identifyIntegrations(team.workers);
-      const roi = estimateROI(ir, team.workers);
-      setTeamProposal(team);
-      setIntegrations(intg);
-      setRoiEstimate(roi);
-      setPhase("team");
+      throw new Error("Could not generate team. Try describing your business in more detail.");
+    } catch (err) {
+      setError(err?.message || "Something went wrong. Please try again.");
+      setPhase("input");
     }
   }
 
@@ -1461,8 +1470,6 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   function goBackToPhase1() {
     setPhase("input");
     setTeamProposal(null);
-    setRoiEstimate(null);
-    setIntegrations([]);
     setExpandedCard(null);
     setError("");
   }
@@ -1478,15 +1485,15 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           askFirst: worker.askFirst || [],
           neverDo: worker.neverDo || [],
         };
-        const scheduleValue = worker.schedule === "continuous" ? "continuous" : "0 9 * * *";
+        const scheduleValue = worker.schedule === "continuous" ? "continuous" : (worker.schedule || "0 9 * * *");
         await workerApiRequest({
           pathname: "/v1/workers", method: "POST",
           body: {
-            name: worker.role + (industryResult?.location ? " — " + industryResult.location : ""),
+            name: worker.role,
             description: worker.description || "",
             charter: JSON.stringify(charter),
             schedule: scheduleValue,
-            model: "nvidia/nemotron-3-super-120b-a12b:free",
+            model: worker.model || "google/gemini-3-flash",
           },
         });
       }
@@ -1499,16 +1506,56 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   }
 
   // =============================================
-  // GENERATING STATE
+  // GENERATING STATE — "Terraforming..."
   // =============================================
   if (phase === "generating") {
     return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ width: 48, height: 48, border: "3px solid var(--border)", borderTop: "3px solid var(--text-100)", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 24px" }} />
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-100)", marginBottom: 8 }}>Building your team</h2>
-          <p style={{ fontSize: "14px", color: "var(--text-300)" }}>Analyzing your business and creating custom workers...</p>
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", minHeight: "100vh", padding: "2rem",
+        background: "var(--bg-100)",
+      }}>
+        <div style={{ textAlign: "center", maxWidth: 400 }}>
+          {/* Animated terra orb */}
+          <div style={{
+            width: 64, height: 64, margin: "0 auto 32px",
+            borderRadius: "50%",
+            background: "conic-gradient(from 0deg, var(--product-accent, #1f685c), var(--product-secondary, #8a5b3f), var(--product-accent, #1f685c))",
+            animation: "terraSpin 2s linear infinite",
+            opacity: 0.85,
+            boxShadow: "0 0 40px rgba(31, 104, 92, 0.25)",
+          }} />
+          <h2 style={{
+            fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em",
+            color: "var(--text-100, var(--product-ink-strong))",
+            marginBottom: 8,
+            fontFamily: "var(--font-display, 'Fraunces', serif)",
+          }}>
+            Terraforming
+            <span data-terra-dots style={{ display: "inline-block", width: "1.5em", textAlign: "left" }} />
+          </h2>
+          <p style={{
+            fontSize: "14px", color: "var(--text-300, var(--product-ink-soft))",
+            lineHeight: 1.6,
+          }}>
+            Designing your workforce from scratch
+          </p>
         </div>
+        <style>{`
+          @keyframes terraSpin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          @keyframes terraDots {
+            0% { content: ""; }
+            25% { content: "."; }
+            50% { content: ".."; }
+            75% { content: "..."; }
+            100% { content: ""; }
+          }
+        `}</style>
+        {/* CSS content property doesn't work on non-replaced elements, use JS instead */}
+        <TerraDotsInjector />
       </div>
     );
   }
@@ -1572,7 +1619,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           </button>
 
           <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
-            {["Plumbing company in Denver", "Shopify store selling supplements", "Personal injury law firm"].map((example, i) => (
+            {["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements", "Personal injury law firm"].map((example, i) => (
               <span key={example}>
                 {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
                 <span
@@ -1597,7 +1644,6 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   // PHASE 2: TEAM REVIEW
   // =============================================
   const workers = teamProposal?.workers || [];
-  const roi = roiEstimate || {};
 
   return (
     <div style={{
@@ -1631,8 +1677,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           }}>
             {teamProposal?.teamName || "Your Team"}
           </h1>
-          <p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 6 }}>
-            {workers.length} workers &middot; Est. {roi.estimatedHoursSavedPerWeek || 0} hrs/week saved &middot; {roi.estimatedMonthlyCost || "--"} AI cost
+          <p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 6, lineHeight: 1.6 }}>
+            {teamProposal?.summary || `${workers.length} workers ready to deploy`}
           </p>
         </div>
 
@@ -1682,6 +1728,31 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                 }}>
                   {canDoCount} autonomous &middot; {askFirstCount} approval &middot; {neverDoCount} blocked
                 </div>
+
+                {/* Model badge */}
+                {worker.model && (
+                  <div style={{
+                    display: "inline-block", marginTop: 10, padding: "3px 10px",
+                    fontSize: "11px", fontFamily: "var(--font-mono)",
+                    color: "var(--text-200)", background: "var(--bg-100, rgba(0,0,0,0.06))",
+                    borderRadius: 6, fontWeight: 500,
+                  }}>
+                    {ALL_MODELS.find(m => m.id === worker.model)?.name || worker.model}
+                  </div>
+                )}
+
+                {/* Integration pills */}
+                {(worker.integrations || []).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {worker.integrations.map((intg, ii) => (
+                      <span key={ii} style={{
+                        fontSize: "11px", padding: "2px 8px", borderRadius: 5,
+                        border: "1px solid var(--border)", color: "var(--text-300)",
+                        fontFamily: "var(--font-mono)",
+                      }}>{intg}</span>
+                    ))}
+                  </div>
+                )}
 
                 {/* Expanded rules */}
                 {isExpanded && (
@@ -1740,6 +1811,41 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                         </div>
                       </div>
                     )}
+
+                    {/* Model selector */}
+                    <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+                      <div style={{
+                        fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                        letterSpacing: "0.08em", color: "var(--text-300)",
+                        marginBottom: 8, fontFamily: "var(--font-mono)",
+                      }}>Model</div>
+                      <select
+                        value={worker.model || ""}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => {
+                          e.stopPropagation();
+                          const updated = { ...teamProposal };
+                          updated.workers = [...updated.workers];
+                          updated.workers[idx] = { ...worker, model: e.target.value };
+                          setTeamProposal(updated);
+                        }}
+                        style={{
+                          width: "100%", padding: "8px 12px", fontSize: "13px",
+                          fontFamily: "var(--font-mono)", background: "var(--bg-100, var(--bg-400))",
+                          color: "var(--text-100)", border: "1px solid var(--border)",
+                          borderRadius: 8, outline: "none", cursor: "pointer",
+                          appearance: "auto",
+                        }}
+                      >
+                        {MODEL_CATEGORIES.map(cat => (
+                          <optgroup key={cat.key} label={cat.label}>
+                            {ALL_MODELS.filter(m => m.category === cat.key).map(m => (
+                              <option key={m.id} value={m.id}>{m.name} — {m.price}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1747,125 +1853,54 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           })}
         </div>
 
-        {/* Integrations section */}
-        {integrations.length > 0 && (
-          <div style={{ marginTop: 48 }}>
-            <h2 style={{
-              fontSize: "15px", fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: "0.08em", color: "var(--text-300)", marginBottom: 16,
-            }}>Connect</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {integrations.filter(i => i.required).map((intg, idx) => {
-                const available = intg.provider !== "coming_soon";
-                return (
-                  <div key={idx} style={{
+        {/* Integrations section — derived from worker integrations */}
+        {(() => {
+          const allIntegrations = new Map();
+          for (const w of workers) {
+            for (const intg of (w.integrations || [])) {
+              if (!allIntegrations.has(intg)) allIntegrations.set(intg, []);
+              allIntegrations.get(intg).push(w.role);
+            }
+          }
+          if (allIntegrations.size === 0) return null;
+          return (
+            <div style={{ marginTop: 48 }}>
+              <h2 style={{
+                fontSize: "15px", fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.08em", color: "var(--text-300)", marginBottom: 16,
+              }}>Integrations needed</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[...allIntegrations.entries()].map(([intg, roles]) => (
+                  <div key={intg} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "14px 18px", borderRadius: 10,
                     border: "1px solid var(--border)", background: "var(--bg-400)",
                   }}>
                     <div>
                       <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
-                        {intg.name}
+                        {intg.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
                       </div>
                       <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>
-                        {intg.why}
+                        Used by {roles.join(", ")}
                       </div>
                     </div>
                     <div style={{ flexShrink: 0, marginLeft: 16 }}>
-                      {available ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
-                          <button style={{
-                            padding: "6px 14px", fontSize: "12px", fontWeight: 600,
-                            border: "1px solid var(--border)", borderRadius: 8,
-                            background: "transparent", color: "var(--text-200)",
-                            cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-                          >Connect</button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
-                          <span style={{ fontSize: "12px", color: "var(--text-300)", fontStyle: "italic" }}>Coming soon</span>
-                        </div>
-                      )}
+                      <button style={{
+                        padding: "6px 14px", fontSize: "12px", fontWeight: 600,
+                        border: "1px solid var(--border)", borderRadius: 8,
+                        background: "transparent", color: "var(--text-200)",
+                        cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                      >Connect</button>
                     </div>
                   </div>
-                );
-              })}
-              {integrations.filter(i => !i.required).map((intg, idx) => {
-                const available = intg.provider !== "coming_soon";
-                return (
-                  <div key={"opt-" + idx} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "14px 18px", borderRadius: 10,
-                    border: "1px solid var(--border)", background: "var(--bg-400)",
-                    opacity: available ? 1 : 0.6,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
-                        {intg.name}
-                      </div>
-                      <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>
-                        {intg.why}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink: 0, marginLeft: 16 }}>
-                      {available ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
-                          <button style={{
-                            padding: "6px 14px", fontSize: "12px", fontWeight: 600,
-                            border: "1px solid var(--border)", borderRadius: 8,
-                            background: "transparent", color: "var(--text-200)",
-                            cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-                          >Connect</button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
-                          <span style={{ fontSize: "12px", color: "var(--text-300)", fontStyle: "italic" }}>Coming soon</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ROI section */}
-        <div style={{
-          marginTop: 40, padding: 24, borderRadius: 12,
-          border: "1px solid var(--border)", background: "var(--bg-400)",
-        }}>
-          <div style={{ display: "flex", gap: 40, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-100)" }}>
-                {roi.estimatedHoursSavedPerWeek || 0}h
+                ))}
               </div>
-              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>hours/week saved</div>
             </div>
-            <div>
-              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--green, #5bb98c)" }}>
-                {roi.estimatedMonthlyCost || "--"}
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>monthly AI cost</div>
-            </div>
-            <div>
-              <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-100)" }}>
-                {roi.equivalentHiringCost || "--"}
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>equivalent hiring</div>
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Error */}
         {error && (
