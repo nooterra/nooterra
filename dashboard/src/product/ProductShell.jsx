@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   decideApprovalInboxItem,
   DEFAULT_AUTH_BASE_URL,
@@ -1299,6 +1299,15 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [editorSchedule, setEditorSchedule] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
 
+  // Wizard state
+  const [wizardStep, setWizardStep] = useState(1);
+  const [wizardDescription, setWizardDescription] = useState("");
+  const [wizardCharter, setWizardCharter] = useState({ canDo: [], askFirst: [], neverDo: [] });
+  const [wizardSchedule, setWizardSchedule] = useState(null);
+  const [wizardName, setWizardName] = useState("");
+  const [wizardNewRule, setWizardNewRule] = useState("");
+  const [wizardFading, setWizardFading] = useState(false);
+
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   // Also try to infer rules from user messages when no AI definition is available
@@ -1415,7 +1424,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   }
 
   function handleTemplateClick(template) { setInputValue(template.description); }
-  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); }
+  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); setWizardStep(1); setWizardDescription(""); setWizardCharter({ canDo: [], askFirst: [], neverDo: [] }); setWizardSchedule(null); setWizardName(""); }
   function handlePlusAction(action) {
     if (action === "templates") { setTemplateReview(null); handleReset(); }
     else if (action === "knowledge") { setInputValue("Add knowledge: "); }
@@ -1432,47 +1441,355 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     );
   }
 
+  function wizardGoTo(step) {
+    setWizardFading(true);
+    setTimeout(() => { setWizardStep(step); setWizardFading(false); setWizardNewRule(""); }, 180);
+  }
+
+  function wizardHandleDescriptionContinue() {
+    if (!wizardDescription.trim()) return;
+    const caps = inferCapabilities(wizardDescription);
+    const inferred = inferCharterRules(wizardDescription, caps);
+    setWizardCharter(inferred);
+    setWizardName(inferWorkerName(wizardDescription));
+    setWizardSchedule(inferSchedule(wizardDescription));
+    wizardGoTo(2);
+  }
+
+  function wizardAddRule(key) {
+    const text = wizardNewRule.trim();
+    if (!text) return;
+    setWizardCharter(prev => ({ ...prev, [key]: [...(prev[key] || []), text] }));
+    setWizardNewRule("");
+  }
+
+  function wizardRemoveRule(key, index) {
+    setWizardCharter(prev => ({ ...prev, [key]: prev[key].filter((_, i) => i !== index) }));
+  }
+
+  function wizardHandleDeploy() {
+    // Populate editor state and deploy
+    setEditorCharter(wizardCharter);
+    setEditorName(wizardName);
+    setEditorSchedule(wizardSchedule);
+    // Use the same deploy logic
+    setDeployingWorker(true);
+    (async () => {
+      try {
+        const scheduleValue = wizardSchedule ? scheduleToApiValue(wizardSchedule) : "on_demand";
+        const result = await workerApiRequest({
+          pathname: "/v1/workers", method: "POST",
+          body: {
+            name: wizardName,
+            description: wizardDescription,
+            charter: JSON.stringify(wizardCharter),
+            schedule: scheduleValue,
+            model: selectedModel,
+          },
+        });
+        saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
+        if (result?.id) onViewWorker?.(result); else onComplete?.();
+      } catch (err) {
+        setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]);
+      }
+      setDeployingWorker(false);
+    })();
+  }
+
+  // Switch to chat mode from wizard
+  function wizardSwitchToChat() {
+    if (wizardDescription.trim()) {
+      setInputValue(wizardDescription);
+    }
+  }
+
+  const WIZARD_SUGGESTION_CHIPS = [
+    "Customer support", "Data monitoring", "Email management", "Content creation", "Research & reporting",
+  ];
+
+  const WIZARD_SCHEDULE_OPTIONS = [
+    { label: "Continuous (24/7)", schedule: { type: "continuous", value: null, label: "Continuously" } },
+    { label: "Every hour", schedule: { type: "interval", value: "1h", label: "Every hour" } },
+    { label: "Daily at 9am", schedule: { type: "cron", value: "0 9 * * *", label: "Daily at 9 AM" } },
+    { label: "Weekdays only", schedule: { type: "cron", value: "0 9 * * 1-5", label: "Weekdays at 9 AM" } },
+    { label: "On demand", schedule: { type: "trigger", value: "on_demand", label: "On demand" } },
+  ];
+
+  const WIZARD_STEPS = ["Describe", "Can Do", "Ask First", "Never Do", "Schedule", "Review"];
+
   if (!hasMessages) {
-    const greeting = getGreeting();
-    const storedName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
-    const displayName = storedName ? storedName.split(" ")[0] : (userName ? userName.split("@")[0] : null);
+    const wizardPillStyle = (color, bg) => ({
+      display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px 6px 14px",
+      borderRadius: 20, fontSize: "13px", lineHeight: 1.4, fontFamily: "var(--font-mono)",
+      background: bg, color: color, border: `1px solid ${color}22`,
+      cursor: "default", transition: "all 150ms", maxWidth: "100%", wordBreak: "break-word",
+      userSelect: "none",
+    });
+
+    const wizardPillRemoveBtn = {
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: 16, height: 16, borderRadius: "50%", background: "transparent", border: "none",
+      cursor: "pointer", color: "inherit", fontSize: "12px", fontWeight: 700, padding: 0,
+      flexShrink: 0, opacity: 0.6, transition: "opacity 150ms",
+    };
+
+    const renderRulePills = (key, color, bg) => (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: "1rem" }}>
+        {(wizardCharter[key] || []).map((rule, i) => (
+          <span key={i} style={wizardPillStyle(color, bg)}>
+            {rule}
+            <button
+              style={wizardPillRemoveBtn}
+              onClick={() => wizardRemoveRule(key, i)}
+              onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = "0.6"; }}
+            >&times;</button>
+          </span>
+        ))}
+        {(wizardCharter[key] || []).length === 0 && (
+          <span style={{ fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic" }}>No rules yet. Add one below.</span>
+        )}
+      </div>
+    );
+
+    const renderAddRuleInput = (key) => (
+      <div style={{ display: "flex", gap: 8, maxWidth: 500 }}>
+        <input
+          value={wizardNewRule}
+          onChange={e => setWizardNewRule(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); wizardAddRule(key); } }}
+          placeholder="Add a rule..."
+          style={{ ...S.input, marginBottom: 0, flex: 1, fontSize: "14px", padding: "8px 14px", borderRadius: 8 }}
+        />
+        <button
+          onClick={() => wizardAddRule(key)}
+          style={{ ...S.btnSecondary, padding: "8px 16px", fontSize: "13px", flexShrink: 0 }}
+        >Add</button>
+      </div>
+    );
+
+    // Progress bar
+    const renderProgressBar = () => (
+      <div style={{ display: "flex", alignItems: "center", gap: 0, maxWidth: 400, width: "100%", margin: "0 auto 2rem" }}>
+        {WIZARD_STEPS.map((label, i) => {
+          const stepNum = i + 1;
+          const isActive = stepNum === wizardStep;
+          const isDone = stepNum < wizardStep;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 && (
+                <div style={{
+                  flex: 1, height: 2,
+                  background: isDone ? "var(--text-primary)" : "var(--border)",
+                  transition: "background 300ms",
+                }} />
+              )}
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "11px", fontWeight: 700, flexShrink: 0, transition: "all 300ms",
+                background: isActive ? "var(--text-primary)" : isDone ? "var(--text-primary)" : "transparent",
+                color: isActive || isDone ? "var(--bg-primary)" : "var(--text-tertiary)",
+                border: isActive || isDone ? "2px solid var(--text-primary)" : "2px solid var(--border)",
+              }} title={label}>
+                {isDone ? "\u2713" : stepNum}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+
+    const navButtons = (onContinue, continueDisabled) => (
+      <div style={{ display: "flex", gap: "0.75rem", marginTop: "2rem", justifyContent: "center" }}>
+        {wizardStep > 1 && (
+          <button
+            onClick={() => wizardGoTo(wizardStep - 1)}
+            style={{ ...S.btnSecondary, width: "auto", padding: "10px 24px" }}
+          >&larr; Back</button>
+        )}
+        <button
+          onClick={onContinue}
+          disabled={continueDisabled}
+          style={{ ...S.btnPrimary, width: "auto", padding: "10px 32px", opacity: continueDisabled ? 0.4 : 1 }}
+        >Continue &rarr;</button>
+      </div>
+    );
+
     return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
-        <div style={{ flex: 1 }} />
-        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <h1 style={{ fontSize: 28, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.2, marginBottom: "0.25rem" }}>
-            {displayName ? `${greeting}, ${displayName}.` : "What do you need done?"}
-          </h1>
-          <p style={{ fontSize: 16, color: "var(--text-secondary)", marginTop: "0.5rem" }}>
-            {isFirstTime ? "Deploy your first worker in 30 seconds." : "Ask me anything, or describe a worker you need."}
-          </p>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 1px)" }}>
+        <div style={{
+          flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          padding: "2rem", maxWidth: 680, width: "100%", margin: "0 auto",
+          opacity: wizardFading ? 0 : 1, transition: "opacity 180ms ease",
+        }}>
+          {renderProgressBar()}
+
+          {/* Step 1: Description */}
+          {wizardStep === 1 && (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                What should this worker do?
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+                Describe the task in plain language.
+              </p>
+              <textarea
+                value={wizardDescription}
+                onChange={e => setWizardDescription(e.target.value)}
+                placeholder="e.g. Monitor my inbox and draft replies to common customer questions..."
+                rows={4}
+                autoFocus
+                style={{
+                  ...S.input, marginBottom: "1rem", resize: "vertical", minHeight: 100,
+                  fontSize: "15px", padding: "14px 18px", borderRadius: 12, width: "100%", boxSizing: "border-box",
+                }}
+              />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: "0.5rem" }}>
+                {WIZARD_SUGGESTION_CHIPS.map(chip => (
+                  <button
+                    key={chip}
+                    onClick={() => setWizardDescription(prev => prev ? `${prev.trimEnd()} ${chip.toLowerCase()}.` : `${chip}.`)}
+                    style={{
+                      padding: "6px 14px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
+                      border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
+                      cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "transparent"; }}
+                  >{chip}</button>
+                ))}
+              </div>
+              {navButtons(wizardHandleDescriptionContinue, !wizardDescription.trim())}
+            </div>
+          )}
+
+          {/* Step 2: canDo rules */}
+          {wizardStep === 2 && (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                What can it do on its own?
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+                These are actions the worker can take without asking you first.
+              </p>
+              <div style={{ textAlign: "left" }}>
+                {renderRulePills("canDo", "var(--green)", "var(--green-bg)")}
+                {renderAddRuleInput("canDo")}
+              </div>
+              {navButtons(() => wizardGoTo(3), false)}
+            </div>
+          )}
+
+          {/* Step 3: askFirst rules */}
+          {wizardStep === 3 && (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                What needs your approval?
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+                The worker will pause and ask you before doing these.
+              </p>
+              <div style={{ textAlign: "left" }}>
+                {renderRulePills("askFirst", "var(--amber)", "var(--amber-bg)")}
+                {renderAddRuleInput("askFirst")}
+              </div>
+              {navButtons(() => wizardGoTo(4), false)}
+            </div>
+          )}
+
+          {/* Step 4: neverDo rules */}
+          {wizardStep === 4 && (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                What should it never do?
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+                Hard limits. The worker will refuse these actions entirely.
+              </p>
+              <div style={{ textAlign: "left" }}>
+                {renderRulePills("neverDo", "var(--red)", "var(--red-bg)")}
+                {renderAddRuleInput("neverDo")}
+              </div>
+              {navButtons(() => wizardGoTo(5), false)}
+            </div>
+          )}
+
+          {/* Step 5: Schedule */}
+          {wizardStep === 5 && (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                How often should it run?
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+                Pick a schedule or leave it on demand.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: "0.5rem" }}>
+                {WIZARD_SCHEDULE_OPTIONS.map(opt => {
+                  const isActive = wizardSchedule?.label === opt.schedule.label;
+                  return (
+                    <button
+                      key={opt.label}
+                      onClick={() => setWizardSchedule(opt.schedule)}
+                      style={{
+                        padding: "10px 20px", fontSize: "14px", fontWeight: 600, borderRadius: 10, cursor: "pointer",
+                        background: isActive ? "var(--text-primary)" : "transparent",
+                        color: isActive ? "var(--bg-primary)" : "var(--text-secondary)",
+                        border: isActive ? "2px solid var(--text-primary)" : "1px solid var(--border)",
+                        transition: "all 150ms", fontFamily: "inherit",
+                      }}
+                    >{opt.label}</button>
+                  );
+                })}
+              </div>
+              {navButtons(() => wizardGoTo(6), false)}
+            </div>
+          )}
+
+          {/* Step 6: Review & Deploy */}
+          {wizardStep === 6 && (
+            <div style={{ width: "100%", textAlign: "left" }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", textAlign: "center" }}>
+                Review & Deploy
+              </h1>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem", textAlign: "center" }}>
+                Check everything looks right, then deploy your worker.
+              </p>
+              <CharterEditor
+                charter={wizardCharter}
+                onCharterChange={setWizardCharter}
+                workerName={wizardName}
+                onNameChange={setWizardName}
+                schedule={wizardSchedule}
+                onScheduleChange={setWizardSchedule}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
+                onDeploy={wizardHandleDeploy}
+                deploying={deployingWorker}
+              />
+              <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem", justifyContent: "center" }}>
+                <button
+                  onClick={() => wizardGoTo(5)}
+                  style={{ ...S.btnSecondary, width: "auto", padding: "10px 24px" }}
+                >&larr; Back</button>
+                <button
+                  onClick={wizardHandleDeploy}
+                  disabled={deployingWorker || !wizardName.trim()}
+                  style={{ ...S.btnPrimary, width: "auto", padding: "12px 36px", fontSize: "15px", opacity: (deployingWorker || !wizardName.trim()) ? 0.5 : 1 }}
+                >{deployingWorker ? "Deploying..." : "Deploy Worker"}</button>
+              </div>
+            </div>
+          )}
         </div>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxWidth: 680, width: "100%", marginTop: "1rem", justifyContent: "center" }}>
-          {STARTER_TEMPLATES.map(t => (
-            <button key={t.id} onClick={() => handleTemplateClick(t)} style={{
-              padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
-              border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
-              cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms",
-            }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "transparent"; }}
-            >
-              {t.name}
-            </button>
-          ))}
-          <button onClick={() => setInputValue("I need a worker that ")} style={{
-            padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--accent)",
-            border: "1px solid var(--accent)", borderRadius: 20, background: "transparent",
-            cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms",
-          }}
-            onMouseEnter={e => e.currentTarget.style.opacity = "0.7"}
-            onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+
+        {/* Compact chat input at the bottom as fallback */}
+        <div style={{ flexShrink: 0, padding: "0.75rem 1.5rem 1rem", display: "flex", justifyContent: "center", borderTop: "1px solid var(--border)" }}>
+          <div style={{ maxWidth: 480, width: "100%", opacity: 0.7, transition: "opacity 150ms" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.7"; }}
           >
-            Custom worker
-          </button>
+            <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} placeholder="Or type freely to chat with the builder..." />
+          </div>
         </div>
-        <div style={{ flex: 1.5 }} />
       </div>
     );
   }
