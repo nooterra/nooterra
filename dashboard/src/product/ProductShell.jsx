@@ -1352,136 +1352,142 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    =================================================================== */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
-  const [messages, setMessages] = useState([]);
-  const [inputValue, setInputValue] = useState("");
-  const [selectedModel, setSelectedModel] = useState("google/gemini-3-flash");
-  const [streaming, setStreaming] = useState(false);
+  // Phase: "describe" | "configure" | "deploying"
+  const [phase, setPhase] = useState("describe");
+  const [description, setDescription] = useState("");
+  const [workerName, setWorkerName] = useState("");
+  const [charter, setCharter] = useState({ canDo: [], askFirst: [], neverDo: [] });
+  const [schedule, setSchedule] = useState(null);
+  const [model, setModel] = useState("nvidia/nemotron-3-super-120b-a12b:free");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [newRuleInputs, setNewRuleInputs] = useState({ canDo: "", askFirst: "", neverDo: "" });
+  const [addingRuleKey, setAddingRuleKey] = useState(null);
   const [deployingWorker, setDeployingWorker] = useState(false);
-  const messagesEndRef = useRef(null);
-  const charterEditorRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Template review (kept from original)
   const [templateReview, setTemplateReview] = useState(null);
   const [templateDeploying, setTemplateDeploying] = useState(false);
   const [templateError, setTemplateError] = useState("");
-  const streamAbortRef = useRef(null);
-  const hasMessages = messages.length > 0;
 
-  // Charter editor state (used by preview card)
-  const [editorCharter, setEditorCharter] = useState(null);
-  const [editorName, setEditorName] = useState("");
-  const [editorSchedule, setEditorSchedule] = useState(null);
-  const [showEditor, setShowEditor] = useState(false);
-
-  // Rule editing state
-  const [editingRuleKey, setEditingRuleKey] = useState(null);
-  const [newRuleText, setNewRuleText] = useState("");
-
-  useEffect(() => { setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50); }, [messages]);
-
-  const lastUserMessage = messages.filter(m => m.role === "user").slice(-1)[0]?.content || "";
-
-  function updatePreviewFromMessages(allMessages) {
-    const allText = allMessages.filter(m => m.role === "user").map(m => m.content).join(" ");
-    if (!allText.trim()) return;
-    const caps = inferCapabilities(allText);
-    const charter = inferCharterRules(allText, caps);
-    // Merge with existing editor charter to preserve manual edits
-    setEditorCharter(prev => {
-      if (!prev) return charter;
-      return {
-        canDo: [...new Set([...prev.canDo, ...charter.canDo])],
-        askFirst: [...new Set([...prev.askFirst, ...charter.askFirst])],
-        neverDo: [...new Set([...prev.neverDo, ...charter.neverDo])],
-      };
-    });
-    if (!editorName) setEditorName(inferWorkerName(allText));
-    if (!editorSchedule) setEditorSchedule(inferSchedule(allText));
-    setShowEditor(true);
-  }
-
-  function handleWorkerDefDetected(workerDef) {
-    const charter = {
-      canDo: workerDef.canDo || [],
-      askFirst: workerDef.askFirst || [],
-      neverDo: workerDef.neverDo || [],
-    };
-    if (charter.canDo.length + charter.askFirst.length + charter.neverDo.length < 3 && lastUserMessage) {
-      const caps = inferCapabilities(lastUserMessage);
-      const inferred = inferCharterRules(lastUserMessage, caps);
-      if (charter.canDo.length === 0) charter.canDo = inferred.canDo;
-      if (charter.askFirst.length === 0) charter.askFirst = inferred.askFirst;
-      if (charter.neverDo.length === 0) charter.neverDo = inferred.neverDo;
-    }
-    setEditorCharter(charter);
-    setEditorName(workerDef.name || inferWorkerName(lastUserMessage));
-    if (workerDef.schedule) {
-      setEditorSchedule(inferSchedule(workerDef.schedule));
-    } else if (lastUserMessage) {
-      setEditorSchedule(inferSchedule(lastUserMessage));
-    }
-    if (workerDef.model) setSelectedModel(workerDef.model);
-    setShowEditor(true);
-  }
-
-  async function sendChatMessage(userContent) {
-    const newMessages = [...messages, { role: "user", content: userContent }];
-    setMessages(newMessages);
-    setStreaming(true);
-    // Update preview after every user message
-    updatePreviewFromMessages(newMessages);
+  // --- AI request: stream SSE and collect full response ---
+  async function sendToAI(userDescription) {
+    setLoading(true);
+    setError("");
     const runtime = loadRuntimeConfig();
-    const abortController = new AbortController();
-    streamAbortRef.current = abortController;
     try {
-      const res = await fetch("/__nooterra/v1/chat", { method: "POST", headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId }, credentials: "include", body: JSON.stringify({ messages: newMessages, model: selectedModel }), signal: abortController.signal });
+      const res = await fetch("/__nooterra/v1/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
+        credentials: "include",
+        body: JSON.stringify({
+          messages: [{ role: "user", content: userDescription }],
+          model: model,
+        }),
+      });
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ error: "Chat request failed" }));
+        const errBody = await res.json().catch(() => ({ error: "Request failed" }));
         const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
-          ? "I'm having trouble connecting to the AI service. This usually means the backend is starting up -- try again in a moment."
+          ? "Could not connect to the AI service. The backend may be starting up -- try again in a moment."
           : errBody.error || "Something went wrong. Please try again.";
-        setMessages([...newMessages, { role: "assistant", content: errMsg }]);
-        setStreaming(false);
+        setError(errMsg);
+        setLoading(false);
         return;
       }
-      const reader = res.body.getReader(); const decoder = new TextDecoder(); let assistantContent = "";
-      setMessages([...newMessages, { role: "assistant", content: "" }]);
+      // Read SSE stream and accumulate full response
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
       while (true) {
-        const { done, value } = await reader.read(); if (done) break;
+        const { done, value } = await reader.read();
+        if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6); if (data === "[DONE]") break;
-          try { const parsed = JSON.parse(data); const delta = parsed.choices?.[0]?.delta?.content || ""; if (delta) { assistantContent += delta; const captured = assistantContent; setMessages(prev => { const updated = [...prev]; updated[updated.length - 1] = { role: "assistant", content: captured }; return updated; }); } } catch { /* skip */ }
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content || "";
+            if (delta) fullResponse += delta;
+          } catch { /* skip malformed chunks */ }
         }
       }
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        setMessages(prev => { if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content) { const updated = [...prev]; updated[updated.length - 1] = { role: "assistant", content: "Something went wrong. Please try again." }; return updated; } return [...prev, { role: "assistant", content: "Something went wrong. Please try again." }]; });
+      // Parse the AI response
+      const workerDef = parseWorkerDefinition(fullResponse);
+      let newCharter = { canDo: [], askFirst: [], neverDo: [] };
+      let newName = "";
+      let newSchedule = null;
+      if (workerDef) {
+        newCharter.canDo = workerDef.canDo || [];
+        newCharter.askFirst = workerDef.askFirst || [];
+        newCharter.neverDo = workerDef.neverDo || [];
+        newName = workerDef.name || "";
+        if (workerDef.schedule) newSchedule = inferSchedule(workerDef.schedule);
+        if (workerDef.model) setModel(workerDef.model);
       }
+      // Fallback: infer from user description if AI response was sparse
+      const caps = inferCapabilities(userDescription);
+      const inferred = inferCharterRules(userDescription, caps);
+      if (newCharter.canDo.length === 0) newCharter.canDo = inferred.canDo;
+      if (newCharter.askFirst.length === 0) newCharter.askFirst = inferred.askFirst;
+      if (newCharter.neverDo.length === 0) newCharter.neverDo = inferred.neverDo;
+      if (!newName) newName = inferWorkerName(userDescription);
+      if (!newSchedule) newSchedule = inferSchedule(userDescription);
+      setCharter(newCharter);
+      setWorkerName(newName);
+      setSchedule(newSchedule);
+      setPhase("configure");
+    } catch (err) {
+      setError(err?.message || "Something went wrong. Please try again.");
     }
-    setStreaming(false); streamAbortRef.current = null;
+    setLoading(false);
   }
 
-  function handleSend() { const text = inputValue.trim(); if (!text || streaming) return; setInputValue(""); sendChatMessage(text); }
+  function handleCreate() {
+    const text = description.trim();
+    if (!text || loading) return;
+    sendToAI(text);
+  }
 
-  async function handleDeployFromEditor() {
-    if (!editorCharter || !editorName) return;
+  function handleRemoveRule(key, index) {
+    setCharter(prev => ({ ...prev, [key]: prev[key].filter((_, i) => i !== index) }));
+  }
+
+  function handleAddRule(key) {
+    const text = newRuleInputs[key]?.trim();
+    if (!text) return;
+    setCharter(prev => ({ ...prev, [key]: [...(prev[key] || []), text] }));
+    setNewRuleInputs(prev => ({ ...prev, [key]: "" }));
+    setAddingRuleKey(null);
+  }
+
+  function handleBack() {
+    setPhase("describe");
+    setError("");
+  }
+
+  async function handleDeploy() {
+    if (!workerName || !charter) return;
     setDeployingWorker(true);
+    setError("");
     try {
-      const scheduleValue = editorSchedule ? scheduleToApiValue(editorSchedule) : "on_demand";
+      const scheduleValue = schedule ? scheduleToApiValue(schedule) : "on_demand";
       const result = await workerApiRequest({
         pathname: "/v1/workers", method: "POST",
         body: {
-          name: editorName,
-          description: lastUserMessage || "",
-          charter: JSON.stringify(editorCharter),
+          name: workerName,
+          description: description || "",
+          charter: JSON.stringify(charter),
           schedule: scheduleValue,
-          model: selectedModel,
+          model: model,
         },
       });
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       if (result?.id) onViewWorker?.(result); else onComplete?.();
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]);
+      setError(`Deploy failed: ${err?.message || "Unknown error"}`);
     }
     setDeployingWorker(false);
   }
@@ -1496,26 +1502,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     setTemplateDeploying(false);
   }
 
-  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); setEditingRuleKey(null); setNewRuleText(""); }
-
-  function handleRemoveRule(key, index) {
-    setEditorCharter(prev => {
-      if (!prev) return prev;
-      return { ...prev, [key]: prev[key].filter((_, i) => i !== index) };
-    });
-  }
-
-  function handleAddRule(key) {
-    const text = newRuleText.trim();
-    if (!text) return;
-    setEditorCharter(prev => {
-      if (!prev) return { canDo: [], askFirst: [], neverDo: [], [key]: [text] };
-      return { ...prev, [key]: [...(prev[key] || []), text] };
-    });
-    setNewRuleText("");
-    setEditingRuleKey(null);
-  }
-
+  // Template review flow (kept from original)
   if (templateReview) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)", padding: "2rem" }}>
@@ -1525,271 +1512,300 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     );
   }
 
-  const SUGGESTION_CHIPS = [
-    "Customer support agent",
-    "Monitor competitor prices",
-    "Daily inbox summary",
-    "Content writer",
-    "Data pipeline monitor",
-  ];
+  const canDeploy = workerName &&
+    (charter.canDo || []).length >= 1 &&
+    (charter.neverDo || []).length >= 1;
 
-  const canDeploy = editorCharter && editorName &&
-    (editorCharter.canDo || []).length >= 1 &&
-    (editorCharter.neverDo || []).length >= 1;
+  // --- Section label style ---
+  const sectionLabel = (color) => ({
+    fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+    letterSpacing: "0.08em", fontFamily: "var(--font-mono)",
+    color: color, marginBottom: 8,
+  });
 
-  // -- Pill renderer for the live preview card --
-  const renderPreviewPills = (rules, color, bg, key) => (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {(rules || []).map((rule, i) => (
-        <span key={i} style={{
-          display: "inline-flex", alignItems: "center", gap: 4,
-          padding: "4px 10px", borderRadius: 14, fontSize: "12px", lineHeight: 1.3,
-          fontFamily: "var(--font-mono)", background: bg, color: color,
-          border: `1px solid ${color}33`, maxWidth: "100%", wordBreak: "break-word",
-        }}>
-          {rule}
-          <button
-            onClick={() => handleRemoveRule(key, i)}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 14, height: 14, borderRadius: "50%", background: "transparent",
-              border: "none", cursor: "pointer", color: "inherit", fontSize: "11px",
-              fontWeight: 700, padding: 0, opacity: 0.5, transition: "opacity 150ms", flexShrink: 0,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "0.5"; }}
-          >&times;</button>
-        </span>
-      ))}
-      <button
-        onClick={() => { setEditingRuleKey(editingRuleKey === key ? null : key); setNewRuleText(""); }}
-        style={{
-          padding: "4px 10px", borderRadius: 14, fontSize: "12px", fontWeight: 500,
-          color: "var(--text-tertiary)", background: "transparent", border: "1px dashed var(--border)",
-          cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, color 150ms",
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.color = color; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-tertiary)"; }}
-      >+ Add</button>
-    </div>
-  );
-
-  // -- Empty state (no messages yet) --
-  if (!hasMessages) {
+  // --- Rule list renderer ---
+  const renderRuleSection = (key, label, color) => {
+    const rules = charter[key] || [];
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 1px)" }}>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-          <h1 style={{ fontSize: "clamp(24px, 4vw, 32px)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", textAlign: "center" }}>
-            What do you need done?
-          </h1>
-          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "2rem", textAlign: "center" }}>
-            Describe a task and we will build an AI worker for it.
-          </p>
-          <div style={{ maxWidth: 560, width: "100%" }}>
-            <BuilderInputBox
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onSend={handleSend}
-              disabled={false}
-              model={selectedModel}
-              onModelChange={setSelectedModel}
-              placeholder="Describe what you need..."
-            />
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: "1.25rem", maxWidth: 560 }}>
-            {SUGGESTION_CHIPS.map(chip => (
+      <div style={{ marginBottom: 20 }}>
+        <div style={sectionLabel(color)}>{label}</div>
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 8,
+          borderLeft: `3px solid ${color}`, overflow: "hidden",
+          background: "var(--bg-100, var(--bg-primary))",
+        }}>
+          {rules.map((rule, i) => (
+            <div
+              key={i}
+              className="builder-rule-item"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", fontSize: "14px", color: "var(--text-100, var(--text-primary))",
+                borderBottom: i < rules.length - 1 ? "1px solid var(--border)" : "none",
+                lineHeight: 1.5,
+              }}
+            >
+              <span style={{ flex: 1 }}>{rule}</span>
               <button
-                key={chip}
-                onClick={() => { sendChatMessage(chip); }}
+                onClick={() => handleRemoveRule(key, i)}
+                className="builder-rule-remove"
                 style={{
-                  padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
-                  border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
-                  cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms, color 150ms",
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "var(--text-300, var(--text-tertiary))", fontSize: "16px",
+                  padding: "0 0 0 12px", lineHeight: 1, opacity: 0,
+                  transition: "opacity 120ms, color 120ms", flexShrink: 0,
                 }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
-              >{chip}</button>
-            ))}
-          </div>
+              >&times;</button>
+            </div>
+          ))}
+          {/* Add rule row */}
+          {addingRuleKey === key ? (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 14px",
+              borderTop: rules.length > 0 ? "1px solid var(--border)" : "none",
+            }}>
+              <input
+                value={newRuleInputs[key] || ""}
+                onChange={e => setNewRuleInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { e.preventDefault(); handleAddRule(key); }
+                  if (e.key === "Escape") setAddingRuleKey(null);
+                }}
+                placeholder="Type a rule..."
+                autoFocus
+                style={{
+                  flex: 1, padding: "6px 0", fontSize: "14px",
+                  border: "none", outline: "none", background: "transparent",
+                  color: "var(--text-100, var(--text-primary))", fontFamily: "inherit",
+                }}
+              />
+              <button
+                onClick={() => handleAddRule(key)}
+                style={{ ...S.btnGhost, fontSize: "13px", color: color }}
+              >Add</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingRuleKey(key)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "10px 14px", fontSize: "13px",
+                color: "var(--text-300, var(--text-tertiary))",
+                background: "none", border: "none", cursor: "pointer",
+                fontFamily: "inherit", transition: "color 120ms",
+                borderTop: rules.length > 0 ? "1px solid var(--border)" : "none",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = color; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300, var(--text-tertiary))"; }}
+            >+ Add rule</button>
+          )}
         </div>
+      </div>
+    );
+  };
+
+  // =============================================
+  // PHASE 1: DESCRIBE
+  // =============================================
+  if (phase === "describe") {
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", height: "100%", minHeight: "calc(100vh - 1px)",
+        padding: "2rem",
+      }}>
+        <div style={{ maxWidth: 520, width: "100%", textAlign: "center" }}>
+          <h1 style={{
+            fontSize: "18px", fontWeight: 600, color: "var(--text-100, var(--text-primary))",
+            marginBottom: "0.5rem", letterSpacing: "-0.01em",
+          }}>Create a worker</h1>
+          <p style={{
+            fontSize: "14px", color: "var(--text-200, var(--text-secondary))",
+            marginBottom: "2rem", lineHeight: 1.5,
+          }}>Describe what you need in plain language.</p>
+
+          <textarea
+            ref={textareaRef}
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleCreate(); }
+            }}
+            disabled={loading}
+            placeholder="e.g. Watch my support inbox and draft replies to common questions..."
+            style={{
+              display: "block", width: "100%", minHeight: 120, maxHeight: 300,
+              padding: "14px 16px", fontSize: "16px", lineHeight: 1.6,
+              border: "1px solid var(--border)", borderRadius: 8,
+              background: "var(--bg-100, var(--bg-primary))",
+              color: "var(--text-100, var(--text-primary))",
+              outline: "none", resize: "vertical", fontFamily: "inherit",
+              boxSizing: "border-box", transition: "border-color 150ms",
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--border-strong, var(--accent))"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          />
+
+          {error && (
+            <div style={{ ...S.error, textAlign: "left", marginTop: "0.75rem" }}>{error}</div>
+          )}
+
+          <button
+            onClick={handleCreate}
+            disabled={!description.trim() || loading}
+            style={{
+              ...S.btnPrimary,
+              width: "100%", padding: "12px 24px", fontSize: "14px",
+              borderRadius: 8, marginTop: "1rem",
+              opacity: (!description.trim() || loading) ? 0.4 : 1,
+            }}
+          >
+            {loading ? "Creating your worker..." : "Create"}
+          </button>
+
+          {!loading && (
+            <div style={{
+              marginTop: "1.5rem", fontSize: "13px",
+              color: "var(--text-300, var(--text-tertiary))", lineHeight: 1.8,
+            }}>
+              <span>e.g. </span>
+              {["Customer support agent", "Price monitoring", "Daily inbox summary"].map((chip, i) => (
+                <span key={chip}>
+                  {i > 0 && <span style={{ margin: "0 4px" }}>&middot;</span>}
+                  <button
+                    onClick={() => { setDescription(chip); }}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: "var(--text-200, var(--text-secondary))",
+                      fontFamily: "inherit", fontSize: "13px", padding: 0,
+                      textDecoration: "underline", textDecorationColor: "var(--border)",
+                      textUnderlineOffset: "3px", transition: "color 120ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100, var(--text-primary))"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-200, var(--text-secondary))"; }}
+                  >{chip}</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <style>{`
+          @keyframes builder-spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
       </div>
     );
   }
 
-  // -- Conversation started: split layout --
+  // =============================================
+  // PHASE 2: CONFIGURE
+  // =============================================
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <div style={{ flex: 1, overflow: "hidden" }}>
-        <div className="builder-split" style={{
-          display: "grid",
-          gridTemplateColumns: showEditor ? "1fr 380px" : "1fr",
-          height: "100%",
-          transition: "grid-template-columns 300ms",
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center",
+      height: "100%", minHeight: "calc(100vh - 1px)",
+      overflowY: "auto", padding: "2rem 1rem",
+    }}>
+      <div style={{ maxWidth: 640, width: "100%" }}>
+        {/* Back link */}
+        <button
+          onClick={handleBack}
+          style={{
+            ...S.backLink,
+            display: "inline-flex", alignItems: "center", gap: 4,
+            marginBottom: "1.5rem",
+          }}
+        >
+          <span style={{ fontSize: "16px", lineHeight: 1 }}>&larr;</span> Back
+        </button>
+
+        {/* Card */}
+        <div style={{
+          background: "var(--bg-400, var(--bg-surface))",
+          border: "1px solid var(--border)", borderRadius: 12,
+          padding: "2rem", boxSizing: "border-box",
         }}>
-          {/* LEFT: Chat panel */}
-          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "1.5rem 1.5rem 0" }}>
-              <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                {messages.map((msg, i) => (
-                  <BuilderMessage
-                    key={`msg_${i}`}
-                    msg={msg}
-                    isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
-                    onWorkerDefDetected={handleWorkerDefDetected}
-                    onOptionClick={(opt) => { if (!streaming) sendChatMessage(opt); }}
-                  />
-                ))}
-                {streaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
-                  <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
-                    <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-            <div style={{ flexShrink: 0, padding: "0.75rem 1.5rem 1rem", display: "flex", justifyContent: "center" }}>
-              <BuilderInputBox
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onSend={handleSend}
-                disabled={streaming || deployingWorker}
-                model={selectedModel}
-                onModelChange={setSelectedModel}
-                placeholder="Type a message..."
-              />
-            </div>
+          {/* Name + Schedule row */}
+          <div style={{
+            display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+            gap: 16, marginBottom: 8,
+          }}>
+            <input
+              value={workerName}
+              onChange={e => setWorkerName(e.target.value)}
+              style={{
+                flex: 1, fontSize: "20px", fontWeight: 700,
+                color: "var(--text-100, var(--text-primary))",
+                background: "transparent", border: "none", outline: "none",
+                padding: "2px 0", fontFamily: "inherit",
+                borderBottom: "1px solid transparent", transition: "border-color 150ms",
+              }}
+              onFocus={e => { e.currentTarget.style.borderBottom = "1px solid var(--border)"; }}
+              onBlur={e => { e.currentTarget.style.borderBottom = "1px solid transparent"; }}
+              placeholder="Worker name"
+            />
           </div>
 
-          {/* RIGHT: Live preview card */}
-          {showEditor && editorCharter && (
+          {/* Divider */}
+          <div style={{ height: 1, background: "var(--border)", margin: "12px 0 24px" }} />
+
+          {/* Rule sections */}
+          {renderRuleSection("canDo", "Can Do", "var(--green)")}
+          {renderRuleSection("askFirst", "Needs Approval", "var(--amber)")}
+          {renderRuleSection("neverDo", "Never Do", "var(--red)")}
+
+          {/* Schedule */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={sectionLabel("var(--text-300, var(--text-tertiary))")}>Schedule</div>
+            <SchedulePicker schedule={schedule} onScheduleChange={setSchedule} />
+          </div>
+
+          {/* Model */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={sectionLabel("var(--text-300, var(--text-tertiary))")}>Model</div>
+            <ModelDropdown model={model} onModelChange={setModel} />
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div style={{ ...S.error, marginBottom: "1rem" }}>{error}</div>
+          )}
+
+          {/* Deploy button */}
+          <button
+            onClick={handleDeploy}
+            disabled={!canDeploy || deployingWorker}
+            style={{
+              ...S.btnPrimary,
+              width: "100%", padding: "14px 24px", fontSize: "14px",
+              borderRadius: 8,
+              opacity: (!canDeploy || deployingWorker) ? 0.4 : 1,
+            }}
+          >
+            {deployingWorker ? "Deploying..." : "Deploy Worker"}
+          </button>
+
+          {!canDeploy && workerName && (
             <div style={{
-              borderLeft: "1px solid var(--border)", padding: "1.5rem",
-              overflowY: "auto", background: "var(--bg-primary)",
+              fontSize: "12px", color: "var(--text-300, var(--text-tertiary))",
+              textAlign: "center", marginTop: 8,
             }}>
-              <div style={{
-                border: "1px solid var(--border)", borderRadius: 16,
-                background: "var(--bg-400, var(--bg-surface))", boxShadow: "var(--shadow-lg)",
-                padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem",
-              }}>
-                {/* Header: Name + status */}
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{
-                      width: 8, height: 8, borderRadius: "50%",
-                      background: canDeploy ? "var(--green)" : "var(--amber)",
-                      animation: canDeploy ? "none" : "pulse 2s ease-in-out infinite",
-                      flexShrink: 0,
-                    }} />
-                    <span style={{ fontSize: "12px", fontWeight: 600, color: canDeploy ? "var(--green)" : "var(--amber)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      {canDeploy ? "Ready" : "Building..."}
-                    </span>
-                  </div>
-                  <input
-                    value={editorName}
-                    onChange={e => setEditorName(e.target.value)}
-                    style={{
-                      display: "block", width: "100%", fontSize: "18px", fontWeight: 700,
-                      color: "var(--text-primary)", background: "transparent", border: "none",
-                      outline: "none", padding: "2px 0", fontFamily: "inherit",
-                      borderBottom: "1px solid transparent", transition: "border-color 150ms",
-                    }}
-                    onFocus={e => { e.currentTarget.style.borderBottom = "1px solid var(--border)"; }}
-                    onBlur={e => { e.currentTarget.style.borderBottom = "1px solid transparent"; }}
-                    placeholder="Worker name"
-                  />
-                </div>
-
-                {/* Can Do rules */}
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Can Do</div>
-                  {renderPreviewPills(editorCharter.canDo, "var(--green)", "var(--green-bg)", "canDo")}
-                  {editingRuleKey === "canDo" && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("canDo"); } if (e.key === "Escape") setEditingRuleKey(null); }}
-                        placeholder="New rule..." autoFocus
-                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Ask First rules */}
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--amber)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Ask First</div>
-                  {renderPreviewPills(editorCharter.askFirst, "var(--amber)", "var(--amber-bg)", "askFirst")}
-                  {editingRuleKey === "askFirst" && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("askFirst"); } if (e.key === "Escape") setEditingRuleKey(null); }}
-                        placeholder="New rule..." autoFocus
-                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Never Do rules */}
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Never Do</div>
-                  {renderPreviewPills(editorCharter.neverDo, "var(--red)", "var(--red-bg)", "neverDo")}
-                  {editingRuleKey === "neverDo" && (
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("neverDo"); } if (e.key === "Escape") setEditingRuleKey(null); }}
-                        placeholder="New rule..." autoFocus
-                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Schedule */}
-                {editorSchedule && (
-                  <div>
-                    <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Schedule</div>
-                    <SchedulePicker schedule={editorSchedule} onScheduleChange={setEditorSchedule} />
-                  </div>
-                )}
-
-                {/* Model selector */}
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Model</div>
-                  <ModelDropdown model={selectedModel} onModelChange={setSelectedModel} />
-                </div>
-
-                {/* Deploy button */}
-                <button
-                  onClick={handleDeployFromEditor}
-                  disabled={!canDeploy || deployingWorker}
-                  style={{
-                    ...S.btnPrimary,
-                    width: "100%", padding: "12px 24px", fontSize: "15px", borderRadius: 10,
-                    opacity: (!canDeploy || deployingWorker) ? 0.4 : 1,
-                    marginTop: 4,
-                  }}
-                >
-                  {deployingWorker ? "Deploying..." : "Deploy Worker"}
-                </button>
-                {!canDeploy && (
-                  <div style={{ fontSize: "12px", color: "var(--text-tertiary)", textAlign: "center", marginTop: -4 }}>
-                    Needs at least 1 canDo and 1 neverDo rule
-                  </div>
-                )}
-              </div>
+              Add at least 1 &ldquo;Can Do&rdquo; and 1 &ldquo;Never Do&rdquo; rule to deploy.
             </div>
           )}
         </div>
       </div>
 
-      {/* Responsive: on mobile, stack the builder split */}
+      {/* Hover styles for rule items */}
       <style>{`
-        @media (max-width: 768px) {
-          .builder-split {
-            grid-template-columns: 1fr !important;
-            grid-template-rows: 1fr auto;
-          }
+        .builder-rule-item:hover .builder-rule-remove {
+          opacity: 1 !important;
         }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
+        .builder-rule-remove:hover {
+          color: var(--red) !important;
         }
       `}</style>
     </div>
