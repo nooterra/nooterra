@@ -2153,6 +2153,155 @@ function ActivityLogEntry({ entry }) {
 }
 
 /* ===================================================================
+   InboxView — "What needs me now?"
+   =================================================================== */
+
+function InboxView() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [deciding, setDeciding] = useState(null);
+  const [lastChecked, setLastChecked] = useState(null);
+
+  useEffect(() => { loadInbox(); }, []);
+
+  async function loadInbox() {
+    setLoading(true);
+    try {
+      const runtime = loadRuntimeConfig();
+      const result = await fetchApprovalInbox(runtime, { status: "pending" });
+      setItems(result?.items || result || []);
+    } catch {
+      setItems([]);
+    }
+    setLastChecked(new Date());
+    setLoading(false);
+  }
+
+  async function handleDecide(requestId, decision) {
+    setDeciding(requestId);
+    try {
+      const runtime = loadRuntimeConfig();
+      await decideApprovalInboxItem(runtime, requestId, { approved: decision === "approved" });
+      await loadInbox();
+    } catch { /* ignore */ }
+    setDeciding(null);
+  }
+
+  const pendingCount = Array.isArray(items) ? items.length : 0;
+  const stats = [
+    { label: "waiting", value: pendingCount, color: "#d97706" },
+    { label: "blocked", value: 0, color: "#dc2626" },
+    { label: "handled", value: 0, color: "var(--green, #5bb98c)" },
+    { label: "hrs saved", value: 0, color: "var(--primary, #6366f1)" },
+    { label: "violations", value: 0, color: "var(--green, #5bb98c)" },
+  ];
+
+  const roleColors = ["#6366f1", "#d97706", "#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
+  function avatarColor(name) { let h = 0; for (let i = 0; i < (name || "").length; i++) h = (h + (name || "").charCodeAt(i)) % roleColors.length; return roleColors[h]; }
+  function getLeftBorderColor(item) {
+    if (item.type === "failure" || item.type === "error") return "#dc2626";
+    if (item.type === "info") return "#3b82f6";
+    return "#d97706";
+  }
+
+  return (
+    <div>
+      <h1 style={S.pageTitle}>Inbox</h1>
+      <p style={S.pageSub}>What needs you now.</p>
+
+      {/* Summary strip */}
+      <div style={{ display: "flex", gap: 16, padding: "20px 0", borderBottom: "1px solid var(--border)", marginBottom: 24, flexWrap: "wrap" }}>
+        {stats.map(s => (
+          <div key={s.label} style={{ padding: "12px 20px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-400)" }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, color: s.color, marginRight: 6 }}>{s.value}</span>
+            <span style={{ fontSize: 13, color: "var(--text-200, var(--text-secondary))" }}>{s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 14, color: "var(--text-200, var(--text-secondary))" }}>Loading...</div>
+      ) : pendingCount === 0 ? (
+        /* Empty state */
+        <div style={{ padding: "4rem 2rem", textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: "50%", background: "var(--green, #5bb98c)", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-100, var(--text-primary))", marginBottom: 6 }}>All clear. Your team is handling everything.</div>
+          <div style={{ fontSize: 13, color: "var(--text-300, var(--text-tertiary))", fontFamily: "var(--font-mono)" }}>
+            Last checked: {lastChecked ? lastChecked.toLocaleTimeString() : "—"}
+          </div>
+        </div>
+      ) : (
+        /* Decision cards */
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {items.map(item => {
+            const id = item.requestId || item.id;
+            const workerName = item.workerName || item.agentName || "Worker";
+            const avatarBg = avatarColor(workerName);
+            const leftColor = getLeftBorderColor(item);
+            const ruleLine = item.ruleName || item.rule || null;
+            return (
+              <div key={id} style={{ background: "var(--bg-400)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, borderLeft: `3px solid ${leftColor}` }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                  {/* Avatar */}
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fff", fontWeight: 700, fontSize: 15 }}>
+                    {(workerName || "W")[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <span style={{ fontWeight: 600, color: "var(--text-100, var(--text-primary))", fontSize: 15 }}>{workerName}</span>
+                      </div>
+                      <span style={{ fontSize: 12, color: "var(--text-300, var(--text-tertiary))", fontFamily: "var(--font-mono)", flexShrink: 0, marginLeft: 12 }}>
+                        {item.createdAt ? timeAgo(item.createdAt) : ""}
+                      </span>
+                    </div>
+                    <div style={{ color: "var(--text-200, var(--text-secondary))", fontSize: 14, marginTop: 4 }}>
+                      {item.action || item.summary || item.description || "Action requires approval"}
+                    </div>
+                    {ruleLine && (
+                      <div style={{ color: "var(--text-300, var(--text-tertiary))", fontSize: 12, fontFamily: "var(--font-mono)", marginTop: 6 }}>
+                        Matched: {ruleLine}
+                      </div>
+                    )}
+                    {item.detail && (
+                      <div style={{ fontSize: 13, color: "var(--text-300, var(--text-tertiary))", lineHeight: 1.5, marginTop: 4 }}>{item.detail}</div>
+                    )}
+                    {/* Action buttons */}
+                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                      {item.type === "connection" ? (
+                        <button style={{ padding: "8px 20px", background: "var(--primary, #6366f1)", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Reconnect</button>
+                      ) : (<>
+                        <button
+                          style={{ padding: "8px 20px", background: "var(--green, #5bb98c)", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
+                          disabled={deciding === id}
+                          onClick={() => handleDecide(id, "approved")}
+                        >Approve</button>
+                        <button
+                          style={{ padding: "8px 20px", background: "transparent", color: "var(--text-200, var(--text-secondary))", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
+                          disabled={deciding === id}
+                          onClick={() => handleDecide(id, "denied")}
+                        >Deny</button>
+                        <button
+                          style={{ padding: "8px 20px", background: "transparent", color: "var(--text-200, var(--text-secondary))", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
+                          disabled={deciding === id}
+                          onClick={() => handleDecide(id, "approved")}
+                        >Edit &amp; Approve</button>
+                      </>)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===================================================================
    ApprovalsView
    =================================================================== */
 
@@ -2796,10 +2945,382 @@ function WorkerIntegrationsSection({ workerId }) {
 }
 
 /* ===================================================================
+   OnboardingFlow
+   =================================================================== */
+
+function OnboardingFlow({ onComplete, userEmail }) {
+  const [step, setStep] = useState(1);
+  const [businessDescription, setBusinessDescription] = useState("");
+  const [industryResult, setIndustryResult] = useState(null);
+  const [editingField, setEditingField] = useState(null);
+  const [editValues, setEditValues] = useState({});
+  const [selectedWorkflows, setSelectedWorkflows] = useState(new Set());
+  const [teamWorkers, setTeamWorkers] = useState([]);
+  const [integrations, setIntegrations] = useState([]);
+  const [connectingIntegration, setConnectingIntegration] = useState(null);
+  const [skippedIntegrations, setSkippedIntegrations] = useState(new Set());
+  const TOTAL_STEPS = 6;
+
+  function handleContinue() {
+    if (step === 1) {
+      const result = identifyIndustry(businessDescription);
+      setIndustryResult(result);
+      setEditValues({
+        industry: (result.industry || "") + (result.subIndustry ? " / " + result.subIndustry : ""),
+        size: result.companySize || "Small",
+        location: result.location || "Not specified",
+      });
+      setStep(2);
+    } else if (step === 2) {
+      setStep(3);
+    } else if (step === 3) {
+      const team = proposeTeam(industryResult);
+      const workflowKeywords = Array.from(selectedWorkflows);
+      const relevantWorkers = team.workers.filter(w => {
+        const desc = (w.role + " " + (w.description || "") + " " + (w.canDo || []).join(" ")).toLowerCase();
+        return workflowKeywords.some(wf => {
+          if (wf === "communication") return /email|call|reply|respond|inquir|message|communicat/.test(desc);
+          if (wf === "scheduling") return /schedul|book|appoint|assign|calendar|coordinat/.test(desc);
+          if (wf === "billing") return /invoice|payment|bill|receipt|follow.up|collect/.test(desc);
+          return false;
+        });
+      });
+      setTeamWorkers(relevantWorkers.length > 0 ? relevantWorkers : team.workers.slice(0, 3));
+      setStep(4);
+    } else if (step === 4) {
+      const integ = identifyIntegrations(teamWorkers);
+      const relevantInteg = (integ.required || []).filter(ig => {
+        const name = (ig.name || ig.service || "").toLowerCase();
+        const available = ["email", "gmail", "calendar", "google_calendar", "slack"];
+        return available.some(a => name.includes(a) || (ig.service || "").includes(a));
+      });
+      const comingSoon = (integ.required || []).filter(ig => {
+        const name = (ig.name || ig.service || "").toLowerCase();
+        const available = ["email", "gmail", "calendar", "google_calendar", "slack"];
+        return !available.some(a => name.includes(a) || (ig.service || "").includes(a));
+      });
+      setIntegrations([
+        ...relevantInteg.map(ig => ({ ...ig, available: true })),
+        ...comingSoon.map(ig => ({ ...ig, available: false })),
+      ]);
+      setStep(5);
+    } else if (step === 5) {
+      setStep(6);
+    } else if (step === 6) {
+      localStorage.setItem("nooterra_onboarding_complete", "true");
+      onComplete();
+    }
+  }
+
+  function toggleWorkflow(id) {
+    setSelectedWorkflows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 2) next.add(id);
+      return next;
+    });
+  }
+
+  const stepDots = (
+    <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: "3rem" }}>
+      {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+        <div key={i} style={{
+          width: 8, height: 8, borderRadius: "50%",
+          background: i < step ? "var(--accent)" : "var(--border)",
+          transition: "background 300ms",
+        }} />
+      ))}
+    </div>
+  );
+
+  const continueBtn = (disabled = false) => (
+    <button
+      onClick={handleContinue}
+      disabled={disabled}
+      style={{
+        ...S.btnPrimary, width: "auto", padding: "14px 40px", fontSize: "15px",
+        marginTop: "2rem", opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {step === 6 ? "Go to Dashboard" : "Continue"}
+    </button>
+  );
+
+  const wrapStyle = {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", minHeight: "100vh", padding: "3rem 2rem",
+    background: "var(--bg-100)",
+  };
+
+  // STEP 1: What does your business do?
+  if (step === 1) {
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em" }}>
+            What does your business do?
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6 }}>
+            We'll propose an AI team tailored to your business.
+          </p>
+          <textarea
+            value={businessDescription}
+            onChange={e => setBusinessDescription(e.target.value)}
+            placeholder="Describe your business..."
+            rows={3}
+            style={{
+              display: "block", width: "100%", padding: "18px 20px", fontSize: "18px",
+              lineHeight: 1.6, border: "1px solid var(--border)", borderRadius: 12,
+              background: "var(--bg-400)", color: "var(--text-100)", outline: "none",
+              resize: "vertical", fontFamily: "var(--font-body)", boxSizing: "border-box",
+              transition: "border-color 150ms",
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          />
+          <p style={{ fontSize: "13px", color: "var(--text-300)", marginTop: "1rem", lineHeight: 1.8 }}>
+            e.g. Plumbing company in Denver with 5 techs &middot; Shopify store selling supplements &middot; Personal injury law firm
+          </p>
+          {continueBtn(!businessDescription.trim())}
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 2: Here's what we found
+  if (step === 2) {
+    const fields = [
+      { key: "industry", label: "Industry" },
+      { key: "size", label: "Size" },
+      { key: "location", label: "Location" },
+    ];
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 520, width: "100%" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
+            Here's what we found.
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
+            Edit any details below to improve our recommendations.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {fields.map(f => (
+              <div key={f.key} style={{
+                padding: "18px 20px", border: "1px solid var(--border)", borderRadius: 12,
+                background: "var(--bg-400)", display: "flex", alignItems: "center",
+                justifyContent: "space-between",
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{f.label}</div>
+                  {editingField === f.key ? (
+                    <input
+                      autoFocus
+                      value={editValues[f.key] || ""}
+                      onChange={e => setEditValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      onBlur={() => setEditingField(null)}
+                      onKeyDown={e => { if (e.key === "Enter") setEditingField(null); }}
+                      style={{
+                        fontSize: "16px", fontWeight: 600, color: "var(--text-100)",
+                        background: "transparent", border: "none", outline: "none",
+                        padding: 0, fontFamily: "var(--font-body)", width: "100%",
+                        borderBottom: "1px solid var(--accent)",
+                      }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)" }}>{editValues[f.key] || "--"}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setEditingField(editingField === f.key ? null : f.key)}
+                  style={{
+                    background: "none", border: "1px solid var(--border)", borderRadius: 6,
+                    padding: "4px 12px", fontSize: "12px", fontWeight: 500, color: "var(--text-200)",
+                    cursor: "pointer", fontFamily: "var(--font-body)", transition: "border-color 150ms",
+                  }}
+                >
+                  {editingField === f.key ? "Done" : "Edit"}
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 3: What should we handle first?
+  if (step === 3) {
+    const workflows = [
+      { id: "communication", title: "Customer communication", desc: "Answer calls, reply to emails, respond to inquiries" },
+      { id: "scheduling", title: "Scheduling & coordination", desc: "Book appointments, assign jobs, manage calendar" },
+      { id: "billing", title: "Billing & follow-up", desc: "Send invoices, chase payments, manage receipts" },
+    ];
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 580, width: "100%" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
+            What should we handle first?
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
+            Select one or two areas to start with.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {workflows.map(wf => {
+              const selected = selectedWorkflows.has(wf.id);
+              return (
+                <button
+                  key={wf.id}
+                  onClick={() => toggleWorkflow(wf.id)}
+                  style={{
+                    padding: "24px", textAlign: "left", border: selected ? "2px solid var(--accent)" : "1px solid var(--border)",
+                    borderRadius: 12, background: selected ? "var(--accent-subtle, rgba(196,97,58,0.04))" : "var(--bg-400)",
+                    cursor: "pointer", fontFamily: "var(--font-body)", transition: "all 150ms",
+                  }}
+                >
+                  <div style={{ fontSize: "17px", fontWeight: 600, color: "var(--text-100)", marginBottom: 6 }}>{wf.title}</div>
+                  <div style={{ fontSize: "14px", color: "var(--text-200)", lineHeight: 1.5 }}>{wf.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ textAlign: "center" }}>{continueBtn(selectedWorkflows.size === 0)}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 4: Meet your team
+  if (step === 4) {
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 720, width: "100%" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
+            Meet your team.
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
+            These AI workers are tailored to your business. You can customize them later.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+            {teamWorkers.map((w, i) => (
+              <div key={i} style={{
+                padding: "20px", border: "1px solid var(--border)", borderRadius: 12,
+                background: "var(--bg-400)", display: "flex", flexDirection: "column", gap: 10,
+              }}>
+                <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-100)" }}>{w.role}</div>
+                <div style={{ fontSize: "13px", color: "var(--text-200)", lineHeight: 1.5 }}>{w.description || "Handles tasks for your business."}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                  {(w.canDo || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--green)", fontFamily: "var(--font-mono)" }}>Handles: {(w.canDo || []).length} actions</div>}
+                  {(w.askFirst || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>Asks first: {(w.askFirst || []).length}</div>}
+                  {(w.neverDo || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--red)", fontFamily: "var(--font-mono)" }}>Never does: {(w.neverDo || []).length}</div>}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                  <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
+                  <span style={{ fontSize: "12px", color: "var(--text-300)", fontWeight: 500 }}>New</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 5: Connect your tools
+  if (step === 5) {
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 560, width: "100%" }}>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
+            Connect your tools.
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
+            Your team needs access to these services to do their work.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {integrations.length === 0 && (
+              <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, color: "var(--text-200)", fontSize: "14px" }}>
+                No integrations required for your selected workflows. You can connect tools later from Settings.
+              </div>
+            )}
+            {integrations.map((ig, i) => (
+              <div key={i} style={{
+                padding: "18px 20px", border: "1px solid var(--border)", borderRadius: 12,
+                background: "var(--bg-400)", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 16,
+                opacity: ig.available ? 1 : 0.5,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-100)" }}>{ig.name || ig.service}</div>
+                  <div style={{ fontSize: "13px", color: "var(--text-200)", marginTop: 2 }}>{ig.reason || ig.description || ""}</div>
+                </div>
+                {ig.available ? (
+                  skippedIntegrations.has(ig.name || ig.service) ? (
+                    <span style={{ fontSize: "13px", color: "var(--text-300)", fontWeight: 500 }}>Skipped</span>
+                  ) : connectingIntegration === (ig.name || ig.service) ? (
+                    <span style={{ fontSize: "13px", color: "var(--accent)", fontWeight: 500 }}>Connecting...</span>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        style={{ ...S.btnPrimary, width: "auto", padding: "6px 16px", fontSize: "13px" }}
+                        onClick={() => {
+                          setConnectingIntegration(ig.name || ig.service);
+                          setTimeout(() => setConnectingIntegration(null), 1500);
+                        }}
+                      >Connect</button>
+                      <button
+                        style={{ ...S.btnSecondary, padding: "6px 12px", fontSize: "12px" }}
+                        onClick={() => setSkippedIntegrations(prev => new Set([...prev, ig.name || ig.service]))}
+                      >Skip for now</button>
+                    </div>
+                  )
+                ) : (
+                  <span style={{ fontSize: "12px", color: "var(--text-300)", fontWeight: 500, padding: "4px 10px", border: "1px solid var(--border)", borderRadius: 6 }}>Coming soon</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 6: You're all set
+  if (step === 6) {
+    return (
+      <div style={wrapStyle} className="lovable-fade">
+        {stepDots}
+        <div style={{ maxWidth: 480, width: "100%", textAlign: "center" }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--green)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem" }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em" }}>
+            You're all set.
+          </h1>
+          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+            Your team is learning. You'll get notifications when they need your input.
+          </p>
+          {continueBtn()}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+/* ===================================================================
    AppShell
    =================================================================== */
 
-function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
+function AppShell({ initialView = "team", userEmail, isFirstTime }) {
   const [view, setView] = useState(initialView);
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
@@ -2809,33 +3330,255 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [tenantName, setTenantName] = useState("Your Business");
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
-    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "workers") setView("approvals"); } catch { /* ignore */ } })();
+    // Check onboarding
+    if (isFirstTime && !localStorage.getItem("nooterra_onboarding_complete")) {
+      setShowOnboarding(true);
+    }
+
+    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "team") setView("approvals"); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
-    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
-  }, []);
+    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); if (settings?.displayName) setTenantName(settings.displayName); else if (settings?.name) setTenantName(settings.name); } catch { /* ignore */ } })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleToggleSidebar() { const next = !sidebarCollapsed; setSidebarCollapsed(next); saveSidebarCollapsed(next); }
   function handleNavigate(dest, workerId) { if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); } else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); } }
   function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
   function handleNewWorker() { setView("builder"); setSelectedWorkerId(null); setIsNewDeploy(false); }
-  function handleBuilderComplete() { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); setView("workers"); }
-  function handleViewWorker(w) { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("workers"); }
+  function handleBuilderComplete() { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); setView("team"); }
+  function handleViewWorker(w) { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
 
-  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "workers" : view;
+  if (showOnboarding) {
+    return (
+      <OnboardingFlow
+        onComplete={() => { setShowOnboarding(false); }}
+        userEmail={userEmail}
+      />
+    );
+  }
+
+  // Nav items
+  const navItems = [
+    { key: "approvals", label: "Inbox", badge: pendingApprovals,
+      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> },
+    { key: "team", label: "Team",
+      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+    { key: "receipts", label: "Activity",
+      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
+    { key: "performance", label: "Performance",
+      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> },
+    { key: "integrations", label: "Connections",
+      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> },
+  ];
+
+  const settingsItem = {
+    key: "settings", label: "Settings",
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+  };
+
+  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "team" : view;
+  const navWidth = sidebarCollapsed ? 56 : 220;
 
   return (
-    <div style={S.appLayout}>
-      <AppSidebar activeView={sidebarActiveView} onNavigate={handleNavigate} workers={workers} pendingApprovals={pendingApprovals} userEmail={userEmail} creditBalance={creditBalance} onNewWorker={handleNewWorker} collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} onOpenSettings={() => setSettingsOpen(true)} userTier={userTier} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
-        {view === "workers" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
-        {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }} isNewDeploy={isNewDeploy} /></div>}
-        {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
-        {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--bg-100)" }}>
+      {/* ===== TOP BAR ===== */}
+      <header style={{
+        height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 20px", background: "var(--bg-400)", borderBottom: "1px solid var(--border)",
+        position: "sticky", top: 0, zIndex: 50, flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
+          <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>{tenantName}</span>
+        </div>
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 24px" }}>
+          <input
+            type="text"
+            placeholder="Search workers, approvals, activity..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              width: 280, maxWidth: "100%", padding: "7px 14px", fontSize: "13px",
+              border: "1px solid var(--border)", borderRadius: 8,
+              background: "var(--bg-100)", color: "var(--text-100)",
+              outline: "none", fontFamily: "var(--font-body)",
+              transition: "border-color 150ms",
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => handleNavigate("approvals")}
+            style={{
+              position: "relative", width: 36, height: 36, borderRadius: 8,
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--text-200)", display: "flex", alignItems: "center",
+              justifyContent: "center", transition: "background 150ms",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-200)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {pendingApprovals > 0 && (
+              <div style={{
+                position: "absolute", top: 4, right: 4, width: 16, height: 16,
+                borderRadius: "50%", background: "var(--accent)", fontSize: "10px",
+                fontWeight: 700, color: "#fff", display: "flex", alignItems: "center",
+                justifyContent: "center",
+              }}>{pendingApprovals}</div>
+            )}
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            style={{
+              width: 36, height: 36, borderRadius: 8,
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--text-200)", display: "flex", alignItems: "center",
+              justifyContent: "center", transition: "background 150ms",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-200)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%", background: "var(--accent)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "13px", fontWeight: 700, color: "#fff", cursor: "pointer",
+            flexShrink: 0,
+          }}>
+            {getInitials(userEmail)}
+          </div>
+        </div>
+      </header>
+
+      {/* ===== BODY: LEFT NAV + CONTENT ===== */}
+      <div style={{ display: "flex", flex: 1 }}>
+        {/* LEFT NAV */}
+        <nav style={{
+          width: navWidth, flexShrink: 0, background: "var(--bg-200)",
+          borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
+          position: "sticky", top: 56, height: "calc(100vh - 56px)",
+          transition: "width 200ms ease", overflow: "hidden",
+        }}>
+          <div style={{ padding: sidebarCollapsed ? "12px 0" : "12px 8px", display: "flex", justifyContent: sidebarCollapsed ? "center" : "flex-end" }}>
+            <button
+              onClick={handleToggleSidebar}
+              style={{
+                width: 32, height: 32, borderRadius: 6, background: "none", border: "none",
+                cursor: "pointer", color: "var(--text-300)", display: "flex", alignItems: "center",
+                justifyContent: "center", transition: "background 150ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+            >
+              <SidebarToggleIcon size={16} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, padding: sidebarCollapsed ? "0 6px" : "0 8px" }}>
+            {navItems.map(item => {
+              const active = sidebarActiveView === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => handleNavigate(item.key)}
+                  title={sidebarCollapsed ? item.label : undefined}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: sidebarCollapsed ? "10px 0" : "10px 12px",
+                    justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                    borderRadius: 8, border: "none", cursor: "pointer",
+                    fontFamily: "var(--font-body)", fontSize: "14px",
+                    fontWeight: active ? 600 : 400,
+                    color: active ? "var(--text-100)" : "var(--text-200)",
+                    background: active ? "var(--bg-300, var(--bg-hover))" : "transparent",
+                    borderLeft: active ? "3px solid var(--accent)" : "3px solid transparent",
+                    transition: "all 150ms", position: "relative", width: "100%",
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
+                  {!sidebarCollapsed && <span>{item.label}</span>}
+                  {item.badge > 0 && (
+                    <span style={{
+                      marginLeft: sidebarCollapsed ? 0 : "auto",
+                      position: sidebarCollapsed ? "absolute" : "static",
+                      top: sidebarCollapsed ? 4 : undefined,
+                      right: sidebarCollapsed ? 2 : undefined,
+                      fontSize: "11px", fontWeight: 700, color: "#fff",
+                      background: "var(--accent)", borderRadius: 10,
+                      padding: "1px 6px", minWidth: 18, textAlign: "center",
+                    }}>{item.badge}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", padding: sidebarCollapsed ? "8px 6px" : "8px" }}>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              title={sidebarCollapsed ? "Settings" : undefined}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: sidebarCollapsed ? "10px 0" : "10px 12px",
+                justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                borderRadius: 8, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-body)", fontSize: "14px", fontWeight: 400,
+                color: "var(--text-200)", background: "transparent",
+                transition: "all 150ms", width: "100%",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <span style={{ flexShrink: 0, display: "flex" }}>{settingsItem.icon}</span>
+              {!sidebarCollapsed && <span>Settings</span>}
+            </button>
+
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: sidebarCollapsed ? "10px 0" : "10px 12px",
+              justifyContent: sidebarCollapsed ? "center" : "flex-start",
+              marginTop: 4,
+            }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: "50%", background: "var(--accent)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "12px", fontWeight: 700, color: "#fff", flexShrink: 0,
+              }}>
+                {getInitials(userEmail)}
+              </div>
+              {!sidebarCollapsed && (
+                <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "13px", color: "var(--text-100)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: tierColor(userTier) }}>{tierLabel(userTier)}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </nav>
+
+        {/* ===== MAIN CONTENT ===== */}
+        <div style={{ flex: 1, minWidth: 0, background: "var(--bg-100)" }}>
+          {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
+          {view === "team" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
+          {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>}
+          {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
+          {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
+          {view === "performance" && <div style={S.main}><h1 style={S.pageTitle}>Performance</h1><p style={S.pageSub}>Worker performance metrics and analytics. Coming soon.</p></div>}
+          {view === "integrations" && <div style={S.main}><IntegrationsView /></div>}
+        </div>
       </div>
+
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
@@ -2908,7 +3651,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       case "approvals": return "approvals";
       case "receipts": return "receipts";
       case "workspace": return "settings";
-      default: return "builder";
+      default: return "team";
     }
   }
 
