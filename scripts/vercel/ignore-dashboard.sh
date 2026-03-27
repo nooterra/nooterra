@@ -16,6 +16,7 @@ fi
 
 if git diff --quiet HEAD^ HEAD -- \
   dashboard/ \
+  vercel.json \
   scripts/vercel/ignore-dashboard.sh \
   .github/workflows/release.yml \
   .github/workflows/tests.yml; then
