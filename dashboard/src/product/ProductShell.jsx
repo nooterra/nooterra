@@ -30,13 +30,32 @@ const SIDEBAR_STORAGE_KEY = "nooterra_sidebar_collapsed";
 const AUTH_BASE = "/__magic";
 const WORKER_API_BASE = "/__nooterra";
 
-const RECOMMENDED_MODELS = [
-  { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super", inputPer1M: 0, outputPer1M: 0, tag: "Free" },
-  { id: "openai/gpt-oss-120b:free", name: "GPT-OSS 120B", inputPer1M: 0, outputPer1M: 0, tag: "Free" },
-  { id: "google/gemini-3-flash", name: "Gemini 3 Flash", inputPer1M: 0.50, outputPer1M: 3.00, tag: "Fast & cheap" },
-  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", inputPer1M: 2.00, outputPer1M: 12.00, tag: "Smartest" },
-  { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", inputPer1M: 3.00, outputPer1M: 15.00, tag: "Best for writing" },
-  { id: "openai/gpt-5.4", name: "GPT-5.4", inputPer1M: 2.50, outputPer1M: 15.00, tag: "Best for agents" },
+const ALL_MODELS = [
+  // Free
+  { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super", provider: "NVIDIA", price: "Free", category: "free" },
+  { id: "openai/gpt-oss-120b:free", name: "GPT-OSS 120B", provider: "OpenAI", price: "Free", category: "free" },
+  { id: "google/gemma-3-27b-it:free", name: "Gemma 3 27B", provider: "Google", price: "Free", category: "free" },
+  { id: "meta-llama/llama-4-scout:free", name: "Llama 4 Scout", provider: "Meta", price: "Free", category: "free" },
+  // Fast & Cheap
+  { id: "google/gemini-3-flash", name: "Gemini 3 Flash", provider: "Google", price: "$", category: "fast" },
+  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "Anthropic", price: "$", category: "fast" },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "OpenAI", price: "$", category: "fast" },
+  // Best Quality
+  { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", provider: "Anthropic", price: "$$", category: "best" },
+  { id: "openai/gpt-5.4", name: "GPT-5.4", provider: "OpenAI", price: "$$", category: "best" },
+  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", provider: "Google", price: "$$", category: "best" },
+  { id: "anthropic/claude-opus-4-6", name: "Claude Opus 4.6", provider: "Anthropic", price: "$$$", category: "best" },
+  // Specialized
+  { id: "anthropic/claude-sonnet-4.6:thinking", name: "Claude Sonnet 4.6 (Thinking)", provider: "Anthropic", price: "$$", category: "specialized" },
+  { id: "openai/o3", name: "O3", provider: "OpenAI", price: "$$$", category: "specialized" },
+  { id: "openai/codex-mini-latest", name: "Codex Mini", provider: "OpenAI", price: "$", category: "specialized" },
+];
+
+const MODEL_CATEGORIES = [
+  { key: "free", label: "Free" },
+  { key: "fast", label: "Fast & Cheap" },
+  { key: "best", label: "Best Quality" },
+  { key: "specialized", label: "Specialized" },
 ];
 
 const STARTER_TEMPLATES = [
@@ -1024,31 +1043,140 @@ function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, autoF
 
 function ModelDropdown({ model, onModelChange }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const ref = useRef(null);
-  const selectedModel = RECOMMENDED_MODELS.find(m => m.id === model);
+  const searchRef = useRef(null);
+  const selectedModel = ALL_MODELS.find(m => m.id === model);
+
   useEffect(() => {
     if (!open) return;
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
+
+  useEffect(() => {
+    if (open && searchRef.current) searchRef.current.focus();
+  }, [open]);
+
+  const filtered = search.trim()
+    ? ALL_MODELS.filter(m =>
+        m.name.toLowerCase().includes(search.toLowerCase()) ||
+        m.provider.toLowerCase().includes(search.toLowerCase()) ||
+        m.category.toLowerCase().includes(search.toLowerCase())
+      )
+    : ALL_MODELS;
+
+  const priceColor = (price) => {
+    if (price === "Free") return "var(--green)";
+    if (price === "$") return "var(--text-tertiary)";
+    if (price === "$$") return "var(--amber)";
+    return "var(--red)";
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(!open)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, borderRadius: 6 }}>
+      <button
+        onClick={() => { setOpen(!open); setSearch(""); }}
+        style={{
+          background: "transparent", border: "none", color: "var(--text-secondary)",
+          fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit",
+          display: "flex", alignItems: "center", gap: 4, borderRadius: 6,
+        }}
+      >
         {selectedModel?.name || "Select model"}
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        </svg>
       </button>
       {open && (
-        <div className="popover-animate" style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 4, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 50, minWidth: 300, maxWidth: 380 }}>
-          {RECOMMENDED_MODELS.map(m => (
-            <button key={m.id} onClick={() => { onModelChange(m.id); setOpen(false); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "8px 12px", fontSize: "14px", background: m.id === model ? "var(--bg-hover)" : "transparent", color: m.id === model ? "var(--text-primary)" : "var(--text-secondary)", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" }}
-              onMouseEnter={e => { if (m.id !== model) e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={e => { if (m.id !== model) e.currentTarget.style.background = "transparent"; }}
-            >
-              <span style={{ fontWeight: m.id === model ? 600 : 400 }}>{m.name}</span>
-              <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${m.inputPer1M.toFixed(2)}/${m.outputPer1M.toFixed(2)}</span>
-            </button>
-          ))}
+        <div
+          className="popover-animate"
+          style={{
+            position: "absolute", bottom: "100%", left: 0, marginBottom: 4,
+            background: "var(--bg-400, var(--bg-surface))", border: "1px solid var(--border)",
+            borderRadius: 12, boxShadow: "var(--shadow-lg)", zIndex: 50,
+            minWidth: 340, maxWidth: 400, overflow: "hidden",
+          }}
+        >
+          {/* Search input */}
+          <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)" }}>
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search models..."
+              style={{
+                width: "100%", padding: "7px 10px", fontSize: "13px", fontFamily: "inherit",
+                border: "1px solid var(--border)", borderRadius: 8, outline: "none",
+                background: "var(--bg-primary, var(--bg-surface))", color: "var(--text-primary)",
+                boxSizing: "border-box",
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+            />
+          </div>
+          {/* Scrollable model list */}
+          <div style={{ maxHeight: 400, overflowY: "auto", padding: "4px 0" }}>
+            {MODEL_CATEGORIES.map(cat => {
+              const catModels = filtered.filter(m => m.category === cat.key);
+              if (catModels.length === 0) return null;
+              return (
+                <div key={cat.key}>
+                  <div style={{
+                    padding: "8px 14px 4px", fontSize: "10px", fontWeight: 700,
+                    color: "var(--text-300, var(--text-tertiary))", textTransform: "uppercase",
+                    letterSpacing: "0.08em", fontFamily: "var(--font-mono, monospace)",
+                  }}>
+                    {cat.label}
+                  </div>
+                  {catModels.map(m => {
+                    const isSelected = m.id === model;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => { onModelChange(m.id); setOpen(false); }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          width: "100%", padding: "7px 14px", fontSize: "13px",
+                          background: isSelected ? "var(--bg-200, var(--bg-hover))" : "transparent",
+                          color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
+                          border: "none", borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
+                          cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                          transition: "background 150ms",
+                        }}
+                        onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "var(--bg-200, var(--bg-hover))"; }}
+                        onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <span style={{ flex: 1, fontWeight: isSelected ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {m.name}
+                        </span>
+                        <span style={{
+                          fontSize: "11px", fontWeight: 600, color: priceColor(m.price),
+                          minWidth: 32, textAlign: "center",
+                        }}>
+                          {m.price}
+                        </span>
+                        <span style={{
+                          fontSize: "10px", padding: "2px 6px", borderRadius: 4,
+                          background: "var(--bg-200, var(--bg-hover))", color: "var(--text-tertiary)",
+                          fontWeight: 500, whiteSpace: "nowrap",
+                        }}>
+                          {m.provider}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {filtered.length === 0 && (
+              <div style={{ padding: "16px 14px", fontSize: "13px", color: "var(--text-tertiary)", textAlign: "center" }}>
+                No models match your search
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1071,7 +1199,7 @@ function PlusMenu({ onClose, onAction }) {
   const unhover = (e) => { e.currentTarget.style.background = "none"; };
   const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
   return (
-    <div ref={ref} className="popover-animate" style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 50, minWidth: 200, maxWidth: 240 }}>
+    <div ref={ref} className="popover-animate" style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 200, minWidth: 200, maxWidth: 240 }}>
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("knowledge"); onClose(); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
         Add knowledge
@@ -1097,7 +1225,7 @@ function PlusMenu({ onClose, onAction }) {
    BuilderInputBox
    =================================================================== */
 
-function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
+function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder, onPlusAction }) {
   const [focused, setFocused] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   function handleKeyDown(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); } }
@@ -1113,7 +1241,7 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
         >
           <PlusIcon size={16} />
         </button>
-        {plusMenuOpen && <PlusMenu onClose={() => setPlusMenuOpen(false)} />}
+        {plusMenuOpen && <PlusMenu onClose={() => setPlusMenuOpen(false)} onAction={onPlusAction} />}
         <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px 10px" }}>
           <ModelDropdown model={model} onModelChange={onModelChange} />
@@ -1300,6 +1428,12 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   function handleTemplateClick(template) { setInputValue(template.description); }
   function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); }
+  function handlePlusAction(action) {
+    if (action === "templates") { setTemplateReview(null); handleReset(); }
+    else if (action === "knowledge") { setInputValue("Add knowledge: "); }
+    else if (action === "tools") { setInputValue("Connect tool: "); }
+    else if (action === "websearch") { setInputValue("Search the web for: "); }
+  }
 
   if (templateReview) {
     return (
@@ -1325,7 +1459,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             {isFirstTime ? "Deploy your first worker in 30 seconds." : "Ask me anything, or describe a worker you need."}
           </p>
         </div>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} />
+        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} onPlusAction={handlePlusAction} />
         {isFirstTime && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", width: "100%", maxWidth: 680, marginTop: "1.5rem" }}>
             {STARTER_TEMPLATES.map(t => <TemplateCard key={t.id} template={t} onClick={() => handleTemplateClick(t)} />)}
@@ -1374,7 +1508,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         </div>
       </div>
       <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." />
+        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." onPlusAction={handlePlusAction} />
       </div>
     </div>
   );
@@ -1384,13 +1518,16 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
    UserMenu
    =================================================================== */
 
-function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier }) {
+function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, collapsed }) {
   const itemStyle = { display: "block", width: "100%", padding: "8px 14px", fontSize: "14px", color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" };
   const hover = (e) => { e.currentTarget.style.background = "var(--bg-hover)"; };
   const unhover = (e) => { e.currentTarget.style.background = "none"; };
   const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
+  const popoverPosition = collapsed
+    ? { position: "absolute", left: 56, bottom: 0 }
+    : { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4 };
   return (
-    <div className="popover-animate" style={{ position: "absolute", bottom: "100%", left: "8px", right: "8px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 100, marginBottom: 4 }}>
+    <div className="popover-animate" style={{ ...popoverPosition, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 100, minWidth: 220 }}>
       <div style={{ padding: "10px 14px 6px" }}>
         <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
         <div style={{ fontSize: "12px", color: tierColor(userTier), fontWeight: 600, marginTop: 2 }}>{tierLabel(userTier)} plan</div>
@@ -1442,7 +1579,7 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
         onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
       ><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>
       <div style={{ position: "relative" }} ref={menuRef}>
-        {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier="free" />}
+        {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier="free" collapsed />}
         <button onClick={() => setMenuOpen(!menuOpen)} title={userEmail || "Account"} style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", transition: "opacity 150ms" }}>
           {getInitials(userEmail)}
         </button>
@@ -1643,7 +1780,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
         <div style={{ maxWidth: 480 }}>
           <label style={S.label}>Schedule</label>
           <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{worker.schedule || "Manual (on-demand)"}</div>
-          {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{RECOMMENDED_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
+          {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{ALL_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
         </div>
       )}
     </div>
@@ -1778,7 +1915,6 @@ function ThemePreview({ opt, selected, onClick }) {
 function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState("");
-  const [callMe, setCallMe] = useState("");
   const [workFunction, setWorkFunction] = useState("founder");
   const [preferences, setPreferences] = useState("");
   const [saveState, setSaveState] = useState("idle");
@@ -1796,7 +1932,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const runtime = loadRuntimeConfig();
 
   useEffect(() => {
-    try { const stored = JSON.parse(localStorage.getItem("nooterra_settings") || "{}"); if (stored.displayName) setDisplayName(stored.displayName); if (stored.callMe) setCallMe(stored.callMe); if (stored.workFunction) setWorkFunction(stored.workFunction); if (stored.preferences) setPreferences(stored.preferences); if (stored.defaultModel) setDefaultModel(stored.defaultModel); } catch { /* ignore */ }
+    try { const stored = JSON.parse(localStorage.getItem("nooterra_settings") || "{}"); if (stored.displayName) setDisplayName(stored.displayName); if (stored.workFunction) setWorkFunction(stored.workFunction); if (stored.preferences) setPreferences(stored.preferences); if (stored.defaultModel) setDefaultModel(stored.defaultModel); } catch { /* ignore */ }
     (async () => { try { const result = await fetchTenantSettings(runtime); if (result?.displayName) setDisplayName(result.displayName); if (result?.name && !displayName) setDisplayName(result.name); } catch { /* ignore */ } setLoading(false); })();
   }, []);
 
@@ -1805,7 +1941,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   async function handleSave() {
     setSaveState("saving");
     try {
-      const settingsData = { displayName: displayName.trim(), callMe: callMe.trim(), workFunction, preferences: preferences.trim(), defaultModel };
+      const settingsData = { displayName: displayName.trim(), workFunction, preferences: preferences.trim(), defaultModel };
       localStorage.setItem("nooterra_settings", JSON.stringify(settingsData));
       if (displayName.trim()) localStorage.setItem("nooterra_user_name", displayName.trim());
       try { await updateTenantSettings(runtime, { displayName: displayName.trim() }); } catch { /* backend may reject */ }
@@ -1897,7 +2033,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
     setNotifEvents(prev => ({ ...prev, [key]: !prev[key] }));
   }
 
-  const sidebarTabs = [{ key: "general", label: "General" }, { key: "notifications", label: "Notifications" }, { key: "account", label: "Account" }, { key: "billing", label: "Billing" }, { key: "usage", label: "Usage" }];
+  const sidebarTabs = [{ key: "general", label: "General" }, { key: "notifications", label: "Notifications" }, { key: "billing", label: "Billing" }, { key: "account", label: "Account" }];
   const themes = [{ key: "light", label: "Light", bg: "#FAF9F5", fg: "#EBE8E0" }, { key: "auto", label: "Auto", bgLeft: "#FAF9F5", bgRight: "#212121", fgLeft: "#EBE8E0", fgRight: "#2f2f2f" }, { key: "dark", label: "Dark", bg: "#212121", fg: "#2f2f2f" }];
   const fonts = [{ key: "default", label: "Default" }, { key: "sans", label: "Sans" }, { key: "mono", label: "Mono" }];
 
@@ -1935,8 +2071,6 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Profile</div>
                   <label style={S.label}>Display name</label>
                   <FocusInput type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
-                  <label style={S.label}>What should Nooterra call you?</label>
-                  <FocusInput type="text" value={callMe} onChange={(e) => setCallMe(e.target.value)} placeholder="e.g. Aiden, boss, chief..." />
                   <label style={S.label}>Work function</label>
                   <select value={workFunction} onChange={(e) => setWorkFunction(e.target.value)} style={{ ...S.input, cursor: "pointer", appearance: "auto" }}>{WORK_FUNCTIONS.map(wf => <option key={wf.value} value={wf.value}>{wf.label}</option>)}</select>
                 </div>
@@ -2057,32 +2191,10 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
               </div>)}
               {tab === "usage" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Usage</div>
-                <label style={S.label}>Credits remaining</label>
-                <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginBottom: "1.5rem" }}>${balance}</div>
-                <label style={S.label}>Usage this period</label>
-                <div style={{ marginBottom: "1.5rem" }}>
-                  <div style={{ height: 8, borderRadius: 4, background: "var(--bg-hover)", overflow: "hidden", marginBottom: 6 }}><div style={{ height: "100%", borderRadius: 4, background: "var(--accent)", width: "12%", transition: "width 300ms" }} /></div>
-                  <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>12% of weekly limit</div>
+                <div style={{ padding: "3rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 10 }}>
+                  <div style={{ fontSize: "14px", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>No usage data yet</div>
+                  <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Usage statistics will appear here once workers start running.</div>
                 </div>
-                <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-                <label style={S.label}>Model breakdown</label>
-                <div style={{ marginBottom: "1.5rem" }}>
-                  {[{ name: "Gemini 3 Flash", tokens: "24,500" }, { name: "Nemotron 3 Super", tokens: "12,300" }, { name: "GPT-5.4", tokens: "0" }].map((m, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>{m.name}</span>
-                      <span style={{ fontSize: "14px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{m.tokens} tokens</span>
-                    </div>
-                  ))}
-                </div>
-                {!showCreditPicker ? <button style={{ ...S.btnPrimary, width: "auto" }} onClick={() => setShowCreditPicker(true)}>Top up credits</button> : (
-                  <div>
-                    <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "0.75rem" }}>Select amount:</div>
-                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                      {[5, 20, 50, 100].map((amt) => <button key={amt} style={{ ...S.btnSecondary, width: "auto", padding: "8px 18px", fontSize: "14px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ type: "credits", amount: amt })}>${amt}</button>)}
-                    </div>
-                    <button style={{ background: "none", border: "none", color: "var(--text-tertiary)", fontSize: "13px", marginTop: "0.5rem", cursor: "pointer", padding: 0 }} onClick={() => setShowCreditPicker(false)}>Cancel</button>
-                  </div>
-                )}
               </div>)}
             </>)}
           </div>
