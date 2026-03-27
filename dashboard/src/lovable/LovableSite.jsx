@@ -351,8 +351,9 @@ function HomePage() {
       </section>
 
       {/* ═══ INTEGRATIONS MARQUEE ═══ */}
-      <section style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "18px 24px", overflow: "hidden" }}>
+      <section>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px" }}>
+          <div style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", padding: "18px 0", overflow: "hidden" }}>
           <div className="logo-marquee">
             <div className="logo-marquee-track">
               {[...Array(4)].map((_, setIdx) => (
@@ -370,6 +371,7 @@ function HomePage() {
                 </div>
               ))}
             </div>
+          </div>
           </div>
         </div>
       </section>
