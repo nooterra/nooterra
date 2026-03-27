@@ -20,6 +20,7 @@ const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
+import { handleAuthorize, handleCallback, handleStatus as handleIntegrationStatus, executeTool, getAvailableTools } from './integrations.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import {
@@ -279,8 +280,18 @@ async function executeWorker(worker, executionId, triggerType) {
 
     addActivity('llm_call', `Calling ${worker.model}`);
 
-    // Build tools array from charter if defined
-    const tools = charter.tools && Array.isArray(charter.tools) ? charter.tools : undefined;
+    // Build tools: merge charter-defined tools with connected integration tools
+    let tools = charter.tools && Array.isArray(charter.tools) ? [...charter.tools] : [];
+    try {
+      const integrationTools = await getAvailableTools(pool, worker.tenant_id);
+      if (integrationTools.length > 0) {
+        tools.push(...integrationTools);
+        addActivity('tools_loaded', `${integrationTools.length} integration tool(s) available`);
+      }
+    } catch (toolErr) {
+      addActivity('tools_warn', `Failed to load integration tools: ${toolErr.message}`);
+    }
+    if (tools.length === 0) tools = undefined;
 
     // Execute via OpenRouter
     const result = await chatCompletion({
@@ -398,9 +409,78 @@ async function executeWorker(worker, executionId, triggerType) {
         return;
       }
 
-      // For scheduled runs, we record the tool calls but don't execute them server-side
-      // (tool execution requires integration credentials and sandboxed environments)
-      finalResponse = result.response || `Tool calls requested: ${result.toolCalls.map(tc => tc.name).join(', ')}`;
+      // --- AGENTIC LOOP: execute tools and feed results back to LLM ---
+      const MAX_ROUNDS = 8;
+      let currentMessages = [...messages];
+      let lastResult = result;
+
+      // Add assistant's response (with tool calls) to conversation
+      currentMessages.push({ role: 'assistant', content: lastResult.response || '', tool_calls: lastResult.toolCalls });
+
+      while (lastResult.toolCalls && lastResult.toolCalls.length > 0 && rounds < MAX_ROUNDS) {
+        // Execute each allowed tool call
+        const toolResults = [];
+        for (const tc of lastResult.toolCalls) {
+          const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
+          addActivity('tool_exec', `Executing ${tc.name}`);
+
+          const toolResult = await executeTool(pool, worker.tenant_id, tc.name, args);
+          const resultStr = toolResult.success
+            ? JSON.stringify(toolResult.result)
+            : `Error: ${toolResult.error}`;
+
+          toolResults.push({
+            role: 'tool',
+            tool_call_id: tc.id || tc.name,
+            name: tc.name,
+            content: resultStr.slice(0, 20000), // Cap tool output
+          });
+
+          addActivity('tool_result', `${tc.name}: ${toolResult.success ? 'success' : 'error: ' + toolResult.error}`);
+        }
+
+        // Feed tool results back to LLM
+        currentMessages.push(...toolResults);
+        rounds++;
+        addActivity('llm_call', `Round ${rounds}: feeding ${toolResults.length} tool result(s) back to LLM`);
+
+        const nextResult = await chatCompletion({
+          model: worker.model,
+          messages: currentMessages,
+          tools,
+          maxTokens: charter.maxTokens || 4096,
+          temperature: charter.temperature ?? 0.2,
+        });
+
+        totalPromptTokens += nextResult.usage.promptTokens;
+        totalCompletionTokens += nextResult.usage.completionTokens;
+        totalCost += nextResult.usage.cost;
+        addActivity('llm_response', `Round ${rounds}: ${nextResult.usage.totalTokens} tokens ($${nextResult.usage.cost.toFixed(6)})`);
+
+        lastResult = nextResult;
+        finalResponse = lastResult.response || finalResponse;
+
+        // If LLM returned more tool calls, validate them before continuing
+        if (lastResult.toolCalls && lastResult.toolCalls.length > 0) {
+          toolCallCount += lastResult.toolCalls.length;
+          for (const tc of lastResult.toolCalls) {
+            toolNames.push(tc.name);
+            const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
+            const validation = validateToolCall(charter, tc.name, args);
+            if (!validation.allowed && !validation.requiresApproval) {
+              addActivity('charter_block', `Round ${rounds}: tool "${tc.name}" blocked: ${validation.reason}`);
+              lastResult.toolCalls = []; // Stop the loop
+              break;
+            }
+          }
+          // Add assistant message for next round
+          currentMessages.push({ role: 'assistant', content: lastResult.response || '', tool_calls: lastResult.toolCalls });
+        }
+      }
+
+      if (rounds >= MAX_ROUNDS) {
+        addActivity('loop_limit', `Agentic loop hit max rounds (${MAX_ROUNDS})`);
+      }
     }
 
     // --- Charter enforcement: scan LLM response for injection patterns ---
@@ -1033,6 +1113,27 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: err.message }));
       }
     });
+    return;
+  }
+
+  // --- Integration OAuth routes ---
+
+  // GET /v1/integrations/:service/authorize → redirect to OAuth consent
+  const authMatch = pathname.match(/^\/v1\/integrations\/([\w_]+)\/authorize$/);
+  if (req.method === 'GET' && authMatch) {
+    handleAuthorize(req, res, authMatch[1]);
+    return;
+  }
+
+  // GET /v1/integrations/callback → OAuth callback from Google
+  if (req.method === 'GET' && pathname === '/v1/integrations/callback') {
+    handleCallback(req, res, pool);
+    return;
+  }
+
+  // GET /v1/integrations/status → which services are connected
+  if (req.method === 'GET' && pathname === '/v1/integrations/status') {
+    handleIntegrationStatus(req, res, pool);
     return;
   }
 
