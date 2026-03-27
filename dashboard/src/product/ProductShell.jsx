@@ -730,6 +730,70 @@ function parseOptionsBlock(text) {
   return { options: [], displayText: text };
 }
 
+function OptionPicker({ options, onSubmit }) {
+  const [selected, setSelected] = useState(new Set());
+  function toggle(opt) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (opt === "Custom...") { onSubmit?.("Custom..."); return prev; }
+      if (next.has(opt)) next.delete(opt); else next.add(opt);
+      return next;
+    });
+  }
+  function handleContinue() {
+    if (selected.size === 0) return;
+    onSubmit?.(Array.from(selected).join(", "));
+  }
+  return (
+    <div style={{ maxWidth: "85%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {options.filter(o => o !== "Custom...").map((opt, i) => {
+          const isSelected = selected.has(opt);
+          return (
+            <button key={i} onClick={() => toggle(opt)} style={{
+              padding: "10px 16px", fontSize: "13px", fontWeight: 500, textAlign: "left",
+              color: isSelected ? "var(--text-100, var(--text-primary))" : "var(--text-200, var(--text-secondary))",
+              border: isSelected ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+              borderRadius: 10, background: isSelected ? "var(--accent-subtle, rgba(196,97,58,0.06))" : "var(--bg-400, var(--bg-surface))",
+              cursor: "pointer", fontFamily: "inherit", transition: "all 150ms",
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: 5, border: isSelected ? "none" : "1.5px solid var(--border-strong, var(--border))",
+                background: isSelected ? "var(--accent)" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 150ms",
+              }}>
+                {isSelected && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              </div>
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button onClick={handleContinue} disabled={selected.size === 0} style={{
+          padding: "8px 20px", fontSize: "13px", fontWeight: 600,
+          background: selected.size > 0 ? "var(--text-100, #111)" : "var(--bg-300, #eee)",
+          color: selected.size > 0 ? "var(--bg-100, #fff)" : "var(--text-300, #999)",
+          border: "none", borderRadius: 8, cursor: selected.size > 0 ? "pointer" : "default",
+          fontFamily: "inherit", transition: "all 150ms",
+        }}>
+          Continue {selected.size > 0 && `(${selected.size})`}
+        </button>
+        {options.includes("Custom...") && (
+          <button onClick={() => onSubmit?.("Custom...")} style={{
+            padding: "8px 16px", fontSize: "13px", fontWeight: 500,
+            color: "var(--text-300, var(--text-tertiary))", background: "none",
+            border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            Type my own
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BuilderMessage({ msg, isStreaming, onWorkerDefDetected, onOptionClick }) {
   const isUser = msg.role === "user";
   if (isUser) {
@@ -757,21 +821,7 @@ function BuilderMessage({ msg, isStreaming, onWorkerDefDetected, onOptionClick }
         {isStreaming && <span style={{ display: "inline-block", width: 2, height: "1.1em", background: "var(--text-primary)", marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 1s step-end infinite" }} />}
       </div>
       {options.length > 0 && !isStreaming && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "85%" }}>
-          {options.map((opt, i) => (
-            <button
-              key={i}
-              onClick={() => onOptionClick?.(opt)}
-              style={{
-                padding: "6px 14px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
-                border: "1px solid var(--border)", borderRadius: 20, background: "var(--bg-surface)",
-                cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms, color 150ms",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "var(--bg-surface)"; }}
-            >{opt}</button>
-          ))}
-        </div>
+        <OptionPicker options={options} onSubmit={onOptionClick} />
       )}
     </div>
   );
@@ -1304,7 +1354,7 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
-  const [selectedModel, setSelectedModel] = useState("nvidia/nemotron-3-super-120b-a12b:free");
+  const [selectedModel, setSelectedModel] = useState("google/gemini-3-flash");
   const [streaming, setStreaming] = useState(false);
   const [deployingWorker, setDeployingWorker] = useState(false);
   const messagesEndRef = useRef(null);
@@ -1325,7 +1375,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [editingRuleKey, setEditingRuleKey] = useState(null);
   const [newRuleText, setNewRuleText] = useState("");
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50); }, [messages]);
 
   const lastUserMessage = messages.filter(m => m.role === "user").slice(-1)[0]?.content || "";
 
