@@ -1,194 +1,179 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { ossLinks } from "../site/config/links.js";
 
+/* ── External links ── */
 const DOCS_EXTERNAL = "https://docs.nooterra.ai";
-const DOCS_GETTING_STARTED = DOCS_EXTERNAL + "/getting-started";
+const DOCS_GETTING_STARTED = "https://docs.nooterra.ai/quickstart";
 const DISCORD_HREF = "https://discord.gg/nooterra";
-const MANAGED_ONBOARDING_HREF = buildManagedAccountHref({ flow: "signup", source: "site", hash: "account-create" });
-
-function buildManagedAccountHref({ flow = "signup", source = "", hash = "account-create" } = {}) {
-  const params = new URLSearchParams();
-  params.set("experience", "app");
-  const normalizedSource = String(source ?? "").trim();
-  if (normalizedSource) params.set("source", normalizedSource);
-  const normalizedHash = String(hash ?? "").trim().replace(/^#?/, "");
-  return `/${String(flow ?? "signup").trim() || "signup"}?${params.toString()}${normalizedHash ? `#${normalizedHash}` : ""}`;
-}
-
-function buildManagedOnboardingHref(source) {
-  return buildManagedAccountHref({ flow: "signup", source, hash: "account-create" });
-}
-
-/* ── Inline logo SVG ── */
-
-function NooterraLogo({ className = "" }) {
-  return (
-    <svg viewBox="0 0 2172 724" className={className} fill="currentColor">
-      <path d="M0 0 C26.82470779 -0.51238206 48.35993864 8.34450534 67.94287109 26.45019531 C75.77680499 34.05522277 82.40238135 42.89909015 88.9765625 51.5859375 C92.11919943 55.73683711 95.33317141 59.83149753 98.5390625 63.93359375 C103.08579633 69.75984763 107.56435892 75.62989524 111.9765625 81.55859375 C116.70169946 87.89406357 121.55140725 94.09078243 126.6640625 100.12109375 C127.36789062 100.971875 128.07171875 101.82265625 128.796875 102.69921875 C136.21349966 111.36523896 145.07632687 118.70097111 155.6640625 123.12109375 C156.40011719 123.49105469 157.13617187 123.86101562 157.89453125 124.2421875 C169.05673162 129.24354549 183.27353069 128.85830137 194.7890625 125.05859375 C207.67429698 120.08338391 216.587739 112.08652183 222.62109375 99.7109375 C227.48411387 87.63534821 227.52914293 72.25782465 222.6640625 60.12109375 C216.01039096 46.75965577 206.30399199 39.85163693 192.5 35.01171875 C180.88091103 32.31400767 166.27017229 32.35729644 155.6640625 38.12109375 C154.85582031 38.52199219 154.04757812 38.92289062 153.21484375 39.3359375 C142.3473334 45.22179476 133.8643998 54.26647032 126.6015625 64.1015625 C125.9621875 64.76800781 125.3228125 65.43445313 124.6640625 66.12109375 C120.6640625 66.12109375 120.6640625 66.12109375 119.12890625 64.79296875 C118.62488281 64.15875 118.12085938 63.52453125 117.6015625 62.87109375 C114.01447146 58.51199834 110.24350306 54.37508458 106.39624023 50.24707031 C104.26982944 47.94682101 102.40688231 45.73532347 100.6640625 43.12109375 C101.10833159 37.66145927 106.0683126 34.18839809 109.7265625 30.55859375 C110.53206543 29.75663574 111.33756836 28.95467773 112.16748047 28.12841797 C132.03498754 8.79797573 154.2292148 -0.27547494 182.04858398 -0.25170898 C194.651332 0.02499806 206.53515251 3.15559695 217.6640625 9.12109375 C218.62570312 9.61222656 219.58734375 10.10335938 220.578125 10.609375 C239.87753877 21.05699046 253.35834006 38.64037229 259.9375 59.46484375 C265.26463291 78.94038344 262.43145853 100.38883528 252.80322266 117.90307617 C249.84715865 123.0348852 246.49675819 127.62344845 242.6640625 132.12109375 C242.03177734 132.98541016 242.03177734 132.98541016 241.38671875 133.8671875 C230.3163981 148.43694082 210.33522217 156.9562848 192.8125 159.58203125 C186.48774773 160.35321835 180.15449687 160.44926358 173.7890625 160.49609375 C172.09620117 160.51687988 172.09620117 160.51687988 170.36914062 160.53808594 C160.69818308 160.48407412 152.19090575 158.76446917 143.66796875 154.1328125 C141.50385858 153.04021107 139.32893435 152.28917132 137.0390625 151.49609375 C120.89870879 145.11904742 106.88667542 130.73143304 96.6640625 117.12109375 C95.35018909 115.44150833 94.02710563 113.76942567 92.70361328 112.09741211 C85.09379595 102.47415847 77.57950415 92.78499827 70.3515625 82.87109375 C48.71788768 51.05893033 48.71788768 51.05893033 15.6640625 34.12109375 C3.45829074 33.00036536 -8.58588928 32.63334535 -19.3359375 39.12109375 C-20.3878125 39.69859375 -21.4396875 40.27609375 -22.5234375 40.87109375 C-32.13524281 48.560538 -37.42648281 56.39272968 -41.3359375 68.12109375 C-42.66989133 83.78079178 -41.34219937 97.46919719 -31.3359375 110.12109375 C-29.06520141 112.80852881 -29.06520141 112.80852881 -26.3359375 115.12109375 C-25.70042969 115.68699219 -25.06492187 116.25289063 -24.41015625 116.8359375 C-18.8143425 121.53721619 -13.29111459 124.00033484 -6.3359375 126.12109375 C-4.8509375 126.61609375 -4.8509375 126.61609375 -3.3359375 127.12109375 C13.19549418 128.35346885 28.4168698 125.84685885 41.6640625 115.12109375 C47.47572052 109.89368608 52.87324757 104.30498252 57.6640625 98.12109375 C61.06159401 99.54495358 62.79231258 101.19660918 65.01171875 104.11328125 C65.61693359 104.90089844 66.22214844 105.68851562 66.84570312 106.5 C67.46638672 107.32371094 68.08707031 108.14742188 68.7265625 108.99609375 C69.35111328 109.81207031 69.97566406 110.62804687 70.61914062 111.46875 C72.30916457 113.68003 73.98990856 115.89778383 75.6640625 118.12109375 C76.50831787 119.16692627 76.50831787 119.16692627 77.36962891 120.23388672 C78.6640625 122.12109375 78.6640625 122.12109375 78.58984375 124.57421875 C75.16152126 134.00572197 64.61448399 140.72004696 56.6640625 146.12109375 C55.73980469 146.75015625 54.81554687 147.37921875 53.86328125 148.02734375 C34.26116223 160.39050595 8.22584593 164.02448785 -14.33984375 158.9921875 C-19.13787114 157.69476399 -23.75287145 156.03740499 -28.3359375 154.12109375 C-29.50125 153.6415625 -30.6665625 153.16203125 -31.8671875 152.66796875 C-38.83661404 149.46484847 -44.64702585 145.23312669 -50.3359375 140.12109375 C-51.25503906 139.29609375 -52.17414062 138.47109375 -53.12109375 137.62109375 C-59.94981991 131.1586954 -64.88310008 124.38227897 -69.3359375 116.12109375 C-70.18671875 114.57808594 -70.18671875 114.57808594 -71.0546875 113.00390625 C-80.58382107 94.27261918 -80.72072288 71.76113641 -74.33984375 52.04296875 C-71.25072044 43.87656663 -66.57940522 37.01758688 -61.3359375 30.12109375 C-60.71976563 29.30640625 -60.10359375 28.49171875 -59.46875 27.65234375 C-48.20182337 13.91926579 -29.77661541 3.35864671 -12.3359375 0.65625 C-8.2257669 0.25725737 -4.12512005 0.14974089 0 0 Z " transform="translate(749.3359375,289.87890625)"/>
-      <path d="M0 0 C11.8480311 11.01441214 17.01089326 25.95698704 17.71753693 41.85995865 C17.8888242 48.83558456 17.83899388 55.8120426 17.8046875 62.7890625 C17.80095078 65.03492608 17.79810693 67.2807913 17.79611206 69.5266571 C17.7885275 75.39721286 17.76892422 81.26766743 17.7467041 87.13818359 C17.72613335 93.14484285 17.71708647 99.15151869 17.70703125 105.15820312 C17.68567282 116.91411379 17.65053364 128.66992322 17.609375 140.42578125 C5.729375 140.42578125 -6.150625 140.42578125 -18.390625 140.42578125 C-18.720625 134.81578125 -19.050625 129.20578125 -19.390625 123.42578125 C-21.040625 125.40578125 -22.690625 127.38578125 -24.390625 129.42578125 C-27.56358354 132.00699833 -30.96411354 134.19582935 -34.390625 136.42578125 C-35.999375 137.53953125 -35.999375 137.53953125 -37.640625 138.67578125 C-48.86139082 144.70174808 -66.13974397 145.71366235 -78.3984375 142.51171875 C-91.17274261 138.23522352 -102.69282893 130.38613138 -109.390625 118.42578125 C-114.91648242 106.12563195 -118.18726709 92.82640627 -113.890625 79.61328125 C-107.87944638 65.5378102 -97.37754853 56.09925785 -83.390625 50.42578125 C-67.67696368 45.09163027 -51.91021574 45.2762681 -35.515625 45.36328125 C-33.84505344 45.36831211 -32.1744804 45.37287218 -30.50390625 45.37695312 C-26.46610818 45.38781966 -22.42838368 45.40499444 -18.390625 45.42578125 C-18.69520945 43.33014253 -19.00475017 41.23522373 -19.31640625 39.140625 C-19.57417847 37.39060181 -19.57417847 37.39060181 -19.8371582 35.60522461 C-20.91325514 29.42348202 -23.42734048 25.64183763 -28.26953125 21.81640625 C-37.05343912 16.05752742 -47.16343531 15.02714805 -57.390625 16.42578125 C-65.52830792 18.3843716 -72.41069167 21.50745614 -77.390625 28.42578125 C-78.84132464 31.1574646 -78.84132464 31.1574646 -79.390625 33.42578125 C-86.83424586 32.80931327 -93.69969597 30.77972604 -100.828125 28.61328125 C-102.02373047 28.26974609 -103.21933594 27.92621094 -104.45117188 27.57226562 C-105.58490234 27.22873047 -106.71863281 26.88519531 -107.88671875 26.53125 C-108.91982178 26.22340576 -109.9529248 25.91556152 -111.01733398 25.59838867 C-113.390625 24.42578125 -113.390625 24.42578125 -114.30224609 22.44702148 C-114.55356466 16.69932429 -108.56381524 10.77234936 -105.01171875 6.6953125 C-79.06225591 -20.14755908 -29.66308359 -22.76170143 0 0 Z " transform="translate(1628.390625,303.57421875)"/>
-      <path d="M0 0 C16.09066572 13.88878515 22.29079914 31.3441877 25.22265625 51.8671875 C25.22265625 59.1271875 25.22265625 66.3871875 25.22265625 73.8671875 C-10.08734375 73.8671875 -45.39734375 73.8671875 -81.77734375 73.8671875 C-78.30522473 92.75256143 -78.30522473 92.75256143 -66.34375 106.70703125 C-56.15101644 113.05227939 -45.54809203 114.34073506 -33.77734375 112.8671875 C-23.69678868 110.50243645 -15.18566121 104.84166114 -9.33984375 96.3671875 C-6.77734375 93.8671875 -6.77734375 93.8671875 -4.88574219 93.7890625 C-4.16418945 93.89734375 -3.44263672 94.005625 -2.69921875 94.1171875 C-1.89943604 94.23126953 -1.09965332 94.34535156 -0.27563477 94.46289062 C0.54880127 94.59630859 1.3732373 94.72972656 2.22265625 94.8671875 C3.38873413 95.04411133 3.38873413 95.04411133 4.57836914 95.22460938 C6.90089238 95.58631982 9.21796492 95.97285502 11.53515625 96.3671875 C12.31955078 96.49738281 13.10394531 96.62757813 13.91210938 96.76171875 C17.39117828 97.34698268 20.80629274 97.97840849 24.22265625 98.8671875 C23.23555756 109.90600952 15.38068569 120.5798837 7.22265625 127.8671875 C-1.16244985 134.16897305 -9.75376493 138.65207731 -19.77734375 141.8671875 C-20.64746094 142.18558594 -21.51757812 142.50398437 -22.4140625 142.83203125 C-41.34576483 148.82937345 -62.63542708 145.22638748 -80.27734375 137.0546875 C-99.05979538 126.87330338 -111.16558165 110.02951899 -117.24633789 89.88305664 C-119.25961252 82.2400182 -119.0279164 74.26511445 -119.07250977 66.41577148 C-119.0839637 65.02081099 -119.10431001 63.625892 -119.1340332 62.23120117 C-119.42292345 48.60494218 -117.34597743 36.14183292 -110.58984375 24.0546875 C-110.20183594 23.3438501 -109.81382813 22.6330127 -109.4140625 21.90063477 C-105.96001487 15.78850249 -101.85608892 10.72318069 -96.77734375 5.8671875 C-95.76800781 4.82884766 -95.76800781 4.82884766 -94.73828125 3.76953125 C-69.86910279 -20.40107478 -26.96235445 -20.70526797 0 0 Z " transform="translate(1253.77734375,303.1328125)"/>
-      <path d="M0 0 C10.54959573 9.54973075 16.85456711 23.78759695 18.05391693 37.87115288 C18.3893869 45.07145299 18.29173783 52.27499339 18.22265625 59.48046875 C18.21518052 61.79073086 18.2094939 64.10099938 18.20550537 66.41127014 C18.19035391 72.44304423 18.15116407 78.47442286 18.10668945 84.50604248 C18.06550868 90.68040622 18.04744597 96.8548349 18.02734375 103.02929688 C17.98465829 115.10827315 17.91439587 127.18685406 17.83203125 139.265625 C5.95203125 139.265625 -5.92796875 139.265625 -18.16796875 139.265625 C-18.17731445 136.41510498 -18.18666016 133.56458496 -18.19628906 130.62768555 C-18.2301476 121.18000099 -18.28574587 111.73253281 -18.35187149 102.28502178 C-18.39127894 96.56036466 -18.4235005 90.83585982 -18.43896484 85.11108398 C-18.45417565 79.58010313 -18.48869993 74.04954111 -18.53627777 68.51874733 C-18.55104596 66.41502345 -18.55900713 64.31123976 -18.5598526 62.20746422 C-18.31629797 43.02452355 -18.31629797 43.02452355 -27.453125 26.69921875 C-35.94906294 19.59669205 -46.20815329 19.31081487 -56.77099609 19.95751953 C-65.78193036 21.11577977 -73.04576786 27.11858136 -78.5859375 34.01171875 C-84.65778133 42.66222219 -86.45721742 51.6428887 -86.48681641 62.09008789 C-86.50188484 63.3356395 -86.50188484 63.3356395 -86.51725769 64.60635376 C-86.54784109 67.31699 -86.5650549 70.02752866 -86.58203125 72.73828125 C-86.60076294 74.63114752 -86.62033782 76.52400561 -86.64071655 78.41685486 C-86.69183241 83.37331298 -86.73156755 88.32979812 -86.76885986 93.28637695 C-86.80902897 98.35439625 -86.86006216 103.42230518 -86.91015625 108.49023438 C-87.00667204 118.41529439 -87.09014867 128.34040077 -87.16796875 138.265625 C-98.71796875 138.265625 -110.26796875 138.265625 -122.16796875 138.265625 C-122.16796875 88.765625 -122.16796875 39.265625 -122.16796875 -11.734375 C-110.61796875 -11.734375 -99.06796875 -11.734375 -87.16796875 -11.734375 C-86.67296875 -3.319375 -86.67296875 -3.319375 -86.16796875 5.265625 C-85.11609375 4.110625 -84.06421875 2.955625 -82.98046875 1.765625 C-60.50249812 -20.51447617 -23.8872565 -19.1098052 0 0 Z " transform="translate(634.16796875,304.734375)"/>
-      <path d="M0 0 C11.88 0 23.76 0 36 0 C36 14.19 36 28.38 36 43 C47.55 43 59.1 43 71 43 C71 53.23 71 63.46 71 74 C59.45 74 47.9 74 36 74 C36.03274174 87.08619255 36.03274174 87.08619255 36.11132812 100.171875 C36.15357243 105.51535221 36.19064463 110.85848947 36.19555664 116.20214844 C36.19986033 120.51429204 36.2284928 124.8256723 36.27343178 129.13757706 C36.28634105 130.77600774 36.29073794 132.41453009 36.28615379 134.05300522 C36.26665023 143.14735166 36.33094866 151.37084452 42 159 C47.1846131 163.53653646 51.7820912 163.39719636 58.5234375 163.23828125 C62.69294248 162.95250619 66.84627471 162.46152503 71 162 C71 172.56 71 183.12 71 194 C65.32778561 195.13444288 60.07422298 195.1839889 54.3125 195.1875 C53.27416016 195.19974609 52.23582031 195.21199219 51.16601562 195.22460938 C36.26253624 195.252641 25.20710147 191.76966519 14.2578125 181.38671875 C1.0539493 167.42900177 -0.31488961 150.68475242 -0.1953125 132.3984375 C-0.19157557 130.70879281 -0.18873181 129.01914593 -0.18673706 127.32949829 C-0.17915411 122.91381697 -0.1595524 118.49827027 -0.1373291 114.0826416 C-0.11675474 109.5642275 -0.10771072 105.04579134 -0.09765625 100.52734375 C-0.07630069 91.68482761 -0.041163 82.84244614 0 74 C-9.9 74 -19.8 74 -30 74 C-30 63.77 -30 53.54 -30 43 C-20.1 43 -10.2 43 0 43 C0 28.81 0 14.62 0 0 Z " transform="translate(1049,250)"/>
-      <path d="M0 0 C0.90492187 0.00064453 1.80984375 0.00128906 2.7421875 0.00195312 C9.35916241 0.04666241 9.35916241 0.04666241 10.5 1.1875 C10.58855161 3.8537603 10.61524673 6.49397114 10.59765625 9.16015625 C10.5962413 9.95779892 10.59482635 10.75544159 10.59336853 11.57725525 C10.58775316 14.13487435 10.57519812 16.69240718 10.5625 19.25 C10.55748698 20.97981645 10.55292373 22.70963426 10.54882812 24.43945312 C10.53777875 28.68883553 10.52050386 32.93815312 10.5 37.1875 C2.83496094 36.25537109 2.83496094 36.25537109 -0.1796875 35.64453125 C-9.83060076 33.74359379 -18.66366318 35.55702276 -26.98046875 40.73046875 C-35.85693042 47.22797922 -41.50934269 55.58812356 -44.5 66.1875 C-45.41131387 72.87147495 -45.22328438 79.65961893 -45.20703125 86.390625 C-45.22016871 88.32405134 -45.23547916 90.25746402 -45.25285339 92.19085693 C-45.29247673 97.24110244 -45.30287915 102.29098706 -45.30688477 107.34136963 C-45.31625919 112.51024161 -45.35369943 117.6789053 -45.38867188 122.84765625 C-45.45301692 132.96097739 -45.48384726 143.07398697 -45.5 153.1875 C-57.38 153.1875 -69.26 153.1875 -81.5 153.1875 C-81.5 103.3575 -81.5 53.5275 -81.5 2.1875 C-69.62 2.1875 -57.74 2.1875 -45.5 2.1875 C-45.005 11.5925 -45.005 11.5925 -44.5 21.1875 C-42.97375 19.5375 -41.4475 17.8875 -39.875 16.1875 C-28.63610681 4.63393156 -15.99899264 -0.22417468 0 0 Z " transform="translate(1384.5,290.8125)"/>
-      <path d="M0 0 C0 12.54 0 25.08 0 38 C-5 37 -5 37 -8 36 C-20.25561881 35.01632533 -30.37940325 36.85429127 -39.9296875 44.8984375 C-52.27289586 57.42795844 -52.4544444 72.83128671 -52.51171875 89.328125 C-52.52859583 91.17186657 -52.54675007 93.01559686 -52.56611633 94.85931396 C-52.61329385 99.67271392 -52.64331066 104.48606807 -52.66955566 109.29962158 C-52.69952532 114.22718345 -52.74599861 119.15458795 -52.79101562 124.08203125 C-52.87668124 133.72128921 -52.94265993 143.36053189 -53 153 C-64.55 153 -76.1 153 -88 153 C-88 103.5 -88 54 -88 3 C-76.45 3 -64.9 3 -53 3 C-52.505 12.405 -52.505 12.405 -52 22 C-50.6078125 20.2675 -50.6078125 20.2675 -49.1875 18.5 C-35.28119913 2.69102617 -20.62520751 0 0 0 Z " transform="translate(1503,290)"/>
-    </svg>
-  );
-}
+const MANAGED_ONBOARDING_HREF = "/signup?experience=app";
 
 /* ── GitHub icon ── */
-
-function GitHubIcon({ className = "" }) {
+function GitHubIcon(props) {
   return (
-    <svg viewBox="0 0 16 16" className={className} fill="currentColor">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" {...props}>
+      <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
     </svg>
   );
 }
 
-/* ── Shared layout ── */
-
-function FadeIn({ children, delay = 0, className = "" }) {
+/* ── Integration logos (SVG) ── */
+function IntegrationLogo({ name }) {
+  const style = { height: 22, opacity: 0.45, flexShrink: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--text-100)" };
+  const textStyle = { fontSize: "0.9375rem", fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap" };
+  const logos = {
+    OpenAI: <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 9.37a5.88 5.88 0 0 0-.51-4.85 5.96 5.96 0 0 0-6.42-2.86A5.88 5.88 0 0 0 10.93 0a5.96 5.96 0 0 0-5.68 4.11 5.88 5.88 0 0 0-3.93 2.84 5.96 5.96 0 0 0 .73 6.98 5.88 5.88 0 0 0 .51 4.85 5.96 5.96 0 0 0 6.42 2.86A5.88 5.88 0 0 0 13.4 24a5.96 5.96 0 0 0 5.68-4.11 5.88 5.88 0 0 0 3.93-2.84 5.96 5.96 0 0 0-.73-6.98v-.7zM13.4 22.24a4.42 4.42 0 0 1-2.83-1.02l.14-.08 4.7-2.71a.76.76 0 0 0 .39-.67v-6.62l1.99 1.15a.07.07 0 0 1 .04.05v5.49a4.46 4.46 0 0 1-4.43 4.41zm-9.53-4.06a4.42 4.42 0 0 1-.53-2.97l.14.08 4.7 2.71a.76.76 0 0 0 .77 0l5.74-3.31v2.3a.07.07 0 0 1-.03.06l-4.75 2.74a4.46 4.46 0 0 1-6.04-1.61zM2.62 7.88A4.42 4.42 0 0 1 4.94 6l-.02.16v5.43a.76.76 0 0 0 .38.66l5.74 3.31-1.99 1.15a.07.07 0 0 1-.07 0L4.23 14a4.46 4.46 0 0 1-1.61-6.12zm16.36 3.8l-5.74-3.31 1.99-1.15a.07.07 0 0 1 .07 0l4.75 2.74a4.46 4.46 0 0 1-.69 8.05v-5.6a.76.76 0 0 0-.38-.66v-.07zM20.96 9a4.56 4.56 0 0 0-.14-.08l-4.7-2.71a.76.76 0 0 0-.77 0L9.6 9.54v-2.3a.07.07 0 0 1 .03-.06L14.38 4.44A4.46 4.46 0 0 1 20.96 9zM8.5 13.27L6.51 12.12a.07.07 0 0 1-.04-.05V6.58a4.46 4.46 0 0 1 7.26-3.39l-.14.08-4.7 2.71a.76.76 0 0 0-.39.67v6.62zm1.08-2.33l2.56-1.47 2.56 1.47v2.95l-2.56 1.47-2.56-1.47v-2.95z"/></svg>,
+    Anthropic: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13.83 2H16.9l6.1 20h-3.07l-1.52-5.2H12.3l3.07-3.07h4.6L16.36 2.87 13.83 2zM7.1 2L1 22h3.07l1.52-5.2h6.11L8.63 13.73H4.05L7.1 2z"/></svg>,
+    Google: <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>,
+    Stripe: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13.98 11.57c0-1.59-.77-2.84-2.24-2.84s-2.37 1.25-2.37 2.83c0 1.87 1.05 2.81 2.56 2.81.74 0 1.29-.17 1.71-.4v-1.39c-.42.22-.9.35-1.51.35-.6 0-1.13-.21-1.2-.93h3.02c.02-.08.03-.4.03-.43zm-3.06-.59c0-.69.42-1 .81-1s.77.31.77 1h-1.58zM8.13 8.73c-.6 0-1 .28-1.21.48l-.08-.38H5.4v7.7l1.62-.34.01-1.87c.22.16.54.39 1.08.39 1.09 0 2.08-.88 2.08-2.81 0-1.77-1.01-2.73-2.06-2.73v-.44zm-.36 4.2c-.36 0-.57-.13-.72-.29l-.01-2.28c.16-.18.37-.31.73-.31.56 0 .94.62.94 1.44 0 .83-.37 1.44-.94 1.44zM4.09 8.37l1.63-.35V6.7L4.09 7.05v1.32zM5.72 8.85H4.09v5.83h1.63V8.85zM18.6 10.56l.01-1.71h-1.62v5.83h1.62v-3.91c.38-.5 1.03-.41 1.23-.34V8.85c-.21-.08-.97-.23-1.24.27v1.44zm2.57-1.71h-1.62v5.83h1.62V8.85zM21.78 7.05l-1.62.34v1.46h1.62V7.05z"/></svg>,
+    Slack: <svg width="18" height="18" viewBox="0 0 24 24"><path d="M5.04 15.28a2.18 2.18 0 0 1-2.18 2.18A2.18 2.18 0 0 1 .68 15.28a2.18 2.18 0 0 1 2.18-2.18h2.18v2.18zm1.09 0a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18v5.45a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-5.45z" fill="#E01E5A"/><path d="M8.31 5.04a2.18 2.18 0 0 1-2.18-2.18A2.18 2.18 0 0 1 8.31.68a2.18 2.18 0 0 1 2.18 2.18v2.18H8.31zm0 1.1a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18H2.86A2.18 2.18 0 0 1 .68 8.32 2.18 2.18 0 0 1 2.86 6.14h5.45z" fill="#36C5F0"/><path d="M18.96 8.32a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-2.18V8.32zm-1.09 0a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18V2.86A2.18 2.18 0 0 1 15.69.68a2.18 2.18 0 0 1 2.18 2.18v5.46z" fill="#2EB67D"/><path d="M15.69 18.96a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-2.18h2.18zm0-1.09a2.18 2.18 0 0 1-2.18-2.18 2.18 2.18 0 0 1 2.18-2.18h5.45a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-5.45z" fill="#ECB22E"/></svg>,
+    GitHub: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>,
+    Gmail: <svg width="18" height="18" viewBox="0 0 24 24"><path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" fill="#EA4335"/></svg>,
+    Notion: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.46 2.16l12.7-.93c1.56-.13 1.96-.04 2.94.66l4.05 2.83c.67.47.89.6.89 1.12v14.48c0 .88-.32 1.4-1.47 1.48l-15.17.89c-.86.05-1.28-.09-1.74-.65L2.72 17.5c-.51-.65-.73-1.14-.73-1.71V3.56c0-.72.32-1.31 1.47-1.4zm13.26 2.65c.18.14.22.18.22.4v11.46c0 .36-.14.54-.45.56l-11.3.65c-.31.02-.46-.08-.6-.26l-2.63-3.44c-.18-.23-.26-.4-.26-.63V3.6c0-.28.09-.46.36-.49l13.92-.81c.05 0 .13.04.18.08l.56.43z"/></svg>,
+    Linear: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.77 17.72a11.94 11.94 0 0 1-1.42-3.13L12.59 3.35a11.93 11.93 0 0 1 3.13 1.42L2.77 17.72zm-1.93-5.48A12.04 12.04 0 0 1 12 0c.75 0 1.49.07 2.2.2L.97 13.44a12.11 12.11 0 0 1-.13-1.2zm1.25 7.54l15.28-15.28c.55.45 1.06.96 1.51 1.51L3.6 21.29a12.02 12.02 0 0 1-1.51-1.51zm3.54 2.83l13.02-13.02a11.94 11.94 0 0 1 1.42 3.13L8.83 23.96a11.93 11.93 0 0 1-3.2-1.35zm5.93 1.27L23.88 11.56c.08.48.12.97.12 1.47A12.04 12.04 0 0 1 12 24.97c-.48 0-.97-.04-1.44-.12z"/></svg>,
+    Vercel: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L24 22H0L12 1z"/></svg>,
+  };
   return (
-    <div className={`lovable-fade ${className}`.trim()} style={{ animationDelay: `${delay}s` }}>
+    <div style={style}>
+      {logos[name]}
+      <span style={textStyle}>{name}</span>
+    </div>
+  );
+}
+
+/* ── Intersection Observer fade-in ── */
+function InView({ children, delay = 0, className = "", as: Tag = "div", style }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { el.classList.add("visible"); obs.unobserve(el); }
+    }, { threshold: 0.15 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <Tag ref={ref} className={`fade-up ${className}`} style={{ transitionDelay: `${delay}s`, ...style }}>
+      {children}
+    </Tag>
+  );
+}
+
+/* ── Legacy FadeIn for compatibility ── */
+function FadeIn({ children, delay = 0 }) {
+  return (
+    <div className="lovable-fade" style={{ animationDelay: `${delay}s` }}>
       {children}
     </div>
   );
 }
 
+/* ── Shared nav ── */
 function SiteNav() {
+  const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [pathname, setPathname] = useState(typeof window === "undefined" ? "/" : window.location.pathname);
 
   useEffect(() => {
-    const handleChange = () => setPathname(window.location.pathname);
-    window.addEventListener("popstate", handleChange);
-    return () => window.removeEventListener("popstate", handleChange);
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const navLinks = [
-    { label: "Pricing", href: "/pricing" },
-    { label: "Docs", href: DOCS_EXTERNAL },
-    { label: "GitHub", href: ossLinks.repo },
-  ];
+  const navStyle = {
+    position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+    borderBottom: scrolled ? "1px solid var(--border)" : "1px solid transparent",
+    backgroundColor: scrolled ? "rgba(250,249,246,0.85)" : "transparent",
+    backdropFilter: scrolled ? "blur(12px)" : "none",
+    transition: "all 300ms ease",
+  };
+
+  const linkStyle = {
+    fontSize: "0.875rem", fontWeight: 500, color: "var(--text-200)",
+    textDecoration: "none", transition: "color 150ms",
+  };
 
   return (
-    <nav style={{
-      position: "fixed", inset: "0 0 auto 0", zIndex: 50,
-      backgroundColor: "oklch(98.5% 0.005 80 / 0.92)",
-      backdropFilter: "blur(12px)",
-      borderBottom: "1px solid var(--border)",
-    }}>
-      <div style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, padding: "0 24px" }}>
-        <a href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
-          <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-100)", letterSpacing: "-0.03em" }}>nooterra</span>
+    <nav style={navStyle}>
+      <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
+          <img src="/logo.png" alt="" style={{ height: 28 }} />
+          <span style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-100)", letterSpacing: "-0.02em" }}>nooterra</span>
         </a>
 
-        {/* Desktop nav */}
-        <div style={{ display: "flex", alignItems: "center", gap: 32 }} className="hidden md:flex">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              style={{
-                fontSize: "var(--text-sm)", fontWeight: 500, textDecoration: "none",
-                color: pathname === link.href ? "var(--text-100)" : "var(--text-200)",
-                transition: "color 150ms",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-100)"}
-              onMouseLeave={(e) => { if (pathname !== link.href) e.currentTarget.style.color = "var(--text-200)"; }}
-              {...(link.href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            >
-              {link.label}
-            </a>
-          ))}
-          <a
-            href="/login"
-            style={{
-              fontSize: "var(--text-sm)", fontWeight: 500, textDecoration: "none",
-              color: "var(--text-200)", transition: "color 150ms",
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-100)"}
-            onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-200)"}
-          >
-            Sign in
-          </a>
-          <a
-            href="/signup"
-            style={{
-              display: "inline-flex", alignItems: "center",
-              padding: "8px 20px", fontSize: "var(--text-sm)", fontWeight: 600,
-              backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
-              textDecoration: "none", transition: "opacity 150ms",
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
-            onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
-          >
+        {/* Desktop links */}
+        <div style={{ alignItems: "center", gap: 28 }} className="nav-desktop">
+          <a href="/pricing" style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Pricing</a>
+          <a href={DOCS_EXTERNAL} style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Docs</a>
+          <a href={ossLinks.repo} style={linkStyle} target="_blank" rel="noopener noreferrer" onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>GitHub</a>
+          <a href="/login" style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Sign in</a>
+          <a href="/signup" style={{
+            display: "inline-flex", alignItems: "center", padding: "7px 18px",
+            fontSize: "0.8125rem", fontWeight: 600, backgroundColor: "var(--text-100)", color: "var(--bg-100)",
+            borderRadius: 8, textDecoration: "none", transition: "opacity 150ms",
+          }} onMouseEnter={e => e.currentTarget.style.opacity = "0.85"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
             Get started
           </a>
         </div>
 
-        {/* Mobile toggle */}
-        <button
-          onClick={() => setMobileOpen((v) => !v)}
-          style={{ padding: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-200)" }}
-          className="md:hidden"
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/></svg>
-          )}
+        {/* Mobile hamburger */}
+        <button onClick={() => setMobileOpen(!mobileOpen)} className="nav-mobile-btn" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-100)" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
 
+      {/* Mobile menu */}
       {mobileOpen && (
-        <div className="md:hidden" style={{ borderTop: "1px solid var(--border)", backgroundColor: "oklch(98.5% 0.005 80 / 0.96)", backdropFilter: "blur(12px)" }}>
-          <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-            {navLinks.map((link) => (
-              <a key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
-                style={{ fontSize: "var(--text-base)", color: "var(--text-200)", textDecoration: "none" }}>
-                {link.label}
-              </a>
-            ))}
-            <div style={{ paddingTop: 8, display: "flex", alignItems: "center", gap: 16 }}>
-              <a href="/login" onClick={() => setMobileOpen(false)} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Sign in</a>
-              <a href="/signup" onClick={() => setMobileOpen(false)} style={{ display: "inline-flex", padding: "8px 20px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none" }}>Get started</a>
-            </div>
-          </div>
+        <div className="nav-mobile-menu" style={{ padding: "8px 24px 20px", borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-100)", flexDirection: "column", gap: 16 }}>
+          <a href="/pricing" style={linkStyle}>Pricing</a>
+          <a href={DOCS_EXTERNAL} style={linkStyle}>Docs</a>
+          <a href={ossLinks.repo} style={linkStyle} target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="/login" style={linkStyle}>Sign in</a>
+          <a href="/signup" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "10px 20px", fontSize: "0.875rem", fontWeight: 600, backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 8, textDecoration: "none" }}>Get started</a>
         </div>
       )}
     </nav>
   );
 }
 
+/* ── Footer ── */
 function SiteFooter() {
+  const footerLinkStyle = { fontSize: "0.8125rem", color: "var(--text-300)", textDecoration: "none", transition: "color 150ms", display: "block", lineHeight: 2.2 };
   return (
-    <footer style={{ borderTop: "1px solid var(--border)" }}>
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "48px 24px" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "32px 64px" }}>
+    <footer style={{ borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
+      <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "48px 24px 32px" }}>
+        <div className="footer-grid" style={{ marginBottom: 40 }}>
           <div>
-            <NooterraLogo className="h-[16px] w-auto" style={{ color: "var(--text-200)" }} />
-            <p style={{ marginTop: 12, maxWidth: 260, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-300)" }}>
-              AI workers for consequential work.
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <img src="/logo.png" alt="" style={{ height: 20 }} />
+              <span style={{ fontWeight: 700, color: "var(--text-100)", letterSpacing: "-0.02em" }}>nooterra</span>
+            </div>
+            <p style={{ fontSize: "0.875rem", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
+              The AI workforce platform for consequential work. Open source.
             </p>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "24px 56px" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-300)", margin: 0 }}>Resources</p>
-              <a href={DOCS_EXTERNAL} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">Docs</a>
-              <a href={ossLinks.repo} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">GitHub</a>
-              <a href={DISCORD_HREF} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }} target="_blank" rel="noopener noreferrer">Discord</a>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-300)", margin: 0 }}>Legal</p>
-              <a href="/security" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Security</a>
-              <a href="/privacy" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Privacy</a>
-              <a href="/terms" style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", textDecoration: "none" }}>Terms</a>
-            </div>
+          <div>
+            <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Product</p>
+            <a href="/pricing" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Pricing</a>
+            <a href={DOCS_EXTERNAL} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Documentation</a>
+            <a href="/security" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Security</a>
+            <a href="/status" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Status</a>
+          </div>
+          <div>
+            <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Community</p>
+            <a href={ossLinks.repo} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={DISCORD_HREF} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Discord</a>
+            <a href={ossLinks.issues} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Issues</a>
+          </div>
+          <div>
+            <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Legal</p>
+            <a href="/privacy" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Privacy</a>
+            <a href="/terms" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Terms</a>
           </div>
         </div>
-        <p style={{ marginTop: 40, fontSize: "11px", color: "var(--text-300)" }}>&copy; 2026 Nooterra</p>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>&copy; {new Date().getFullYear()} Nooterra</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>Open source under Apache 2.0</span>
+        </div>
       </div>
     </footer>
   );
@@ -196,7 +181,7 @@ function SiteFooter() {
 
 function SiteLayout({ children }) {
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-100)", color: "var(--text-100)", fontFamily: "var(--font-body)" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-100)", color: "var(--text-100)" }}>
       <SiteNav />
       <main style={{ paddingTop: 56 }}>{children}</main>
       <SiteFooter />
@@ -231,7 +216,7 @@ function WorkerCard() {
     }
   }, [step, approved]);
 
-  const checkSvg = (color) => (
+  const Check = ({ color }) => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
       <polyline points="20 6 9 17 4 12" />
     </svg>
@@ -240,38 +225,39 @@ function WorkerCard() {
   return (
     <div style={{
       border: "1px solid var(--border)",
-      borderRadius: 12,
+      borderRadius: 16,
       backgroundColor: "var(--bg-400)",
       overflow: "hidden",
-      boxShadow: "var(--shadow-md)",
+      boxShadow: "var(--shadow-xl)",
+      maxWidth: 440,
     }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div className="lovable-pulse" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#4ade80" }} />
-          <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-100)" }}>Customer Support Worker</span>
+          <div className="lovable-pulse" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "var(--green)" }} />
+          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-100)" }}>Customer Support Worker</span>
         </div>
-        <span className="tabular-nums" style={{ fontSize: "11px", color: "var(--text-300)" }}>running</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>running</span>
       </div>
 
       {/* Steps */}
       <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
         {WORKER_STEPS.slice(0, step).map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, animation: "lovable-fade-in 0.3s ease forwards" }}>
-            {s.status === "done" ? checkSvg("#4ade80")
-              : approved ? checkSvg("var(--accent)")
-              : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #f59e0b", flexShrink: 0 }} className="lovable-pulse" />
+            {s.status === "done" ? <Check color="var(--green)" />
+              : approved ? <Check color="var(--accent)" />
+              : <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid var(--amber)", flexShrink: 0 }} className="lovable-pulse" />
             }
-            <span style={{ fontSize: "var(--text-sm)", color: s.status === "approval" && !approved ? "#fbbf24" : "var(--text-200)" }}>
+            <span style={{ fontSize: "0.8125rem", color: s.status === "approval" && !approved ? "var(--amber)" : "var(--text-200)" }}>
               {s.label}
             </span>
             {s.status === "approval" && !approved && (
-              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, borderRadius: 9999, border: "1px solid oklch(75% 0.15 85 / 0.3)", backgroundColor: "oklch(75% 0.15 85 / 0.1)", color: "#fbbf24" }}>
+              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.625rem", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, borderRadius: 6, backgroundColor: "var(--amber-bg)", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>
                 needs approval
               </span>
             )}
             {s.status === "approval" && approved && (
-              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, borderRadius: 9999, border: "1px solid oklch(70% 0.15 155 / 0.3)", backgroundColor: "oklch(70% 0.15 155 / 0.1)", color: "#4ade80" }}>
+              <span style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.625rem", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, borderRadius: 6, backgroundColor: "var(--green-bg)", color: "var(--green)", fontFamily: "var(--font-mono)" }}>
                 approved
               </span>
             )}
@@ -280,17 +266,17 @@ function WorkerCard() {
         {step < WORKER_STEPS.length && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="lovable-pulse" style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid var(--border)", flexShrink: 0 }} />
-            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-300)" }}>Working...</span>
+            <span style={{ fontSize: "0.8125rem", color: "var(--text-300)" }}>Working...</span>
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: 16 }}>
-        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(70% 0.12 155 / 0.7)" }}>4 canDo</span>
-        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(75% 0.14 85 / 0.7)" }}>3 askFirst</span>
-        <span className="tabular-nums" style={{ fontSize: "11px", color: "oklch(60% 0.18 15 / 0.7)" }}>2 neverDo</span>
-        <span className="tabular-nums" style={{ fontSize: "11px", color: "var(--text-300)", marginLeft: "auto" }}>$0.003 this run</span>
+      <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: 16, backgroundColor: "var(--bg-200)" }}>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--green)", fontFamily: "var(--font-mono)" }}>4 canDo</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>3 askFirst</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--red)", fontFamily: "var(--font-mono)" }}>2 neverDo</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--text-300)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>$0.003 this run</span>
       </div>
     </div>
   );
@@ -301,150 +287,311 @@ function WorkerCard() {
 function HomePage() {
   return (
     <SiteLayout>
-      {/* HERO — asymmetric two-column */}
-      <section style={{ overflow: "hidden" }}>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px", paddingTop: "clamp(6rem, 14vh, 12rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 48, alignItems: "center" }} className="lg:grid-cols-[1.1fr_0.9fr]">
+      {/* ═══ HERO ═══ */}
+      <section style={{ position: "relative", overflow: "hidden" }}>
+        {/* Dot grid background */}
+        <div className="dot-grid" style={{ position: "absolute", inset: 0, opacity: 0.5 }} />
+        {/* Gradient fade at bottom */}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 120, background: "linear-gradient(to top, var(--bg-100), transparent)", zIndex: 1 }} />
+
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(7rem, 16vh, 14rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)", position: "relative", zIndex: 2 }}>
+          <div className="hero-grid">
             <div>
-              <FadeIn>
+              <InView>
                 <h1 style={{
-                  fontSize: "var(--text-3xl)", lineHeight: 1.04, letterSpacing: "-0.035em",
-                  fontWeight: 800, color: "var(--text-100)",
+                  fontSize: "var(--text-3xl)", lineHeight: 1.04, letterSpacing: "-0.04em",
+                  fontWeight: 800, color: "var(--text-100)", margin: 0,
                 }}>
                   Your next hire<br />never sleeps.
                 </h1>
-              </FadeIn>
-              <FadeIn delay={0.08}>
+              </InView>
+              <InView delay={0.1}>
                 <p style={{
-                  marginTop: 24, maxWidth: 440,
+                  marginTop: 24, maxWidth: 460,
                   fontSize: "var(--text-lg)", lineHeight: 1.6, color: "var(--text-200)",
                 }}>
-                  AI workers with rules, approvals, and a complete audit trail.
+                  Deploy AI workers with runtime-enforced guardrails, human-in-the-loop approvals, and a complete audit trail. Describe what you need&mdash;Nooterra handles the rest.
                 </p>
-              </FadeIn>
-              <FadeIn delay={0.14}>
+              </InView>
+              <InView delay={0.15}>
                 <div style={{ marginTop: 36, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-                  <a
-                    href="/signup"
-                    style={{
-                      display: "inline-flex", alignItems: "center", padding: "12px 28px",
-                      fontSize: "var(--text-base)", fontWeight: 600,
-                      backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
-                      textDecoration: "none", transition: "opacity 200ms ease-out",
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+                  <a href="/signup" style={{
+                    display: "inline-flex", alignItems: "center", padding: "12px 28px",
+                    fontSize: "var(--text-base)", fontWeight: 600,
+                    backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10,
+                    textDecoration: "none", transition: "transform 150ms, box-shadow 150ms",
+                    boxShadow: "var(--shadow-md)",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
                   >
-                    Get started
+                    Start building &rarr;
                   </a>
-                  <a
-                    href={ossLinks.repo}
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 28px",
-                      fontSize: "var(--text-base)", fontWeight: 500,
-                      border: "1px solid var(--text-100)", color: "var(--text-100)", borderRadius: 9999,
-                      textDecoration: "none", transition: "opacity 200ms ease-out",
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = "0.7"}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+                  <a href={ossLinks.repo} style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 28px",
+                    fontSize: "var(--text-base)", fontWeight: 500,
+                    border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
+                    textDecoration: "none", transition: "border-color 150ms, background 150ms",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.backgroundColor = "var(--bg-200)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.backgroundColor = "transparent"; }}
                     target="_blank" rel="noopener noreferrer"
                   >
-                    <GitHubIcon className="h-4 w-4" /> View on GitHub
+                    <GitHubIcon /> View source
                   </a>
                 </div>
-              </FadeIn>
+              </InView>
             </div>
-            <FadeIn delay={0.2}>
-              <div style={{ paddingLeft: 0 }} className="lg:pl-8">
+
+            <InView delay={0.2}>
+              <div>
                 <WorkerCard />
               </div>
-            </FadeIn>
+            </InView>
           </div>
         </div>
       </section>
 
-      {/* SECTION 1: Rules it can't break — full-width darker bg, horizontal strip */}
-      <section style={{ backgroundColor: "var(--bg-200)" }}>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(4rem, 8vh, 7rem) 24px" }}>
-          <FadeIn>
-            <h2 style={{
-              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
-              color: "var(--text-100)", marginBottom: 16,
-            }}>
-              Rules it can't break.
-            </h2>
-            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 40 }}>
-              Every worker gets a charter with three rule types. These aren't prompt suggestions -- they're enforced at runtime before every action.
-            </p>
-          </FadeIn>
-          <FadeIn delay={0.1}>
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: 0,
-              borderRadius: 10, overflow: "hidden",
-              border: "1px solid var(--border)",
-              backgroundColor: "var(--bg-400)",
-            }}>
-              {[
-                { dot: "#4ade80", label: "canDo", items: "Read emails, Draft replies, Search knowledge base" },
-                { dot: "#fbbf24", label: "askFirst", items: "Issue refunds, Send external emails" },
-                { dot: "#f43f5e", label: "neverDo", items: "Delete data, Share customer info" },
-              ].map((rule, i) => (
-                <div key={rule.label} style={{
-                  flex: "1 1 260px", padding: "20px 24px",
-                  borderLeft: i > 0 ? "1px solid var(--border)" : "none",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: rule.dot }} />
-                    <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-100)" }}>{rule.label}</span>
-                  </div>
-                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6, margin: 0 }}>{rule.items}</p>
+      {/* ═══ LOGOS / SCROLLING MARQUEE ═══ */}
+      <section style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "18px 0" }}>
+          <div className="logo-marquee">
+            <div className="logo-marquee-track">
+              {[...Array(2)].map((_, setIdx) => (
+                <div key={setIdx} style={{ display: "flex", alignItems: "center", gap: 56, paddingRight: 56 }}>
+                  <IntegrationLogo name="OpenAI" />
+                  <IntegrationLogo name="Anthropic" />
+                  <IntegrationLogo name="Google" />
+                  <IntegrationLogo name="Stripe" />
+                  <IntegrationLogo name="Slack" />
+                  <IntegrationLogo name="GitHub" />
+                  <IntegrationLogo name="Gmail" />
+                  <IntegrationLogo name="Notion" />
+                  <IntegrationLogo name="Linear" />
+                  <IntegrationLogo name="Vercel" />
                 </div>
               ))}
             </div>
-          </FadeIn>
+          </div>
         </div>
       </section>
 
-      {/* SINGLE CTA — nothing else needed */}
+      {/* ═══ HOW IT WORKS ═══ */}
       <section>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(5rem, 10vh, 8rem) 24px", textAlign: "center" }}>
-          <FadeIn>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>How it works</p>
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16 }}>
+              Describe it. Deploy it. Control it.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
+              Go from idea to running AI worker in minutes. Every worker gets a charter that defines exactly what it can and can't do.
+            </p>
+          </InView>
+
+          <div className="steps-grid">
+            {[
+              {
+                step: "01",
+                title: "Describe your worker",
+                desc: "Tell Nooterra what you need in plain English. \"Monitor support inbox, draft replies, escalate refunds over $100.\"",
+                mono: "nooterra create support-worker",
+              },
+              {
+                step: "02",
+                title: "Set the boundaries",
+                desc: "Define canDo, askFirst, and neverDo rules. These aren't suggestions\u2014they're enforced at runtime before every action.",
+                mono: "canDo: [read_email, draft_reply]",
+              },
+              {
+                step: "03",
+                title: "Deploy and approve",
+                desc: "Workers run 24/7 on your schedule. Sensitive actions pause and ask you first. Full audit trail of everything.",
+                mono: "status: running \u00b7 3 actions/hr",
+              },
+            ].map((item, i) => (
+              <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
+                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-mono)", marginBottom: 16, display: "block" }}>{item.step}</span>
+                <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 10px" }}>{item.title}</h3>
+                <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: "0 0 20px" }}>{item.desc}</p>
+                <code style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-300)", backgroundColor: "var(--bg-200)", padding: "4px 10px", borderRadius: 6, display: "inline-block" }}>
+                  {item.mono}
+                </code>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ RULES / CHARTER ═══ */}
+      <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Governance</p>
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
+              Rules it can't break.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 48 }}>
+              Every worker gets a charter with three rule types. These aren't prompt suggestions&mdash;they're enforced at runtime before every action.
+            </p>
+          </InView>
+
+          <div className="rules-grid">
+            {[
+              { color: "var(--green)", bg: "var(--green-bg)", label: "canDo", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
+              { color: "var(--amber)", bg: "var(--amber-bg)", label: "askFirst", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
+              { color: "var(--red)", bg: "var(--red-bg)", label: "neverDo", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
+            ].map((rule, i) => (
+              <InView key={rule.label} delay={i * 0.08}>
+                <div style={{ padding: 28, borderRadius: 14, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color }} />
+                    <span style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-100)", fontFamily: "var(--font-mono)" }}>{rule.label}</span>
+                  </div>
+                  <p style={{ fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--text-200)", margin: "0 0 18px" }}>{rule.desc}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {rule.items.map(item => (
+                      <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 8, backgroundColor: rule.bg }}>
+                        <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ USE CASES ═══ */}
+      <section>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Use cases</p>
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
+              Workers that actually work.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
+              Start with a template or describe your own. Every worker runs on your schedule with your rules.
+            </p>
+          </InView>
+
+          <div className="use-cases-grid">
+            {[
+              {
+                title: "Support Monitor",
+                desc: "Watch your inbox 24/7. Categorize, draft replies, and escalate the tricky ones.",
+                schedule: "Continuous",
+                rules: "4 canDo \u00b7 3 askFirst \u00b7 3 neverDo",
+              },
+              {
+                title: "Price Tracker",
+                desc: "Monitor competitor pricing pages daily. Get Slack alerts when prices change.",
+                schedule: "Daily at 9am",
+                rules: "3 canDo \u00b7 2 askFirst \u00b7 2 neverDo",
+              },
+              {
+                title: "Inbox Summary",
+                desc: "Morning digest of your emails, categorized by priority. Skip the scroll.",
+                schedule: "Weekdays at 8am",
+                rules: "3 canDo \u00b7 2 askFirst \u00b7 3 neverDo",
+              },
+            ].map((uc, i) => (
+              <InView key={uc.title} delay={i * 0.08}>
+                <div style={{
+                  padding: 28, borderRadius: 14, border: "1px solid var(--border)",
+                  backgroundColor: "var(--bg-400)", transition: "border-color 200ms, box-shadow 200ms",
+                  height: "100%", display: "flex", flexDirection: "column",
+                }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+                >
+                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 8px" }}>{uc.title}</h3>
+                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6, margin: "0 0 auto", paddingBottom: 20 }}>{uc.desc}</p>
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ fontSize: "0.6875rem", fontFamily: "var(--font-mono)", color: "var(--text-300)" }}>{uc.schedule}</span>
+                    <span style={{ fontSize: "0.6875rem", fontFamily: "var(--font-mono)", color: "var(--text-300)" }}>{uc.rules}</span>
+                  </div>
+                </div>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ FEATURES STRIP ═══ */}
+      <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Platform</p>
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 48px" }}>
+              Everything you need. Nothing you don't.
+            </h2>
+          </InView>
+
+          <div className="features-grid">
+            {[
+              { title: "Any AI provider", desc: "OpenAI, Anthropic, Google, or bring your own. Switch models per worker without changing anything else." },
+              { title: "Human-in-the-loop", desc: "Sensitive actions pause and ask. Approve from the dashboard, Slack, or email. Never lose control." },
+              { title: "Full audit trail", desc: "Every action, decision, and approval logged with timestamps. Export anytime. Built for compliance." },
+              { title: "Runs on your schedule", desc: "Continuous, cron, or event-triggered. Workers run 24/7 in the cloud or locally from the CLI." },
+              { title: "Real cost tracking", desc: "See exactly what each worker costs per run. Set budgets and alerts. No surprise bills." },
+              { title: "Open source", desc: "Apache 2.0. Run it on your infrastructure, fork it, extend it. No vendor lock-in." },
+            ].map((feat, i) => (
+              <InView key={feat.title} delay={i * 0.05}>
+                <div style={{ padding: "24px 0", borderBottom: "1px solid var(--border)" }}>
+                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 6px" }}>{feat.title}</h3>
+                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0, maxWidth: 420 }}>{feat.desc}</p>
+                </div>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ FINAL CTA ═══ */}
+      <section>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(5rem, 12vh, 9rem) 24px", textAlign: "center" }}>
+          <InView>
             <h2 style={{
               fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
-              color: "var(--text-100)",
+              color: "var(--text-100)", margin: "0 0 16px",
             }}>
               Your next worker is one conversation away.
             </h2>
-            <div style={{ marginTop: 36, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
-              <a
-                href="/signup"
-                style={{
-                  display: "inline-flex", alignItems: "center", padding: "12px 28px",
-                  fontSize: "var(--text-base)", fontWeight: 600,
-                  backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999,
-                  textDecoration: "none", transition: "opacity 200ms ease-out",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 440, margin: "0 auto 36px", lineHeight: 1.6 }}>
+              Start free on your machine. Scale to the cloud when you're ready. No credit card required.
+            </p>
+          </InView>
+          <InView delay={0.08}>
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
+              <a href="/signup" style={{
+                display: "inline-flex", alignItems: "center", padding: "14px 32px",
+                fontSize: "var(--text-base)", fontWeight: 600,
+                backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10,
+                textDecoration: "none", transition: "transform 150ms, box-shadow 150ms",
+                boxShadow: "var(--shadow-md)",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
               >
-                Get started
+                Start building &rarr;
               </a>
-              <a
-                href={ossLinks.repo}
-                style={{
-                  display: "inline-flex", alignItems: "center", padding: "12px 28px",
-                  fontSize: "var(--text-base)", fontWeight: 500,
-                  border: "1px solid var(--text-100)", color: "var(--text-100)", borderRadius: 9999,
-                  textDecoration: "none", transition: "opacity 200ms ease-out",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = "0.7"}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+              <a href={DOCS_GETTING_STARTED} style={{
+                display: "inline-flex", alignItems: "center", padding: "14px 32px",
+                fontSize: "var(--text-base)", fontWeight: 500,
+                border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
+                textDecoration: "none", transition: "border-color 150ms, background 150ms",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.backgroundColor = "var(--bg-200)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.backgroundColor = "transparent"; }}
                 target="_blank" rel="noopener noreferrer"
               >
-                View on GitHub
+                Read the docs
               </a>
             </div>
-          </FadeIn>
+          </InView>
         </div>
       </section>
     </SiteLayout>
@@ -456,7 +603,7 @@ function HomePage() {
 function SecurityPage() {
   return (
     <SiteLayout>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Security</h1>
           <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
@@ -464,7 +611,7 @@ function SecurityPage() {
           </p>
         </FadeIn>
       </section>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px 6rem" }}>
         <div style={{ marginTop: 40 }}>
           {[
             { title: "Fail closed", desc: "Ambiguous situations halt execution and ask. Missing context, unclear scope, or expired approvals all stop the worker." },
@@ -490,12 +637,12 @@ function SecurityPage() {
 function SimplePage({ title, children }) {
   return (
     <SiteLayout>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>{title}</h1>
         </FadeIn>
       </section>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px 6rem" }}>
         <FadeIn delay={0.06}>{children}</FadeIn>
       </section>
     </SiteLayout>
@@ -508,7 +655,7 @@ function PrivacyPage() {
       <div>
         {[
           { title: "Your keys, your providers", desc: "API keys are encrypted at rest and never leave your account boundary. Free tier runs entirely on your machine." },
-          { title: "No training on your data", desc: "We never train models on your data. Audit logs are yours -- exportable and deletable." },
+          { title: "No training on your data", desc: "We never train models on your data. Audit logs are yours\u2014exportable and deletable." },
           { title: "Data portability", desc: "Export workers, charters, and logs at any time. Cancel and your data is deleted within 30 days." },
         ].map((item, i) => (
           <div key={item.title} style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
@@ -552,7 +699,7 @@ function SupportPage() {
           <a key={item.title} href={item.href} style={{ display: "block", padding: "32px 0", textDecoration: "none", borderTop: i > 0 ? "1px solid var(--border)" : "none" }} target="_blank" rel="noopener noreferrer">
             <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
             <p style={{ marginTop: 8, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{item.desc}</p>
-            <span style={{ marginTop: 8, display: "inline-block", fontSize: "var(--text-sm)", color: "var(--text-200)" }}>{item.cta} &rarr;</span>
+            <span style={{ marginTop: 8, display: "inline-block", fontSize: "var(--text-sm)", color: "var(--accent)" }}>{item.cta} &rarr;</span>
           </a>
         ))}
       </div>
@@ -621,11 +768,10 @@ function StatusPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32 }}>
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 12px",
-          fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 500,
-          borderRadius: 9999,
-          border: state.loading ? "1px solid var(--border)" : allOk ? "1px solid oklch(70% 0.15 155 / 0.2)" : "1px solid oklch(75% 0.14 85 / 0.2)",
-          backgroundColor: state.loading ? "transparent" : allOk ? "oklch(70% 0.15 155 / 0.1)" : "oklch(75% 0.14 85 / 0.1)",
-          color: state.loading ? "var(--text-300)" : allOk ? "#4ade80" : "#fbbf24",
+          fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600,
+          borderRadius: 8, fontFamily: "var(--font-mono)",
+          backgroundColor: state.loading ? "var(--bg-200)" : allOk ? "var(--green-bg)" : "var(--amber-bg)",
+          color: state.loading ? "var(--text-300)" : allOk ? "var(--green)" : "var(--amber)",
         }}>
           {state.loading ? "Checking..." : allOk ? "All systems operational" : "Degraded"}
         </span>
@@ -640,13 +786,13 @@ function StatusPage() {
         {state.checks.map((c, i) => (
           <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
             <span style={{ fontSize: "var(--text-sm)", color: "var(--text-100)" }}>{c.label}</span>
-            <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 500, color: c.status === "ok" ? "#4ade80" : c.status === "degraded" ? "#fbbf24" : "#f43f5e" }}>
+            <span style={{ fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, fontFamily: "var(--font-mono)", color: c.status === "ok" ? "var(--green)" : c.status === "degraded" ? "var(--amber)" : "var(--red)" }}>
               {c.statusLabel}
             </span>
           </div>
         ))}
       </div>
-      {state.at && <p className="tabular-nums" style={{ marginTop: 16, fontSize: "11px", color: "var(--text-300)" }}>Checked {new Date(state.at).toLocaleString()}</p>}
+      {state.at && <p className="tabular-nums" style={{ marginTop: 16, fontSize: "0.6875rem", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>Checked {new Date(state.at).toLocaleString()}</p>}
     </SimplePage>
   );
 }
@@ -661,14 +807,14 @@ function SimpleInfoPage({ title, summary }) {
         <a href="/" style={{
           display: "inline-flex", alignItems: "center", padding: "10px 20px",
           fontSize: "var(--text-sm)", fontWeight: 600,
-          backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none",
+          backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10, textDecoration: "none",
         }}>
           Go home &rarr;
         </a>
         <a href="/support" style={{
           display: "inline-flex", alignItems: "center", padding: "10px 20px",
           fontSize: "var(--text-sm)", fontWeight: 500,
-          border: "1px solid var(--border)", color: "var(--text-200)", borderRadius: 9999, textDecoration: "none",
+          border: "1px solid var(--border)", color: "var(--text-200)", borderRadius: 10, textDecoration: "none",
         }}>
           Get help
         </a>
@@ -687,13 +833,13 @@ const PRICING_TIERS = [
     cta: "Get started", ctaHref: DOCS_GETTING_STARTED, ctaExternal: true, highlighted: false,
   },
   {
-    name: "Pro", price: "$29", period: "/month",
+    name: "Pro", price: "$29", period: "/mo",
     description: "Cloud-hosted workers that run 24/7. Approve from Slack. Web dashboard.",
     features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approvals", "Webhook integrations", "Email support"],
     cta: "Start free trial", ctaHref: "/signup", ctaExternal: false, highlighted: true,
   },
   {
-    name: "Team", price: "$99", period: "/month",
+    name: "Team", price: "$99", period: "/mo",
     description: "Shared workers, team approvals, SSO, and audit exports.",
     features: ["Everything in Pro", "Shared worker dashboard", "Team approval workflows", "SSO and admin controls", "Audit log export", "Priority support"],
     cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
@@ -703,7 +849,7 @@ const PRICING_TIERS = [
 function PricingPage() {
   return (
     <SiteLayout>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "7rem 24px 3rem" }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "7rem 24px 3rem" }}>
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Pricing</h1>
           <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
@@ -712,18 +858,18 @@ function PricingPage() {
         </FadeIn>
       </section>
 
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 24px 6rem" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px 6rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
           {PRICING_TIERS.map((tier, i) => (
             <FadeIn key={tier.name} delay={i * 0.08}>
               <div style={{
                 display: "flex", flexDirection: "column", height: "100%", padding: 32,
-                border: tier.highlighted ? "1px solid var(--accent)" : "1px solid var(--border)",
-                borderRadius: 12,
-                backgroundColor: tier.highlighted ? "oklch(68% 0.12 65 / 0.04)" : "var(--bg-400)",
+                border: tier.highlighted ? "2px solid var(--accent)" : "1px solid var(--border)",
+                borderRadius: 16,
+                backgroundColor: tier.highlighted ? "var(--accent-subtle)" : "var(--bg-400)",
               }}>
                 <div>
-                  <p style={{ fontSize: "var(--text-sm)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: tier.highlighted ? "var(--accent)" : "var(--text-200)", margin: 0 }}>
+                  <p style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: tier.highlighted ? "var(--accent)" : "var(--text-300)", margin: 0 }}>
                     {tier.name}
                   </p>
                   <div style={{ marginTop: 16, display: "flex", alignItems: "baseline", gap: 4 }}>
@@ -733,25 +879,27 @@ function PricingPage() {
                   <p style={{ marginTop: 16, fontSize: "var(--text-sm)", lineHeight: 1.6, color: "var(--text-200)" }}>{tier.description}</p>
                 </div>
 
-                <div style={{ marginTop: 32, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+                <div style={{ marginTop: 28, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
                   {tier.features.map((f) => (
                     <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <span style={{ marginTop: 6, display: "block", width: 6, height: 6, borderRadius: "50%", flexShrink: 0, backgroundColor: tier.highlighted ? "var(--accent)" : "var(--text-300)" }} />
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={tier.highlighted ? "var(--accent)" : "var(--text-300)"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                       <span style={{ fontSize: "var(--text-sm)", color: "var(--text-200)" }}>{f}</span>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ marginTop: 32 }}>
+                <div style={{ marginTop: 28 }}>
                   <a
                     href={tier.ctaHref}
                     style={
                       tier.highlighted
-                        ? { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 9999, textDecoration: "none", transition: "opacity 200ms" }
-                        : { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 500, border: "1px solid var(--border)", color: "var(--text-200)", borderRadius: 9999, textDecoration: "none", transition: "border-color 200ms" }
+                        ? { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10, textDecoration: "none", transition: "opacity 200ms" }
+                        : { display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "12px 20px", fontSize: "var(--text-sm)", fontWeight: 500, border: "1px solid var(--border-strong)", color: "var(--text-200)", borderRadius: 10, textDecoration: "none", transition: "border-color 200ms" }
                     }
                     onMouseEnter={(e) => { if (tier.highlighted) e.currentTarget.style.opacity = "0.85"; else e.currentTarget.style.borderColor = "var(--text-200)"; }}
-                    onMouseLeave={(e) => { if (tier.highlighted) e.currentTarget.style.opacity = "1"; else e.currentTarget.style.borderColor = "var(--border)"; }}
+                    onMouseLeave={(e) => { if (tier.highlighted) e.currentTarget.style.opacity = "1"; else e.currentTarget.style.borderColor = "var(--border-strong)"; }}
                     {...(tier.ctaExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   >
                     {tier.cta}
@@ -776,16 +924,13 @@ export default function LovableSite({ mode = "home" }) {
   if (mode === "terms") return <TermsPage />;
   if (mode === "support") return <SupportPage />;
 
-  // Killed pages -> redirect to home
   if (mode === "product" || mode === "demo" || mode === "developers" || mode === "integrations") return <HomePage />;
 
-  // Docs -> external
   if (typeof mode === "string" && mode.startsWith("docs")) {
     if (typeof window !== "undefined") window.location.replace(DOCS_EXTERNAL);
     return null;
   }
 
-  // Onboarding redirects
   if (mode === "onboarding") {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -794,13 +939,11 @@ export default function LovableSite({ mode = "home" }) {
     return <HomePage />;
   }
 
-  // Error pages
   if (mode === "expired") return <SimpleInfoPage title="This link has expired." summary="The approval window closed. Return home to start a new request." />;
   if (mode === "revoked") return <SimpleInfoPage title="This authority was revoked." summary="The grant is no longer valid. Contact support if this is unexpected." />;
   if (mode === "verification_failed") return <SimpleInfoPage title="Verification failed." summary="The action could not be verified. Check your activity feed or contact support." />;
   if (mode === "unsupported_host") return <SimpleInfoPage title="Host not supported." summary="Nooterra currently supports CLI, MCP, and REST API." />;
 
-  // Trust entries -> home
   if (mode === "wallet" || mode === "approvals" || mode === "receipts" || mode === "disputes") return <HomePage />;
 
   return <HomePage />;
