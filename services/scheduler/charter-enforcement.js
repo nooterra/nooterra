@@ -488,12 +488,14 @@ export async function autoPauseWorker(pool, workerId, executionId, reasons) {
  */
 export async function createApprovalRecord(pool, { workerId, tenantId, executionId, action, matchedRule }) {
   const id = `apr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const crypto = await import('crypto');
+  const actionHash = crypto.createHash('sha256').update(action || '').digest('hex').slice(0, 16);
 
   await pool.query(`
-    INSERT INTO worker_approvals (id, worker_id, tenant_id, execution_id, action, matched_rule, status, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'pending', now())
+    INSERT INTO worker_approvals (id, worker_id, tenant_id, action_hash, tool_name, tool_args, decision, decided_by, decided_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'pending', NULL, now())
     ON CONFLICT DO NOTHING
-  `, [id, workerId, tenantId, executionId, action, matchedRule]);
+  `, [id, workerId, tenantId, actionHash, action || 'unknown', JSON.stringify({ matchedRule, executionId })]);
 
   return id;
 }

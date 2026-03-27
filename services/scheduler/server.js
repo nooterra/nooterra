@@ -349,6 +349,7 @@ async function executeWorker(worker, executionId, triggerType) {
       if (approvalNeeded.length > 0) {
         log('info', `Charter requires approval for worker ${worker.name}: ${approvalNeeded.map(a => a.toolCall.name).join(', ')}`);
 
+        let approvalCount = 0;
         for (const { toolCall, validation } of approvalNeeded) {
           try {
             await createApprovalRecord(pool, {
@@ -358,15 +359,27 @@ async function executeWorker(worker, executionId, triggerType) {
               action: `Tool call: ${toolCall.name}`,
               matchedRule: validation.matchedRule || validation.rule,
             });
+            approvalCount++;
           } catch (aprErr) {
             log('warn', `Failed to create approval record: ${aprErr.message}`);
           }
         }
 
+        if (approvalCount === 0) {
+          // All approval records failed — don't charge, mark as error
+          await updateExecution(executionId, {
+            status: 'error',
+            completedAt: new Date(),
+            error: 'Failed to create approval records. No credits deducted.',
+            activity,
+          });
+          return;
+        }
+
         await updateExecution(executionId, {
           status: 'awaiting_approval',
           completedAt: new Date(),
-          error: `Paused: ${approvalNeeded.length} tool call(s) require approval`,
+          error: `Paused: ${approvalCount} tool call(s) require approval`,
           activity,
           model: worker.model,
           tokensIn: totalPromptTokens,
@@ -838,6 +851,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const pathname = req.url.split('?')[0].replace(/\/+$/, '');
+
   if (req.method === 'GET' && pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -848,8 +863,6 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
-
-  const pathname = req.url.split('?')[0].replace(/\/+$/, '');
 
   if (req.method === 'POST' && pathname === '/v1/chat') {
     handleChatRequest(req, res, pool);
