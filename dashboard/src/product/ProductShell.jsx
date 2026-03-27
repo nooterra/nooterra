@@ -3320,265 +3320,544 @@ function OnboardingFlow({ onComplete, userEmail }) {
    AppShell
    =================================================================== */
 
-function AppShell({ initialView = "team", userEmail, isFirstTime }) {
+function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [view, setView] = useState(initialView);
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [workers, setWorkers] = useState([]);
   const [creditBalance, setCreditBalance] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [tenantName, setTenantName] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
 
+  // Conversational state
+  const [messages, setMessages] = useState([]);
+  const [composerValue, setComposerValue] = useState("");
+  const [rightPaneContent, setRightPaneContent] = useState("preview");
+  const [teamProposal, setTeamProposal] = useState(null);
+  const [roiEstimate, setRoiEstimate] = useState(null);
+  const [aiStreaming, setAiStreaming] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const composerRef = useRef(null);
+  const threadEndRef = useRef(null);
+
   useEffect(() => {
-    // Check onboarding
     if (isFirstTime && !localStorage.getItem("nooterra_onboarding_complete")) {
       setShowOnboarding(true);
     }
-
-    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "team") setView("inbox"); } catch { /* ignore */ } })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
-    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); if (settings?.displayName) setTenantName(settings.displayName); else if (settings?.name) setTenantName(settings.name); } catch { /* ignore */ } })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleToggleSidebar() { const next = !sidebarCollapsed; setSidebarCollapsed(next); saveSidebarCollapsed(next); }
-  function handleNavigate(dest, workerId) { if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); } else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); } }
-  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
-  function handleNewWorker() { setView("builder"); setSelectedWorkerId(null); setIsNewDeploy(false); }
-  function handleBuilderComplete() { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); setView("team"); }
-  function handleViewWorker(w) { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
+  useEffect(() => {
+    if (threadEndRef.current) threadEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingText]);
+
+  function refreshWorkers() {
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
+  }
+
+  function handleNavigate(dest, workerId) {
+    if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); }
+    else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); }
+  }
+  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); setRightPaneContent("worker"); }
+  function handleNewThread() { setMessages([]); setTeamProposal(null); setRoiEstimate(null); setStreamingText(""); setRightPaneContent("preview"); setView("home"); setComposerValue(""); }
+  function handleBuilderComplete() { refreshWorkers(); setView("team"); }
+  function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
+
+  async function handleComposerSubmit(text) {
+    const input = (text || composerValue).trim();
+    if (!input || aiStreaming) return;
+    setComposerValue("");
+
+    const userMsg = { role: "user", content: input, ts: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+
+    // Business intelligence (instant, local)
+    const industryResult = identifyIndustry(input);
+    const team = proposeTeam(industryResult);
+    const roi = estimateROI(industryResult, team.workers);
+    setTeamProposal(team);
+    setRoiEstimate(roi);
+    setRightPaneContent("team");
+
+    // Stream AI response
+    setAiStreaming(true);
+    setStreamingText("");
+    const runtime = loadRuntimeConfig();
+    try {
+      const res = await fetch("/__nooterra/v1/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
+        credentials: "include",
+        body: JSON.stringify({ messages: [{ role: "user", content: input }], model: "nvidia/nemotron-3-super-120b-a12b:free" }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: "Request failed" }));
+        const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
+          ? "Could not connect to the AI service. Try again in a moment."
+          : errBody.error || "Something went wrong. Please try again.";
+        setMessages(prev => [...prev, { role: "assistant", content: errMsg, ts: Date.now(), isError: true }]);
+        setAiStreaming(false);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content || "";
+            if (delta) { fullResponse += delta; setStreamingText(fullResponse); }
+          } catch { /* skip */ }
+        }
+      }
+      setMessages(prev => [...prev, { role: "assistant", content: fullResponse, ts: Date.now() }]);
+      setStreamingText("");
+    } catch {
+      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", ts: Date.now(), isError: true }]);
+    }
+    setAiStreaming(false);
+  }
+
+  function handleComposerKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleComposerSubmit(); }
+  }
 
   if (showOnboarding) {
+    return <OnboardingFlow onComplete={() => { setShowOnboarding(false); }} userEmail={userEmail} />;
+  }
+
+  // --- Icons ---
+  const iconEnvelope = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
+  const iconPeople = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+  const iconPulse = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>;
+  const iconChart = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>;
+  const iconPlug = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>;
+  const iconGear = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
+
+  const operateNav = [
+    { key: "inbox", label: "Inbox", icon: iconEnvelope, badge: pendingApprovals },
+    { key: "team", label: "Team", icon: iconPeople },
+    { key: "activity", label: "Activity", icon: iconPulse },
+  ];
+  const manageNav = [
+    { key: "performance", label: "Performance", icon: iconChart },
+    { key: "connections", label: "Connections", icon: iconPlug },
+    { key: "settings", label: "Settings", icon: iconGear, action: () => setSettingsOpen(true) },
+  ];
+
+  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "team" : (view === "approvals" ? "inbox" : view);
+  const hasMessages = messages.length > 0;
+  const showRightPane = view === "home" || view === "builder";
+
+  // --- Example prompts ---
+  const examplePrompts = [
+    "I run a plumbing company in Denver with 5 techs",
+    "I need AI to answer our phones",
+    "Show me an AI billing worker",
+  ];
+
+  // --- Sidebar nav item renderer ---
+  function NavItem({ item }) {
+    const active = sidebarActiveView === item.key;
     return (
-      <OnboardingFlow
-        onComplete={() => { setShowOnboarding(false); }}
-        userEmail={userEmail}
-      />
+      <button
+        onClick={() => { if (item.action) item.action(); else handleNavigate(item.key); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+          borderRadius: 8, border: "none", cursor: "pointer", width: "100%",
+          fontFamily: "var(--font-body)", fontSize: "14px",
+          fontWeight: active ? 600 : 400,
+          color: active ? "var(--text-100)" : "var(--text-200)",
+          background: active ? "var(--bg-100)" : "transparent",
+          transition: "all 120ms", textAlign: "left",
+        }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
+        onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? "var(--bg-100)" : "transparent"; }}
+      >
+        <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
+        <span style={{ flex: 1 }}>{item.label}</span>
+        {item.badge > 0 && (
+          <span style={{
+            fontSize: "11px", fontWeight: 700, color: "#fff",
+            background: "var(--accent)", borderRadius: 10,
+            padding: "1px 6px", minWidth: 18, textAlign: "center",
+          }}>{item.badge}</span>
+        )}
+      </button>
     );
   }
 
-  // Nav items
-  const navItems = [
-    { key: "approvals", label: "Inbox", badge: pendingApprovals,
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> },
-    { key: "team", label: "Team",
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-    { key: "receipts", label: "Activity",
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-    { key: "performance", label: "Performance",
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> },
-    { key: "integrations", label: "Connections",
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> },
-  ];
+  // --- Section label ---
+  function SectionLabel({ children }) {
+    return (
+      <div style={{
+        fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em",
+        color: "var(--text-300)", fontFamily: "var(--font-mono)",
+        padding: "16px 12px 4px",
+      }}>{children}</div>
+    );
+  }
 
-  const settingsItem = {
-    key: "settings", label: "Settings",
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
-  };
-
-  const sidebarActiveView = view === "workerDetail" || view === "builder" ? "team" : view;
-  const navWidth = sidebarCollapsed ? 56 : 220;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--bg-100)" }}>
-      {/* ===== TOP BAR ===== */}
-      <header style={{
-        height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 20px", background: "var(--bg-400)", borderBottom: "1px solid var(--border)",
-        position: "sticky", top: 0, zIndex: 50, flexShrink: 0,
+  // --- Composer box ---
+  function ComposerBox({ large }) {
+    return (
+      <div style={{
+        padding: large ? 0 : "12px 16px",
+        borderTop: large ? "none" : "1px solid var(--border)",
+        background: large ? "transparent" : "var(--bg-100)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
-          <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>{tenantName}</span>
-        </div>
-        <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 24px" }}>
-          <input
-            type="text"
-            placeholder="Search team, inbox, activity..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{
-              width: 280, maxWidth: "100%", padding: "7px 14px", fontSize: "13px",
-              border: "1px solid var(--border)", borderRadius: 8,
-              background: "var(--bg-100)", color: "var(--text-100)",
-              outline: "none", fontFamily: "var(--font-body)",
-              transition: "border-color 150ms",
-            }}
-            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-          />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onClick={() => handleNavigate("approvals")}
-            style={{
-              position: "relative", width: 36, height: 36, borderRadius: 8,
-              background: "none", border: "none", cursor: "pointer",
-              color: "var(--text-200)", display: "flex", alignItems: "center",
-              justifyContent: "center", transition: "background 150ms",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-200)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            {pendingApprovals > 0 && (
-              <div style={{
-                position: "absolute", top: 4, right: 4, width: 16, height: 16,
-                borderRadius: "50%", background: "var(--accent)", fontSize: "10px",
-                fontWeight: 700, color: "#fff", display: "flex", alignItems: "center",
-                justifyContent: "center",
-              }}>{pendingApprovals}</div>
-            )}
-          </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            style={{
-              width: 36, height: 36, borderRadius: 8,
-              background: "none", border: "none", cursor: "pointer",
-              color: "var(--text-200)", display: "flex", alignItems: "center",
-              justifyContent: "center", transition: "background 150ms",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-200)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </button>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%", background: "var(--accent)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "13px", fontWeight: 700, color: "#fff", cursor: "pointer",
-            flexShrink: 0,
-          }}>
-            {getInitials(userEmail)}
-          </div>
-        </div>
-      </header>
-
-      {/* ===== BODY: LEFT NAV + CONTENT ===== */}
-      <div style={{ display: "flex", flex: 1 }}>
-        {/* LEFT NAV */}
-        <nav style={{
-          width: navWidth, flexShrink: 0, background: "var(--bg-200)",
-          borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
-          position: "sticky", top: 56, height: "calc(100vh - 56px)",
-          transition: "width 200ms ease", overflow: "hidden",
+        <div style={{
+          display: "flex", alignItems: "flex-end", gap: 8,
+          background: "var(--bg-200)", border: "1px solid var(--border)",
+          borderRadius: 16, padding: "10px 16px",
+          boxShadow: large ? "0 1px 6px rgba(0,0,0,0.06)" : "none",
         }}>
-          <div style={{ padding: sidebarCollapsed ? "12px 0" : "12px 8px", display: "flex", justifyContent: sidebarCollapsed ? "center" : "flex-end" }}>
-            <button
-              onClick={handleToggleSidebar}
-              style={{
-                width: 32, height: 32, borderRadius: 6, background: "none", border: "none",
-                cursor: "pointer", color: "var(--text-300)", display: "flex", alignItems: "center",
-                justifyContent: "center", transition: "background 150ms",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-            >
-              <SidebarToggleIcon size={16} />
-            </button>
-          </div>
-
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, padding: sidebarCollapsed ? "0 6px" : "0 8px" }}>
-            {navItems.map(item => {
-              const active = sidebarActiveView === item.key;
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => handleNavigate(item.key)}
-                  title={sidebarCollapsed ? item.label : undefined}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    padding: sidebarCollapsed ? "10px 0" : "10px 12px",
-                    justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                    borderRadius: 8, border: "none", cursor: "pointer",
-                    fontFamily: "var(--font-body)", fontSize: "14px",
-                    fontWeight: active ? 600 : 400,
-                    color: active ? "var(--text-100)" : "var(--text-300)",
-                    background: active ? "var(--bg-100)" : "transparent",
-                    borderLeft: "none",
-                    transition: "all 150ms", position: "relative", width: "100%",
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
-                >
-                  <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
-                  {!sidebarCollapsed && <span>{item.label}</span>}
-                  {item.badge > 0 && (
-                    <span style={{
-                      marginLeft: sidebarCollapsed ? 0 : "auto",
-                      position: sidebarCollapsed ? "absolute" : "static",
-                      top: sidebarCollapsed ? 4 : undefined,
-                      right: sidebarCollapsed ? 2 : undefined,
-                      fontSize: "11px", fontWeight: 700, color: "#fff",
-                      background: "var(--accent)", borderRadius: 10,
-                      padding: "1px 6px", minWidth: 18, textAlign: "center",
-                    }}>{item.badge}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ borderTop: "1px solid var(--border)", padding: sidebarCollapsed ? "8px 6px" : "8px" }}>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              title={sidebarCollapsed ? "Settings" : undefined}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: sidebarCollapsed ? "10px 0" : "10px 12px",
-                justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                borderRadius: 8, border: "none", cursor: "pointer",
-                fontFamily: "var(--font-body)", fontSize: "14px", fontWeight: 400,
-                color: "var(--text-200)", background: "transparent",
-                transition: "all 150ms", width: "100%",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-300, var(--bg-hover))"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-            >
-              <span style={{ flexShrink: 0, display: "flex" }}>{settingsItem.icon}</span>
-              {!sidebarCollapsed && <span>Settings</span>}
-            </button>
-
-            <div style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: sidebarCollapsed ? "10px 0" : "10px 12px",
-              justifyContent: sidebarCollapsed ? "center" : "flex-start",
-              marginTop: 4,
-            }}>
-              <div style={{
-                width: 30, height: 30, borderRadius: "50%", background: "var(--accent)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "12px", fontWeight: 700, color: "#fff", flexShrink: 0,
-              }}>
-                {getInitials(userEmail)}
-              </div>
-              {!sidebarCollapsed && (
-                <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "13px", color: "var(--text-100)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: tierColor(userTier) }}>{tierLabel(userTier)}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        </nav>
-
-        {/* ===== MAIN CONTENT ===== */}
-        <div style={{ flex: 1, minWidth: 0, background: "var(--bg-100)" }}>
-          {view === "builder" && <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />}
-          {view === "team" && <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewWorker} /></div>}
-          {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>}
-          {(view === "approvals" || view === "inbox") && <div style={S.main}><InboxView /></div>}
-          {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
-          {view === "activity" && <div style={S.main}><ReceiptsView /></div>}
-          {view === "performance" && <div style={S.main}><div style={{ padding: "3rem 2rem", textAlign: "center" }}><h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-100)" }}>Performance</h2><p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 8 }}>Business outcomes and worker metrics. Coming soon.</p></div></div>}
-          {(view === "integrations" || view === "connections") && <div style={S.main}><IntegrationsView /></div>}
+          <textarea
+            ref={composerRef}
+            value={composerValue}
+            onChange={e => { setComposerValue(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
+            onKeyDown={handleComposerKeyDown}
+            placeholder={large ? "Describe your business or ask for one worker..." : "Message..."}
+            disabled={aiStreaming}
+            rows={1}
+            style={{
+              flex: 1, border: "none", background: "transparent", outline: "none",
+              fontSize: large ? "15px" : "14px", lineHeight: 1.5,
+              color: "var(--text-100)", fontFamily: "var(--font-body)",
+              resize: "none", minHeight: large ? 24 : 20, maxHeight: 160,
+            }}
+          />
+          <button
+            onClick={() => handleComposerSubmit()}
+            disabled={!composerValue.trim() || aiStreaming}
+            style={{
+              width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer",
+              background: composerValue.trim() ? "var(--accent)" : "var(--bg-300)",
+              color: composerValue.trim() ? "#fff" : "var(--text-300)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 120ms", flexShrink: 0,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
         </div>
       </div>
+    );
+  }
+
+  // --- Right pane: Example team preview ---
+  function ExampleTeamPreview() {
+    const roles = ["Reception", "Dispatch", "Billing", "Reviews", "Inventory"];
+    return (
+      <div style={{ padding: "24px 20px" }}>
+        <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Example team</div>
+        <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)", margin: "8px 0 16px" }}>Home Services Team</h3>
+        {roles.map(role => (
+          <div key={role} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green, #5bb98c)", flexShrink: 0 }} />
+            <span style={{ fontSize: "14px", color: "var(--text-100)" }}>{role}</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 16, fontSize: "12px", color: "var(--text-300)" }}>
+          Shadow mode &middot; Email + Calendar connected
+        </div>
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: "12px", color: "var(--green, #5bb98c)" }}>Acts on its own</span>
+          <span style={{ fontSize: "12px", color: "var(--amber, #d4a843)" }}>Asks when it should</span>
+          <span style={{ fontSize: "12px", color: "var(--red, #c97055)" }}>Never crosses the line</span>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Right pane: Team proposal ---
+  function TeamProposalPane() {
+    if (!teamProposal) return null;
+    return (
+      <div style={{ padding: "24px 20px" }}>
+        <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Your team</div>
+        <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)", margin: "8px 0 16px" }}>{teamProposal.teamName || "Proposed Team"}</h3>
+        {(teamProposal.workers || []).map((w, i) => (
+          <div key={i} style={{
+            padding: "12px", marginBottom: 8, borderRadius: 12,
+            border: "1px solid var(--border)", background: "var(--bg-100)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green, #5bb98c)" }} />
+              <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>{w.role}</span>
+            </div>
+            {w.canDo && w.canDo.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                {w.canDo.slice(0, 3).map((c, j) => (
+                  <div key={j} style={{ fontSize: "12px", color: "var(--text-300)", padding: "1px 0" }}>{c}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {roiEstimate && (
+          <div style={{ marginTop: 16, padding: "12px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-100)" }}>
+            <div style={{ fontSize: "11px", color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Estimated savings</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: "var(--green, #5bb98c)" }}>{roiEstimate.monthlySavingsFormatted || "$" + (roiEstimate.monthlySavings || 0).toLocaleString()}/mo</div>
+            <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 4 }}>{roiEstimate.hoursPerWeek || 0} hours/week automated</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Center: Empty / Home state ---
+  function HomeEmptyState() {
+    return (
+      <div style={{
+        flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", padding: "60px 24px 40px", maxWidth: 640, margin: "0 auto", width: "100%",
+      }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 600, color: "var(--text-100)", marginBottom: 24, textAlign: "center" }}>
+          What should your team handle?
+        </h1>
+
+        <div style={{ width: "100%", marginBottom: 24 }}>
+          <ComposerBox large />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", marginBottom: 28 }}>
+          {examplePrompts.map((prompt, i) => (
+            <button
+              key={i}
+              onClick={() => { setComposerValue(prompt); handleComposerSubmit(prompt); }}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: "13px", color: "var(--text-300)", padding: "4px 0",
+                textAlign: "left", fontFamily: "var(--font-body)",
+                transition: "color 120ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+            >
+              &ldquo;{prompt}&rdquo;
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 12 }}>
+          <button
+            onClick={() => { setComposerValue("Build me a full team for my business"); handleComposerSubmit("Build me a full team for my business"); }}
+            style={{
+              padding: "10px 20px", borderRadius: 8, fontSize: "13px", fontWeight: 500,
+              background: "transparent", border: "1px solid var(--border)",
+              color: "var(--text-200)", cursor: "pointer", fontFamily: "var(--font-body)",
+              transition: "all 120ms",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          >Start with a team</button>
+          <button
+            onClick={() => { setView("builder"); }}
+            style={{
+              padding: "10px 20px", borderRadius: 8, fontSize: "13px", fontWeight: 500,
+              background: "transparent", border: "1px solid var(--border)",
+              color: "var(--text-200)", cursor: "pointer", fontFamily: "var(--font-body)",
+              transition: "all 120ms",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          >Start with one worker</button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Center: Conversation thread ---
+  function ConversationThread() {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px 0" }}>
+          <div style={{ maxWidth: 680, margin: "0 auto" }}>
+            {messages.map((msg, i) => (
+              <div key={i} style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  {msg.role === "assistant" ? (
+                    <div style={{
+                      width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
+                    }}>n</div>
+                  ) : (
+                    <div style={{
+                      width: 28, height: 28, borderRadius: "50%", background: "var(--accent)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      fontSize: "12px", fontWeight: 700, color: "#fff",
+                    }}>{getInitials(userEmail)}</div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: "13px", fontWeight: 600, marginBottom: 4,
+                      color: msg.role === "assistant" ? "var(--text-200)" : "var(--text-100)",
+                    }}>
+                      {msg.role === "assistant" ? "nooterra" : (userEmail || "You")}
+                    </div>
+                    <div style={{
+                      fontSize: "14px", lineHeight: 1.6, color: msg.isError ? "var(--red, #c97055)" : "var(--text-100)",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      background: msg.role === "user" ? "var(--bg-200)" : "transparent",
+                      padding: msg.role === "user" ? "10px 14px" : 0,
+                      borderRadius: msg.role === "user" ? 12 : 0,
+                    }}>
+                      {msg.content}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {aiStreaming && streamingText && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
+                  }}>n</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: 4, color: "var(--text-200)" }}>nooterra</div>
+                    <div style={{ fontSize: "14px", lineHeight: 1.6, color: "var(--text-100)", whiteSpace: "pre-wrap" }}>
+                      {streamingText}<span style={{ display: "inline-block", width: 6, height: 14, background: "var(--accent)", marginLeft: 2, borderRadius: 1, animation: "blink 1s step-end infinite" }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {aiStreaming && !streamingText && (
+              <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: "50%", background: "var(--bg-300)",
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  fontSize: "12px", fontWeight: 700, color: "var(--text-300)",
+                }}>n</div>
+                <div style={{ padding: "8px 0", fontSize: "14px", color: "var(--text-300)" }}>Thinking...</div>
+              </div>
+            )}
+            <div ref={threadEndRef} />
+          </div>
+        </div>
+        <div style={{ maxWidth: 680, margin: "0 auto", width: "100%", padding: "0 24px 16px" }}>
+          <ComposerBox />
+        </div>
+      </div>
+    );
+  }
+
+  // --- Determine what center shows ---
+  function CenterContent() {
+    if (view === "home" && !hasMessages) return <HomeEmptyState />;
+    if (view === "home" && hasMessages) return <ConversationThread />;
+    if (view === "builder") return <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />;
+    if (view === "team") return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={handleNewThread} /></div>;
+    if (view === "workerDetail" && selectedWorkerId) return <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>;
+    if (view === "inbox" || view === "approvals") return <div style={S.main}><InboxView /></div>;
+    if (view === "activity" || view === "receipts") return <div style={S.main}><ReceiptsView /></div>;
+    if (view === "performance") return <div style={S.main}><div style={{ padding: "3rem 2rem", textAlign: "center" }}><h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-100)" }}>Performance</h2><p style={{ fontSize: "14px", color: "var(--text-300)", marginTop: 8 }}>Business outcomes and worker metrics. Coming soon.</p></div></div>;
+    if (view === "connections" || view === "integrations") return <div style={S.main}><IntegrationsView /></div>;
+    return <HomeEmptyState />;
+  }
+
+  // --- Right pane content ---
+  function RightPaneContent() {
+    if (rightPaneContent === "team" && teamProposal) return <TeamProposalPane />;
+    return <ExampleTeamPreview />;
+  }
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "var(--bg-100)", overflow: "hidden" }}>
+
+      {/* ===== LEFT SIDEBAR ===== */}
+      <aside style={{
+        width: 240, flexShrink: 0, background: "var(--bg-400)",
+        borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
+        height: "100vh", overflow: "hidden",
+      }}>
+        {/* Logo */}
+        <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center" }}>
+          <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
+        </div>
+
+        {/* New thread button */}
+        <div style={{ padding: "0 12px 8px" }}>
+          <button
+            onClick={handleNewThread}
+            style={{
+              width: "100%", padding: "9px 16px", borderRadius: 20, border: "none",
+              background: "var(--accent)", color: "#fff", fontSize: "13px", fontWeight: 600,
+              cursor: "pointer", fontFamily: "var(--font-body)", transition: "opacity 120ms",
+              display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New thread
+          </button>
+        </div>
+
+        {/* Nav sections */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 4px" }}>
+          <SectionLabel>Operate</SectionLabel>
+          {operateNav.map(item => <NavItem key={item.key} item={item} />)}
+
+          <SectionLabel>Manage</SectionLabel>
+          {manageNav.map(item => <NavItem key={item.key} item={item} />)}
+        </div>
+
+        {/* Bottom: user */}
+        <div style={{ borderTop: "1px solid var(--border)", padding: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: "50%", background: "var(--accent)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "12px", fontWeight: 700, color: "#fff", flexShrink: 0,
+            }}>
+              {getInitials(userEmail)}
+            </div>
+            <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "13px", color: "var(--text-100)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: tierColor(userTier) }}>{tierLabel(userTier)}</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* ===== CENTER ===== */}
+      <main style={{
+        flex: 1, display: "flex", flexDirection: "column", minWidth: 0,
+        background: "var(--bg-100)", height: "100vh", overflow: "hidden",
+      }}>
+        <CenterContent />
+      </main>
+
+      {/* ===== RIGHT PANE ===== */}
+      {showRightPane && (
+        <aside style={{
+          width: 380, flexShrink: 0, background: "var(--bg-400)",
+          borderLeft: "1px solid var(--border)", height: "100vh",
+          overflowY: "auto",
+        }}>
+          <RightPaneContent />
+        </aside>
+      )}
 
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
     </div>
