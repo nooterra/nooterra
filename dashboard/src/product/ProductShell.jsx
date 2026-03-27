@@ -720,17 +720,28 @@ function CharterDisplay({ charter, compact = false }) {
    BuilderMessage
    =================================================================== */
 
-function BuilderMessage({ msg, isStreaming, onWorkerDefDetected }) {
+function parseOptionsBlock(text) {
+  const optionsMatch = text.match(/\[OPTIONS\]([\s\S]*?)\[\/OPTIONS\]/);
+  if (optionsMatch) {
+    const options = optionsMatch[1].trim().split('\n').filter(Boolean).map(o => o.trim());
+    const displayText = text.replace(/\[OPTIONS\][\s\S]*?\[\/OPTIONS\]/, '').trim();
+    return { options, displayText };
+  }
+  return { options: [], displayText: text };
+}
+
+function BuilderMessage({ msg, isStreaming, onWorkerDefDetected, onOptionClick }) {
   const isUser = msg.role === "user";
   if (isUser) {
     return (
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }} className="lovable-fade">
-        <div style={{ maxWidth: "85%", padding: "12px 16px", borderRadius: 18, fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", background: "var(--bg-surface)", border: "1px solid var(--border)", wordBreak: "break-word" }}>{msg.content}</div>
+        <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: "16px 16px 4px 16px", fontSize: "14px", lineHeight: 1.5, color: "#fff", background: "var(--text-primary)", wordBreak: "break-word" }}>{msg.content}</div>
       </div>
     );
   }
   const workerDef = msg.content ? parseWorkerDefinition(msg.content) : null;
-  const displayContent = workerDef ? stripWorkerDefinitionBlock(msg.content) : msg.content;
+  const rawContent = workerDef ? stripWorkerDefinitionBlock(msg.content) : msg.content;
+  const { options, displayText } = parseOptionsBlock(rawContent || "");
 
   // Notify parent when a worker definition is detected (after streaming completes)
   useEffect(() => {
@@ -740,17 +751,28 @@ function BuilderMessage({ msg, isStreaming, onWorkerDefDetected }) {
   }, [workerDef?.name, isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.75rem" }} className="lovable-fade">
-      <div style={{ maxWidth: "85%", fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
-        {displayContent}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", marginBottom: "0.75rem", gap: 8 }} className="lovable-fade">
+      <div style={{ maxWidth: "85%", fontSize: "14px", lineHeight: 1.5, color: "var(--text-primary)", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+        {displayText}
         {isStreaming && <span style={{ display: "inline-block", width: 2, height: "1.1em", background: "var(--text-primary)", marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 1s step-end infinite" }} />}
-        {workerDef && !isStreaming && (
-          <div style={{ marginTop: "0.75rem", padding: "10px 14px", borderRadius: 8, background: "var(--green-bg)", border: "1px solid var(--green)", fontSize: "13px", color: "var(--green)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Worker definition detected — edit it in the panel below
-          </div>
-        )}
       </div>
+      {options.length > 0 && !isStreaming && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "85%" }}>
+          {options.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => onOptionClick?.(opt)}
+              style={{
+                padding: "6px 14px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
+                border: "1px solid var(--border)", borderRadius: 20, background: "var(--bg-surface)",
+                cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms, color 150ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "var(--bg-surface)"; }}
+            >{opt}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1293,34 +1315,45 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const streamAbortRef = useRef(null);
   const hasMessages = messages.length > 0;
 
-  // Charter editor state
+  // Charter editor state (used by preview card)
   const [editorCharter, setEditorCharter] = useState(null);
   const [editorName, setEditorName] = useState("");
   const [editorSchedule, setEditorSchedule] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
 
-  // Wizard state
-  const [wizardStep, setWizardStep] = useState(1);
-  const [wizardDescription, setWizardDescription] = useState("");
-  const [wizardCharter, setWizardCharter] = useState({ canDo: [], askFirst: [], neverDo: [] });
-  const [wizardSchedule, setWizardSchedule] = useState(null);
-  const [wizardName, setWizardName] = useState("");
-  const [wizardNewRule, setWizardNewRule] = useState("");
-  const [wizardFading, setWizardFading] = useState(false);
+  // Rule editing state
+  const [editingRuleKey, setEditingRuleKey] = useState(null);
+  const [newRuleText, setNewRuleText] = useState("");
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Also try to infer rules from user messages when no AI definition is available
   const lastUserMessage = messages.filter(m => m.role === "user").slice(-1)[0]?.content || "";
 
+  function updatePreviewFromMessages(allMessages) {
+    const allText = allMessages.filter(m => m.role === "user").map(m => m.content).join(" ");
+    if (!allText.trim()) return;
+    const caps = inferCapabilities(allText);
+    const charter = inferCharterRules(allText, caps);
+    // Merge with existing editor charter to preserve manual edits
+    setEditorCharter(prev => {
+      if (!prev) return charter;
+      return {
+        canDo: [...new Set([...prev.canDo, ...charter.canDo])],
+        askFirst: [...new Set([...prev.askFirst, ...charter.askFirst])],
+        neverDo: [...new Set([...prev.neverDo, ...charter.neverDo])],
+      };
+    });
+    if (!editorName) setEditorName(inferWorkerName(allText));
+    if (!editorSchedule) setEditorSchedule(inferSchedule(allText));
+    setShowEditor(true);
+  }
+
   function handleWorkerDefDetected(workerDef) {
-    // Populate the charter editor from the parsed worker definition
     const charter = {
       canDo: workerDef.canDo || [],
       askFirst: workerDef.askFirst || [],
       neverDo: workerDef.neverDo || [],
     };
-    // If the AI definition has sparse rules, augment with inferred rules
     if (charter.canDo.length + charter.askFirst.length + charter.neverDo.length < 3 && lastUserMessage) {
       const caps = inferCapabilities(lastUserMessage);
       const inferred = inferCharterRules(lastUserMessage, caps);
@@ -1330,31 +1363,21 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     }
     setEditorCharter(charter);
     setEditorName(workerDef.name || inferWorkerName(lastUserMessage));
-    // Parse schedule from definition or infer
     if (workerDef.schedule) {
-      const sched = inferSchedule(workerDef.schedule);
-      setEditorSchedule(sched);
+      setEditorSchedule(inferSchedule(workerDef.schedule));
     } else if (lastUserMessage) {
       setEditorSchedule(inferSchedule(lastUserMessage));
     }
     if (workerDef.model) setSelectedModel(workerDef.model);
     setShowEditor(true);
-    // Scroll to charter editor after a tick
-    setTimeout(() => { charterEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 100);
   }
 
   async function sendChatMessage(userContent) {
     const newMessages = [...messages, { role: "user", content: userContent }];
-    setMessages(newMessages); setStreaming(true);
-    // Also auto-infer and populate charter as soon as user sends, as a preview
-    const caps = inferCapabilities(userContent);
-    if (caps.length > 0 && !showEditor) {
-      const inferred = inferCharterRules(userContent, caps);
-      setEditorCharter(inferred);
-      setEditorName(inferWorkerName(userContent));
-      setEditorSchedule(inferSchedule(userContent));
-      setShowEditor(true);
-    }
+    setMessages(newMessages);
+    setStreaming(true);
+    // Update preview after every user message
+    updatePreviewFromMessages(newMessages);
     const runtime = loadRuntimeConfig();
     const abortController = new AbortController();
     streamAbortRef.current = abortController;
@@ -1363,7 +1386,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: "Chat request failed" }));
         const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
-          ? "I'm having trouble connecting to the AI service. This usually means the backend is starting up — try again in a moment."
+          ? "I'm having trouble connecting to the AI service. This usually means the backend is starting up -- try again in a moment."
           : errBody.error || "Something went wrong. Please try again.";
         setMessages([...newMessages, { role: "assistant", content: errMsg }]);
         setStreaming(false);
@@ -1423,13 +1446,24 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     setTemplateDeploying(false);
   }
 
-  function handleTemplateClick(template) { setInputValue(template.description); }
-  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); setWizardStep(1); setWizardDescription(""); setWizardCharter({ canDo: [], askFirst: [], neverDo: [] }); setWizardSchedule(null); setWizardName(""); }
-  function handlePlusAction(action) {
-    if (action === "templates") { setTemplateReview(null); handleReset(); }
-    else if (action === "knowledge") { setInputValue("Add knowledge: "); }
-    else if (action === "tools") { setInputValue("Connect tool: "); }
-    else if (action === "websearch") { setInputValue("Search the web for: "); }
+  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); setEditingRuleKey(null); setNewRuleText(""); }
+
+  function handleRemoveRule(key, index) {
+    setEditorCharter(prev => {
+      if (!prev) return prev;
+      return { ...prev, [key]: prev[key].filter((_, i) => i !== index) };
+    });
+  }
+
+  function handleAddRule(key) {
+    const text = newRuleText.trim();
+    if (!text) return;
+    setEditorCharter(prev => {
+      if (!prev) return { canDo: [], askFirst: [], neverDo: [], [key]: [text] };
+      return { ...prev, [key]: [...(prev[key] || []), text] };
+    });
+    setNewRuleText("");
+    setEditingRuleKey(null);
   }
 
   if (templateReview) {
@@ -1441,399 +1475,273 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     );
   }
 
-  function wizardGoTo(step) {
-    setWizardFading(true);
-    setTimeout(() => { setWizardStep(step); setWizardFading(false); setWizardNewRule(""); }, 180);
-  }
-
-  function wizardHandleDescriptionContinue() {
-    if (!wizardDescription.trim()) return;
-    const caps = inferCapabilities(wizardDescription);
-    const inferred = inferCharterRules(wizardDescription, caps);
-    setWizardCharter(inferred);
-    setWizardName(inferWorkerName(wizardDescription));
-    setWizardSchedule(inferSchedule(wizardDescription));
-    wizardGoTo(2);
-  }
-
-  function wizardAddRule(key) {
-    const text = wizardNewRule.trim();
-    if (!text) return;
-    setWizardCharter(prev => ({ ...prev, [key]: [...(prev[key] || []), text] }));
-    setWizardNewRule("");
-  }
-
-  function wizardRemoveRule(key, index) {
-    setWizardCharter(prev => ({ ...prev, [key]: prev[key].filter((_, i) => i !== index) }));
-  }
-
-  function wizardHandleDeploy() {
-    // Populate editor state and deploy
-    setEditorCharter(wizardCharter);
-    setEditorName(wizardName);
-    setEditorSchedule(wizardSchedule);
-    // Use the same deploy logic
-    setDeployingWorker(true);
-    (async () => {
-      try {
-        const scheduleValue = wizardSchedule ? scheduleToApiValue(wizardSchedule) : "on_demand";
-        const result = await workerApiRequest({
-          pathname: "/v1/workers", method: "POST",
-          body: {
-            name: wizardName,
-            description: wizardDescription,
-            charter: JSON.stringify(wizardCharter),
-            schedule: scheduleValue,
-            model: selectedModel,
-          },
-        });
-        saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
-        if (result?.id) onViewWorker?.(result); else onComplete?.();
-      } catch (err) {
-        setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]);
-      }
-      setDeployingWorker(false);
-    })();
-  }
-
-  // Switch to chat mode from wizard
-  function wizardSwitchToChat() {
-    if (wizardDescription.trim()) {
-      setInputValue(wizardDescription);
-    }
-  }
-
-  const WIZARD_SUGGESTION_CHIPS = [
-    "Customer support", "Data monitoring", "Email management", "Content creation", "Research & reporting",
+  const SUGGESTION_CHIPS = [
+    "Customer support agent",
+    "Monitor competitor prices",
+    "Daily inbox summary",
+    "Content writer",
+    "Data pipeline monitor",
   ];
 
-  const WIZARD_SCHEDULE_OPTIONS = [
-    { label: "Continuous (24/7)", schedule: { type: "continuous", value: null, label: "Continuously" } },
-    { label: "Every hour", schedule: { type: "interval", value: "1h", label: "Every hour" } },
-    { label: "Daily at 9am", schedule: { type: "cron", value: "0 9 * * *", label: "Daily at 9 AM" } },
-    { label: "Weekdays only", schedule: { type: "cron", value: "0 9 * * 1-5", label: "Weekdays at 9 AM" } },
-    { label: "On demand", schedule: { type: "trigger", value: "on_demand", label: "On demand" } },
-  ];
+  const canDeploy = editorCharter && editorName &&
+    (editorCharter.canDo || []).length >= 1 &&
+    (editorCharter.neverDo || []).length >= 1;
 
-  const WIZARD_STEPS = ["Describe", "Can Do", "Ask First", "Never Do", "Schedule", "Review"];
-
-  if (!hasMessages) {
-    const wizardPillStyle = (color, bg) => ({
-      display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px 6px 14px",
-      borderRadius: 20, fontSize: "13px", lineHeight: 1.4, fontFamily: "var(--font-mono)",
-      background: bg, color: color, border: `1px solid ${color}22`,
-      cursor: "default", transition: "all 150ms", maxWidth: "100%", wordBreak: "break-word",
-      userSelect: "none",
-    });
-
-    const wizardPillRemoveBtn = {
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      width: 16, height: 16, borderRadius: "50%", background: "transparent", border: "none",
-      cursor: "pointer", color: "inherit", fontSize: "12px", fontWeight: 700, padding: 0,
-      flexShrink: 0, opacity: 0.6, transition: "opacity 150ms",
-    };
-
-    const renderRulePills = (key, color, bg) => (
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: "1rem" }}>
-        {(wizardCharter[key] || []).map((rule, i) => (
-          <span key={i} style={wizardPillStyle(color, bg)}>
-            {rule}
-            <button
-              style={wizardPillRemoveBtn}
-              onClick={() => wizardRemoveRule(key, i)}
-              onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = "0.6"; }}
-            >&times;</button>
-          </span>
-        ))}
-        {(wizardCharter[key] || []).length === 0 && (
-          <span style={{ fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic" }}>No rules yet. Add one below.</span>
-        )}
-      </div>
-    );
-
-    const renderAddRuleInput = (key) => (
-      <div style={{ display: "flex", gap: 8, maxWidth: 500 }}>
-        <input
-          value={wizardNewRule}
-          onChange={e => setWizardNewRule(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); wizardAddRule(key); } }}
-          placeholder="Add a rule..."
-          style={{ ...S.input, marginBottom: 0, flex: 1, fontSize: "14px", padding: "8px 14px", borderRadius: 8 }}
-        />
-        <button
-          onClick={() => wizardAddRule(key)}
-          style={{ ...S.btnSecondary, padding: "8px 16px", fontSize: "13px", flexShrink: 0 }}
-        >Add</button>
-      </div>
-    );
-
-    // Progress bar
-    const renderProgressBar = () => (
-      <div style={{ display: "flex", alignItems: "center", gap: 0, maxWidth: 400, width: "100%", margin: "0 auto 2rem" }}>
-        {WIZARD_STEPS.map((label, i) => {
-          const stepNum = i + 1;
-          const isActive = stepNum === wizardStep;
-          const isDone = stepNum < wizardStep;
-          return (
-            <React.Fragment key={i}>
-              {i > 0 && (
-                <div style={{
-                  flex: 1, height: 2,
-                  background: isDone ? "var(--text-primary)" : "var(--border)",
-                  transition: "background 300ms",
-                }} />
-              )}
-              <div style={{
-                width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "11px", fontWeight: 700, flexShrink: 0, transition: "all 300ms",
-                background: isActive ? "var(--text-primary)" : isDone ? "var(--text-primary)" : "transparent",
-                color: isActive || isDone ? "var(--bg-primary)" : "var(--text-tertiary)",
-                border: isActive || isDone ? "2px solid var(--text-primary)" : "2px solid var(--border)",
-              }} title={label}>
-                {isDone ? "\u2713" : stepNum}
-              </div>
-            </React.Fragment>
-          );
-        })}
-      </div>
-    );
-
-    const navButtons = (onContinue, continueDisabled) => (
-      <div style={{ display: "flex", gap: "0.75rem", marginTop: "2rem", justifyContent: "center" }}>
-        {wizardStep > 1 && (
+  // -- Pill renderer for the live preview card --
+  const renderPreviewPills = (rules, color, bg, key) => (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {(rules || []).map((rule, i) => (
+        <span key={i} style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          padding: "4px 10px", borderRadius: 14, fontSize: "12px", lineHeight: 1.3,
+          fontFamily: "var(--font-mono)", background: bg, color: color,
+          border: `1px solid ${color}33`, maxWidth: "100%", wordBreak: "break-word",
+        }}>
+          {rule}
           <button
-            onClick={() => wizardGoTo(wizardStep - 1)}
-            style={{ ...S.btnSecondary, width: "auto", padding: "10px 24px" }}
-          >&larr; Back</button>
-        )}
-        <button
-          onClick={onContinue}
-          disabled={continueDisabled}
-          style={{ ...S.btnPrimary, width: "auto", padding: "10px 32px", opacity: continueDisabled ? 0.4 : 1 }}
-        >Continue &rarr;</button>
-      </div>
-    );
+            onClick={() => handleRemoveRule(key, i)}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 14, height: 14, borderRadius: "50%", background: "transparent",
+              border: "none", cursor: "pointer", color: "inherit", fontSize: "11px",
+              fontWeight: 700, padding: 0, opacity: 0.5, transition: "opacity 150ms", flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.5"; }}
+          >&times;</button>
+        </span>
+      ))}
+      <button
+        onClick={() => { setEditingRuleKey(editingRuleKey === key ? null : key); setNewRuleText(""); }}
+        style={{
+          padding: "4px 10px", borderRadius: 14, fontSize: "12px", fontWeight: 500,
+          color: "var(--text-tertiary)", background: "transparent", border: "1px dashed var(--border)",
+          cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, color 150ms",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.color = color; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-tertiary)"; }}
+      >+ Add</button>
+    </div>
+  );
 
+  // -- Empty state (no messages yet) --
+  if (!hasMessages) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 1px)" }}>
-        <div style={{
-          flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          padding: "2rem", maxWidth: 680, width: "100%", margin: "0 auto",
-          opacity: wizardFading ? 0 : 1, transition: "opacity 180ms ease",
-        }}>
-          {renderProgressBar()}
-
-          {/* Step 1: Description */}
-          {wizardStep === 1 && (
-            <div style={{ width: "100%", textAlign: "center" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-                What should this worker do?
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
-                Describe the task in plain language.
-              </p>
-              <textarea
-                value={wizardDescription}
-                onChange={e => setWizardDescription(e.target.value)}
-                placeholder="e.g. Monitor my inbox and draft replies to common customer questions..."
-                rows={4}
-                autoFocus
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
+          <h1 style={{ fontSize: "clamp(24px, 4vw, 32px)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", textAlign: "center" }}>
+            What do you need done?
+          </h1>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "2rem", textAlign: "center" }}>
+            Describe a task and we will build an AI worker for it.
+          </p>
+          <div style={{ maxWidth: 560, width: "100%" }}>
+            <BuilderInputBox
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onSend={handleSend}
+              disabled={false}
+              model={selectedModel}
+              onModelChange={setSelectedModel}
+              placeholder="Describe what you need..."
+            />
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: "1.25rem", maxWidth: 560 }}>
+            {SUGGESTION_CHIPS.map(chip => (
+              <button
+                key={chip}
+                onClick={() => { sendChatMessage(chip); }}
                 style={{
-                  ...S.input, marginBottom: "1rem", resize: "vertical", minHeight: 100,
-                  fontSize: "15px", padding: "14px 18px", borderRadius: 12, width: "100%", boxSizing: "border-box",
+                  padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
+                  border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
+                  cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms, color 150ms",
                 }}
-              />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: "0.5rem" }}>
-                {WIZARD_SUGGESTION_CHIPS.map(chip => (
-                  <button
-                    key={chip}
-                    onClick={() => setWizardDescription(prev => prev ? `${prev.trimEnd()} ${chip.toLowerCase()}.` : `${chip}.`)}
-                    style={{
-                      padding: "6px 14px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)",
-                      border: "1px solid var(--border)", borderRadius: 20, background: "transparent",
-                      cursor: "pointer", fontFamily: "inherit", transition: "border-color 150ms, background 150ms",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "transparent"; }}
-                  >{chip}</button>
-                ))}
-              </div>
-              {navButtons(wizardHandleDescriptionContinue, !wizardDescription.trim())}
-            </div>
-          )}
-
-          {/* Step 2: canDo rules */}
-          {wizardStep === 2 && (
-            <div style={{ width: "100%", textAlign: "center" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-                What can it do on its own?
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
-                These are actions the worker can take without asking you first.
-              </p>
-              <div style={{ textAlign: "left" }}>
-                {renderRulePills("canDo", "var(--green)", "var(--green-bg)")}
-                {renderAddRuleInput("canDo")}
-              </div>
-              {navButtons(() => wizardGoTo(3), false)}
-            </div>
-          )}
-
-          {/* Step 3: askFirst rules */}
-          {wizardStep === 3 && (
-            <div style={{ width: "100%", textAlign: "center" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-                What needs your approval?
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
-                The worker will pause and ask you before doing these.
-              </p>
-              <div style={{ textAlign: "left" }}>
-                {renderRulePills("askFirst", "var(--amber)", "var(--amber-bg)")}
-                {renderAddRuleInput("askFirst")}
-              </div>
-              {navButtons(() => wizardGoTo(4), false)}
-            </div>
-          )}
-
-          {/* Step 4: neverDo rules */}
-          {wizardStep === 4 && (
-            <div style={{ width: "100%", textAlign: "center" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-                What should it never do?
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
-                Hard limits. The worker will refuse these actions entirely.
-              </p>
-              <div style={{ textAlign: "left" }}>
-                {renderRulePills("neverDo", "var(--red)", "var(--red-bg)")}
-                {renderAddRuleInput("neverDo")}
-              </div>
-              {navButtons(() => wizardGoTo(5), false)}
-            </div>
-          )}
-
-          {/* Step 5: Schedule */}
-          {wizardStep === 5 && (
-            <div style={{ width: "100%", textAlign: "center" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-                How often should it run?
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
-                Pick a schedule or leave it on demand.
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: "0.5rem" }}>
-                {WIZARD_SCHEDULE_OPTIONS.map(opt => {
-                  const isActive = wizardSchedule?.label === opt.schedule.label;
-                  return (
-                    <button
-                      key={opt.label}
-                      onClick={() => setWizardSchedule(opt.schedule)}
-                      style={{
-                        padding: "10px 20px", fontSize: "14px", fontWeight: 600, borderRadius: 10, cursor: "pointer",
-                        background: isActive ? "var(--text-primary)" : "transparent",
-                        color: isActive ? "var(--bg-primary)" : "var(--text-secondary)",
-                        border: isActive ? "2px solid var(--text-primary)" : "1px solid var(--border)",
-                        transition: "all 150ms", fontFamily: "inherit",
-                      }}
-                    >{opt.label}</button>
-                  );
-                })}
-              </div>
-              {navButtons(() => wizardGoTo(6), false)}
-            </div>
-          )}
-
-          {/* Step 6: Review & Deploy */}
-          {wizardStep === 6 && (
-            <div style={{ width: "100%", textAlign: "left" }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", textAlign: "center" }}>
-                Review & Deploy
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: "1.5rem", textAlign: "center" }}>
-                Check everything looks right, then deploy your worker.
-              </p>
-              <CharterEditor
-                charter={wizardCharter}
-                onCharterChange={setWizardCharter}
-                workerName={wizardName}
-                onNameChange={setWizardName}
-                schedule={wizardSchedule}
-                onScheduleChange={setWizardSchedule}
-                model={selectedModel}
-                onModelChange={setSelectedModel}
-                onDeploy={wizardHandleDeploy}
-                deploying={deployingWorker}
-              />
-              <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem", justifyContent: "center" }}>
-                <button
-                  onClick={() => wizardGoTo(5)}
-                  style={{ ...S.btnSecondary, width: "auto", padding: "10px 24px" }}
-                >&larr; Back</button>
-                <button
-                  onClick={wizardHandleDeploy}
-                  disabled={deployingWorker || !wizardName.trim()}
-                  style={{ ...S.btnPrimary, width: "auto", padding: "12px 36px", fontSize: "15px", opacity: (deployingWorker || !wizardName.trim()) ? 0.5 : 1 }}
-                >{deployingWorker ? "Deploying..." : "Deploy Worker"}</button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Compact chat input at the bottom as fallback */}
-        <div style={{ flexShrink: 0, padding: "0.75rem 1.5rem 1rem", display: "flex", justifyContent: "center", borderTop: "1px solid var(--border)" }}>
-          <div style={{ maxWidth: 480, width: "100%", opacity: 0.7, transition: "opacity 150ms" }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = "0.7"; }}
-          >
-            <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={false} model={selectedModel} onModelChange={setSelectedModel} placeholder="Or type freely to chat with the builder..." />
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
+              >{chip}</button>
+            ))}
           </div>
         </div>
       </div>
     );
   }
 
+  // -- Conversation started: split layout --
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <div style={{ flex: 1, overflowY: "auto", padding: "2rem 0", display: "flex", flexDirection: "column" }}>
-        <div style={{ maxWidth: showEditor ? 900 : 680, width: "100%", margin: "0 auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "0.25rem", transition: "max-width 300ms" }}>
-          {messages.map((msg, i) => (
-            <BuilderMessage
-              key={`msg_${i}`}
-              msg={msg}
-              isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
-              onWorkerDefDetected={handleWorkerDefDetected}
-            />
-          ))}
-          {streaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
-            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div></div>
-          )}
-          {deployingWorker && <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying worker...</div></div>}
-          <div ref={messagesEndRef} />
-
-          {/* Charter Editor Panel */}
-          {showEditor && editorCharter && (
-            <div ref={charterEditorRef} style={{ marginTop: "1.5rem", marginBottom: "1rem" }}>
-              <CharterEditor
-                charter={editorCharter}
-                onCharterChange={setEditorCharter}
-                workerName={editorName}
-                onNameChange={setEditorName}
-                schedule={editorSchedule}
-                onScheduleChange={setEditorSchedule}
+      <div style={{ flex: 1, overflow: "hidden" }}>
+        <div className="builder-split" style={{
+          display: "grid",
+          gridTemplateColumns: showEditor ? "1fr 380px" : "1fr",
+          height: "100%",
+          transition: "grid-template-columns 300ms",
+        }}>
+          {/* LEFT: Chat panel */}
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "1.5rem 1.5rem 0" }}>
+              <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                {messages.map((msg, i) => (
+                  <BuilderMessage
+                    key={`msg_${i}`}
+                    msg={msg}
+                    isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
+                    onWorkerDefDetected={handleWorkerDefDetected}
+                    onOptionClick={(opt) => { if (!streaming) sendChatMessage(opt); }}
+                  />
+                ))}
+                {streaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
+                  <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade">
+                    <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, padding: "0.75rem 1.5rem 1rem", display: "flex", justifyContent: "center" }}>
+              <BuilderInputBox
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onSend={handleSend}
+                disabled={streaming || deployingWorker}
                 model={selectedModel}
                 onModelChange={setSelectedModel}
-                onDeploy={handleDeployFromEditor}
-                deploying={deployingWorker}
+                placeholder="Type a message..."
               />
+            </div>
+          </div>
+
+          {/* RIGHT: Live preview card */}
+          {showEditor && editorCharter && (
+            <div style={{
+              borderLeft: "1px solid var(--border)", padding: "1.5rem",
+              overflowY: "auto", background: "var(--bg-primary)",
+            }}>
+              <div style={{
+                border: "1px solid var(--border)", borderRadius: 16,
+                background: "var(--bg-400, var(--bg-surface))", boxShadow: "var(--shadow-lg)",
+                padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem",
+              }}>
+                {/* Header: Name + status */}
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: canDeploy ? "var(--green)" : "var(--amber)",
+                      animation: canDeploy ? "none" : "pulse 2s ease-in-out infinite",
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: canDeploy ? "var(--green)" : "var(--amber)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {canDeploy ? "Ready" : "Building..."}
+                    </span>
+                  </div>
+                  <input
+                    value={editorName}
+                    onChange={e => setEditorName(e.target.value)}
+                    style={{
+                      display: "block", width: "100%", fontSize: "18px", fontWeight: 700,
+                      color: "var(--text-primary)", background: "transparent", border: "none",
+                      outline: "none", padding: "2px 0", fontFamily: "inherit",
+                      borderBottom: "1px solid transparent", transition: "border-color 150ms",
+                    }}
+                    onFocus={e => { e.currentTarget.style.borderBottom = "1px solid var(--border)"; }}
+                    onBlur={e => { e.currentTarget.style.borderBottom = "1px solid transparent"; }}
+                    placeholder="Worker name"
+                  />
+                </div>
+
+                {/* Can Do rules */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Can Do</div>
+                  {renderPreviewPills(editorCharter.canDo, "var(--green)", "var(--green-bg)", "canDo")}
+                  {editingRuleKey === "canDo" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("canDo"); } if (e.key === "Escape") setEditingRuleKey(null); }}
+                        placeholder="New rule..." autoFocus
+                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Ask First rules */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--amber)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Ask First</div>
+                  {renderPreviewPills(editorCharter.askFirst, "var(--amber)", "var(--amber-bg)", "askFirst")}
+                  {editingRuleKey === "askFirst" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("askFirst"); } if (e.key === "Escape") setEditingRuleKey(null); }}
+                        placeholder="New rule..." autoFocus
+                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Never Do rules */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Never Do</div>
+                  {renderPreviewPills(editorCharter.neverDo, "var(--red)", "var(--red-bg)", "neverDo")}
+                  {editingRuleKey === "neverDo" && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input value={newRuleText} onChange={e => setNewRuleText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddRule("neverDo"); } if (e.key === "Escape") setEditingRuleKey(null); }}
+                        placeholder="New rule..." autoFocus
+                        style={{ flex: 1, padding: "4px 8px", fontSize: "12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)" }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Schedule */}
+                {editorSchedule && (
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Schedule</div>
+                    <SchedulePicker schedule={editorSchedule} onScheduleChange={setEditorSchedule} />
+                  </div>
+                )}
+
+                {/* Model selector */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Model</div>
+                  <ModelDropdown model={selectedModel} onModelChange={setSelectedModel} />
+                </div>
+
+                {/* Deploy button */}
+                <button
+                  onClick={handleDeployFromEditor}
+                  disabled={!canDeploy || deployingWorker}
+                  style={{
+                    ...S.btnPrimary,
+                    width: "100%", padding: "12px 24px", fontSize: "15px", borderRadius: 10,
+                    opacity: (!canDeploy || deployingWorker) ? 0.4 : 1,
+                    marginTop: 4,
+                  }}
+                >
+                  {deployingWorker ? "Deploying..." : "Deploy Worker"}
+                </button>
+                {!canDeploy && (
+                  <div style={{ fontSize: "12px", color: "var(--text-tertiary)", textAlign: "center", marginTop: -4 }}>
+                    Needs at least 1 canDo and 1 neverDo rule
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
-      <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
-        <BuilderInputBox value={inputValue} onChange={(e) => setInputValue(e.target.value)} onSend={handleSend} disabled={streaming || deployingWorker} model={selectedModel} onModelChange={setSelectedModel} placeholder="Type a message..." />
-      </div>
+
+      {/* Responsive: on mobile, stack the builder split */}
+      <style>{`
+        @media (max-width: 768px) {
+          .builder-split {
+            grid-template-columns: 1fr !important;
+            grid-template-rows: 1fr auto;
+          }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }
