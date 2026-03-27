@@ -701,7 +701,7 @@ function CharterDisplay({ charter, compact = false }) {
    BuilderMessage
    =================================================================== */
 
-function BuilderMessage({ msg, isStreaming, onDeployWorker }) {
+function BuilderMessage({ msg, isStreaming, onWorkerDefDetected }) {
   const isUser = msg.role === "user";
   if (isUser) {
     return (
@@ -712,19 +712,291 @@ function BuilderMessage({ msg, isStreaming, onDeployWorker }) {
   }
   const workerDef = msg.content ? parseWorkerDefinition(msg.content) : null;
   const displayContent = workerDef ? stripWorkerDefinitionBlock(msg.content) : msg.content;
+
+  // Notify parent when a worker definition is detected (after streaming completes)
+  useEffect(() => {
+    if (workerDef && !isStreaming) {
+      onWorkerDefDetected?.(workerDef);
+    }
+  }, [workerDef?.name, isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.75rem" }} className="lovable-fade">
       <div style={{ maxWidth: "85%", fontSize: "15px", lineHeight: 1.6, color: "var(--text-primary)", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
         {displayContent}
         {isStreaming && <span style={{ display: "inline-block", width: 2, height: "1.1em", background: "var(--text-primary)", marginLeft: 1, verticalAlign: "text-bottom", animation: "blink 1s step-end infinite" }} />}
         {workerDef && !isStreaming && (
-          <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: 10, borderLeft: "2px solid var(--accent)" }}>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem" }}>{workerDef.name}</div>
-            <CharterDisplay charter={{ canDo: workerDef.canDo || [], askFirst: workerDef.askFirst || [], neverDo: workerDef.neverDo || [] }} compact />
-            {workerDef.schedule && <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginBottom: "0.5rem" }}>Schedule: {workerDef.schedule}</div>}
-            <button style={{ ...S.btnPrimary, width: "auto", padding: "0.6rem 1.5rem", fontSize: "14px", marginTop: "0.5rem" }} onClick={() => onDeployWorker?.(workerDef)}>Deploy this worker</button>
+          <div style={{ marginTop: "0.75rem", padding: "10px 14px", borderRadius: 8, background: "var(--green-bg)", border: "1px solid var(--green)", fontSize: "13px", color: "var(--green)", fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Worker definition detected — edit it in the panel below
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================================
+   SchedulePicker
+   =================================================================== */
+
+const SCHEDULE_OPTIONS = [
+  { label: "Continuous", value: "continuous", type: "continuous" },
+  { label: "Hourly", value: "1h", type: "interval" },
+  { label: "Daily at 9 AM", value: "0 9 * * *", type: "cron" },
+  { label: "On demand", value: "on_demand", type: "trigger" },
+  { label: "Custom cron", value: null, type: "custom" },
+];
+
+function SchedulePicker({ schedule, onScheduleChange }) {
+  const [customCron, setCustomCron] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {SCHEDULE_OPTIONS.map(opt => {
+          const isActive = opt.type !== "custom"
+            ? (schedule?.label === opt.label || (!schedule && opt.label === "On demand"))
+            : showCustom;
+          return (
+            <button
+              key={opt.label}
+              onClick={() => {
+                if (opt.type === "custom") {
+                  setShowCustom(true);
+                } else {
+                  setShowCustom(false);
+                  onScheduleChange({ type: opt.type, value: opt.value, label: opt.label });
+                }
+              }}
+              style={{
+                padding: "6px 12px", fontSize: "13px", fontWeight: 500, borderRadius: 6, cursor: "pointer",
+                background: isActive ? "var(--text-primary)" : "transparent",
+                color: isActive ? "var(--bg-primary)" : "var(--text-secondary)",
+                border: isActive ? "1px solid var(--text-primary)" : "1px solid var(--border)",
+                transition: "all 150ms", fontFamily: "inherit",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      {showCustom && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input
+            value={customCron}
+            onChange={e => setCustomCron(e.target.value)}
+            placeholder="0 */2 * * *"
+            style={{ ...S.input, marginBottom: 0, flex: 1, fontFamily: "var(--font-mono)", fontSize: "13px", padding: "6px 10px" }}
+          />
+          <button
+            onClick={() => {
+              if (customCron.trim()) {
+                onScheduleChange({ type: "cron", value: customCron.trim(), label: `Cron: ${customCron.trim()}` });
+              }
+            }}
+            style={{ ...S.btnSecondary, padding: "6px 14px", fontSize: "13px" }}
+          >
+            Set
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===================================================================
+   CharterEditor — interactive charter editing panel
+   =================================================================== */
+
+const CHARTER_SECTIONS = [
+  { key: "canDo", label: "Can Do", color: "var(--green)", bg: "var(--green-bg)", icon: "\u2713" },
+  { key: "askFirst", label: "Ask First", color: "var(--amber)", bg: "var(--amber-bg)", icon: "?" },
+  { key: "neverDo", label: "Never Do", color: "var(--red)", bg: "var(--red-bg)", icon: "\u2717" },
+];
+
+const CYCLE_ORDER = ["canDo", "askFirst", "neverDo"];
+
+function CharterEditor({ charter, onCharterChange, workerName, onNameChange, schedule, onScheduleChange, model, onModelChange, onDeploy, deploying }) {
+  const [newRuleTexts, setNewRuleTexts] = useState({ canDo: "", askFirst: "", neverDo: "" });
+
+  function cycleRule(fromKey, ruleIndex) {
+    const rule = charter[fromKey][ruleIndex];
+    const nextIdx = (CYCLE_ORDER.indexOf(fromKey) + 1) % CYCLE_ORDER.length;
+    const toKey = CYCLE_ORDER[nextIdx];
+    const updated = { ...charter };
+    updated[fromKey] = charter[fromKey].filter((_, i) => i !== ruleIndex);
+    updated[toKey] = [...(charter[toKey] || []), rule];
+    onCharterChange(updated);
+  }
+
+  function removeRule(key, index) {
+    const updated = { ...charter };
+    updated[key] = charter[key].filter((_, i) => i !== index);
+    onCharterChange(updated);
+  }
+
+  function addRule(key) {
+    const text = newRuleTexts[key]?.trim();
+    if (!text) return;
+    const updated = { ...charter };
+    updated[key] = [...(charter[key] || []), text];
+    onCharterChange(updated);
+    setNewRuleTexts(prev => ({ ...prev, [key]: "" }));
+  }
+
+  const pillStyle = (sec) => ({
+    display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px 5px 12px",
+    borderRadius: 20, fontSize: "13px", lineHeight: 1.4, fontFamily: "var(--font-mono)",
+    background: sec.bg, color: sec.color, border: `1px solid ${sec.color}22`,
+    cursor: "pointer", transition: "all 150ms", maxWidth: "100%", wordBreak: "break-word",
+    userSelect: "none",
+  });
+
+  const removeBtn = {
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: 16, height: 16, borderRadius: "50%", background: "transparent", border: "none",
+    cursor: "pointer", color: "inherit", fontSize: "12px", fontWeight: 700, padding: 0,
+    flexShrink: 0, opacity: 0.6, transition: "opacity 150ms",
+  };
+
+  return (
+    <div className="lovable-fade" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden" }}>
+      {/* Header: Name + Schedule + Model */}
+      <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--green-bg)", border: "1px solid var(--green)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3.5" stroke="var(--green)" strokeWidth="1.5" fill="none"/><path d="M2.5 16c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke="var(--green)" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>
+          </div>
+          <input
+            value={workerName}
+            onChange={e => onNameChange(e.target.value)}
+            style={{
+              flex: 1, fontSize: "18px", fontWeight: 700, color: "var(--text-primary)",
+              background: "transparent", border: "none", outline: "none", fontFamily: "inherit",
+              padding: "4px 0", borderBottom: "2px solid transparent",
+              transition: "border-color 150ms",
+            }}
+            onFocus={e => { e.target.style.borderBottomColor = "var(--border)"; }}
+            onBlur={e => { e.target.style.borderBottomColor = "transparent"; }}
+            placeholder="Worker name"
+          />
+        </div>
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Schedule</div>
+            <SchedulePicker schedule={schedule} onScheduleChange={onScheduleChange} />
+          </div>
+          <div>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Model</div>
+            <ModelDropdown model={model} onModelChange={onModelChange} />
+          </div>
+        </div>
+      </div>
+
+      {/* Charter columns */}
+      <div style={{ padding: "20px 24px" }}>
+        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 16 }}>
+          Charter Rules
+          <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8, fontSize: "11px", color: "var(--text-tertiary)" }}>
+            Click a rule to cycle its category
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          {CHARTER_SECTIONS.map(sec => {
+            const rules = charter[sec.key] || [];
+            return (
+              <div key={sec.key}>
+                <div style={{
+                  fontSize: "12px", fontWeight: 700, color: sec.color, textTransform: "uppercase",
+                  letterSpacing: "0.05em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    width: 20, height: 20, borderRadius: "50%", background: sec.bg, fontSize: "11px", fontWeight: 700,
+                  }}>
+                    {sec.icon}
+                  </span>
+                  {sec.label}
+                  <span style={{ fontSize: "11px", fontWeight: 500, opacity: 0.6 }}>({rules.length})</span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}>
+                  {rules.map((rule, i) => (
+                    <div
+                      key={`${sec.key}-${i}`}
+                      style={pillStyle(sec)}
+                      onClick={() => cycleRule(sec.key, i)}
+                      title={`Click to move to ${CYCLE_ORDER[(CYCLE_ORDER.indexOf(sec.key) + 1) % 3].replace(/([A-Z])/g, " $1").trim()}`}
+                    >
+                      <span style={{ flex: 1 }}>{rule}</span>
+                      <button
+                        style={removeBtn}
+                        onClick={e => { e.stopPropagation(); removeRule(sec.key, i); }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = "0.6"; }}
+                        title="Remove rule"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add new rule input */}
+                <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+                  <input
+                    value={newRuleTexts[sec.key] || ""}
+                    onChange={e => setNewRuleTexts(prev => ({ ...prev, [sec.key]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addRule(sec.key); } }}
+                    placeholder="Add rule..."
+                    style={{
+                      flex: 1, fontSize: "12px", padding: "5px 8px", borderRadius: 6,
+                      border: "1px solid var(--border)", background: "var(--bg-primary)",
+                      color: "var(--text-primary)", outline: "none", fontFamily: "var(--font-mono)",
+                      transition: "border-color 150ms", boxSizing: "border-box",
+                    }}
+                    onFocus={e => { e.target.style.borderColor = sec.color; }}
+                    onBlur={e => { e.target.style.borderColor = "var(--border)"; }}
+                  />
+                  <button
+                    onClick={() => addRule(sec.key)}
+                    style={{
+                      width: 26, height: 26, borderRadius: 6, border: `1px solid ${sec.color}44`,
+                      background: sec.bg, color: sec.color, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "16px", fontWeight: 700, padding: 0, flexShrink: 0,
+                    }}
+                    title={`Add to ${sec.label}`}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Deploy button */}
+      <div style={{ padding: "16px 24px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
+        <div style={{ flex: 1, fontSize: "12px", color: "var(--text-tertiary)" }}>
+          {(charter.canDo?.length || 0) + (charter.askFirst?.length || 0) + (charter.neverDo?.length || 0)} rules defined
+        </div>
+        <button
+          style={{
+            ...S.btnPrimary, width: "auto", padding: "12px 32px", fontSize: "15px",
+            opacity: deploying ? 0.5 : 1,
+            background: "var(--green)", color: "#fff",
+          }}
+          disabled={deploying}
+          onClick={onDeploy}
+        >
+          {deploying ? "Deploying..." : "Deploy Worker"}
+        </button>
       </div>
     </div>
   );
@@ -906,17 +1178,66 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [streaming, setStreaming] = useState(false);
   const [deployingWorker, setDeployingWorker] = useState(false);
   const messagesEndRef = useRef(null);
+  const charterEditorRef = useRef(null);
   const [templateReview, setTemplateReview] = useState(null);
   const [templateDeploying, setTemplateDeploying] = useState(false);
   const [templateError, setTemplateError] = useState("");
   const streamAbortRef = useRef(null);
   const hasMessages = messages.length > 0;
 
+  // Charter editor state
+  const [editorCharter, setEditorCharter] = useState(null);
+  const [editorName, setEditorName] = useState("");
+  const [editorSchedule, setEditorSchedule] = useState(null);
+  const [showEditor, setShowEditor] = useState(false);
+
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  // Also try to infer rules from user messages when no AI definition is available
+  const lastUserMessage = messages.filter(m => m.role === "user").slice(-1)[0]?.content || "";
+
+  function handleWorkerDefDetected(workerDef) {
+    // Populate the charter editor from the parsed worker definition
+    const charter = {
+      canDo: workerDef.canDo || [],
+      askFirst: workerDef.askFirst || [],
+      neverDo: workerDef.neverDo || [],
+    };
+    // If the AI definition has sparse rules, augment with inferred rules
+    if (charter.canDo.length + charter.askFirst.length + charter.neverDo.length < 3 && lastUserMessage) {
+      const caps = inferCapabilities(lastUserMessage);
+      const inferred = inferCharterRules(lastUserMessage, caps);
+      if (charter.canDo.length === 0) charter.canDo = inferred.canDo;
+      if (charter.askFirst.length === 0) charter.askFirst = inferred.askFirst;
+      if (charter.neverDo.length === 0) charter.neverDo = inferred.neverDo;
+    }
+    setEditorCharter(charter);
+    setEditorName(workerDef.name || inferWorkerName(lastUserMessage));
+    // Parse schedule from definition or infer
+    if (workerDef.schedule) {
+      const sched = inferSchedule(workerDef.schedule);
+      setEditorSchedule(sched);
+    } else if (lastUserMessage) {
+      setEditorSchedule(inferSchedule(lastUserMessage));
+    }
+    if (workerDef.model) setSelectedModel(workerDef.model);
+    setShowEditor(true);
+    // Scroll to charter editor after a tick
+    setTimeout(() => { charterEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 100);
+  }
 
   async function sendChatMessage(userContent) {
     const newMessages = [...messages, { role: "user", content: userContent }];
     setMessages(newMessages); setStreaming(true);
+    // Also auto-infer and populate charter as soon as user sends, as a preview
+    const caps = inferCapabilities(userContent);
+    if (caps.length > 0 && !showEditor) {
+      const inferred = inferCharterRules(userContent, caps);
+      setEditorCharter(inferred);
+      setEditorName(inferWorkerName(userContent));
+      setEditorSchedule(inferSchedule(userContent));
+      setShowEditor(true);
+    }
     const runtime = loadRuntimeConfig();
     const abortController = new AbortController();
     streamAbortRef.current = abortController;
@@ -944,14 +1265,26 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   function handleSend() { const text = inputValue.trim(); if (!text || streaming) return; setInputValue(""); sendChatMessage(text); }
 
-  async function handleDeployWorker(workerDef) {
+  async function handleDeployFromEditor() {
+    if (!editorCharter || !editorName) return;
     setDeployingWorker(true);
     try {
-      const charter = { canDo: workerDef.canDo || [], askFirst: workerDef.askFirst || [], neverDo: workerDef.neverDo || [] };
-      const result = await workerApiRequest({ pathname: "/v1/workers", method: "POST", body: { name: workerDef.name || "New Worker", description: "", charter: JSON.stringify(charter), schedule: workerDef.schedule || "on_demand", model: workerDef.model || selectedModel } });
+      const scheduleValue = editorSchedule ? scheduleToApiValue(editorSchedule) : "on_demand";
+      const result = await workerApiRequest({
+        pathname: "/v1/workers", method: "POST",
+        body: {
+          name: editorName,
+          description: lastUserMessage || "",
+          charter: JSON.stringify(editorCharter),
+          schedule: scheduleValue,
+          model: selectedModel,
+        },
+      });
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       if (result?.id) onViewWorker?.(result); else onComplete?.();
-    } catch (err) { setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]); }
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Deploy failed: ${err?.message || "Unknown error"}. Try again?` }]);
+    }
     setDeployingWorker(false);
   }
 
@@ -966,7 +1299,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   }
 
   function handleTemplateClick(template) { setInputValue(template.description); }
-  function handleReset() { setMessages([]); }
+  function handleReset() { setMessages([]); setShowEditor(false); setEditorCharter(null); setEditorName(""); setEditorSchedule(null); }
 
   if (templateReview) {
     return (
@@ -1006,13 +1339,38 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "2rem 0", display: "flex", flexDirection: "column" }}>
-        <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          {messages.map((msg, i) => <BuilderMessage key={`msg_${i}`} msg={msg} isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"} onDeployWorker={handleDeployWorker} />)}
+        <div style={{ maxWidth: showEditor ? 900 : 680, width: "100%", margin: "0 auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "0.25rem", transition: "max-width 300ms" }}>
+          {messages.map((msg, i) => (
+            <BuilderMessage
+              key={`msg_${i}`}
+              msg={msg}
+              isStreaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
+              onWorkerDefDetected={handleWorkerDefDetected}
+            />
+          ))}
           {streaming && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
             <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Thinking...</div></div>
           )}
-          {deployingWorker && <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying...</div></div>}
+          {deployingWorker && <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: "0.5rem" }} className="lovable-fade"><div style={{ fontSize: "15px", color: "var(--text-secondary)" }}>Deploying worker...</div></div>}
           <div ref={messagesEndRef} />
+
+          {/* Charter Editor Panel */}
+          {showEditor && editorCharter && (
+            <div ref={charterEditorRef} style={{ marginTop: "1.5rem", marginBottom: "1rem" }}>
+              <CharterEditor
+                charter={editorCharter}
+                onCharterChange={setEditorCharter}
+                workerName={editorName}
+                onNameChange={setEditorName}
+                schedule={editorSchedule}
+                onScheduleChange={setEditorSchedule}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
+                onDeploy={handleDeployFromEditor}
+                deploying={deployingWorker}
+              />
+            </div>
+          )}
         </div>
       </div>
       <div style={{ flexShrink: 0, padding: "1rem 1.5rem 1.5rem", display: "flex", justifyContent: "center", background: "var(--bg-primary)" }}>
@@ -1077,6 +1435,7 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
       {iconBtn("workers", "Workers", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>)}
       {iconBtn("approvals", "Approvals", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, pendingApprovals)}
       {iconBtn("receipts", "History", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
+      {iconBtn("integrations", "Integrations", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2v3M10 2v3M6 11v3M10 11v3M2 6h3M2 10h3M11 6h3M11 10h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><rect x="5" y="5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
       <div style={{ flex: 1 }} />
       <button onClick={onOpenSettings} title="Settings" style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
@@ -1141,6 +1500,7 @@ function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, us
       <div style={{ borderTop: "1px solid var(--border)", margin: "16px 16px" }} />
       {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--accent)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
       {navBtn("receipts", "History")}
+      {navBtn("integrations", "Integrations")}
       <div style={{ flex: 1 }} />
       <div style={{ borderTop: "1px solid var(--border)", margin: "8px 16px" }} />
       <div style={{ padding: "12px 16px", position: "relative" }} ref={menuRef}>
@@ -1242,7 +1602,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   if (!worker) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Worker not found.</div></div>);
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
-  const tabs = [{ key: "charter", label: "Charter" }, { key: "activity", label: "Activity" }, { key: "settings", label: "Settings" }];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "activity", label: "Activity" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
@@ -1272,6 +1632,11 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
             </div>
           )}
           {logsLoading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div> : logs.length === 0 && !isNewDeploy ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div> : logs.map((entry, i) => <ActivityLogEntry key={entry.id || i} entry={entry} />)}
+        </div>
+      )}
+      {tab === "integrations" && (
+        <div style={{ maxWidth: 480 }}>
+          <WorkerIntegrationsSection workerId={workerId} />
         </div>
       )}
       {tab === "settings" && (
@@ -1456,7 +1821,83 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
     try { const result = await workerApiRequest({ pathname: "/v1/billing/checkout", method: "POST", body: { ...payload, email: userEmail } }); if (result?.url) window.location.href = result.url; else { console.error("No checkout URL returned", result); setBillingLoading(false); } } catch (err) { console.error("Billing checkout failed:", err); setBillingLoading(false); }
   }
 
-  const sidebarTabs = [{ key: "general", label: "General" }, { key: "account", label: "Account" }, { key: "billing", label: "Billing" }, { key: "usage", label: "Usage" }];
+  // --- Notification preferences state ---
+  const [notifEmailEnabled, setNotifEmailEnabled] = useState(false);
+  const [notifEmailAddress, setNotifEmailAddress] = useState(userEmail || "");
+  const [notifSlackEnabled, setNotifSlackEnabled] = useState(false);
+  const [notifSlackWebhook, setNotifSlackWebhook] = useState("");
+  const [notifSlackTesting, setNotifSlackTesting] = useState(false);
+  const [notifSlackTestResult, setNotifSlackTestResult] = useState(null);
+  const [notifEvents, setNotifEvents] = useState({
+    approvalRequired: true,
+    workerCompleted: false,
+    workerError: true,
+    budgetAlert: true,
+    securityAlert: true,
+  });
+  const [notifSaveState, setNotifSaveState] = useState("idle");
+
+  // Load notification preferences on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const prefs = await workerApiRequest({ pathname: "/v1/notifications/preferences", method: "GET" });
+        if (prefs) {
+          if (prefs.emailEnabled != null) setNotifEmailEnabled(prefs.emailEnabled);
+          if (prefs.emailAddress) setNotifEmailAddress(prefs.emailAddress);
+          if (prefs.slackEnabled != null) setNotifSlackEnabled(prefs.slackEnabled);
+          if (prefs.slackWebhookUrl) setNotifSlackWebhook(prefs.slackWebhookUrl);
+          if (prefs.events) setNotifEvents(prev => ({ ...prev, ...prefs.events }));
+        }
+      } catch { /* no prefs yet */ }
+    })();
+  }, []);
+
+  async function handleNotifSave() {
+    setNotifSaveState("saving");
+    try {
+      await workerApiRequest({
+        pathname: "/v1/notifications/preferences",
+        method: "PUT",
+        body: {
+          emailEnabled: notifEmailEnabled,
+          emailAddress: notifEmailAddress.trim(),
+          slackEnabled: notifSlackEnabled,
+          slackWebhookUrl: notifSlackWebhook.trim(),
+          events: notifEvents,
+        },
+      });
+      setNotifSaveState("saved");
+      setTimeout(() => setNotifSaveState("idle"), 2000);
+    } catch (err) {
+      console.error("Notification preferences save failed:", err);
+      setNotifSaveState("error");
+      setTimeout(() => setNotifSaveState("idle"), 2000);
+    }
+  }
+
+  async function handleSlackTest() {
+    setNotifSlackTesting(true);
+    setNotifSlackTestResult(null);
+    try {
+      const result = await workerApiRequest({
+        pathname: "/v1/notifications/test-slack",
+        method: "POST",
+        body: { webhookUrl: notifSlackWebhook.trim() },
+      });
+      setNotifSlackTestResult(result?.ok ? "success" : "error");
+    } catch {
+      setNotifSlackTestResult("error");
+    }
+    setNotifSlackTesting(false);
+    setTimeout(() => setNotifSlackTestResult(null), 3000);
+  }
+
+  function toggleNotifEvent(key) {
+    setNotifEvents(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  const sidebarTabs = [{ key: "general", label: "General" }, { key: "notifications", label: "Notifications" }, { key: "account", label: "Account" }, { key: "billing", label: "Billing" }, { key: "usage", label: "Usage" }];
   const themes = [{ key: "light", label: "Light", bg: "#FAF9F5", fg: "#EBE8E0" }, { key: "auto", label: "Auto", bgLeft: "#FAF9F5", bgRight: "#212121", fgLeft: "#EBE8E0", fgRight: "#2f2f2f" }, { key: "dark", label: "Dark", bg: "#212121", fg: "#2f2f2f" }];
   const fonts = [{ key: "default", label: "Default" }, { key: "sans", label: "Sans" }, { key: "mono", label: "Mono" }];
 
@@ -1505,19 +1946,6 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   <textarea value={preferences} onChange={(e) => setPreferences(e.target.value)} placeholder="e.g. Always use formal language. Prefer bullet points over paragraphs." style={{ ...S.textarea, minHeight: 80 }} />
                 </div>
                 <div style={{ marginBottom: "2rem" }}>
-                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1rem" }}>Notifications</div>
-                  {[
-                    { label: "Approval emails", desc: "Get notified when a worker needs your decision.", on: notifApproval, toggle: () => setNotifApproval(!notifApproval) },
-                    { label: "Weekly reports", desc: "Receive a weekly summary of worker activity.", on: notifWeekly, toggle: () => setNotifWeekly(!notifWeekly) },
-                    { label: "Worker errors", desc: "Get notified when a worker encounters an error.", on: notifErrors, toggle: () => setNotifErrors(!notifErrors) },
-                  ].map((n, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{n.label}</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{n.desc}</div></div>
-                      <ToggleSwitch on={n.on} onToggle={n.toggle} />
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Appearance</div>
                   <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Choose how Nooterra looks.</p>
                   <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>{themes.map(opt => <ThemePreview key={opt.key} opt={opt} selected={theme === opt.key} onClick={() => handleThemeChange(opt.key)} />)}</div>
@@ -1527,6 +1955,58 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                   </div>
                 </div>
                 <SaveButton />
+              </div>)}
+              {tab === "notifications" && (<div>
+                <div style={{ marginBottom: "2rem" }}>
+                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Email notifications</div>
+                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Receive notifications via email when events occur.</p>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
+                    <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>Enable email notifications</div></div>
+                    <ToggleSwitch on={notifEmailEnabled} onToggle={() => setNotifEmailEnabled(!notifEmailEnabled)} />
+                  </div>
+                  {notifEmailEnabled && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <label style={S.label}>Email address</label>
+                      <FocusInput type="email" value={notifEmailAddress} onChange={(e) => setNotifEmailAddress(e.target.value)} placeholder="you@example.com" />
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginBottom: "2rem" }}>
+                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Slack notifications</div>
+                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Send rich notifications to a Slack channel via webhook.</p>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
+                    <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>Enable Slack notifications</div></div>
+                    <ToggleSwitch on={notifSlackEnabled} onToggle={() => setNotifSlackEnabled(!notifSlackEnabled)} />
+                  </div>
+                  {notifSlackEnabled && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <label style={S.label}>Webhook URL</label>
+                      <FocusInput type="url" value={notifSlackWebhook} onChange={(e) => setNotifSlackWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/..." />
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
+                        <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", opacity: notifSlackTesting || !notifSlackWebhook.trim() ? 0.6 : 1 }} disabled={notifSlackTesting || !notifSlackWebhook.trim()} onClick={handleSlackTest}>{notifSlackTesting ? "Sending..." : "Test"}</button>
+                        {notifSlackTestResult === "success" && <span style={{ fontSize: "13px", color: "#5bb98c", fontWeight: 500 }}>Sent successfully</span>}
+                        {notifSlackTestResult === "error" && <span style={{ fontSize: "13px", color: "#c97055", fontWeight: 500 }}>Failed to send</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginBottom: "2rem" }}>
+                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Notification events</div>
+                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Choose which events trigger notifications.</p>
+                  {[
+                    { key: "approvalRequired", label: "Approval required", desc: "When a worker needs human approval to proceed." },
+                    { key: "workerCompleted", label: "Worker completed", desc: "When a scheduled run finishes successfully." },
+                    { key: "workerError", label: "Worker error", desc: "When a worker execution fails." },
+                    { key: "budgetAlert", label: "Budget alert", desc: "When credits run low." },
+                    { key: "securityAlert", label: "Security alert", desc: "When an anomaly is detected." },
+                  ].map((evt) => (
+                    <div key={evt.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
+                      <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{evt.label}</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: "0.15rem" }}>{evt.desc}</div></div>
+                      <ToggleSwitch on={notifEvents[evt.key]} onToggle={() => toggleNotifEvent(evt.key)} />
+                    </div>
+                  ))}
+                </div>
+                <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "#1a1a1a", transition: "background 300ms, opacity 150ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : notifSaveState === "error" ? "Failed -- try again" : "Save"}</button>
               </div>)}
               {tab === "account" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Account</div>
@@ -1648,6 +2128,223 @@ function PricingView() {
 }
 
 /* ===================================================================
+   IntegrationsView
+   =================================================================== */
+
+const AVAILABLE_INTEGRATIONS = [
+  { key: "gmail", name: "Gmail", description: "Read and send emails", authType: "oauth", oauthUrl: "/v1/integrations/gmail/auth" },
+  { key: "slack", name: "Slack", description: "Send messages and get approvals", authType: "webhook", fieldLabel: "Webhook URL", fieldPlaceholder: "https://hooks.slack.com/services/..." },
+  { key: "github", name: "GitHub", description: "Repos, issues, PRs", authType: "oauth", oauthUrl: "/v1/integrations/github/auth" },
+  { key: "google_calendar", name: "Google Calendar", description: "Schedule and manage events", authType: "oauth", oauthUrl: "/v1/integrations/google-calendar/auth" },
+  { key: "stripe", name: "Stripe", description: "Payment and billing data", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "sk_live_..." },
+  { key: "notion", name: "Notion", description: "Notes and databases", authType: "oauth", oauthUrl: "/v1/integrations/notion/auth" },
+  { key: "linear", name: "Linear", description: "Issue tracking", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "lin_api_..." },
+  { key: "custom_webhook", name: "Custom Webhook", description: "Any HTTP endpoint", authType: "webhook", fieldLabel: "URL", fieldPlaceholder: "https://example.com/webhook", hasSecret: true },
+];
+
+function IntegrationConnectModal({ integration, onClose, onSave }) {
+  const [value, setValue] = useState("");
+  const [secret, setSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!value.trim()) { setError("This field is required."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const body = { service: integration.key, config: { [integration.authType === "apikey" ? "apiKey" : "webhookUrl"]: value.trim() } };
+      if (integration.hasSecret && secret.trim()) body.config.secret = secret.trim();
+      await workerApiRequest({ pathname: "/v1/integrations", method: "POST", body });
+      onSave();
+    } catch (err) {
+      setError(err?.message || "Failed to save integration.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
+      <div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Connect {integration.name}</h2>
+        <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{integration.description}</p>
+        {error && <div style={S.error}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <label style={S.label}>{integration.fieldLabel}</label>
+          <FocusInput type="text" value={value} onChange={e => setValue(e.target.value)} placeholder={integration.fieldPlaceholder} />
+          {integration.hasSecret && (<>
+            <label style={S.label}>Secret (optional)</label>
+            <FocusInput type="text" value={secret} onChange={e => setSecret(e.target.value)} placeholder="Signing secret" />
+          </>)}
+          <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+            <button type="button" style={S.btnSecondary} onClick={onClose}>Cancel</button>
+            <button type="submit" style={{ ...S.btnPrimary, width: "auto", opacity: saving ? 0.5 : 1 }} disabled={saving}>{saving ? "Saving..." : "Connect"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsView() {
+  const [connected, setConnected] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [connectModal, setConnectModal] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(null);
+
+  async function loadIntegrations() {
+    try {
+      const result = await workerApiRequest({ pathname: "/v1/integrations", method: "GET" });
+      setConnected(result?.items || result || []);
+    } catch { setConnected([]); }
+    setLoading(false);
+  }
+
+  useEffect(() => { loadIntegrations(); }, []);
+
+  function isConnected(serviceKey) {
+    return connected.find(c => c.service === serviceKey || c.key === serviceKey);
+  }
+
+  async function handleConnect(integration) {
+    if (integration.authType === "oauth") {
+      window.location.href = WORKER_API_BASE + integration.oauthUrl;
+      return;
+    }
+    setConnectModal(integration);
+  }
+
+  async function handleDisconnect(serviceKey) {
+    const entry = isConnected(serviceKey);
+    if (!entry) return;
+    setDisconnecting(serviceKey);
+    try {
+      await workerApiRequest({ pathname: `/v1/integrations/${encodeURIComponent(entry.id)}`, method: "DELETE" });
+      await loadIntegrations();
+    } catch { /* ignore */ }
+    setDisconnecting(null);
+  }
+
+  return (
+    <div>
+      <h1 style={S.pageTitle}>Integrations</h1>
+      <p style={S.pageSub}>Connect services your workers can use to get work done.</p>
+      {loading ? (
+        <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
+          {AVAILABLE_INTEGRATIONS.map(integration => {
+            const conn = isConnected(integration.key);
+            return (
+              <div key={integration.key} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 24, background: "var(--bg-surface)", transition: "border-color 150ms" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>{integration.name}</div>
+                </div>
+                <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{integration.description}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={S.statusDot(conn ? "#5bb98c" : "var(--text-tertiary)")} />
+                    <span style={{ fontSize: "13px", color: conn ? "#5bb98c" : "var(--text-tertiary)", fontWeight: 500 }}>{conn ? "Connected" : "Not connected"}</span>
+                  </div>
+                  {conn ? (
+                    <button
+                      style={{ ...S.btnSecondary, padding: "6px 14px", fontSize: "13px", opacity: disconnecting === integration.key ? 0.5 : 1 }}
+                      disabled={disconnecting === integration.key}
+                      onClick={() => handleDisconnect(integration.key)}
+                    >{disconnecting === integration.key ? "..." : "Disconnect"}</button>
+                  ) : (
+                    <button
+                      style={{ ...S.btnPrimary, width: "auto", padding: "6px 14px", fontSize: "13px" }}
+                      onClick={() => handleConnect(integration)}
+                    >Connect</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {connectModal && (
+        <IntegrationConnectModal
+          integration={connectModal}
+          onClose={() => setConnectModal(null)}
+          onSave={() => { setConnectModal(null); loadIntegrations(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ===================================================================
+   WorkerIntegrationsSection
+   =================================================================== */
+
+function WorkerIntegrationsSection({ workerId }) {
+  const [connected, setConnected] = useState([]);
+  const [workerIntegrations, setWorkerIntegrations] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [allResult, workerResult] = await Promise.all([
+          workerApiRequest({ pathname: "/v1/integrations", method: "GET" }),
+          workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations`, method: "GET" }),
+        ]);
+        const allItems = allResult?.items || allResult || [];
+        setConnected(allItems);
+        const wItems = workerResult?.items || workerResult || [];
+        const map = {};
+        wItems.forEach(wi => { map[wi.service || wi.key || wi.integrationId] = true; });
+        setWorkerIntegrations(map);
+      } catch { setConnected([]); setWorkerIntegrations({}); }
+      setLoading(false);
+    })();
+  }, [workerId]);
+
+  async function handleToggle(integration) {
+    const serviceKey = integration.service || integration.key;
+    const currentlyEnabled = !!workerIntegrations[serviceKey];
+    setToggling(serviceKey);
+    try {
+      if (currentlyEnabled) {
+        await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations/${encodeURIComponent(serviceKey)}`, method: "DELETE" });
+      } else {
+        await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations`, method: "POST", body: { service: serviceKey, integrationId: integration.id } });
+      }
+      setWorkerIntegrations(prev => ({ ...prev, [serviceKey]: !currentlyEnabled }));
+    } catch { /* ignore */ }
+    setToggling(null);
+  }
+
+  if (loading) return <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading integrations...</div>;
+  if (connected.length === 0) return <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No integrations connected yet. Go to Integrations to connect services.</div>;
+
+  return (
+    <div>
+      <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem" }}>Choose which connected integrations this worker can access.</p>
+      {connected.map(integration => {
+        const serviceKey = integration.service || integration.key;
+        const info = AVAILABLE_INTEGRATIONS.find(a => a.key === serviceKey);
+        const enabled = !!workerIntegrations[serviceKey];
+        return (
+          <div key={serviceKey} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
+            <div>
+              <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>{info?.name || serviceKey}</div>
+              <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{info?.description || ""}</div>
+            </div>
+            <ToggleSwitch on={enabled} onToggle={() => { if (toggling !== serviceKey) handleToggle(integration); }} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ===================================================================
    AppShell
    =================================================================== */
 
@@ -1687,6 +2384,7 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
         {view === "workerDetail" && selectedWorkerId && <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("workers"); }} isNewDeploy={isNewDeploy} /></div>}
         {view === "approvals" && <div style={S.main}><ApprovalsView /></div>}
         {view === "receipts" && <div style={S.main}><ReceiptsView /></div>}
+        {view === "integrations" && <div style={S.main}><IntegrationsView /></div>}
       </div>
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
     </div>
