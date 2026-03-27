@@ -61,12 +61,15 @@ WORKER DESIGN RULES:
 - If the user mentions team size, specializations, or constraints, reflect them.
 
 MODEL GUIDE — recommend the best model for each worker's job:
-- "google/gemini-3-flash" → Fast & cheap. Best for: triage, routing, simple lookups, monitoring, scheduling.
-- "openai/gpt-4o-mini" → Fast & smart. Best for: email drafting, customer service, data extraction, summaries.
-- "anthropic/claude-sonnet-4.6" → Precise writer. Best for: proposals, contracts, compliance, detailed reports.
-- "openai/gpt-5.4" → Smartest. Best for: complex reasoning, strategy, multi-step analysis, ambiguous situations.
+- "google/gemini-2.5-flash-lite" → Dirt cheap ($0.10/M). Best for: triage, routing, monitoring, simple classification.
+- "openai/gpt-5.4-nano" → Cheap + smart ($0.20/M). Best for: scheduling, lookups, basic coordination.
+- "deepseek/deepseek-v3.2" → Cheap + capable ($0.26/M). Best for: data extraction, summaries, analysis.
+- "google/gemini-2.5-flash" → Fast workhorse ($0.30/M). Best for: email drafting, customer service, multi-purpose.
+- "openai/gpt-5.4-mini" → Smart + fast ($0.75/M). Best for: nuanced communication, complex customer interactions.
+- "anthropic/claude-sonnet-4.6" → Precise writer ($3/M). Best for: proposals, contracts, compliance, detailed reports.
+- "openai/gpt-5.4" → Smartest ($2.50/M). Best for: complex reasoning, strategy, ambiguous multi-step decisions.
 - "nvidia/nemotron-3-super-120b-a12b:free" → Free. Best for: internal logging, simple classification, low-stakes tasks.
-Choose based on what the worker DOES, not what sounds impressive. Most workers should be fast models.
+Choose based on what the worker DOES, not what sounds impressive. Default to cheap models. Only use expensive models for high-stakes roles.
 
 INTEGRATIONS — reference the actual tools this worker would connect to:
 Common: gmail, google_calendar, slack, phone, sms
@@ -146,7 +149,7 @@ export async function handleChatRequest(req, res, pool) {
 
   // Determine provider: ChatGPT (free) → OpenRouter (paid fallback)
   const useChatGPT = await isChatGPTAvailable();
-  const selectedModel = useChatGPT ? (model || 'gpt-5.4-mini') : (model || 'openai/gpt-4o-mini');
+  const selectedModel = useChatGPT ? (model || 'gpt-5.4-mini') : (model || 'openai/gpt-5.4-mini');
 
   // Credit check only needed for OpenRouter paid models
   if (!useChatGPT && !selectedModel.includes(':free')) {
@@ -234,7 +237,7 @@ export async function handleChatRequest(req, res, pool) {
           ...messages.filter(m => m.role !== 'system'),
         ];
         const fallbackStream = chatCompletion({
-          model: 'openai/gpt-4o-mini',
+          model: 'openai/gpt-5.4-mini',
           messages: fullMessages,
           maxTokens: 4096,
           temperature: 0.7,
@@ -251,7 +254,7 @@ export async function handleChatRequest(req, res, pool) {
             res.write('data: [DONE]\n\n');
             const { usage } = event;
             if (usage?.cost > 0) {
-              trackUsage(pool, tenantId, 'openai/gpt-4o-mini', usage, generateId('chat')).catch(() => {});
+              trackUsage(pool, tenantId, 'openai/gpt-5.4-mini', usage, generateId('chat')).catch(() => {});
             }
             log('info', `Fallback chat done for tenant ${tenantId}: ${usage?.totalTokens || 0} tokens`);
           }

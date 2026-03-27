@@ -81,7 +81,7 @@ export function mountWorkerRoutes(app, store) {
           description ?? null,
           JSON.stringify(charter ?? {}),
           schedule ? JSON.stringify(schedule) : null,
-          model ?? "openai/gpt-4o-mini",
+          model ?? "google/gemini-2.5-flash",
           provider_mode ?? "platform",
           byok_provider ?? null,
           JSON.stringify(knowledge ?? []),

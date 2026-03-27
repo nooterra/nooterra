@@ -36,24 +36,33 @@ const AUTH_BASE = "/__magic";
 const WORKER_API_BASE = "/__nooterra";
 
 const ALL_MODELS = [
-  // Free
-  { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super", provider: "NVIDIA", price: "Free", category: "free" },
-  { id: "openai/gpt-oss-120b:free", name: "GPT-OSS 120B", provider: "OpenAI", price: "Free", category: "free" },
+  // Free — $0 cost, great for low-stakes tasks
+  { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B", provider: "NVIDIA", price: "Free", category: "free" },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B", provider: "Meta", price: "Free", category: "free" },
+  { id: "qwen/qwen3-next-80b-a3b-instruct:free", name: "Qwen 3 Next 80B", provider: "Qwen", price: "Free", category: "free" },
   { id: "google/gemma-3-27b-it:free", name: "Gemma 3 27B", provider: "Google", price: "Free", category: "free" },
-  { id: "meta-llama/llama-4-scout:free", name: "Llama 4 Scout", provider: "Meta", price: "Free", category: "free" },
-  // Fast & Cheap
-  { id: "google/gemini-3-flash", name: "Gemini 3 Flash", provider: "Google", price: "$", category: "fast" },
-  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "Anthropic", price: "$", category: "fast" },
-  { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "OpenAI", price: "$", category: "fast" },
-  // Best Quality
-  { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", provider: "Anthropic", price: "$$", category: "best" },
-  { id: "openai/gpt-5.4", name: "GPT-5.4", provider: "OpenAI", price: "$$", category: "best" },
-  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", provider: "Google", price: "$$", category: "best" },
-  { id: "anthropic/claude-opus-4-6", name: "Claude Opus 4.6", provider: "Anthropic", price: "$$$", category: "best" },
-  // Specialized
-  { id: "anthropic/claude-sonnet-4.6:thinking", name: "Claude Sonnet 4.6 (Thinking)", provider: "Anthropic", price: "$$", category: "specialized" },
-  { id: "openai/o3", name: "O3", provider: "OpenAI", price: "$$$", category: "specialized" },
-  { id: "openai/codex-mini-latest", name: "Codex Mini", provider: "OpenAI", price: "$", category: "specialized" },
+  { id: "openai/gpt-oss-120b:free", name: "GPT-OSS 120B", provider: "OpenAI", price: "Free", category: "free" },
+  // Fast & Cheap — under $1/M tokens, best for high-volume workers
+  { id: "google/gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", provider: "Google", price: "$0.10", category: "fast" },
+  { id: "openai/gpt-5.4-nano", name: "GPT-5.4 Nano", provider: "OpenAI", price: "$0.20", category: "fast" },
+  { id: "deepseek/deepseek-v3.2", name: "DeepSeek V3.2", provider: "DeepSeek", price: "$0.26", category: "fast" },
+  { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "Google", price: "$0.30", category: "fast" },
+  { id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "OpenAI", price: "$0.40", category: "fast" },
+  { id: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini", provider: "OpenAI", price: "$0.75", category: "fast" },
+  { id: "anthropic/claude-haiku-4.5", name: "Claude Haiku 4.5", provider: "Anthropic", price: "$1.00", category: "fast" },
+  // Best Quality — flagship models for important work
+  { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "Google", price: "$1.25", category: "best" },
+  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", provider: "Google", price: "$2.00", category: "best" },
+  { id: "openai/gpt-5.4", name: "GPT-5.4", provider: "OpenAI", price: "$2.50", category: "best" },
+  { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", provider: "Anthropic", price: "$3.00", category: "best" },
+  { id: "anthropic/claude-opus-4.6", name: "Claude Opus 4.6", provider: "Anthropic", price: "$5.00", category: "best" },
+  // Specialized — reasoning, thinking, and niche models
+  { id: "deepseek/deepseek-r1-0528", name: "DeepSeek R1", provider: "DeepSeek", price: "$0.45", category: "specialized" },
+  { id: "openai/o4-mini", name: "O4 Mini", provider: "OpenAI", price: "$1.10", category: "specialized" },
+  { id: "google/gemini-3-flash-preview", name: "Gemini 3 Flash", provider: "Google", price: "$0.50", category: "specialized" },
+  { id: "meta-llama/llama-4-maverick", name: "Llama 4 Maverick", provider: "Meta", price: "$0.15", category: "specialized" },
+  { id: "mistralai/mistral-small-2603", name: "Mistral Small", provider: "Mistral", price: "$0.15", category: "specialized" },
+  { id: "qwen/qwen3.5-397b-a17b", name: "Qwen 3.5 397B", provider: "Qwen", price: "$0.39", category: "specialized" },
 ];
 
 const MODEL_CATEGORIES = [
