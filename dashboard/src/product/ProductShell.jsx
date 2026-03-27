@@ -3407,6 +3407,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (isFirstTime && !localStorage.getItem("nooterra_onboarding_complete")) {
@@ -3464,7 +3465,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     const active = sidebarActiveView === item.key;
     return (
       <button
-        onClick={() => { if (item.action) item.action(); else handleNavigate(item.key); }}
+        onClick={() => { if (item.action) item.action(); else navAndClose(item.key); }}
         style={{
           display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
           borderRadius: 8, border: "none", cursor: "pointer", width: "100%",
@@ -3513,15 +3514,51 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     return <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>;
   }
 
+  // Close mobile menu when navigating
+  const navAndClose = (dest) => { handleNavigate(dest); setMobileMenuOpen(false); };
+
   return (
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-100)", overflow: "hidden" }}>
 
+      {/* ===== MOBILE HEADER BAR ===== */}
+      <div className="mobile-topbar" style={{
+        display: "none", position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+        height: 48, background: "var(--bg-400)", borderBottom: "1px solid var(--border)",
+        alignItems: "center", padding: "0 12px", justifyContent: "space-between",
+      }}>
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{
+          background: "none", border: "none", cursor: "pointer", color: "var(--text-200)",
+          padding: 8, display: "flex", alignItems: "center",
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 16 }} />
+        <div style={{ width: 36 }} />
+      </div>
+
+      {/* ===== MOBILE OVERLAY ===== */}
+      {mobileMenuOpen && (
+        <div className="mobile-overlay" onClick={() => setMobileMenuOpen(false)} style={{
+          display: "none", position: "fixed", inset: 0, zIndex: 199,
+          background: "rgba(0,0,0,0.4)",
+        }} />
+      )}
+
       {/* ===== LEFT SIDEBAR ===== */}
-      <aside style={{
+      <aside className="app-sidebar" style={{
         width: 240, flexShrink: 0, background: "var(--bg-400)",
         borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column",
         height: "100vh", overflow: "hidden",
+        ...(mobileMenuOpen ? { position: "fixed", top: 0, left: 0, zIndex: 200, boxShadow: "4px 0 20px rgba(0,0,0,0.15)" } : {}),
       }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-topbar { display: flex !important; }
+          .mobile-overlay { display: block !important; }
+          .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+          .app-main-content { margin-top: 48px; }
+        }
+      `}</style>
         {/* Logo */}
         <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center" }}>
           <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
@@ -3530,7 +3567,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         {/* New team button */}
         <div style={{ padding: "0 12px 8px" }}>
           <button
-            onClick={() => setView("builder")}
+            onClick={() => { setView("builder"); setMobileMenuOpen(false); }}
             style={{
               width: "100%", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)",
               background: "transparent", color: "var(--text-200)", fontSize: "13px", fontWeight: 500,
@@ -3573,7 +3610,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
       </aside>
 
       {/* ===== MAIN CONTENT ===== */}
-      <main style={{
+      <main className="app-main-content" style={{
         flex: 1, display: "flex", flexDirection: "column", minWidth: 0,
         background: "var(--bg-100)", height: "100vh", overflow: "auto",
       }}>
@@ -3652,7 +3689,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       case "approvals": return "approvals";
       case "receipts": return "receipts";
       case "workspace": return "settings";
-      default: return "team";
+      default: return "builder";
     }
   }
 
