@@ -12928,6 +12928,58 @@ async function consumeBuyerGoogleOauthState(stateId) {
   return { ok: true, state: row };
 }
 
+/**
+ * Build the Google OAuth callback URL for buyer sign-in.
+ *
+ * The magic-link service runs behind a Vercel rewrite: nooterra.ai/__magic/* -> Railway.
+ * Google Console has `https://nooterra.ai/__magic/v1/public/buyer/google/callback` registered,
+ * so the redirect_uri we send to Google MUST go through the /__magic proxy path on the
+ * origin domain — NOT directly to the Railway backend URL.
+ *
+ * Priority:
+ *  1. MAGIC_LINK_BUYER_GOOGLE_CALLBACK_URL env var (explicit override)
+ *  2. x-forwarded-host header (Vercel always sets this when proxying) + /__magic prefix
+ *  3. Origin header from the browser (only if it looks like our own domain)
+ *  4. publicBaseUrl (MAGIC_LINK_PUBLIC_BASE_URL) — legacy fallback, direct Railway URL
+ *  5. Derive from the request URL itself (local dev)
+ */
+function buildBuyerGoogleCallbackUrl(req, parsedUrl) {
+  const callbackPath = "/v1/public/buyer/google/callback";
+  const proxyPrefix = "/__magic";
+
+  // 1. Explicit override
+  const explicitCallback = process.env.MAGIC_LINK_BUYER_GOOGLE_CALLBACK_URL;
+  if (explicitCallback) return explicitCallback;
+
+  // 2. x-forwarded-host (most reliable — Vercel always sets this when proxying,
+  //    works for both /start and /callback requests regardless of Referer/Origin)
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const forwardedProto = req.headers["x-forwarded-proto"] || "https";
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}${proxyPrefix}${callbackPath}`;
+  }
+
+  // 3. Origin header (only useful for /start, not /callback since Google redirect
+  //    won't carry our origin; safe to use when present)
+  const origin = req.headers["origin"];
+  if (origin) {
+    try {
+      const o = new URL(origin);
+      return `${o.protocol}//${o.host}${proxyPrefix}${callbackPath}`;
+    } catch (_) { /* ignore malformed */ }
+  }
+
+  // 4. publicBaseUrl (direct Railway URL — may cause redirect_uri_mismatch if Google
+  //    Console only has the proxied URL registered, but keeps backward compat for
+  //    deployments where it IS correctly registered)
+  if (publicBaseUrl) {
+    return `${publicBaseUrl.replace(/\/+$/, "")}${callbackPath}`;
+  }
+
+  // 5. Fallback: derive from the request itself (local dev)
+  return `${parsedUrl.protocol}//${parsedUrl.host}${callbackPath}`;
+}
+
 async function handleBuyerGoogleOauthStart(req, res) {
   if (!publicSignupEnabled) return sendJson(res, 403, { error: "forbidden", code: "FORBIDDEN", details: null });
   if (!googleOauthClientId || !googleOauthClientSecret) {
@@ -12937,9 +12989,7 @@ async function handleBuyerGoogleOauthStart(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const returnTo = url.searchParams.get("redirect") || url.searchParams.get("returnTo") || "/signup";
 
-  const callbackUrl = publicBaseUrl
-    ? `${publicBaseUrl}/v1/public/buyer/google/callback`
-    : `${url.protocol}//${url.host}/v1/public/buyer/google/callback`;
+  const callbackUrl = buildBuyerGoogleCallbackUrl(req, url);
 
   const { stateId } = await createBuyerGoogleOauthState({ returnTo });
 
@@ -12979,10 +13029,8 @@ async function handleBuyerGoogleOauthCallback(req, res) {
 
   const returnTo = stateResult.state.returnTo || "/signup";
 
-  // Exchange code for tokens
-  const callbackUrl = publicBaseUrl
-    ? `${publicBaseUrl}/v1/public/buyer/google/callback`
-    : `${url.protocol}//${url.host}/v1/public/buyer/google/callback`;
+  // Exchange code for tokens — must match the redirect_uri sent during /start
+  const callbackUrl = buildBuyerGoogleCallbackUrl(req, url);
 
   const tokenResult = await exchangeIntegrationOauthCode({
     providerConfig: {
