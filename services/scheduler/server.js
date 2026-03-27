@@ -20,6 +20,17 @@ const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
+import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
+import {
+  enforceCharter as enforceCharterRules,
+  requiresApproval as checkApproval,
+  detectPromptInjection,
+  validateToolCall,
+  detectAnomalies,
+  getAvgExecutionCost,
+  autoPauseWorker,
+  createApprovalRecord,
+} from './charter-enforcement.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -217,6 +228,49 @@ async function executeWorker(worker, executionId, triggerType) {
     // Build messages from charter
     const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
     const knowledge = typeof worker.knowledge === 'string' ? JSON.parse(worker.knowledge) : worker.knowledge;
+
+    // --- Charter enforcement: prompt injection detection on task prompt ---
+    const taskPromptRaw = charter.task || charter.prompt || 'Execute your scheduled task.';
+    const injectionCheck = detectPromptInjection(taskPromptRaw);
+    if (!injectionCheck.safe) {
+      addActivity('charter_block', `Prompt injection detected: ${injectionCheck.reason} (severity: ${injectionCheck.severity})`);
+      log('warn', `Prompt injection detected for worker ${worker.name} [${executionId}]: ${injectionCheck.reason}`);
+
+      if (injectionCheck.severity === 'high') {
+        await autoPauseWorker(pool, worker.id, executionId, [`Prompt injection: ${injectionCheck.reason}`]);
+        await updateExecution(executionId, {
+          status: 'auto_paused',
+          completedAt: new Date(),
+          error: `Blocked: prompt injection detected — ${injectionCheck.reason}`,
+          activity,
+        });
+        return;
+      }
+      // Medium/low severity: log warning but continue (could be false positive)
+      addActivity('charter_warn', `Proceeding despite ${injectionCheck.severity}-severity injection signal`);
+    }
+
+    // Scan knowledge content for injection attempts
+    if (knowledge && Array.isArray(knowledge)) {
+      for (const k of knowledge) {
+        if (k.content) {
+          const knowledgeCheck = detectPromptInjection(k.content);
+          if (!knowledgeCheck.safe && knowledgeCheck.severity === 'high') {
+            addActivity('charter_block', `Injection in knowledge "${k.title}": ${knowledgeCheck.reason}`);
+            log('warn', `Knowledge injection detected for worker ${worker.name}: ${knowledgeCheck.reason}`);
+            await autoPauseWorker(pool, worker.id, executionId, [`Knowledge injection in "${k.title}": ${knowledgeCheck.reason}`]);
+            await updateExecution(executionId, {
+              status: 'auto_paused',
+              completedAt: new Date(),
+              error: `Blocked: injection detected in knowledge — ${knowledgeCheck.reason}`,
+              activity,
+            });
+            return;
+          }
+        }
+      }
+    }
+
     const messages = buildMessages(charter, knowledge);
 
     addActivity('llm_call', `Calling ${worker.model}`);
@@ -243,13 +297,145 @@ async function executeWorker(worker, executionId, triggerType) {
     let totalCost = usage.cost;
     let rounds = 1;
     let toolCallCount = 0;
+    const toolNames = [];
 
     if (result.toolCalls && result.toolCalls.length > 0) {
       toolCallCount = result.toolCalls.length;
       addActivity('tool_calls', `${toolCallCount} tool call(s): ${result.toolCalls.map(tc => tc.name).join(', ')}`);
+
+      // --- Charter enforcement: validate each tool call against canDo/askFirst/neverDo ---
+      const blockedTools = [];
+      const approvalNeeded = [];
+
+      for (const tc of result.toolCalls) {
+        toolNames.push(tc.name);
+        const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
+        const validation = validateToolCall(charter, tc.name, args);
+
+        if (!validation.allowed) {
+          if (validation.requiresApproval) {
+            approvalNeeded.push({ toolCall: tc, validation });
+            addActivity('charter_approval', `Tool "${tc.name}" requires approval: ${validation.reason}`);
+          } else {
+            blockedTools.push({ toolCall: tc, validation });
+            addActivity('charter_block', `Tool "${tc.name}" blocked: ${validation.reason}`);
+          }
+        }
+      }
+
+      // If any tool calls were blocked by neverDo, fail the execution
+      if (blockedTools.length > 0) {
+        const blockReasons = blockedTools.map(b => `${b.toolCall.name}: ${b.validation.reason}`);
+        log('warn', `Charter blocked tool calls for worker ${worker.name}: ${blockReasons.join('; ')}`);
+
+        await updateExecution(executionId, {
+          status: 'charter_blocked',
+          completedAt: new Date(),
+          error: `Charter enforcement blocked tool calls: ${blockReasons.join('; ')}`,
+          activity,
+          model: worker.model,
+          tokensIn: totalPromptTokens,
+          tokensOut: totalCompletionTokens,
+          costUsd: totalCost,
+          rounds,
+          toolCalls: toolCallCount,
+        });
+
+        await deductCredits(worker.tenant_id, totalCost, executionId);
+        return;
+      }
+
+      // If any tool calls need approval, pause and create approval records
+      if (approvalNeeded.length > 0) {
+        log('info', `Charter requires approval for worker ${worker.name}: ${approvalNeeded.map(a => a.toolCall.name).join(', ')}`);
+
+        for (const { toolCall, validation } of approvalNeeded) {
+          try {
+            await createApprovalRecord(pool, {
+              workerId: worker.id,
+              tenantId: worker.tenant_id,
+              executionId,
+              action: `Tool call: ${toolCall.name}`,
+              matchedRule: validation.matchedRule || validation.rule,
+            });
+          } catch (aprErr) {
+            log('warn', `Failed to create approval record: ${aprErr.message}`);
+          }
+        }
+
+        await updateExecution(executionId, {
+          status: 'awaiting_approval',
+          completedAt: new Date(),
+          error: `Paused: ${approvalNeeded.length} tool call(s) require approval`,
+          activity,
+          model: worker.model,
+          tokensIn: totalPromptTokens,
+          tokensOut: totalCompletionTokens,
+          costUsd: totalCost,
+          rounds,
+          toolCalls: toolCallCount,
+          result: result.response?.slice(0, 50000),
+        });
+
+        await deductCredits(worker.tenant_id, totalCost, executionId);
+        return;
+      }
+
       // For scheduled runs, we record the tool calls but don't execute them server-side
       // (tool execution requires integration credentials and sandboxed environments)
       finalResponse = result.response || `Tool calls requested: ${result.toolCalls.map(tc => tc.name).join(', ')}`;
+    }
+
+    // --- Charter enforcement: scan LLM response for injection patterns ---
+    if (finalResponse) {
+      const responseInjection = detectPromptInjection(finalResponse);
+      if (!responseInjection.safe && responseInjection.severity === 'high') {
+        addActivity('charter_warn', `LLM response contains injection pattern: ${responseInjection.reason}`);
+        log('warn', `LLM response injection for worker ${worker.name}: ${responseInjection.reason}`);
+      }
+    }
+
+    // --- Charter enforcement: anomaly detection ---
+    const executionMs = Date.now() - startedAt.getTime();
+    const avgCost = await getAvgExecutionCost(pool, worker.id);
+    const anomalyResult = detectAnomalies({
+      costUsd: totalCost,
+      avgCostUsd: avgCost,
+      toolCallCount,
+      executionMs,
+      toolNames,
+      charter,
+    });
+
+    if (anomalyResult.anomaly) {
+      addActivity('anomaly_detected', `Anomalies: ${anomalyResult.reasons.join('; ')}`);
+      log('warn', `Anomaly detected for worker ${worker.name} [${executionId}]: ${anomalyResult.reasons.join('; ')}`);
+
+      await autoPauseWorker(pool, worker.id, executionId, anomalyResult.reasons);
+
+      await updateExecution(executionId, {
+        status: 'auto_paused',
+        completedAt: new Date(),
+        model: worker.model,
+        tokensIn: totalPromptTokens,
+        tokensOut: totalCompletionTokens,
+        costUsd: totalCost,
+        rounds,
+        toolCalls: toolCallCount,
+        result: finalResponse.slice(0, 50000),
+        error: `Auto-paused: ${anomalyResult.reasons.join('; ')}`,
+        activity,
+        receipt: {
+          model: worker.model,
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          cost: totalCost,
+          duration: executionMs,
+        },
+      });
+
+      await deductCredits(worker.tenant_id, totalCost, executionId);
+      return;
     }
 
     // Update execution record
@@ -291,6 +477,44 @@ async function executeWorker(worker, executionId, triggerType) {
     `, [worker.id, new Date().toISOString()]);
 
     log('info', `Execution ${executionId} completed for worker ${worker.name} (${usage.totalTokens} tokens, $${totalCost.toFixed(6)})`);
+
+    // Deliver completion notification
+    try {
+      await deliverNotification({
+        pool, tenantId: worker.tenant_id,
+        event: 'execution.completed',
+        worker: { id: worker.id, name: worker.name },
+        execution: {
+          id: executionId,
+          summary: finalResponse.slice(0, 200),
+          costUsd: totalCost,
+          durationMs: Date.now() - startedAt.getTime(),
+        },
+        log,
+      });
+    } catch (notifErr) {
+      log('warn', `Notification delivery failed for ${executionId}: ${notifErr.message}`);
+    }
+
+    // Check for low balance and send budget alert
+    try {
+      const postBalance = await pool.query(
+        'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
+        [worker.tenant_id]
+      );
+      const remaining = parseFloat(postBalance.rows[0]?.balance_usd ?? 0);
+      if (remaining > 0 && remaining < 1.00) {
+        await deliverNotification({
+          pool, tenantId: worker.tenant_id,
+          event: 'budget.low',
+          worker: { id: worker.id, name: worker.name },
+          execution: { balance: remaining },
+          log,
+        });
+      }
+    } catch (budgetErr) {
+      log('warn', `Budget alert check failed: ${budgetErr.message}`);
+    }
   } catch (err) {
     addActivity('error', err.message);
     log('error', `Execution ${executionId} failed for worker ${worker.name}: ${err.message}`);
@@ -315,6 +539,19 @@ async function executeWorker(worker, executionId, triggerType) {
       `, [worker.id]);
     } catch (statsErr) {
       log('error', `Failed to update stats for ${worker.id}: ${statsErr.message}`);
+    }
+
+    // Deliver failure notification
+    try {
+      await deliverNotification({
+        pool, tenantId: worker.tenant_id,
+        event: 'execution.failed',
+        worker: { id: worker.id, name: worker.name },
+        execution: { id: executionId, error: err.message.slice(0, 500) },
+        log,
+      });
+    } catch (notifErr) {
+      log('warn', `Failure notification delivery failed for ${executionId}: ${notifErr.message}`);
     }
   }
 }
@@ -585,7 +822,7 @@ function setCorsHeaders(req, res) {
   if (origin && CORS_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-tenant-id');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
@@ -699,6 +936,83 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: err.message }));
       }
     })();
+    return;
+  }
+
+  // --- Notification preference routes ---
+
+  if (req.method === 'GET' && req.url === '/v1/notifications/preferences') {
+    const tenantId = req.headers['x-tenant-id'];
+    if (!tenantId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      return;
+    }
+    (async () => {
+      try {
+        const prefs = await getNotificationPreferences(pool, tenantId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(prefs || {}));
+      } catch (err) {
+        log('error', `Get notification prefs error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (req.method === 'PUT' && req.url === '/v1/notifications/preferences') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const tenantId = req.headers['x-tenant-id'];
+        if (!tenantId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+          return;
+        }
+
+        await pool.query(`
+          INSERT INTO notification_preferences (tenant_id, preferences, updated_at)
+          VALUES ($1, $2::jsonb, now())
+          ON CONFLICT (tenant_id)
+          DO UPDATE SET preferences = $2::jsonb, updated_at = now()
+        `, [tenantId, JSON.stringify(data)]);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        log('error', `Save notification prefs error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/v1/notifications/test-slack') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        if (!data.webhookUrl) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing webhookUrl' }));
+          return;
+        }
+        const result = await sendSlackTestNotification(data.webhookUrl);
+        res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        log('error', `Slack test error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
 
