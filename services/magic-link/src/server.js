@@ -12895,6 +12895,255 @@ async function handleBuyerLogout(req, res) {
   return sendJson(res, 200, { ok: true });
 }
 
+/* ===================================================================
+   Google OAuth Buyer Login
+   =================================================================== */
+
+function buyerGoogleOauthStatePath(stateId) {
+  return path.join(dataDir, "oauth", "buyer-google-states", `${stateId}.json`);
+}
+
+async function createBuyerGoogleOauthState({ returnTo = null }) {
+  const stateId = integrationOauthStateId();
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min TTL
+  const fp = buyerGoogleOauthStatePath(stateId);
+  const row = { schemaVersion: "MagicLinkBuyerGoogleOauthState.v1", stateId, returnTo, createdAt, expiresAt };
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  await fs.writeFile(fp, JSON.stringify(row, null, 2) + "\n", "utf8");
+  return { stateId, state: row };
+}
+
+async function consumeBuyerGoogleOauthState(stateId) {
+  const id = parseOauthStateId(stateId);
+  if (!id) return { ok: false, error: "OAUTH_STATE_INVALID" };
+  const fp = buyerGoogleOauthStatePath(id);
+  let row;
+  try { row = JSON.parse(await fs.readFile(fp, "utf8")); } catch { return { ok: false, error: "OAUTH_STATE_NOT_FOUND" }; }
+  try { await fs.rm(fp, { force: true }); } catch { /* ignore */ }
+  if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, error: "OAUTH_STATE_INVALID" };
+  if (String(row.schemaVersion ?? "") !== "MagicLinkBuyerGoogleOauthState.v1") return { ok: false, error: "OAUTH_STATE_INVALID" };
+  const expiresAtMs = Date.parse(String(row.expiresAt ?? ""));
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return { ok: false, error: "OAUTH_STATE_EXPIRED" };
+  return { ok: true, state: row };
+}
+
+async function handleBuyerGoogleOauthStart(req, res) {
+  if (!publicSignupEnabled) return sendJson(res, 403, { error: "forbidden", code: "FORBIDDEN", details: null });
+  if (!googleOauthClientId || !googleOauthClientSecret) {
+    return sendJson(res, 501, { error: "not_configured", code: "GOOGLE_OAUTH_NOT_CONFIGURED", details: null });
+  }
+
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const returnTo = url.searchParams.get("redirect") || url.searchParams.get("returnTo") || "/signup";
+
+  const callbackUrl = publicBaseUrl
+    ? `${publicBaseUrl}/v1/public/buyer/google/callback`
+    : `${url.protocol}//${url.host}/v1/public/buyer/google/callback`;
+
+  const { stateId } = await createBuyerGoogleOauthState({ returnTo });
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: googleOauthClientId,
+    redirect_uri: callbackUrl,
+    scope: "openid email profile",
+    state: stateId,
+    access_type: "online",
+    prompt: "select_account"
+  });
+
+  const authUrl = `${googleOauthAuthorizeUrl}?${params.toString()}`;
+  res.writeHead(302, { location: authUrl });
+  res.end();
+}
+
+async function handleBuyerGoogleOauthCallback(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const code = url.searchParams.get("code");
+  const stateParam = url.searchParams.get("state");
+  const oauthError = url.searchParams.get("error");
+
+  if (oauthError) {
+    return redirectWithError(res, "/signup", `Google sign-in was cancelled or failed (${oauthError})`);
+  }
+  if (!code || !stateParam) {
+    return redirectWithError(res, "/signup", "Missing authorization code from Google");
+  }
+
+  // Validate state
+  const stateResult = await consumeBuyerGoogleOauthState(stateParam);
+  if (!stateResult.ok) {
+    return redirectWithError(res, "/signup", "OAuth session expired. Please try again.");
+  }
+
+  const returnTo = stateResult.state.returnTo || "/signup";
+
+  // Exchange code for tokens
+  const callbackUrl = publicBaseUrl
+    ? `${publicBaseUrl}/v1/public/buyer/google/callback`
+    : `${url.protocol}//${url.host}/v1/public/buyer/google/callback`;
+
+  const tokenResult = await exchangeIntegrationOauthCode({
+    providerConfig: {
+      clientId: googleOauthClientId,
+      clientSecret: googleOauthClientSecret,
+      tokenUrl: googleOauthTokenUrl,
+      clientAuth: "body"
+    },
+    code,
+    redirectUri: callbackUrl
+  });
+
+  if (!tokenResult.ok) {
+    return redirectWithError(res, returnTo, "Failed to verify Google sign-in. Please try again.");
+  }
+
+  // Extract email from id_token or userinfo
+  let email = null;
+  let fullName = null;
+
+  // Try to decode id_token (JWT) for email
+  const idToken = tokenResult.tokenResponse?.id_token;
+  if (idToken) {
+    try {
+      const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64url").toString("utf8"));
+      email = normalizeEmailLower(payload.email || null);
+      fullName = typeof payload.name === "string" ? payload.name.trim() : null;
+    } catch { /* ignore */ }
+  }
+
+  // Fallback: use Google userinfo endpoint
+  if (!email && tokenResult.tokenResponse?.access_token) {
+    try {
+      const userInfoResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { authorization: `Bearer ${tokenResult.tokenResponse.access_token}` }
+      });
+      if (userInfoResp.ok) {
+        const info = await userInfoResp.json();
+        email = normalizeEmailLower(info.email || null);
+        fullName = fullName || (typeof info.name === "string" ? info.name.trim() : null);
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!email) {
+    return redirectWithError(res, returnTo, "Could not get email from Google. Please try email sign-in.");
+  }
+
+  const domain = domainFromEmail(email);
+  const companyName = domain ? domain.split(".")[0] : email.split("@")[0];
+
+  // Find existing tenant for this email, or create new one
+  let tenantId = null;
+
+  // Try to find tenant where this email domain is allowed
+  try {
+    const tenantsDir = path.join(dataDir, "settings");
+    const files = await fs.readdir(tenantsDir).catch(() => []);
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const settings = JSON.parse(await fs.readFile(path.join(tenantsDir, file), "utf8"));
+        const domains = Array.isArray(settings?.buyerAuthEmailDomains) ? settings.buyerAuthEmailDomains : [];
+        if (domain && domains.some((d) => String(d).toLowerCase() === domain)) {
+          tenantId = file.replace(/\.json$/, "");
+          break;
+        }
+      } catch { continue; }
+    }
+  } catch { /* ignore */ }
+
+  const isNewTenant = !tenantId;
+
+  if (!tenantId) {
+    // Create new tenant (same as public signup)
+    let attempts = 0;
+    while (attempts < 10 && !tenantId) {
+      attempts += 1;
+      const candidate = generateTenantIdFromName(companyName);
+      const existing = await loadTenantProfileBestEffort({ dataDir, tenantId: candidate });
+      if (!existing) tenantId = candidate;
+    }
+    if (!tenantId) {
+      return redirectWithError(res, returnTo, "Failed to create account. Please try email sign-in.");
+    }
+
+    const created = await createTenantProfile({
+      dataDir,
+      tenantId,
+      name: companyName,
+      contactEmail: email,
+      billingEmail: email
+    });
+    if (!created.ok && created.code !== "TENANT_EXISTS") {
+      return redirectWithError(res, returnTo, "Failed to create account. Please try email sign-in.");
+    }
+
+    // Set up email domain allowlist and admin role
+    const currentSettings = await loadTenantSettings({ dataDir, tenantId });
+    const domains = [domain].filter(Boolean);
+    const roles = {};
+    roles[email] = "admin";
+    const patched = applyTenantSettingsPatch({
+      currentSettings: currentSettings || {},
+      patch: { buyerAuthEmailDomains: domains, buyerUserRoles: roles },
+      settingsKey
+    });
+    if (patched.ok) {
+      const relay = ensureDefaultEventRelayWebhook({ settings: patched.settings, tenantId });
+      await saveTenantSettings({ dataDir, tenantId, settings: relay.settings, settingsKey });
+    }
+  }
+
+  // Upsert buyer user
+  const role = isNewTenant ? "admin" : undefined; // preserve existing role for returning users
+  await upsertBuyerUser({
+    dataDir,
+    tenantId,
+    email,
+    ...(role ? { role } : {}),
+    fullName: fullName || "",
+    company: companyName,
+    status: "active"
+  });
+
+  // Create session
+  const sessionResult = await issueBuyerSession(req, res, { tenantId, email });
+  if (!sessionResult.ok) {
+    return redirectWithError(res, returnTo, "Failed to create session. Please try email sign-in.");
+  }
+
+  // Audit log
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: isNewTenant ? "PUBLIC_SIGNUP" : "BUYER_LOGIN",
+        actor: { method: "google_oauth", email, role: isNewTenant ? "admin" : "viewer" },
+        targetType: "buyer_session",
+        targetId: email,
+        details: { provider: "google", isNewTenant }
+      }
+    });
+  } catch { /* ignore */ }
+
+  // Redirect back to frontend
+  const separator = returnTo.includes("?") ? "&" : "?";
+  const redirectUrl = `${returnTo}${separator}google_auth=success&tenant=${encodeURIComponent(tenantId)}`;
+  res.writeHead(302, { location: redirectUrl });
+  res.end();
+}
+
+function redirectWithError(res, returnTo, message) {
+  const separator = (returnTo || "/signup").includes("?") ? "&" : "?";
+  const redirectUrl = `${returnTo || "/signup"}${separator}google_auth=error&message=${encodeURIComponent(message)}`;
+  res.writeHead(302, { location: redirectUrl });
+  res.end();
+}
+
 async function handleBuyerSessionsList(req, res) {
   const buyer = await authenticateBuyerSession(req);
   if (!buyer.ok) return sendJson(res, 401, { ok: false, code: "UNAUTHORIZED" });
@@ -18377,6 +18626,8 @@ export async function magicLinkHandler(req, res) {
     if (method === "POST" && pathname === "/v1/buyer/step-up/passkey") return await handleBuyerStepUpPasskey(req, res);
     if (method === "POST" && pathname === "/v1/buyer/step-up/otp/request") return await handleBuyerStepUpOtpRequest(req, res);
     if (method === "POST" && pathname === "/v1/buyer/step-up/otp/verify") return await handleBuyerStepUpOtpVerify(req, res);
+    if (method === "GET" && pathname === "/v1/public/buyer/google/start") return await handleBuyerGoogleOauthStart(req, res);
+    if (method === "GET" && pathname === "/v1/public/buyer/google/callback") return await handleBuyerGoogleOauthCallback(req, res);
     if (method === "POST" && pathname === "/v1/public/signup") return await handlePublicSignup(req, res);
     if (method === "POST" && pathname === "/v1/public/signup/passkey/options") return await handlePublicSignupPasskeyOptions(req, res);
     if (method === "POST" && pathname === "/v1/public/signup/passkey") return await handlePublicSignupPasskey(req, res);
