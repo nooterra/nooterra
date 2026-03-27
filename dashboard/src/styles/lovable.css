@@ -356,3 +356,4 @@ body {
 .sidebar-inner::-webkit-scrollbar { width: 4px; }
 .sidebar-inner::-webkit-scrollbar-track { background: transparent; }
 .sidebar-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+/* deploy trigger */
