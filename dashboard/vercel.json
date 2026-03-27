@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/__magic/:match*",
-      "destination": "https://api.nooterra.ai/:match*"
+      "destination": "https://nooterra-magic-link-production.up.railway.app/:match*"
     },
     {
       "source": "/__nooterra/:match*",
