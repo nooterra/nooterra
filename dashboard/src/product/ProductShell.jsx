@@ -1512,8 +1512,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     return (
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", minHeight: "100vh", padding: "2rem",
-        background: "var(--bg-100)",
+        justifyContent: "center", minHeight: "100%", padding: "2rem",
+        background: "var(--bg-100, #faf9f6)",
       }}>
         <div style={{ textAlign: "center", maxWidth: 400 }}>
           {/* Animated terra orb */}
@@ -1567,8 +1567,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     return (
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", minHeight: "100vh", padding: "2rem",
-        transition: "opacity 300ms ease",
+        justifyContent: "center", minHeight: "100%", padding: "2rem",
+        background: "var(--bg-100, #faf9f6)",
       }}>
         <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
           <h1 style={{
@@ -1647,10 +1647,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   return (
     <div style={{
-      minHeight: "100vh", padding: "2rem 1.5rem", background: "var(--bg-100)",
+      minHeight: "100%", padding: "2rem 1.5rem", background: "var(--bg-100, #faf9f6)",
       overflowY: "auto",
-      opacity: transitioning ? 0 : 1,
-      transition: "opacity 300ms ease",
     }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
 
