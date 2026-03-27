@@ -80,7 +80,7 @@ function SiteNav() {
     }}>
       <div style={{ maxWidth: 1120, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, padding: "0 24px" }}>
         <a href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
-          <NooterraLogo className="h-[18px] w-auto" style={{ color: "var(--text-100)" }} />
+          <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-100)", letterSpacing: "-0.03em" }}>nooterra</span>
         </a>
 
         {/* Desktop nav */}
@@ -405,72 +405,7 @@ function HomePage() {
         </div>
       </section>
 
-      {/* SECTION 2: Big impact number */}
-      <section>
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(5rem, 10vh, 8rem) 24px", textAlign: "center" }}>
-          <FadeIn>
-            <div style={{
-              fontSize: "var(--text-3xl)", fontWeight: 800, letterSpacing: "-0.04em",
-              color: "var(--text-300)", lineHeight: 1, marginBottom: 16,
-            }}>
-              127
-            </div>
-            <h2 style={{
-              fontSize: "var(--text-xl)", fontWeight: 700, letterSpacing: "-0.02em",
-              color: "var(--text-100)", marginBottom: 12,
-            }}>
-              One worker. 127 requests. One week.
-            </h2>
-            <p style={{
-              fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 480,
-              margin: "0 auto", lineHeight: 1.6,
-            }}>
-              Runs 24/7 as a real daemon. Cron schedules, crash recovery, auto-restart. Every action logged, every decision auditable.
-            </p>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* SECTION 3: Start in 30 seconds — with input */}
-      <section style={{ backgroundColor: "var(--bg-200)" }}>
-        <div style={{ maxWidth: 560, margin: "0 auto", padding: "clamp(4rem, 8vh, 7rem) 24px", textAlign: "center" }}>
-          <FadeIn>
-            <h2 style={{
-              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
-              color: "var(--text-100)", marginBottom: 32,
-            }}>
-              Start in 30 seconds.
-            </h2>
-            <a
-              href="/signup"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: "100%", padding: "16px 24px",
-                fontSize: "var(--text-base)", fontWeight: 600,
-                backgroundColor: "#1a1a1a", color: "#fff", borderRadius: 12,
-                textDecoration: "none", transition: "opacity 200ms ease-out",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
-            >
-              Describe your first worker
-            </a>
-            <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
-              {["Support Monitor", "Price Tracker", "Inbox Summary"].map((t) => (
-                <span key={t} style={{
-                  padding: "6px 14px", fontSize: "var(--text-xs)",
-                  borderRadius: 9999, border: "1px solid var(--border)",
-                  color: "var(--text-200)", backgroundColor: "var(--bg-400)",
-                }}>
-                  {t}
-                </span>
-              ))}
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* Final CTA */}
+      {/* SINGLE CTA — nothing else needed */}
       <section>
         <div style={{ maxWidth: 1120, margin: "0 auto", padding: "clamp(5rem, 10vh, 8rem) 24px", textAlign: "center" }}>
           <FadeIn>
