@@ -498,9 +498,6 @@ function AuthView({ onAuth }) {
           <p style={A.sub}>We sent a verification code to <strong style={{ color: "#1a1a1a" }}>{email}</strong>.</p>
           {error && <div style={A.error}>{error}</div>}
           <form onSubmit={handleVerify}>
-            {isNewAccount && (
-              <AuthInput type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" autoFocus />
-            )}
             <input
               type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
               value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
