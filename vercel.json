@@ -14,10 +14,6 @@
       "destination": "https://nooterra-scheduler-production.up.railway.app/v1/billing/:match*"
     },
     {
-      "source": "/__nooterra/v1/chat/:match*",
-      "destination": "https://nooterra-scheduler-production.up.railway.app/v1/chat/:match*"
-    },
-    {
       "source": "/__nooterra/v1/chat",
       "destination": "https://nooterra-scheduler-production.up.railway.app/v1/chat"
     },

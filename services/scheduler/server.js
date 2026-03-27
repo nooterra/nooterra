@@ -828,6 +828,7 @@ function setCorsHeaders(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  log('info', `${req.method} ${req.url}`);
   setCorsHeaders(req, res);
 
   // CORS preflight
@@ -837,7 +838,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/health') {
+  if (req.method === 'GET' && pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok: true,
@@ -848,14 +849,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/v1/chat') {
+  const pathname = req.url.split('?')[0].replace(/\/+$/, '');
+
+  if (req.method === 'POST' && pathname === '/v1/chat') {
     handleChatRequest(req, res, pool);
     return;
   }
 
   // --- Billing routes ---
 
-  if (req.method === 'POST' && req.url === '/v1/billing/checkout') {
+  if (req.method === 'POST' && pathname === '/v1/billing/checkout') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
@@ -898,7 +901,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/v1/billing/webhook') {
+  if (req.method === 'POST' && pathname === '/v1/billing/webhook') {
     // Collect raw body for signature verification
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
@@ -918,7 +921,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/v1/billing/status') {
+  if (req.method === 'GET' && pathname === '/v1/billing/status') {
     const tenantId = req.headers['x-tenant-id'];
     if (!tenantId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -941,7 +944,7 @@ const server = http.createServer((req, res) => {
 
   // --- Notification preference routes ---
 
-  if (req.method === 'GET' && req.url === '/v1/notifications/preferences') {
+  if (req.method === 'GET' && pathname === '/v1/notifications/preferences') {
     const tenantId = req.headers['x-tenant-id'];
     if (!tenantId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -962,7 +965,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'PUT' && req.url === '/v1/notifications/preferences') {
+  if (req.method === 'PUT' && pathname === '/v1/notifications/preferences') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
@@ -993,7 +996,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/v1/notifications/test-slack') {
+  if (req.method === 'POST' && pathname === '/v1/notifications/test-slack') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
