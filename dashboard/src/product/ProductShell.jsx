@@ -1032,7 +1032,7 @@ function AutoTextarea({ value, onChange, onKeyDown, placeholder, disabled, autoF
   }, [value]);
   return (
     <textarea ref={ref} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} disabled={disabled} autoFocus={autoFocus} rows={1}
-      style={{ width: "100%", padding: "14px 16px", paddingLeft: "48px", paddingBottom: "2.75rem", fontSize: "15px", background: "transparent", border: "none", color: "var(--text-primary)", outline: "none", fontFamily: "inherit", resize: "none", lineHeight: "24px", overflow: "auto", boxSizing: "border-box" }}
+      style={{ width: "100%", padding: "14px 20px", paddingBottom: "2.75rem", fontSize: "15px", background: "transparent", border: "none", color: "var(--text-primary)", outline: "none", fontFamily: "inherit", resize: "none", lineHeight: "24px", overflow: "auto", boxSizing: "border-box" }}
     />
   );
 }
@@ -1351,7 +1351,15 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     streamAbortRef.current = abortController;
     try {
       const res = await fetch("/__nooterra/v1/chat", { method: "POST", headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId }, credentials: "include", body: JSON.stringify({ messages: newMessages, model: selectedModel }), signal: abortController.signal });
-      if (!res.ok) { const errBody = await res.json().catch(() => ({ error: "Chat request failed" })); setMessages([...newMessages, { role: "assistant", content: errBody.error || "Something went wrong. Please try again." }]); setStreaming(false); return; }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: "Chat request failed" }));
+        const errMsg = errBody.error === "forbidden" || errBody.code === "FORBIDDEN"
+          ? "I'm having trouble connecting to the AI service. This usually means the backend is starting up — try again in a moment."
+          : errBody.error || "Something went wrong. Please try again.";
+        setMessages([...newMessages, { role: "assistant", content: errMsg }]);
+        setStreaming(false);
+        return;
+      }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let assistantContent = "";
       setMessages([...newMessages, { role: "assistant", content: "" }]);
       while (true) {
