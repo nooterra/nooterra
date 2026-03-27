@@ -19,6 +19,7 @@ import {
   updateTenantSettings,
 } from "./api.js";
 import "./product.css";
+import { identifyIndustry, proposeTeam, identifyIntegrations, estimateROI } from "./business-intelligence.js";
 
 /* ===================================================================
    Constants & helpers
@@ -543,7 +544,7 @@ function AuthView({ onAuth }) {
       </div>
       <div style={A.inner} className="lovable-fade">
         <h1 style={A.heading}>Log in or sign up</h1>
-        <p style={A.sub}>Create AI workers that run 24/7 with guardrails, approvals, and audit trails.</p>
+        <p style={A.sub}>Your AI team is one description away.</p>
         {error && <div style={A.error}>{error}</div>}
         <button style={socialBtnStyle} onClick={() => { window.location.href = `${AUTH_BASE}/v1/public/buyer/google/start?redirect=${encodeURIComponent(window.location.origin + "/signup")}`; }} onMouseOver={(e) => { e.currentTarget.style.background = "var(--bg-200, #f3f1ec)"; e.currentTarget.style.borderColor = "var(--border-strong, #d4d1c9)"; }} onMouseOut={(e) => { e.currentTarget.style.background = "var(--bg-400, #ffffff)"; e.currentTarget.style.borderColor = "var(--border, #e5e3dd)"; }}>
           <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
@@ -1364,6 +1365,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [newRuleInputs, setNewRuleInputs] = useState({ canDo: "", askFirst: "", neverDo: "" });
   const [addingRuleKey, setAddingRuleKey] = useState(null);
   const [deployingWorker, setDeployingWorker] = useState(false);
+  const [teamProposal, setTeamProposal] = useState(null); // from business intelligence
+  const [roiEstimate, setRoiEstimate] = useState(null);
   const textareaRef = useRef(null);
 
   // Template review (kept from original)
@@ -1375,6 +1378,28 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   async function sendToAI(userDescription) {
     setLoading(true);
     setError("");
+
+    // Run business intelligence first (instant, free, no API call)
+    const industryResult = identifyIndustry(userDescription);
+    const team = proposeTeam(industryResult);
+    const integrations = identifyIntegrations(team.workers);
+    const roi = estimateROI(industryResult, team.workers);
+    setTeamProposal(team);
+    setRoiEstimate(roi);
+
+    // Use the first worker's charter as the primary worker config
+    // (team-based deploy is future; for now, propose the most relevant worker)
+    const primaryWorker = team.workers[0];
+    if (primaryWorker) {
+      setWorkerName(primaryWorker.role + " — " + (industryResult.location || industryResult.subIndustry || "Your Business"));
+      setCharter({
+        canDo: primaryWorker.canDo || [],
+        askFirst: primaryWorker.askFirst || [],
+        neverDo: primaryWorker.neverDo || [],
+      });
+      setSchedule(primaryWorker.schedule === "continuous" ? { type: "continuous" } : { type: "cron", value: "0 9 * * *" });
+    }
+
     const runtime = loadRuntimeConfig();
     try {
       const res = await fetch("/__nooterra/v1/chat", {
@@ -1721,6 +1746,27 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         >
           <span style={{ fontSize: "16px", lineHeight: 1 }}>&larr;</span> Back
         </button>
+
+        {/* Team summary (from business intelligence) */}
+        {teamProposal && (
+          <div style={{ marginBottom: "1.5rem", padding: "16px 20px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-200, var(--bg-hover))" }}>
+            <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-100, var(--text-primary))", marginBottom: 4 }}>{teamProposal.teamName}</div>
+            <div style={{ fontSize: "13px", color: "var(--text-200, var(--text-secondary))" }}>
+              {teamProposal.workers.length} workers proposed
+              {roiEstimate && <> &middot; Est. {roiEstimate.estimatedHoursSavedPerWeek} hrs/week saved &middot; {roiEstimate.estimatedMonthlyCost}</>}
+            </div>
+            {teamProposal.workers.length > 1 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                {teamProposal.workers.map((w, i) => (
+                  <span key={i} style={{ padding: "3px 10px", fontSize: "12px", fontWeight: 500, borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-200, var(--text-secondary))", fontFamily: "var(--font-mono)" }}>{w.role}</span>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: "12px", color: "var(--text-300, var(--text-tertiary))", marginTop: 8 }}>
+              Deploying the first worker below. Full team deployment coming soon.
+            </div>
+          </div>
+        )}
 
         {/* Card */}
         <div style={{
@@ -2765,7 +2811,7 @@ function AppShell({ initialView = "workers", userEmail, isFirstTime }) {
   const [userTier, setUserTier] = useState("free");
 
   useEffect(() => {
-    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; setPendingApprovals(Array.isArray(items) ? items.length : 0); } catch { /* ignore */ } })();
+    (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); if (count > 0 && view === "workers") setView("approvals"); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();

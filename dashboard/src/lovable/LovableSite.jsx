@@ -310,7 +310,7 @@ function HomePage() {
                   marginTop: 28, maxWidth: 460,
                   fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
-                  Describe your business. Get a team of AI workers that handle calls, emails, invoicing, and scheduling&mdash;while you do the real work.
+                  Describe your business. Get a team of AI workers that handle emails, schedule appointments, and manage your reputation&mdash;while you do the real work.
                 </p>
               </InView>
               <InView delay={0.15}>
@@ -396,7 +396,7 @@ function HomePage() {
                 step: "01",
                 title: "Tell us what you do",
                 desc: "\"I run a plumbing company in Denver with 5 techs.\" That's it. We figure out the rest.",
-                mono: 'nooterra.ai \u2192 6 workers proposed in 4 seconds',
+                mono: 'nooterra.ai \u2192 team proposal appears instantly',
               },
               {
                 step: "02",
@@ -408,7 +408,7 @@ function HomePage() {
                 step: "03",
                 title: "They get better every day",
                 desc: "Workers start careful and earn autonomy. The more you approve, the more they handle. You stay in control\u2014always.",
-                mono: "trust: 94% \u00b7 847 tasks \u00b7 $0.003/task \u00b7 0 violations",
+                mono: "approval rate \u00b7 tasks completed \u00b7 cost per task \u00b7 violations",
               },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
@@ -482,19 +482,19 @@ function HomePage() {
                 title: "Home Services",
                 desc: "Reception, dispatch, billing, and reviews. For plumbers, electricians, HVAC, and contractors.",
                 schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Phone, Email, Calendar, CRM",
+                rules: "Connects: Email, Calendar",
               },
               {
                 title: "Professional Services",
                 desc: "Client intake, scheduling, document prep, and follow-ups. For law firms, accountants, and consultants.",
                 schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Phone, Email, Calendar, CRM",
+                rules: "Connects: Email, Calendar",
               },
               {
                 title: "E-Commerce",
                 desc: "Customer support, order tracking, returns, and review management. For online stores of any size.",
                 schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Phone, Email, Calendar, CRM",
+                rules: "Connects: Email, Calendar",
               },
             ].map((uc, i) => (
               <InView key={uc.title} delay={i * 0.08}>
@@ -534,7 +534,7 @@ function HomePage() {
               { title: "Earns your trust", desc: "Every worker starts careful. As you approve more actions, it learns what's safe and handles more on its own." },
               { title: "Works around the clock", desc: "Your workers don't take breaks, don't call in sick, and don't forget. 24/7, every day." },
               { title: "Pennies per task", desc: "Most tasks cost less than a penny. See exactly what each worker costs. No surprise bills." },
-              { title: "Connects to your tools", desc: "Gmail, Slack, QuickBooks, Shopify, Twilio \u2014 your workers use the tools you already have." },
+              { title: "Connects to your tools", desc: "Gmail, Google Calendar, Slack \u2014 with more integrations coming soon." },
               { title: "You own everything", desc: "Full audit trail. Export anytime. Cancel and your data is deleted. Open source." },
             ].map((feat, i) => (
               <InView key={feat.title} delay={i * 0.05}>
@@ -826,21 +826,21 @@ function SimpleInfoPage({ title, summary }) {
 
 const PRICING_TIERS = [
   {
-    name: "Free", price: "$0", period: "",
-    description: "Run unlimited workers locally from the CLI. Your keys, your data, no cloud required.",
-    features: ["Unlimited local workers", "Any AI provider", "Full charter and guardrails", "CLI and MCP support", "Community support"],
-    cta: "Get started", ctaHref: DOCS_GETTING_STARTED, ctaExternal: true, highlighted: false,
+    name: "Preview", price: "$0", period: "",
+    description: "See your team proposal, shadow mode preview, and ROI estimate. No live automation.",
+    features: ["Team proposal for your business", "Shadow mode preview", "ROI estimate", "Standard AI models"],
+    cta: "Try free", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },
   {
-    name: "Pro", price: "$29", period: "/mo",
-    description: "Cloud-hosted workers that run 24/7. Approve from Slack. Web dashboard.",
-    features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approvals", "Webhook integrations", "Email support"],
-    cta: "Start free trial", ctaHref: "/signup", ctaExternal: false, highlighted: true,
+    name: "Live Team", price: "$99", period: "/mo",
+    description: "Your AI team, live. Inbox, approvals, audit trail, and real integrations.",
+    features: ["Everything in Preview", "Live worker automation", "Email and calendar integrations", "Approval inbox", "Activity feed and audit trail", "Standard model routing"],
+    cta: "Start free preview", ctaHref: "/signup", ctaExternal: false, highlighted: true,
   },
   {
-    name: "Team", price: "$99", period: "/mo",
-    description: "Shared workers, team approvals, SSO, and audit exports.",
-    features: ["Everything in Pro", "Shared worker dashboard", "Team approval workflows", "SSO and admin controls", "Audit log export", "Priority support"],
+    name: "Enterprise", price: "Custom", period: "",
+    description: "SSO, compliance, custom integrations, and dedicated support.",
+    features: ["Everything in Live Team", "SSO and admin controls", "Custom integrations", "Audit log export", "Dedicated support", "SLA guarantee"],
     cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
   },
 ];
@@ -852,7 +852,7 @@ function PricingPage() {
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Pricing</h1>
           <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
-            Start free on your own machine. Scale to the cloud when you're ready.
+            Preview free. Go live when you're ready.
           </p>
         </FadeIn>
       </section>
