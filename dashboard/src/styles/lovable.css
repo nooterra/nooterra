@@ -51,14 +51,15 @@
   --text-lg: clamp(1.125rem, 1rem + 0.5vw, 1.25rem);
   --text-xl: clamp(1.5rem, 1.2rem + 1vw, 2rem);
   --text-2xl: clamp(2rem, 1.5rem + 2vw, 3rem);
-  --text-3xl: clamp(2.75rem, 2rem + 3vw, 4.25rem);
+  --text-3xl: clamp(3rem, 4vw + 1rem, 5.5rem);
+  --text-display: clamp(3.5rem, 5vw + 1rem, 6rem);
 
   --font-body: "Plus Jakarta Sans", -apple-system, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   /* Layout */
   --max-w: 1140px;
-  --section-pad: clamp(4rem, 8vh, 7rem);
+  --section-pad: clamp(6rem, 12vh, 10rem);
 
   /* Legacy aliases */
   --neutral-950: var(--bg-100);

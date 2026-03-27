@@ -88,7 +88,7 @@ function SiteNav() {
   };
 
   const linkStyle = {
-    fontSize: "0.875rem", fontWeight: 500, color: "var(--text-200)",
+    fontSize: "0.8125rem", fontWeight: 500, color: "var(--text-200)",
     textDecoration: "none", transition: "color 150ms",
   };
 
@@ -139,13 +139,13 @@ function SiteFooter() {
   const footerLinkStyle = { fontSize: "0.8125rem", color: "var(--text-300)", textDecoration: "none", transition: "color 150ms", display: "block", lineHeight: 2.2 };
   return (
     <footer style={{ borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
-      <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "48px 24px 32px" }}>
-        <div className="footer-grid" style={{ marginBottom: 40 }}>
+      <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "32px 24px 24px" }}>
+        <div className="footer-grid" style={{ marginBottom: 32 }}>
           <div>
             <div style={{ marginBottom: 16 }}>
               <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 20 }} />
             </div>
-            <p style={{ fontSize: "0.875rem", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
+            <p style={{ fontSize: "0.75rem", color: "var(--text-300)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
               The AI workforce platform for consequential work. Open source.
             </p>
           </div>
@@ -223,11 +223,13 @@ function WorkerCard() {
   return (
     <div style={{
       border: "1px solid var(--border)",
+      borderLeft: "3px solid var(--accent)",
       borderRadius: 16,
       backgroundColor: "var(--bg-400)",
       overflow: "hidden",
       boxShadow: "var(--shadow-xl)",
       maxWidth: 440,
+      transform: "rotate(2deg)",
     }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
@@ -292,21 +294,21 @@ function HomePage() {
         {/* Gradient fade at bottom */}
         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 120, background: "linear-gradient(to top, var(--bg-100), transparent)", zIndex: 1 }} />
 
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(7rem, 16vh, 14rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)", position: "relative", zIndex: 2 }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(9rem, 20vh, 16rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)", position: "relative", zIndex: 2 }}>
           <div className="hero-grid">
             <div>
               <InView>
                 <h1 style={{
-                  fontSize: "var(--text-3xl)", lineHeight: 1.04, letterSpacing: "-0.04em",
+                  fontSize: "var(--text-display)", lineHeight: 1.04, letterSpacing: "-0.04em",
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                 }}>
-                  Your next hire<br />never sleeps.
+                  Your next hire<br /><span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>never sleeps</span>.
                 </h1>
               </InView>
               <InView delay={0.1}>
                 <p style={{
-                  marginTop: 24, maxWidth: 460,
-                  fontSize: "var(--text-lg)", lineHeight: 1.6, color: "var(--text-200)",
+                  marginTop: 28, maxWidth: 460,
+                  fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
                   Deploy AI workers with runtime-enforced guardrails, human-in-the-loop approvals, and a complete audit trail. Describe what you need&mdash;Nooterra handles the rest.
                 </p>
@@ -314,7 +316,7 @@ function HomePage() {
               <InView delay={0.15}>
                 <div style={{ marginTop: 36, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
                   <a href="/signup" style={{
-                    display: "inline-flex", alignItems: "center", padding: "12px 28px",
+                    display: "inline-flex", alignItems: "center", padding: "14px 36px",
                     fontSize: "var(--text-base)", fontWeight: 600,
                     backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10,
                     textDecoration: "none", transition: "transform 150ms, box-shadow 150ms",
@@ -326,7 +328,7 @@ function HomePage() {
                     Start building &rarr;
                   </a>
                   <a href={ossLinks.repo} style={{
-                    display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 28px",
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
                     fontSize: "var(--text-base)", fontWeight: 500,
                     border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
                     textDecoration: "none", transition: "border-color 150ms, background 150ms",
@@ -380,7 +382,6 @@ function HomePage() {
       <section>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>How it works</p>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16 }}>
               Describe it. Deploy it. Control it.
             </h2>
@@ -427,8 +428,7 @@ function HomePage() {
       <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Governance</p>
-            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
+            <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px" }}>
               Rules it can't break.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 48 }}>
@@ -468,7 +468,6 @@ function HomePage() {
       <section>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Use cases</p>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
               Workers that actually work.
             </h2>
@@ -524,7 +523,6 @@ function HomePage() {
       <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <p style={{ fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 12 }}>Platform</p>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 48px" }}>
               Everything you need. Nothing you don't.
             </h2>
@@ -541,7 +539,7 @@ function HomePage() {
             ].map((feat, i) => (
               <InView key={feat.title} delay={i * 0.05}>
                 <div style={{ padding: "24px 0", borderBottom: "1px solid var(--border)" }}>
-                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 6px" }}>{feat.title}</h3>
+                  <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 6px" }}>{feat.title}</h3>
                   <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0, maxWidth: 420 }}>{feat.desc}</p>
                 </div>
               </InView>
@@ -551,23 +549,24 @@ function HomePage() {
       </section>
 
       {/* ═══ FINAL CTA ═══ */}
-      <section>
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(5rem, 12vh, 9rem) 24px", textAlign: "center" }}>
+      <section style={{ position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "80%", height: "80%", background: "radial-gradient(ellipse at center, var(--accent-subtle) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(6rem, 14vh, 11rem) 24px", textAlign: "center", position: "relative", zIndex: 1 }}>
           <InView>
             <h2 style={{
-              fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700,
-              color: "var(--text-100)", margin: "0 0 16px",
+              fontSize: "var(--text-display)", letterSpacing: "-0.04em", fontWeight: 800,
+              color: "var(--text-100)", margin: "0 0 20px",
             }}>
               Your next worker is one conversation away.
             </h2>
-            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 440, margin: "0 auto 36px", lineHeight: 1.6 }}>
+            <p style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", maxWidth: 440, margin: "0 auto 40px", lineHeight: 1.7 }}>
               Start free on your machine. Scale to the cloud when you're ready. No credit card required.
             </p>
           </InView>
           <InView delay={0.08}>
             <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
               <a href="/signup" style={{
-                display: "inline-flex", alignItems: "center", padding: "14px 32px",
+                display: "inline-flex", alignItems: "center", padding: "16px 40px",
                 fontSize: "var(--text-base)", fontWeight: 600,
                 backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 10,
                 textDecoration: "none", transition: "transform 150ms, box-shadow 150ms",
@@ -579,7 +578,7 @@ function HomePage() {
                 Start building &rarr;
               </a>
               <a href={DOCS_GETTING_STARTED} style={{
-                display: "inline-flex", alignItems: "center", padding: "14px 32px",
+                display: "inline-flex", alignItems: "center", padding: "16px 40px",
                 fontSize: "var(--text-base)", fontWeight: 500,
                 border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
                 textDecoration: "none", transition: "border-color 150ms, background 150ms",
