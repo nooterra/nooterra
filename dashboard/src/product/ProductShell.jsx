@@ -1407,7 +1407,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
         credentials: "include",
-        body: JSON.stringify({ messages: [{ role: "user", content: text }], model: "nvidia/nemotron-3-super-120b-a12b:free" }),
+        body: JSON.stringify({ messages: [{ role: "user", content: text }], model: "openai/gpt-4o-mini" }),
       });
 
       if (!res.ok) throw new Error("AI service unavailable");
