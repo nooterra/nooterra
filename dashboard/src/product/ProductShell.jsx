@@ -1093,9 +1093,9 @@ function ModelDropdown({ model, onModelChange }) {
         <div
           className="popover-animate"
           style={{
-            position: "absolute", bottom: "100%", left: 0, marginBottom: 4,
+            position: "absolute", top: "100%", left: 0, marginTop: 4,
             background: "var(--bg-400, var(--bg-surface))", border: "1px solid var(--border)",
-            borderRadius: 12, boxShadow: "var(--shadow-lg)", zIndex: 50,
+            borderRadius: 12, boxShadow: "var(--shadow-lg)", zIndex: 200,
             minWidth: 340, maxWidth: 400, overflow: "hidden",
           }}
         >
@@ -1202,17 +1202,8 @@ function PlusMenu({ onClose, onAction }) {
     <div ref={ref} className="popover-animate" style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 200, minWidth: 200, maxWidth: 240 }}>
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("knowledge"); onClose(); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        Add knowledge
+        Add context
       </button>
-      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("tools"); onClose(); }}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2v4H2M10 14v-4h4M2 10h4v4M14 6h-4V2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        Connect tools
-      </button>
-      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("websearch"); onClose(); }}>
-        <SearchIcon size={16} />
-        Web search
-      </button>
-      {sep}
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("templates"); onClose(); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
         Worker templates
@@ -1553,7 +1544,7 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
   useEffect(() => { if (!menuOpen) return; function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [menuOpen]);
 
   const iconBtn = (key, label, svgContent, badge) => (
-    <button onClick={() => onNavigate(key)} title={label} style={{ width: 36, height: 36, borderRadius: 8, background: activeView === key ? "var(--bg-hover)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", transition: "background 150ms", position: "relative", flexShrink: 0 }}
+    <button onClick={() => onNavigate(key)} style={{ width: 36, height: 36, borderRadius: 8, background: activeView === key ? "var(--bg-hover)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", transition: "background 150ms", position: "relative", flexShrink: 0 }}
       onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
       onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
     >
@@ -1564,23 +1555,23 @@ function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpe
 
   return (
     <nav style={{ width: 52, height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", alignItems: "center", background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", padding: "12px 0", gap: 4, flexShrink: 0 }}>
-      <button onClick={onToggle} title="Expand sidebar" style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms", marginBottom: 4 }}
+      <button onClick={onToggle} style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms", marginBottom: 4 }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
       ><SidebarToggleIcon /></button>
-      <button onClick={onNewWorker} title="New worker" style={{ width: 36, height: 36, borderRadius: 8, background: "var(--accent-subtle, rgba(196,97,58,0.07))", border: "none", cursor: "pointer", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 150ms", marginBottom: 4 }}><PlusIcon size={18} /></button>
+      <button onClick={onNewWorker} style={{ width: 36, height: 36, borderRadius: 8, background: "var(--accent-subtle, rgba(196,97,58,0.07))", border: "none", cursor: "pointer", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 150ms", marginBottom: 4 }}><PlusIcon size={18} /></button>
       {iconBtn("workers", "Workers", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>)}
       {iconBtn("approvals", "Approvals", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, pendingApprovals)}
       {iconBtn("receipts", "History", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
       {iconBtn("integrations", "Integrations", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2v3M10 2v3M6 11v3M10 11v3M2 6h3M2 10h3M11 6h3M11 10h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><rect x="5" y="5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
       <div style={{ flex: 1 }} />
-      <button onClick={onOpenSettings} title="Settings" style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
+      <button onClick={onOpenSettings} style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
         onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
       ><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>
       <div style={{ position: "relative" }} ref={menuRef}>
         {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier="free" collapsed />}
-        <button onClick={() => setMenuOpen(!menuOpen)} title={userEmail || "Account"} style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", transition: "opacity 150ms" }}>
+        <button onClick={() => setMenuOpen(!menuOpen)} style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", transition: "opacity 150ms" }}>
           {getInitials(userEmail)}
         </button>
       </div>
@@ -2107,19 +2098,27 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 </div>
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Slack notifications</div>
-                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Send rich notifications to a Slack channel via webhook.</p>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-                    <div><div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>Enable Slack notifications</div></div>
-                    <ToggleSwitch on={notifSlackEnabled} onToggle={() => setNotifSlackEnabled(!notifSlackEnabled)} />
-                  </div>
-                  {notifSlackEnabled && (
-                    <div style={{ marginTop: "0.75rem" }}>
-                      <label style={S.label}>Webhook URL</label>
-                      <FocusInput type="url" value={notifSlackWebhook} onChange={(e) => setNotifSlackWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/..." />
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
-                        <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", opacity: notifSlackTesting || !notifSlackWebhook.trim() ? 0.6 : 1 }} disabled={notifSlackTesting || !notifSlackWebhook.trim()} onClick={handleSlackTest}>{notifSlackTesting ? "Sending..." : "Test"}</button>
-                        {notifSlackTestResult === "success" && <span style={{ fontSize: "13px", color: "#5bb98c", fontWeight: 500 }}>Sent successfully</span>}
-                        {notifSlackTestResult === "error" && <span style={{ fontSize: "13px", color: "#c97055", fontWeight: 500 }}>Failed to send</span>}
+                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 0, marginBottom: "1rem" }}>Get notified in Slack when workers need approval, complete tasks, or encounter errors.</p>
+                  {notifSlackEnabled && notifSlackWebhook ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)" }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green, #2a9d6e)" }} />
+                      <span style={{ flex: 1, fontSize: "14px", color: "var(--text-primary)" }}>Slack connected</span>
+                      <button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }} onClick={() => { setNotifSlackEnabled(false); setNotifSlackWebhook(""); }}>Disconnect</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noopener noreferrer" style={{
+                        display: "inline-flex", alignItems: "center", gap: 10, padding: "10px 20px",
+                        fontSize: "14px", fontWeight: 600, background: "#4A154B", color: "#fff",
+                        borderRadius: 8, textDecoration: "none", transition: "opacity 150ms", cursor: "pointer",
+                      }} onMouseEnter={e => e.currentTarget.style.opacity = "0.85"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                        <svg width="18" height="18" viewBox="0 0 24 24"><path d="M5.04 15.28a2.18 2.18 0 0 1-2.18 2.18A2.18 2.18 0 0 1 .68 15.28a2.18 2.18 0 0 1 2.18-2.18h2.18v2.18zm1.09 0a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18v5.45a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-5.45z" fill="#E01E5A"/><path d="M8.31 5.04a2.18 2.18 0 0 1-2.18-2.18A2.18 2.18 0 0 1 8.31.68a2.18 2.18 0 0 1 2.18 2.18v2.18H8.31zm0 1.1a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18H2.86A2.18 2.18 0 0 1 .68 8.32 2.18 2.18 0 0 1 2.86 6.14h5.45z" fill="#36C5F0"/><path d="M18.96 8.32a2.18 2.18 0 0 1 2.18-2.18 2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-2.18V8.32zm-1.09 0a2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18V2.86A2.18 2.18 0 0 1 15.69.68a2.18 2.18 0 0 1 2.18 2.18v5.46z" fill="#2EB67D"/><path d="M15.69 18.96a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18 2.18 2.18 0 0 1-2.18-2.18v-2.18h2.18zm0-1.09a2.18 2.18 0 0 1-2.18-2.18 2.18 2.18 0 0 1 2.18-2.18h5.45a2.18 2.18 0 0 1 2.18 2.18 2.18 2.18 0 0 1-2.18 2.18h-5.45z" fill="#ECB22E"/></svg>
+                        Add to Slack
+                      </a>
+                      <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 8, marginBottom: 0 }}>After creating a webhook, paste the URL below:</p>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <FocusInput type="url" value={notifSlackWebhook} onChange={(e) => setNotifSlackWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/..." style={{ marginBottom: 0, flex: 1 }} />
+                        <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px", fontSize: "13px" }} onClick={() => { if (notifSlackWebhook.trim()) setNotifSlackEnabled(true); }}>Connect</button>
                       </div>
                     </div>
                   )}
@@ -2176,25 +2175,20 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
               </div>)}
               {tab === "billing" && (<div>
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Billing</div>
-                <label style={S.label}>Current plan</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.5rem" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 6, fontSize: "14px", fontWeight: 700, background: currentTier === "free" ? "var(--bg-hover)" : "var(--gold-dim)", color: currentTier === "free" ? "var(--text-secondary)" : "var(--accent)" }}>{tierLabel(currentTier)}</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderRadius: 10, border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{tierLabel(currentTier)} plan</div>
+                    <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 2 }}>Credits: ${balance}</div>
+                  </div>
+                  {currentTier === "free" && <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "..." : "Upgrade"}</button>}
                 </div>
-                {currentTier === "free" && <button style={{ ...S.btnPrimary, width: "auto", marginBottom: "2rem", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "Redirecting..." : "Upgrade to Pro"}</button>}
-                <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-                <label style={S.label}>Payment method</label>
-                <div style={{ fontSize: "14px", color: "var(--text-tertiary)", marginBottom: "1.5rem" }}>No payment method on file</div>
-                <div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} />
-                <label style={S.label}>Invoice history</label>
-                <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 8, marginBottom: "1.5rem" }}><div style={{ fontSize: "14px", color: "var(--text-tertiary)" }}>No invoices yet</div></div>
-                {currentTier !== "free" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }}>Cancel plan</button></>)}
-              </div>)}
-              {tab === "usage" && (<div>
-                <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Usage</div>
-                <div style={{ padding: "3rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 10 }}>
-                  <div style={{ fontSize: "14px", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>No usage data yet</div>
-                  <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Usage statistics will appear here once workers start running.</div>
+                <label style={S.label}>Credits</label>
+                <div style={{ display: "flex", gap: 8, marginBottom: "1.5rem", flexWrap: "wrap" }}>
+                  {[{ amount: 500, label: "$5" }, { amount: 2000, label: "$20" }, { amount: 5000, label: "$50" }].map(c => (
+                    <button key={c.amount} style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px" }} onClick={() => handleBillingCheckout({ type: "credits", amount: c.amount })}>Add {c.label}</button>
+                  ))}
                 </div>
+                {currentTier !== "free" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }}>Cancel plan</button></>)}
               </div>)}
             </>)}
           </div>
