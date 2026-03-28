@@ -25,6 +25,7 @@ function getRouteMode() {
   if (path === "/product") return { mode: "product", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/pricing") return { mode: "pricing", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/integrations") return { mode: "integrations", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/oauth/callback") return { mode: "oauth_callback", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/receipts") return { mode: "receipts", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/disputes") return { mode: "disputes", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/agents") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
@@ -169,6 +170,28 @@ export default function App() {
     "unsupported_host"
   ]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "workspace"]);
+  // OAuth callback — close the popup and signal the parent window
+  if (route.mode === "oauth_callback") {
+    // Auto-close popup after brief success message
+    useEffect(() => {
+      try { window.opener && window.opener.focus(); } catch(e) {}
+      const timer = setTimeout(() => { window.close(); }, 1500);
+      return () => clearTimeout(timer);
+    }, []);
+
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#faf9f6", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#5bb98c", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div style={{ fontSize: "16px", fontWeight: 600, color: "#1a1a1a", marginBottom: 8 }}>Connected!</div>
+          <div style={{ fontSize: "13px", color: "#888" }}>This window will close automatically.</div>
+        </div>
+      </div>
+    );
+  }
+
   if (route.mode === "operator") {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
