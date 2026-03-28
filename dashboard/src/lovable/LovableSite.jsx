@@ -82,7 +82,7 @@ function SiteNav() {
   const navStyle = {
     position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
     borderBottom: scrolled ? "1px solid var(--border)" : "1px solid transparent",
-    backgroundColor: scrolled ? "rgba(250,249,246,0.85)" : "transparent",
+    backgroundColor: scrolled ? "color-mix(in srgb, var(--bg-100) 85%, transparent)" : "transparent",
     backdropFilter: scrolled ? "blur(12px)" : "none",
     transition: "all 300ms ease",
   };
@@ -137,6 +137,10 @@ function SiteNav() {
 /* ── Footer ── */
 function SiteFooter() {
   const footerLinkStyle = { fontSize: "0.8125rem", color: "var(--text-300)", textDecoration: "none", transition: "color 150ms", display: "block", lineHeight: 2.2 };
+  const footerHover = {
+    onMouseEnter: e => { e.currentTarget.style.color = "var(--text-100)"; },
+    onMouseLeave: e => { e.currentTarget.style.color = "var(--text-300)"; },
+  };
   return (
     <footer style={{ borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
       <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "32px 24px 24px" }}>
@@ -151,22 +155,22 @@ function SiteFooter() {
           </div>
           <div>
             <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Product</p>
-            <a href="/pricing" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Pricing</a>
-            <a href={DOCS_EXTERNAL} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Documentation</a>
-            <a href="/security" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Security</a>
-            <a href="/status" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Status</a>
-            <a href="/changelog" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Changelog</a>
+            <a href="/pricing" style={footerLinkStyle} {...footerHover}>Pricing</a>
+            <a href={DOCS_EXTERNAL} style={footerLinkStyle} {...footerHover} target="_blank" rel="noopener noreferrer">Documentation</a>
+            <a href="/security" style={footerLinkStyle} {...footerHover}>Security</a>
+            <a href="/status" style={footerLinkStyle} {...footerHover}>Status</a>
+            <a href="/changelog" style={footerLinkStyle} {...footerHover}>Changelog</a>
           </div>
           <div>
             <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Community</p>
-            <a href={ossLinks.repo} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a href={DISCORD_HREF} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Discord</a>
-            <a href={ossLinks.issues} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Issues</a>
+            <a href={ossLinks.repo} style={footerLinkStyle} {...footerHover} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={DISCORD_HREF} style={footerLinkStyle} {...footerHover} target="_blank" rel="noopener noreferrer">Discord</a>
+            <a href={ossLinks.issues} style={footerLinkStyle} {...footerHover} target="_blank" rel="noopener noreferrer">Issues</a>
           </div>
           <div>
             <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Legal</p>
-            <a href="/privacy" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Privacy</a>
-            <a href="/terms" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Terms</a>
+            <a href="/privacy" style={footerLinkStyle} {...footerHover}>Privacy</a>
+            <a href="/terms" style={footerLinkStyle} {...footerHover}>Terms</a>
           </div>
         </div>
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -303,6 +307,7 @@ function HomePage() {
                 <h1 style={{
                   fontSize: "var(--text-display)", lineHeight: 1.04, letterSpacing: "-0.04em",
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
+                  fontFamily: "var(--font-display, 'Fraunces', serif)",
                 }}>
                   <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>Hire AI.</span>
                 </h1>
@@ -384,7 +389,7 @@ function HomePage() {
       <section>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16 }}>
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
               60 seconds to your first team.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
@@ -429,39 +434,53 @@ function HomePage() {
       {/* ═══ RULES / CHARTER ═══ */}
       <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
-          <InView>
-            <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px" }}>
-              Rules they can't break.
-            </h2>
-            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 48 }}>
-              Not suggestions. Not guidelines. Hard limits enforced before every action. You set the rules. The system enforces them.
-            </p>
-          </InView>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 48 }} className="rules-layout">
+            <InView>
+              <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+                Rules they can't break.
+              </h2>
+              <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 0 }}>
+                Not suggestions. Not guidelines. Hard limits enforced before every action. You set the rules. The system enforces them.
+              </p>
+            </InView>
 
-          <div className="rules-grid">
-            {[
-              { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
-              { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
-              { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
-            ].map((rule, i) => (
-              <InView key={rule.label} delay={i * 0.08}>
-                <div style={{ padding: 28, borderRadius: 14, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color }} />
-                    <span style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-100)", fontFamily: "var(--font-mono)" }}>{rule.label}</span>
-                  </div>
-                  <p style={{ fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--text-200)", margin: "0 0 18px" }}>{rule.desc}</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {rule.items.map(item => (
-                      <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 8, backgroundColor: rule.bg }}>
-                        <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{item}</span>
-                      </div>
-                    ))}
-                  </div>
+            <div className="rules-content" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
+              <div>
+                <div style={{
+                  fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.7,
+                  borderLeft: "2px solid var(--accent)", paddingLeft: 20,
+                }}>
+                  Every worker operates under a charter — a set of permissions you define before they start.
+                  Not guidelines. Not suggestions. Boundaries enforced at runtime, before every action.
+                  If it's not in the charter, it doesn't happen.
                 </div>
-              </InView>
-            ))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {[
+                  { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
+                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
+                  { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
+                ].map((rule, i) => (
+                  <InView key={rule.label} delay={i * 0.08}>
+                    <div style={{ padding: 28, borderRadius: 14, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color }} />
+                        <span style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-100)", fontFamily: "var(--font-mono)" }}>{rule.label}</span>
+                      </div>
+                      <p style={{ fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--text-200)", margin: "0 0 18px" }}>{rule.desc}</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {rule.items.map(item => (
+                          <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 8, backgroundColor: rule.bg }}>
+                            <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </InView>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -483,20 +502,20 @@ function HomePage() {
               {
                 title: "Home Services",
                 desc: "Reception, dispatch, billing, and reviews. For plumbers, electricians, HVAC, and contractors.",
-                schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Email, Calendar",
+                schedule: "4-6 workers \u00b7 Continuous",
+                rules: "Connects: Email, Calendar, Stripe",
               },
               {
                 title: "Professional Services",
                 desc: "Client intake, scheduling, document prep, and follow-ups. For law firms, accountants, and consultants.",
-                schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Email, Calendar",
+                schedule: "5-7 workers \u00b7 Business hours",
+                rules: "Connects: Email, Calendar, Notion",
               },
               {
                 title: "E-Commerce",
                 desc: "Customer support, order tracking, returns, and review management. For online stores of any size.",
-                schedule: "5-6 workers \u00b7 Continuous",
-                rules: "Connects: Email, Calendar",
+                schedule: "3-5 workers \u00b7 24/7",
+                rules: "Connects: Email, Stripe, Slack",
               },
             ].map((uc, i) => (
               <InView key={uc.title} delay={i * 0.08}>
@@ -518,6 +537,26 @@ function HomePage() {
               </InView>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ═══ SOCIAL PROOF ═══ */}
+      <section>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(4rem, 8vh, 6rem) 24px", textAlign: "center" }}>
+          <InView>
+            <blockquote style={{
+              fontSize: "var(--text-xl)", fontWeight: 500,
+              fontFamily: "var(--font-display, 'Fraunces', serif)",
+              color: "var(--text-100)", lineHeight: 1.5,
+              letterSpacing: "-0.02em", fontStyle: "italic",
+              maxWidth: 640, margin: "0 auto 20px",
+            }}>
+              "We replaced two full-time hires with a Nooterra team. The charter system means I actually trust it."
+            </blockquote>
+            <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)" }}>
+              — Early access user, home services company
+            </div>
+          </InView>
         </div>
       </section>
 
@@ -558,6 +597,7 @@ function HomePage() {
             <h2 style={{
               fontSize: "var(--text-display)", letterSpacing: "-0.04em", fontWeight: 800,
               color: "var(--text-100)", margin: "0 0 20px",
+              fontFamily: "var(--font-display, 'Fraunces', serif)",
             }}>
               Your team is waiting.
             </h2>
@@ -595,6 +635,11 @@ function HomePage() {
           </InView>
         </div>
       </section>
+      <style>{`
+        @media (max-width: 768px) {
+          .rules-content { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </SiteLayout>
   );
 }

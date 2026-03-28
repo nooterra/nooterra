@@ -94,6 +94,31 @@ function saveRuntime(config) {
   try { localStorage.setItem(PRODUCT_RUNTIME_STORAGE_KEY, JSON.stringify(config)); } catch { /* ignore */ }
 }
 
+function humanizeSchedule(schedule) {
+  if (!schedule) return "On demand";
+  if (schedule === "continuous") return "Always running";
+  if (schedule === "on_demand") return "On demand";
+  // Interval patterns
+  if (/^\d+m$/.test(schedule)) return `Every ${schedule.replace("m", "")} minutes`;
+  if (schedule === "1h") return "Every hour";
+  if (/^\d+h$/.test(schedule)) return `Every ${schedule.replace("h", "")} hours`;
+  // Common cron patterns
+  const cronDays = { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday" };
+  const cronMatch = schedule.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+(\*|\d)$/);
+  if (cronMatch) {
+    const [, min, hour, dow] = cronMatch;
+    const h = parseInt(hour, 10);
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const timeStr = min === "0" ? `${h12} ${period}` : `${h12}:${min.padStart(2, "0")} ${period}`;
+    if (dow === "*") return `Daily at ${timeStr}`;
+    return `Weekly on ${cronDays[dow] || dow} at ${timeStr}`;
+  }
+  // Fallback: show as-is with "Cron:" prefix for unrecognized patterns
+  if (/^\d+\s+\d+/.test(schedule)) return `Cron: ${schedule}`;
+  return schedule;
+}
+
 function loadOnboardingState() {
   try { return JSON.parse(localStorage.getItem(ONBOARDING_STORAGE_KEY) || "null") || null; } catch { return null; }
 }
@@ -205,7 +230,7 @@ const S = {
   label: { display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", marginBottom: "0.4rem", letterSpacing: "0.05em", textTransform: "uppercase" },
   input: { display: "block", width: "100%", padding: "0.75rem 1rem", fontSize: "15px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", outline: "none", marginBottom: "1.25rem", fontFamily: "inherit", transition: "border-color 0.15s", boxSizing: "border-box" },
   inputFocus: { borderColor: "var(--accent)" },
-  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "#1a1a1a", color: "#ffffff", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "opacity 0.15s", width: "100%", fontFamily: "inherit" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.75rem 1.75rem", fontSize: "0.9rem", fontWeight: 600, background: "var(--text-100)", color: "var(--bg-100)", border: "none", borderRadius: 8, cursor: "pointer", letterSpacing: "0.01em", transition: "opacity 0.15s", width: "100%", fontFamily: "inherit" },
   btnSecondary: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0.6rem 1.25rem", fontSize: "0.85rem", fontWeight: 600, background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s", fontFamily: "inherit" },
   btnGhost: { background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, fontFamily: "inherit" },
   link: { color: "var(--accent)", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500 },
@@ -213,7 +238,7 @@ const S = {
   success: { fontSize: "0.85rem", color: "#5bb98c", marginBottom: "1rem" },
   appLayout: { display: "flex", minHeight: "100vh" },
   main: { flex: 1, padding: "2.5rem 3rem", maxWidth: 960 },
-  pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" },
+  pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem", fontFamily: "var(--font-display, 'Fraunces', serif)" },
   pageSub: { fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.5 },
   workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1.5rem", padding: "1rem 0", borderBottom: "1px solid var(--border)", cursor: "pointer", transition: "background 0.1s" },
   workerName: { fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" },
@@ -400,7 +425,7 @@ function AuthView({ onAuth }) {
             return;
           }
         } catch { /* session not established */ }
-        setError("Google sign-in session failed. Please try again.");
+        setError("Couldn't sign you in with Google. Please try again.");
         window.history.replaceState({}, "", window.location.pathname);
         return;
       }
@@ -430,7 +455,7 @@ function AuthView({ onAuth }) {
     try {
       const result = await authRequest({ pathname: "/v1/public/signup", body: { email: em, company: em.split("@")[0] } });
       const tid = result?.tenantId;
-      if (!tid) { setError("Something went wrong. Please try again."); setLoading(false); return; }
+      if (!tid) { setError("Couldn't sign you in. Check your email and try again."); setLoading(false); return; }
       setTenantId(tid);
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
       if (storedPasskey) {
@@ -452,7 +477,7 @@ function AuthView({ onAuth }) {
       setIsNewAccount(newAccount);
       if (!newAccount) await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/otp`, body: { email: em } });
       setStep("otp");
-    } catch (err) { setError(err?.message || "Something went wrong. Please try again."); }
+    } catch (err) { setError(err?.message || "Couldn't sign you in. Check your email and try again."); }
     finally { setLoading(false); }
   }
 
@@ -684,9 +709,9 @@ function stripWorkerDefinitionBlock(text) {
 function CharterDisplay({ charter, compact = false }) {
   if (!charter) return null;
   const sections = [
-    { key: "canDo", label: "Can do", color: "#5bb98c", items: charter.canDo || [] },
-    { key: "askFirst", label: "Ask first", color: "var(--accent)", items: charter.askFirst || [] },
-    { key: "neverDo", label: "Never do", color: "#c97055", items: charter.neverDo || [] },
+    { key: "canDo", label: "Handles on its own", color: "#5bb98c", items: charter.canDo || [] },
+    { key: "askFirst", label: "Asks you first", color: "var(--accent)", items: charter.askFirst || [] },
+    { key: "neverDo", label: "Never does", color: "#c97055", items: charter.neverDo || [] },
   ];
   return (
     <div>
@@ -873,7 +898,7 @@ function SchedulePicker({ schedule, onScheduleChange }) {
           <button
             onClick={() => {
               if (customCron.trim()) {
-                onScheduleChange({ type: "cron", value: customCron.trim(), label: `Cron: ${customCron.trim()}` });
+                onScheduleChange({ type: "cron", value: customCron.trim(), label: humanizeSchedule(customCron.trim()) });
               }
             }}
             style={{ ...S.btnSecondary, padding: "6px 14px", fontSize: "13px" }}
@@ -891,9 +916,9 @@ function SchedulePicker({ schedule, onScheduleChange }) {
    =================================================================== */
 
 const CHARTER_SECTIONS = [
-  { key: "canDo", label: "Can Do", color: "var(--green)", bg: "var(--green-bg)", icon: "\u2713" },
-  { key: "askFirst", label: "Ask First", color: "var(--amber)", bg: "var(--amber-bg)", icon: "?" },
-  { key: "neverDo", label: "Never Do", color: "var(--red)", bg: "var(--red-bg)", icon: "\u2717" },
+  { key: "canDo", label: "Handles on its own", color: "var(--green)", bg: "var(--green-bg)", icon: "\u2713" },
+  { key: "askFirst", label: "Asks you first", color: "var(--amber)", bg: "var(--amber-bg)", icon: "?" },
+  { key: "neverDo", label: "Never does", color: "var(--red)", bg: "var(--red-bg)", icon: "\u2717" },
 ];
 
 const CYCLE_ORDER = ["canDo", "askFirst", "neverDo"];
@@ -984,6 +1009,18 @@ function CharterEditor({ charter, onCharterChange, workerName, onNameChange, sch
           </span>
         </div>
 
+        <div style={{
+          fontSize: "12px", color: "var(--text-tertiary)", lineHeight: 1.6,
+          padding: "10px 14px", background: "var(--bg-primary, var(--bg-100))",
+          borderRadius: 8, marginBottom: 16, border: "1px solid var(--border)",
+        }}>
+          <strong style={{ color: "var(--text-secondary)" }}>How charters work:</strong>{" "}
+          <span style={{ color: "var(--green, #5bb98c)" }}>Green rules</span> run automatically.{" "}
+          <span style={{ color: "var(--amber, #c08c30)" }}>Amber rules</span> pause for your approval.{" "}
+          <span style={{ color: "var(--red, #c43a3a)" }}>Red rules</span> are blocked entirely.{" "}
+          Click any rule to move it between categories.
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
           {CHARTER_SECTIONS.map(sec => {
             const rules = charter[sec.key] || [];
@@ -1068,11 +1105,13 @@ function CharterEditor({ charter, onCharterChange, workerName, onNameChange, sch
         <button
           style={{
             ...S.btnPrimary, width: "auto", padding: "12px 32px", fontSize: "15px",
-            opacity: deploying ? 0.5 : 1,
+            opacity: (deploying || (charter.canDo?.length || 0) + (charter.askFirst?.length || 0) + (charter.neverDo?.length || 0) === 0) ? 0.5 : 1,
             background: "var(--green)", color: "#fff",
+            cursor: (charter.canDo?.length || 0) + (charter.askFirst?.length || 0) + (charter.neverDo?.length || 0) === 0 ? "not-allowed" : "pointer",
           }}
-          disabled={deploying}
+          disabled={deploying || (charter.canDo?.length || 0) + (charter.askFirst?.length || 0) + (charter.neverDo?.length || 0) === 0}
           onClick={onDeploy}
+          title={(charter.canDo?.length || 0) + (charter.askFirst?.length || 0) + (charter.neverDo?.length || 0) === 0 ? "Add at least one rule before deploying" : undefined}
         >
           {deploying ? "Deploying..." : "Deploy Worker"}
         </button>
@@ -1450,6 +1489,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [error, setError] = useState("");
   const [connectedIntegrations, setConnectedIntegrations] = useState(new Set());
   const [connectingIntegration, setConnectingIntegration] = useState(null);
+  const [deploySuccess, setDeploySuccess] = useState(false);
   const textareaRef = useRef(null);
 
   // Persist team proposal to sessionStorage so it survives app switches / reloads
@@ -1575,7 +1615,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
       throw new Error("Could not generate team. Try describing your business in more detail.");
     } catch (err) {
-      setError(err?.name === "AbortError" ? "Request timed out. Please try again." : (err?.message || "Something went wrong. Please try again."));
+      setError(err?.name === "AbortError" ? "Lost connection to Nooterra. Retrying..." : (err?.message || "Couldn't build your team. Check your connection and try again."));
       setPhase("input");
     } finally {
       clearTimeout(timeout);
@@ -1618,11 +1658,47 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       try { sessionStorage.removeItem(TEAM_SESSION_KEY); } catch {}
-      onComplete?.();
+      setDeploySuccess(true);
+      setTimeout(() => { onComplete?.(); }, 1500);
     } catch (err) {
-      setError("Activation failed: " + (err?.message || "Unknown error"));
+      setError("Couldn't deploy this team. Check your connection and try again.");
     }
     setActivating(false);
+  }
+
+  // =============================================
+  // DEPLOY SUCCESS STATE
+  // =============================================
+  if (deploySuccess) {
+    return (
+      <div className="deploy-success" style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", minHeight: "100%", padding: "2rem",
+        background: "var(--bg-100, #faf9f6)",
+      }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: "50%",
+          background: "var(--green-bg, rgba(42,157,110,0.08))",
+          border: "2px solid var(--green, #2a9d6e)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: 20,
+        }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green, #2a9d6e)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h2 style={{
+          fontSize: "1.5rem", fontWeight: 700, color: "var(--text-100, var(--text-primary))",
+          fontFamily: "var(--font-display, 'Fraunces', serif)",
+          marginBottom: 8,
+        }}>
+          Team deployed
+        </h2>
+        <p style={{ fontSize: "14px", color: "var(--text-300, var(--text-secondary))", textAlign: "center", maxWidth: 320 }}>
+          Your workers are warming up. You'll see activity in your inbox shortly.
+        </p>
+      </div>
+    );
   }
 
   // =============================================
@@ -1707,6 +1783,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             fontSize: "clamp(1.75rem, 3vw, 2.5rem)", fontWeight: 800,
             letterSpacing: "-0.03em", color: "var(--text-100)",
             marginBottom: 12, lineHeight: 1.15,
+            fontFamily: "var(--font-display, 'Fraunces', serif)",
           }}>
             {builderMode === "team" ? "What are we terraforming?" : "Build a worker"}
           </h1>
@@ -1807,6 +1884,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             fontSize: "clamp(1.5rem, 3vw, 2rem)", fontWeight: 800,
             letterSpacing: "-0.03em", color: "var(--text-100)",
             lineHeight: 1.15,
+            fontFamily: "var(--font-display, 'Fraunces', serif)",
           }}>
             {teamProposal?.teamName || "Your Team"}
           </h1>
@@ -2232,9 +2310,25 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
 function WorkersListView({ onSelect, onCreate }) {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); } setLoading(false); })(); }, []);
   return (
     <div>
+      {/* Greeting */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{
+          fontSize: "clamp(1.5rem, 3vw, 2rem)", fontWeight: 700,
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-display, 'Fraunces', serif)",
+          letterSpacing: "-0.03em", marginBottom: 4,
+        }}>
+          {getGreeting()}{userName ? `, ${userName}` : ""}
+        </h1>
+        <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+          {workers.length === 0 ? "Let's get your first worker running." : `${workers.filter(w => w.status === "running").length} of ${workers.length} workers active`}
+        </p>
+      </div>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
         <div><h1 style={S.pageTitle}>Workers</h1><p style={{ ...S.pageSub, marginBottom: 0 }}>{loading ? "Loading..." : workers.length === 0 ? "No workers yet. Create one to get started." : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}</p></div>
         <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
@@ -2260,7 +2354,7 @@ function WorkersListView({ onSelect, onCreate }) {
               <div style={S.workerName}>{w.name}</div>
               <div style={S.workerMeta}><span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />{w.status}</div>
               <div style={S.workerMeta}>{w.lastRun || w.lastRunAt ? timeAgo(w.lastRun || w.lastRunAt) : "never"}</div>
-              <div style={S.workerMeta}>{w.schedule || "manual"}</div>
+              <div style={S.workerMeta}>{humanizeSchedule(w.schedule) || "manual"}</div>
               <div style={S.workerMeta}>{w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : "--"}</div>
             </div>
           ))}
@@ -2430,7 +2524,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
       {tab === "settings" && (
         <div style={{ maxWidth: 480 }}>
           <label style={S.label}>Schedule</label>
-          <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{worker.schedule || "Manual (on-demand)"}</div>
+          <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{humanizeSchedule(worker.schedule) || "Manual (on-demand)"}</div>
           {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{ALL_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
         </div>
       )}
@@ -2889,7 +2983,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   function SaveButton({ label = "Save" }) {
     const isSaved = saveState === "saved"; const isSaving = saveState === "saving"; const isError = saveState === "error";
-    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "#5bb98c" : isError ? "#c97055" : "#1a1a1a", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
+    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "#5bb98c" : isError ? "#c97055" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
   }
 
   const currentTier = userTier || "free";
@@ -2979,7 +3073,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 ))}
 
                 <div style={{ marginTop: "1.5rem" }}>
-                  <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "#1a1a1a", transition: "background 300ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : "Save"}</button>
+                  <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "var(--text-100)", transition: "background 300ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : "Save"}</button>
                 </div>
               </div>)}
               {tab === "account" && (<div>
@@ -3511,7 +3605,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         flex: 1, display: "flex", flexDirection: "column", minWidth: 0,
         background: "var(--bg-100)", height: "100vh", overflow: "auto",
       }}>
-        <MainContent />
+        <div key={view} className="view-enter">
+          <MainContent />
+        </div>
       </main>
 
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
