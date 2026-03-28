@@ -6,6 +6,7 @@
  */
 
 import crypto from 'node:crypto';
+import { validateCharterRules } from './charter-enforcement.js';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -52,6 +53,17 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const body = await readBody(req);
     if (!body) return err(res, 400, 'JSON body required'), true;
     if (!body.name?.trim()) return err(res, 400, 'name is required'), true;
+
+    // Validate charter rules for prompt injection
+    if (body.charter) {
+      const parsedCharter = typeof body.charter === 'string' ? JSON.parse(body.charter) : body.charter;
+      const validation = validateCharterRules(parsedCharter);
+      if (!validation.valid) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid charter rules', details: validation.errors }));
+        return true;
+      }
+    }
 
     const id = generateId('wrk');
     const now = new Date().toISOString();

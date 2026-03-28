@@ -96,6 +96,44 @@ export function detectPromptInjection(input) {
   return { safe: true };
 }
 
+/**
+ * Validate user-submitted charter rules for injection attempts.
+ * Called when users create/update workers to prevent malicious rules.
+ * @param {{ canDo?: string[], askFirst?: string[], neverDo?: string[] }} charter
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+export function validateCharterRules(charter) {
+  const errors = [];
+
+  for (const [section, rules] of Object.entries(charter)) {
+    if (!['canDo', 'askFirst', 'neverDo'].includes(section)) continue;
+    if (!Array.isArray(rules)) continue;
+
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (typeof rule !== 'string') {
+        errors.push(`${section}[${i}]: rule must be a string`);
+        continue;
+      }
+      if (rule.length > 200) {
+        errors.push(`${section}[${i}]: rule exceeds 200 character limit`);
+        continue;
+      }
+      if (rule.trim().length === 0) {
+        errors.push(`${section}[${i}]: rule cannot be empty`);
+        continue;
+      }
+      // Check for prompt injection in the rule text itself
+      const injection = detectPromptInjection(rule);
+      if (!injection.safe && injection.severity === 'high') {
+        errors.push(`${section}[${i}]: rejected — ${injection.reason}`);
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 function containsHomoglyphs(text) {
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
