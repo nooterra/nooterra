@@ -21,7 +21,7 @@ import { Composio } from '@composio/core';
 
 const COMPOSIO_API_KEY = process.env.COMPOSIO_API_KEY;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nooterra.ai';
-const CALLBACK_URL = `${FRONTEND_URL}/dashboard?view=connections`;
+const CALLBACK_URL = `${FRONTEND_URL}/integrations`;
 
 let composio = null;
 

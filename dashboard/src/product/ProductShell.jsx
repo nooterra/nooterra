@@ -3283,6 +3283,7 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
       case "approvals": return "approvals";
       case "receipts": return "receipts";
       case "workspace": return "settings";
+      case "integrations": return "connections";
       default: return "builder";
     }
   }
