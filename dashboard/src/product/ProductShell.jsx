@@ -1388,6 +1388,27 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [connectingIntegration, setConnectingIntegration] = useState(null);
   const textareaRef = useRef(null);
 
+  // Persist team proposal to sessionStorage so it survives app switches / reloads
+  const TEAM_SESSION_KEY = "nooterra_team_draft";
+
+  useEffect(() => {
+    if (teamProposal && phase === "team") {
+      try { sessionStorage.setItem(TEAM_SESSION_KEY, JSON.stringify({ teamProposal, description, phase })); } catch {}
+    }
+  }, [teamProposal, phase, description]);
+
+  // Restore team draft on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(TEAM_SESSION_KEY) || "null");
+      if (saved?.teamProposal?.workers?.length > 0 && phase === "input") {
+        setTeamProposal(saved.teamProposal);
+        setDescription(saved.description || "");
+        setPhase("team");
+      }
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check which integrations are already connected
   async function refreshIntegrationStatus() {
     try {
@@ -1399,6 +1420,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             .map(([k]) => k.toLowerCase())
         );
         setConnectedIntegrations(connected);
+        setConnectingIntegration(null); // Clear "Waiting..." state
       }
     } catch { /* ignore */ }
   }
@@ -1531,6 +1553,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         });
       }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
+      try { sessionStorage.removeItem(TEAM_SESSION_KEY); } catch {}
       onComplete?.();
     } catch (err) {
       setError("Activation failed: " + (err?.message || "Unknown error"));
