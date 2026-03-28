@@ -237,10 +237,10 @@ const S = {
   error: { fontSize: "0.85rem", color: "#c97055", marginBottom: "1rem" },
   success: { fontSize: "0.85rem", color: "#5bb98c", marginBottom: "1rem" },
   appLayout: { display: "flex", minHeight: "100vh" },
-  main: { flex: 1, padding: "2.5rem 3rem", maxWidth: 960 },
+  main: { flex: 1, padding: "clamp(1.25rem, 4vw, 2.5rem) clamp(1rem, 4vw, 3rem)", maxWidth: 960 },
   pageTitle: { fontSize: "clamp(1.4rem, 3vw, 1.75rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem", fontFamily: "var(--font-display, 'Fraunces', serif)" },
   pageSub: { fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.5 },
-  workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1.5rem", padding: "1rem 0", borderBottom: "1px solid var(--border)", cursor: "pointer", transition: "background 0.1s" },
+  workerRow: { display: "grid", gridTemplateColumns: "1fr auto auto auto auto", alignItems: "center", gap: "1rem", padding: "1rem 0", borderBottom: "1px solid var(--border)", cursor: "pointer", transition: "background 0.1s" },
   workerName: { fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" },
   workerMeta: { fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" },
   statusDot: (color) => ({ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, marginRight: 6, verticalAlign: "middle", flexShrink: 0 }),
@@ -2214,61 +2214,93 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           <div style={{ marginTop: 16, fontSize: "14px", color: "var(--red, #c97055)", textAlign: "center" }}>{error}</div>
         )}
 
-        {/* Activate button with confirmation */}
-        <div style={{ marginTop: 40, textAlign: "center", paddingBottom: 40 }}>
-          {!showConfirm ? (
-            <button
-              onClick={() => setShowConfirm(true)}
-              style={{
-                padding: "14px 48px", fontSize: "15px", fontWeight: 700,
-                background: "var(--text-100)", color: "var(--bg-100)",
-                border: "none", borderRadius: 10, cursor: "pointer",
-                fontFamily: "inherit", transition: "opacity 150ms",
-              }}
-            >
-              Activate Team
-            </button>
-          ) : (
-            <div style={{
-              display: "inline-flex", flexDirection: "column", alignItems: "center",
-              gap: 12, padding: "20px 32px", borderRadius: 12,
-              border: "1px solid var(--border)", background: "var(--bg-400)",
-            }}>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
-                Deploy {workers.length} worker{workers.length !== 1 ? "s" : ""}?
-              </div>
-              <div style={{ fontSize: "13px", color: "var(--text-300)" }}>
-                All workers start in learning mode. You approve every action.
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={handleActivate}
-                  disabled={activating}
-                  style={{
-                    padding: "10px 32px", fontSize: "14px", fontWeight: 700,
-                    background: "var(--green, #5bb98c)", color: "#fff",
-                    border: "none", borderRadius: 8, cursor: "pointer",
-                    fontFamily: "inherit", opacity: activating ? 0.5 : 1,
-                  }}
-                >
-                  {activating ? "Deploying..." : "Yes, deploy"}
-                </button>
-                <button
-                  onClick={() => setShowConfirm(false)}
-                  style={{
-                    padding: "10px 20px", fontSize: "14px",
-                    background: "transparent", color: "var(--text-200)",
-                    border: "1px solid var(--border)", borderRadius: 8,
-                    cursor: "pointer", fontFamily: "inherit",
-                  }}
-                >Cancel</button>
-              </div>
+        {/* Integration warning + Activate button */}
+        {(() => {
+          const allIntgs = new Set();
+          for (const w of workers) for (const intg of (w.integrations || [])) allIntgs.add(intg);
+          const unconnectedIntgs = [...allIntgs].filter(intg => {
+            const key = intg.toLowerCase().replace(/[\s_-]+/g, "");
+            for (const c of connectedIntegrations) { if (c.replace(/[\s_-]+/g, "") === key) return false; }
+            return true;
+          });
+          const hasUnconnected = unconnectedIntgs.length > 0;
+
+          return (
+            <div style={{ marginTop: 40, textAlign: "center", paddingBottom: 40 }}>
+              {hasUnconnected && !showConfirm && (
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "10px 16px", borderRadius: 8, marginBottom: 16,
+                  background: "var(--amber-bg, rgba(192,140,48,0.08))",
+                  border: "1px solid var(--amber, #c08c30)",
+                  fontSize: "13px", color: "var(--amber, #c08c30)", fontWeight: 500,
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  Connect integrations above for your workers to function
+                </div>
+              )}
+              {!showConfirm ? (
+                <div>
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    style={{
+                      padding: "14px 48px", fontSize: "15px", fontWeight: 700,
+                      background: "var(--text-100)", color: "var(--bg-100)",
+                      border: "none", borderRadius: 10, cursor: "pointer",
+                      fontFamily: "inherit", transition: "opacity 150ms",
+                    }}
+                  >
+                    {hasUnconnected ? "Deploy anyway" : "Activate Team"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{
+                  display: "inline-flex", flexDirection: "column", alignItems: "center",
+                  gap: 12, padding: "20px 32px", borderRadius: 12,
+                  border: "1px solid var(--border)", background: "var(--bg-400)",
+                }}>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
+                    Deploy {workers.length} worker{workers.length !== 1 ? "s" : ""}?
+                  </div>
+                  {hasUnconnected && (
+                    <div style={{ fontSize: "12px", color: "var(--amber, #c08c30)", maxWidth: 280 }}>
+                      {unconnectedIntgs.length} integration{unconnectedIntgs.length !== 1 ? "s" : ""} not connected. Workers may not function fully.
+                    </div>
+                  )}
+                  <div style={{ fontSize: "13px", color: "var(--text-300)" }}>
+                    All workers start in learning mode. You approve every action.
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={handleActivate}
+                      disabled={activating}
+                      style={{
+                        padding: "10px 32px", fontSize: "14px", fontWeight: 700,
+                        background: "var(--green, #5bb98c)", color: "#fff",
+                        border: "none", borderRadius: 8, cursor: "pointer",
+                        fontFamily: "inherit", opacity: activating ? 0.5 : 1,
+                      }}
+                    >
+                      {activating ? "Deploying..." : "Yes, deploy"}
+                    </button>
+                    <button
+                      onClick={() => setShowConfirm(false)}
+                      style={{
+                        padding: "10px 20px", fontSize: "14px",
+                        background: "transparent", color: "var(--text-200)",
+                        border: "1px solid var(--border)", borderRadius: 8,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 8 }}>
+                All workers start in learning mode. You approve actions until they earn trust.
+              </p>
             </div>
-          )}
-          <p style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 8 }}>
-            All workers start in learning mode. You approve actions until they earn trust.
-          </p>
-        </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -2314,48 +2346,60 @@ function WorkersListView({ onSelect, onCreate }) {
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); } setLoading(false); })(); }, []);
   return (
     <div>
-      {/* Greeting */}
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{
-          fontSize: "clamp(1.5rem, 3vw, 2rem)", fontWeight: 700,
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-display, 'Fraunces', serif)",
-          letterSpacing: "-0.03em", marginBottom: 4,
-        }}>
-          {getGreeting()}{userName ? `, ${userName}` : ""}
-        </h1>
-        <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-          {workers.length === 0 ? "Let's get your first worker running." : `${workers.filter(w => w.status === "running").length} of ${workers.length} workers active`}
-        </p>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>
+            {getGreeting()}{userName ? `, ${userName}` : ""}
+          </h1>
+          <p style={{ ...S.pageSub, marginBottom: 0 }}>
+            {loading ? "Loading your team..." : workers.length === 0 ? "No workers yet." : `${workers.filter(w => w.status === "running").length} of ${workers.length} workers active`}
+          </p>
+        </div>
+        <button style={{ ...S.btnPrimary, width: "auto", flexShrink: 0 }} onClick={onCreate}>New worker</button>
       </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
-        <div><h1 style={S.pageTitle}>Workers</h1><p style={{ ...S.pageSub, marginBottom: 0 }}>{loading ? "Loading..." : workers.length === 0 ? "No workers yet. Create one to get started." : `${workers.length} worker${workers.length === 1 ? "" : "s"}`}</p></div>
-        <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
-      </div>
+      {loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} style={{ height: 56, borderRadius: 8, background: "var(--bg-300, var(--bg-hover))", animation: "skeletonPulse 1.5s ease-in-out infinite", animationDelay: `${i * 0.15}s` }} />
+          ))}
+        </div>
+      )}
       {!loading && workers.length === 0 && (
-        <div style={{ padding: "4rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
-          <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your first worker is waiting</div>
-          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>Describe what you need done, set a schedule, review the charter, and deploy.</div>
+        <div style={{ padding: "3rem 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your first worker is waiting</div>
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>Describe what you need and we'll set up a worker for you.</div>
           <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
         </div>
       )}
-      {workers.length > 0 && (
+      {!loading && workers.length > 0 && (
         <div>
-          <div style={{ ...S.workerRow, cursor: "default", borderBottom: "1px solid var(--border)", padding: "0 0 0.5rem" }}>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Name</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Status</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Last run</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Schedule</div>
-            <div style={{ ...S.workerMeta, fontWeight: 600, color: "var(--text-secondary)" }}>Cost</div>
-          </div>
           {workers.map(w => (
-            <div key={w.id} style={S.workerRow} onClick={() => onSelect(w)} onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-              <div style={S.workerName}>{w.name}</div>
-              <div style={S.workerMeta}><span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />{w.status}</div>
-              <div style={S.workerMeta}>{w.lastRun || w.lastRunAt ? timeAgo(w.lastRun || w.lastRunAt) : "never"}</div>
-              <div style={S.workerMeta}>{humanizeSchedule(w.schedule) || "manual"}</div>
-              <div style={S.workerMeta}>{w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : "--"}</div>
+            <div
+              key={w.id}
+              onClick={() => onSelect(w)}
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "14px 0", borderBottom: "1px solid var(--border)",
+                cursor: "pointer", transition: "background 100ms",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover, var(--bg-300))"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <span style={{
+                ...S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready),
+                marginRight: 0, flexShrink: 0,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</div>
+                <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>
+                  {w.status}{w.lastRun || w.lastRunAt ? ` · ${timeAgo(w.lastRun || w.lastRunAt)}` : ""}{w.schedule ? ` · ${humanizeSchedule(w.schedule)}` : ""}
+                </div>
+              </div>
+              <div style={{ fontSize: "13px", color: "var(--text-tertiary)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                {w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : ""}
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" style={{ flexShrink: 0, opacity: 0.5 }}><polyline points="9 18 15 12 9 6"/></svg>
             </div>
           ))}
         </div>
