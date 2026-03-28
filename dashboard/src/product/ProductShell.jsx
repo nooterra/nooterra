@@ -1384,7 +1384,33 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [activating, setActivating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
+  const [connectedIntegrations, setConnectedIntegrations] = useState(new Set());
+  const [connectingIntegration, setConnectingIntegration] = useState(null);
   const textareaRef = useRef(null);
+
+  // Check which integrations are already connected
+  async function refreshIntegrationStatus() {
+    try {
+      const result = await workerApiRequest({ pathname: "/v1/integrations/status", method: "GET" });
+      if (result?.integrations) {
+        const connected = new Set(
+          Object.entries(result.integrations)
+            .filter(([, v]) => v.connected)
+            .map(([k]) => k.toLowerCase())
+        );
+        setConnectedIntegrations(connected);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Refresh integration status when entering team phase or when window regains focus
+  useEffect(() => {
+    if (phase !== "team") return;
+    refreshIntegrationStatus();
+    function onFocus() { refreshIntegrationStatus(); }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [phase]);
 
   function parseTeamProposal(text) {
     const match = text.match(/\[TEAM_PROPOSAL\]([\s\S]*?)\[\/TEAM_PROPOSAL\]/);
@@ -1912,57 +1938,101 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             }
           }
           if (allIntegrations.size === 0) return null;
+
+          function isIntgConnected(intg) {
+            const key = intg.toLowerCase().replace(/[\s_-]+/g, "");
+            for (const c of connectedIntegrations) {
+              if (c.replace(/[\s_-]+/g, "") === key) return true;
+            }
+            return false;
+          }
+
+          const connectedCount = [...allIntegrations.keys()].filter(isIntgConnected).length;
+          const totalCount = allIntegrations.size;
+
           return (
             <div style={{ marginTop: 48 }}>
-              <h2 style={{
-                fontSize: "15px", fontWeight: 700, textTransform: "uppercase",
-                letterSpacing: "0.08em", color: "var(--text-300)", marginBottom: 16,
-              }}>Integrations needed</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <h2 style={{
+                  fontSize: "15px", fontWeight: 700, textTransform: "uppercase",
+                  letterSpacing: "0.08em", color: "var(--text-300)", margin: 0,
+                }}>Integrations needed</h2>
+                <span style={{
+                  fontSize: "12px", fontWeight: 600, fontFamily: "var(--font-mono)",
+                  color: connectedCount === totalCount ? "var(--green, #5bb98c)" : "var(--text-300)",
+                }}>
+                  {connectedCount}/{totalCount} connected
+                </span>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[...allIntegrations.entries()].map(([intg, roles]) => (
-                  <div key={intg} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "14px 18px", borderRadius: 10,
-                    border: "1px solid var(--border)", background: "var(--bg-400)",
-                  }}>
-                    <div>
-                      <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
-                        {intg.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                {[...allIntegrations.entries()].map(([intg, roles]) => {
+                  const connected = isIntgConnected(intg);
+                  const isConnecting = connectingIntegration === intg;
+                  return (
+                    <div key={intg} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "14px 18px", borderRadius: 10,
+                      border: connected ? "1px solid var(--green, #5bb98c)" : "1px solid var(--border)",
+                      background: connected ? "rgba(91,185,140,0.04)" : "var(--bg-400)",
+                      transition: "border-color 200ms, background 200ms",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {connected && (
+                          <div style={{
+                            width: 20, height: 20, borderRadius: "50%",
+                            background: "var(--green, #5bb98c)", display: "flex",
+                            alignItems: "center", justifyContent: "center", flexShrink: 0,
+                          }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
+                            {intg.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                          </div>
+                          <div style={{ fontSize: "12px", color: connected ? "var(--green, #5bb98c)" : "var(--text-300)", marginTop: 2 }}>
+                            {connected ? "Connected" : `Used by ${roles.join(", ")}`}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 2 }}>
-                        Used by {roles.join(", ")}
+                      <div style={{ flexShrink: 0, marginLeft: 16 }}>
+                        {connected ? (
+                          <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--green, #5bb98c)" }}>Ready</span>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const runtime = loadRuntimeConfig();
+                              const tenantId = runtime?.tenantId || "";
+                              const intgKey = intg.toLowerCase().replace(/\s+/g, "_");
+                              const match = AVAILABLE_INTEGRATIONS.find(a =>
+                                a.key === intgKey || a.key === intg || a.name.toLowerCase() === intg.toLowerCase()
+                              );
+                              if (match && match.authType === "oauth") {
+                                setConnectingIntegration(intg);
+                                window.open(
+                                  WORKER_API_BASE + match.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId),
+                                  "nooterra_oauth",
+                                  "width=600,height=700,popup=yes"
+                                );
+                              } else {
+                                navigate("/integrations");
+                              }
+                            }}
+                            style={{
+                              padding: "6px 14px", fontSize: "12px", fontWeight: 600,
+                              border: "1px solid var(--border)", borderRadius: 8,
+                              background: isConnecting ? "var(--bg-300)" : "transparent",
+                              color: isConnecting ? "var(--text-300)" : "var(--text-200)",
+                              cursor: "pointer", fontFamily: "inherit", transition: "all 120ms",
+                            }}
+                          >
+                            {isConnecting ? "Waiting..." : "Connect"}
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <div style={{ flexShrink: 0, marginLeft: 16 }}>
-                      <button
-                        onClick={() => {
-                          const runtime = loadRuntimeConfig();
-                          const tenantId = runtime?.tenantId || "";
-                          // Find matching integration config
-                          const intgKey = intg.toLowerCase().replace(/\s+/g, "_");
-                          const match = AVAILABLE_INTEGRATIONS.find(a =>
-                            a.key === intgKey || a.key === intg || a.name.toLowerCase() === intg.toLowerCase()
-                          );
-                          if (match && match.authType === "oauth") {
-                            window.location.href = WORKER_API_BASE + match.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
-                          } else {
-                            // Navigate to connections page for manual setup
-                            window.history.pushState({}, "", "/dashboard");
-                            window.dispatchEvent(new PopStateEvent("popstate"));
-                          }
-                        }}
-                        style={{
-                          padding: "6px 14px", fontSize: "12px", fontWeight: 600,
-                          border: "1px solid var(--border)", borderRadius: 8,
-                          background: "transparent", color: "var(--text-200)",
-                          cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-                      >Connect</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
