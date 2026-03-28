@@ -294,7 +294,7 @@ function HomePage() {
         {/* Gradient fade at bottom */}
         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 120, background: "linear-gradient(to top, var(--bg-100), transparent)", zIndex: 1 }} />
 
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(9rem, 20vh, 16rem)", paddingBottom: "clamp(5rem, 10vh, 8rem)", position: "relative", zIndex: 2 }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(4rem, 12vh, 10rem)", paddingBottom: "clamp(3rem, 8vh, 6rem)", position: "relative", zIndex: 2 }}>
           <div className="hero-grid">
             <div>
               <InView>
