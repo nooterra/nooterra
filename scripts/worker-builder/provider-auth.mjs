@@ -44,8 +44,8 @@ export const PROVIDERS = {
     name: 'OpenAI (API key)',
     envVar: 'OPENAI_API_KEY',
     keyPrefix: 'sk-',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    defaultModel: 'gpt-4o-mini',
+    models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    defaultModel: 'gpt-5.4-mini',
     testEndpoint: 'https://api.openai.com/v1/models',
     docsUrl: 'https://platform.openai.com/api-keys'
   },

@@ -167,7 +167,7 @@ function buildWorkloadUpstreamUrl({ upstreamBaseUrl, workload, toolArgs }) {
   if (workload === "llm") {
     const url = new URL("/llm/completions", upstreamBaseUrl);
     url.searchParams.set("prompt", String(toolArgs?.prompt ?? ""));
-    url.searchParams.set("model", String(toolArgs?.model ?? "gpt-4o-mini"));
+    url.searchParams.set("model", String(toolArgs?.model ?? "gpt-5.4-mini"));
     url.searchParams.set("maxTokens", String(toolArgs?.maxTokens ?? 128));
     return url;
   }
@@ -677,7 +677,7 @@ async function main() {
     }
     if (workload === "llm") {
       const prompt = String(process.env.NOOTERRA_DEMO_PROMPT ?? "Summarize why deferred settlement matters for paid API calls.").trim();
-      const model = String(process.env.NOOTERRA_DEMO_MODEL ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
+      const model = String(process.env.NOOTERRA_DEMO_MODEL ?? "gpt-5.4-mini").trim() || "gpt-5.4-mini";
       const maxTokens = readIntEnv("NOOTERRA_DEMO_MAX_TOKENS", 128);
       return {
         toolName: "nooterra.llm_completion_paid",

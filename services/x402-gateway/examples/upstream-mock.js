@@ -211,7 +211,7 @@ function buildResponseObject(req, url) {
   if (req.method === "GET" && url.pathname === "/llm/completions") {
     const prompt = sanitizePrompt(url.searchParams.get("prompt"));
     const maxTokens = normalizeMaxTokens(url.searchParams.get("maxTokens"));
-    const model = String(url.searchParams.get("model") ?? "").trim() || "gpt-4o-mini";
+    const model = String(url.searchParams.get("model") ?? "").trim() || "gpt-5.4-mini";
     const promptWordCount = prompt.split(/\s+/u).filter(Boolean).length;
     const inputTokens = Math.max(1, promptWordCount * 2);
     const outputTokens = Math.max(8, Math.min(maxTokens, 64));

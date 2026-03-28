@@ -27,6 +27,8 @@ const PRICING = {
   'chatgpt':       { input: 2.50,  output: 10.00 },
   'gpt-4o':        { input: 2.50,  output: 10.00 },
   'gpt-4o-mini':   { input: 0.15,  output: 0.60  },
+  'gpt-5.4':       { input: 2.00,  output: 8.00  },
+  'gpt-5.4-mini':  { input: 0.10,  output: 0.40  },
   'anthropic':     { input: 3.00,  output: 15.00 },
   'claude-sonnet': { input: 3.00,  output: 15.00 },
   'gemini':        { input: 1.25,  output: 5.00  },

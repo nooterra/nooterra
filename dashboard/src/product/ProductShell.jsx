@@ -19,11 +19,6 @@ import {
   updateTenantSettings,
 } from "./api.js";
 import "./product.css";
-// BI engine removed — the AI harness handles all industries dynamically.
-// Stubs for legacy OnboardingFlow (to be removed):
-function identifyIndustry() { return { industry: "general", confidence: 0 }; }
-function proposeTeam() { return { teamName: "Your Team", workers: [] }; }
-function identifyIntegrations() { return { required: [], optional: [] }; }
 
 /* ===================================================================
    Constants & helpers
@@ -70,27 +65,6 @@ const MODEL_CATEGORIES = [
   { key: "fast", label: "Fast & Cheap" },
   { key: "best", label: "Best Quality" },
   { key: "specialized", label: "Specialized" },
-];
-
-const STARTER_TEMPLATES = [
-  {
-    id: "support-monitor", name: "Support Monitor",
-    description: "Watch your inbox and draft replies for common questions.",
-    charter: { canDo: ["Read incoming emails", "Categorize by topic", "Draft reply templates", "Search knowledge base"], askFirst: ["Send replies to customers", "Forward to team members", "Issue refunds"], neverDo: ["Delete emails", "Share customer data", "Make commitments about features"] },
-    schedule: { type: "continuous" }, model: "google/gemini-3-flash",
-  },
-  {
-    id: "price-tracker", name: "Price Tracker",
-    description: "Monitor competitor pricing pages daily and alert you on changes.",
-    charter: { canDo: ["Check competitor websites", "Compare current vs previous prices", "Send alerts to Slack"], askFirst: ["Adjust your prices", "Send alerts to customers"], neverDo: ["Access payment systems", "Share competitor data externally"] },
-    schedule: { type: "cron", value: "0 9 * * *" }, model: "google/gemini-3-flash",
-  },
-  {
-    id: "inbox-summary", name: "Inbox Summary",
-    description: "Summarize your emails every morning and send a digest.",
-    charter: { canDo: ["Read all emails from the last 24 hours", "Categorize by priority", "Generate summary"], askFirst: ["Send digest to Slack or email", "Archive processed emails"], neverDo: ["Delete emails", "Reply on your behalf", "Forward to external contacts"] },
-    schedule: { type: "cron", value: "0 8 * * 1-5" }, model: "google/gemini-3-flash",
-  },
 ];
 
 const WORK_FUNCTIONS = [
@@ -1270,35 +1244,6 @@ function ModelDropdown({ model, onModelChange }) {
 }
 
 /* ===================================================================
-   PlusMenu
-   =================================================================== */
-
-function PlusMenu({ onClose, onAction }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose]);
-  const itemStyle = { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 14px", fontSize: "14px", color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background 150ms", borderRadius: 0 };
-  const hover = (e) => { e.currentTarget.style.background = "var(--bg-hover)"; };
-  const unhover = (e) => { e.currentTarget.style.background = "none"; };
-  const sep = <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />;
-  return (
-    <div ref={ref} className="popover-animate" style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "var(--shadow-lg)", padding: "4px 0", zIndex: 200, minWidth: 200, maxWidth: 240 }}>
-      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("knowledge"); onClose(); }}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 7h8M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        Add context
-      </button>
-      <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onAction?.("templates"); onClose(); }}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
-        Worker templates
-      </button>
-    </div>
-  );
-}
-
-/* ===================================================================
    BuilderInputBox
    =================================================================== */
 
@@ -1382,6 +1327,52 @@ function TerraDotsInjector() {
 }
 
 /* ===================================================================
+   InlineRuleAdder — small "add rule" input for charter editing
+   =================================================================== */
+
+function InlineRuleAdder({ color, onAdd }) {
+  const [text, setText] = useState("");
+  return (
+    <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && text.trim()) {
+            e.preventDefault();
+            onAdd(text.trim());
+            setText("");
+          }
+        }}
+        placeholder="Add rule..."
+        style={{
+          flex: 1, fontSize: "12px", padding: "4px 8px", borderRadius: 6,
+          border: "1px solid var(--border)", background: "var(--bg-100, var(--bg-primary))",
+          color: "var(--text-100, var(--text-primary))", outline: "none",
+          fontFamily: "var(--font-mono)", boxSizing: "border-box",
+        }}
+        onFocus={e => { e.target.style.borderColor = color; }}
+        onBlur={e => { e.target.style.borderColor = "var(--border)"; }}
+      />
+      <button
+        onClick={() => {
+          if (text.trim()) {
+            onAdd(text.trim());
+            setText("");
+          }
+        }}
+        style={{
+          width: 24, height: 24, borderRadius: 6, border: "none",
+          background: `${color}22`, color: color, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "14px", fontWeight: 700, padding: 0, flexShrink: 0,
+        }}
+      >+</button>
+    </div>
+  );
+}
+
+/* ===================================================================
    BuilderView
    =================================================================== */
 
@@ -1391,6 +1382,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [teamProposal, setTeamProposal] = useState(null);
   const [expandedCard, setExpandedCard] = useState(null);
   const [activating, setActivating] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
   const textareaRef = useRef(null);
 
@@ -1431,12 +1423,16 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     setError("");
 
     const runtime = loadRuntimeConfig();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     try {
       const res = await fetch("/__nooterra/v1/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
         credentials: "include",
         body: JSON.stringify({ messages: [{ role: "user", content: text }] }),
+        signal: controller.signal,
       });
 
       if (!res.ok) throw new Error("AI service unavailable");
@@ -1467,8 +1463,10 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
       throw new Error("Could not generate team. Try describing your business in more detail.");
     } catch (err) {
-      setError(err?.message || "Something went wrong. Please try again.");
+      setError(err?.name === "AbortError" ? "Request timed out. Please try again." : (err?.message || "Something went wrong. Please try again."));
       setPhase("input");
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -1549,6 +1547,15 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           }}>
             Designing your workforce from scratch
           </p>
+          <button
+            onClick={goBackToPhase1}
+            style={{
+              marginTop: 24, background: "none", border: "none",
+              color: "var(--text-300)", fontSize: "13px", cursor: "pointer",
+              fontFamily: "inherit", textDecoration: "underline",
+              textUnderlineOffset: "3px",
+            }}
+          >Cancel</button>
         </div>
         <style>{`
           @keyframes terraSpin {
@@ -1761,64 +1768,99 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                   </div>
                 )}
 
-                {/* Expanded rules */}
+                {/* Expanded inline editor */}
                 {isExpanded && (
-                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-                    {/* Can Do — green */}
-                    {canDoCount > 0 && (
-                      <div style={{ marginBottom: 14 }}>
-                        <div style={{
-                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-                          letterSpacing: "0.08em", color: "var(--green, #5bb98c)",
-                          marginBottom: 6, fontFamily: "var(--font-mono)",
-                        }}>Acts on its own</div>
-                        <div style={{ borderLeft: "3px solid var(--green, #5bb98c)", paddingLeft: 12 }}>
-                          {worker.canDo.map((rule, ri) => (
-                            <div key={ri} style={{
-                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
-                              padding: "2px 0",
-                            }}>{rule}</div>
-                          ))}
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}
+                       onClick={e => e.stopPropagation()}>
+                    {/* Editable name */}
+                    <input
+                      value={worker.role}
+                      onChange={e => {
+                        const updated = { ...teamProposal };
+                        updated.workers = [...updated.workers];
+                        updated.workers[idx] = { ...worker, role: e.target.value };
+                        setTeamProposal(updated);
+                      }}
+                      style={{
+                        fontSize: "16px", fontWeight: 700, color: "var(--text-100)",
+                        background: "transparent", border: "none", borderBottom: "1px solid var(--border)",
+                        outline: "none", width: "100%", padding: "4px 0", marginBottom: 8,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    {/* Editable description */}
+                    <textarea
+                      value={worker.description || worker.title || ""}
+                      onChange={e => {
+                        const updated = { ...teamProposal };
+                        updated.workers = [...updated.workers];
+                        updated.workers[idx] = { ...worker, description: e.target.value, title: e.target.value };
+                        setTeamProposal(updated);
+                      }}
+                      rows={2}
+                      style={{
+                        fontSize: "13px", color: "var(--text-200)", width: "100%",
+                        background: "transparent", border: "1px solid var(--border)",
+                        borderRadius: 6, padding: "6px 8px", outline: "none", resize: "vertical",
+                        fontFamily: "inherit", lineHeight: 1.5, marginBottom: 12, boxSizing: "border-box",
+                      }}
+                    />
+                    {/* Charter rules editor */}
+                    {[
+                      { key: "canDo", label: "Acts on its own", color: "var(--green, #5bb98c)" },
+                      { key: "askFirst", label: "Asks you first", color: "var(--amber, #d4a843)" },
+                      { key: "neverDo", label: "Never does", color: "var(--red, #c97055)" },
+                    ].map(sec => {
+                      const rules = worker[sec.key] || [];
+                      return (
+                        <div key={sec.key} style={{ marginBottom: 14 }}>
+                          <div style={{
+                            fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                            letterSpacing: "0.08em", color: sec.color,
+                            marginBottom: 6, fontFamily: "var(--font-mono)",
+                          }}>{sec.label}</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {rules.map((rule, ri) => (
+                              <div key={ri} style={{
+                                display: "flex", alignItems: "center", gap: 6,
+                                padding: "4px 8px", borderRadius: 6,
+                                borderLeft: `3px solid ${sec.color}`, fontSize: "13px",
+                                color: "var(--text-200)", background: "var(--bg-100, rgba(0,0,0,0.02))",
+                              }}>
+                                <span style={{ flex: 1, lineHeight: 1.5 }}>{rule}</span>
+                                <button
+                                  onClick={() => {
+                                    const updated = { ...teamProposal };
+                                    updated.workers = [...updated.workers];
+                                    const w = { ...worker };
+                                    w[sec.key] = rules.filter((_, i) => i !== ri);
+                                    updated.workers[idx] = w;
+                                    setTeamProposal(updated);
+                                  }}
+                                  style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    color: "var(--text-300)", fontSize: "14px", padding: "0 2px",
+                                    flexShrink: 0, opacity: 0.6,
+                                  }}
+                                  title="Remove rule"
+                                >&times;</button>
+                              </div>
+                            ))}
+                          </div>
+                          <InlineRuleAdder
+                            color={sec.color}
+                            onAdd={(text) => {
+                              const updated = { ...teamProposal };
+                              updated.workers = [...updated.workers];
+                              const w = { ...worker };
+                              w[sec.key] = [...(rules), text];
+                              updated.workers[idx] = w;
+                              setTeamProposal(updated);
+                            }}
+                          />
                         </div>
-                      </div>
-                    )}
-                    {/* Ask First — amber */}
-                    {askFirstCount > 0 && (
-                      <div style={{ marginBottom: 14 }}>
-                        <div style={{
-                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-                          letterSpacing: "0.08em", color: "var(--amber, #d4a843)",
-                          marginBottom: 6, fontFamily: "var(--font-mono)",
-                        }}>Asks you first</div>
-                        <div style={{ borderLeft: "3px solid var(--amber, #d4a843)", paddingLeft: 12 }}>
-                          {worker.askFirst.map((rule, ri) => (
-                            <div key={ri} style={{
-                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
-                              padding: "2px 0",
-                            }}>{rule}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {/* Never Do — red */}
-                    {neverDoCount > 0 && (
-                      <div>
-                        <div style={{
-                          fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-                          letterSpacing: "0.08em", color: "var(--red, #c97055)",
-                          marginBottom: 6, fontFamily: "var(--font-mono)",
-                        }}>Never does</div>
-                        <div style={{ borderLeft: "3px solid var(--red, #c97055)", paddingLeft: 12 }}>
-                          {worker.neverDo.map((rule, ri) => (
-                            <div key={ri} style={{
-                              fontSize: "13px", color: "var(--text-200)", lineHeight: 1.6,
-                              padding: "2px 0",
-                            }}>{rule}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
+                      );
+                    })}
                     {/* Model selector */}
                     <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
                       <div style={{
@@ -1914,21 +1956,57 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           <div style={{ marginTop: 16, fontSize: "14px", color: "var(--red, #c97055)", textAlign: "center" }}>{error}</div>
         )}
 
-        {/* Activate button */}
+        {/* Activate button with confirmation */}
         <div style={{ marginTop: 40, textAlign: "center", paddingBottom: 40 }}>
-          <button
-            onClick={handleActivate}
-            disabled={activating}
-            style={{
-              padding: "14px 48px", fontSize: "15px", fontWeight: 700,
-              background: "var(--text-100)", color: "var(--bg-100)",
-              border: "none", borderRadius: 10, cursor: "pointer",
-              fontFamily: "inherit", transition: "opacity 150ms",
-              opacity: activating ? 0.5 : 1,
-            }}
-          >
-            {activating ? "Activating..." : "Activate Team"}
-          </button>
+          {!showConfirm ? (
+            <button
+              onClick={() => setShowConfirm(true)}
+              style={{
+                padding: "14px 48px", fontSize: "15px", fontWeight: 700,
+                background: "var(--text-100)", color: "var(--bg-100)",
+                border: "none", borderRadius: 10, cursor: "pointer",
+                fontFamily: "inherit", transition: "opacity 150ms",
+              }}
+            >
+              Activate Team
+            </button>
+          ) : (
+            <div style={{
+              display: "inline-flex", flexDirection: "column", alignItems: "center",
+              gap: 12, padding: "20px 32px", borderRadius: 12,
+              border: "1px solid var(--border)", background: "var(--bg-400)",
+            }}>
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100)" }}>
+                Deploy {workers.length} worker{workers.length !== 1 ? "s" : ""}?
+              </div>
+              <div style={{ fontSize: "13px", color: "var(--text-300)" }}>
+                All workers start in learning mode. You approve every action.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleActivate}
+                  disabled={activating}
+                  style={{
+                    padding: "10px 32px", fontSize: "14px", fontWeight: 700,
+                    background: "var(--green, #5bb98c)", color: "#fff",
+                    border: "none", borderRadius: 8, cursor: "pointer",
+                    fontFamily: "inherit", opacity: activating ? 0.5 : 1,
+                  }}
+                >
+                  {activating ? "Deploying..." : "Yes, deploy"}
+                </button>
+                <button
+                  onClick={() => setShowConfirm(false)}
+                  style={{
+                    padding: "10px 20px", fontSize: "14px",
+                    background: "transparent", color: "var(--text-200)",
+                    border: "1px solid var(--border)", borderRadius: 8,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >Cancel</button>
+              </div>
+            </div>
+          )}
           <p style={{ fontSize: "12px", color: "var(--text-300)", marginTop: 8 }}>
             All workers start in learning mode. You approve actions until they earn trust.
           </p>
@@ -1963,131 +2041,6 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
       <a href="/pricing" style={{ ...itemStyle, textDecoration: "none", color: "var(--accent)", fontWeight: 600 }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade to Pro</a>
       {sep}
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => { onClose(); await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Log out</button>
-    </div>
-  );
-}
-
-/* ===================================================================
-   CollapsedSidebar
-   =================================================================== */
-
-function CollapsedSidebar({ onToggle, onNavigate, activeView, onNewWorker, onOpenSettings, userEmail, pendingApprovals }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-  useEffect(() => { if (!menuOpen) return; function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [menuOpen]);
-
-  const iconBtn = (key, label, svgContent, badge) => (
-    <button onClick={() => onNavigate(key)} style={{ width: 36, height: 36, borderRadius: 8, background: activeView === key ? "var(--bg-hover)" : "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", transition: "background 150ms", position: "relative", flexShrink: 0 }}
-      onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
-    >
-      {svgContent}
-      {badge > 0 && <div style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: "50%", background: "var(--accent)", fontSize: "9px", fontWeight: 700, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</div>}
-    </button>
-  );
-
-  return (
-    <nav style={{ width: 52, height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", alignItems: "center", background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", padding: "12px 0", gap: 4, flexShrink: 0 }}>
-      <button onClick={onToggle} style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms", marginBottom: 4 }}
-        onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-        onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-      ><SidebarToggleIcon /></button>
-      <button onClick={onNewWorker} style={{ width: 36, height: 36, borderRadius: 8, background: "var(--accent-subtle, rgba(196,97,58,0.07))", border: "none", cursor: "pointer", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", transition: "opacity 150ms", marginBottom: 4 }}><PlusIcon size={18} /></button>
-      {iconBtn("workers", "Workers", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>)}
-      {iconBtn("approvals", "Approvals", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, pendingApprovals)}
-      {iconBtn("receipts", "History", <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>)}
-      <div style={{ flex: 1 }} />
-      <button onClick={onOpenSettings} style={{ width: 36, height: 36, borderRadius: 8, background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
-        onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-        onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-      ><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>
-      <div style={{ position: "relative" }} ref={menuRef}>
-        {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier="free" collapsed />}
-        <button onClick={() => setMenuOpen(!menuOpen)} style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", transition: "opacity 150ms" }}>
-          {getInitials(userEmail)}
-        </button>
-      </div>
-    </nav>
-  );
-}
-
-/* ===================================================================
-   ExpandedSidebar
-   =================================================================== */
-
-function ExpandedSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker, onToggle, onOpenSettings, userTier }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-  useEffect(() => { if (!menuOpen) return; function handleClickOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, [menuOpen]);
-
-  const navBtn = (key, label, extra) => (
-    <button style={{ display: "flex", alignItems: "center", padding: "8px 12px", margin: "0 12px", borderRadius: 8, fontSize: "14px", fontWeight: 500, color: activeView === key ? "var(--text-primary)" : "var(--text-secondary)", background: activeView === key ? "var(--bg-hover)" : "transparent", cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left", transition: "background 150ms, color 150ms", boxSizing: "border-box", width: "calc(100% - 24px)" }}
-      onMouseEnter={e => { if (activeView !== key) e.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={e => { if (activeView !== key) e.currentTarget.style.background = "transparent"; }}
-      onClick={() => onNavigate(key)}
-    >{label}{extra}</button>
-  );
-
-  return (
-    <nav style={{ width: 260, height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", background: "var(--bg-sidebar)", borderRight: "1px solid var(--border)", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 16px 12px", height: 56, boxSizing: "border-box" }}>
-        <button onClick={onToggle} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
-          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
-        ><SidebarToggleIcon /></button>
-        <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
-      </div>
-      <div style={{ padding: "0 12px 12px" }}>
-        <button onClick={onNewWorker} style={{ display: "block", width: "100%", padding: "8px 12px", fontSize: "14px", fontWeight: 600, background: "var(--accent-subtle, rgba(196,97,58,0.07))", color: "var(--accent)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "opacity 150ms" }}>+ New worker</button>
-      </div>
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", padding: "12px 24px 6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>Workers</div>
-      {workers && workers.length > 0 ? (
-        <div className="sidebar-inner" style={{ overflowY: "auto", minHeight: 0, flex: 0 }}>
-          {workers.map(w => (
-            <button key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, width: "calc(100% - 24px)", padding: "8px 12px", margin: "0 12px", borderRadius: 8, fontSize: "14px", fontWeight: 400, color: "var(--text-secondary)", background: "transparent", cursor: "pointer", border: "none", fontFamily: "inherit", textAlign: "left", transition: "background 150ms" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-              onClick={() => onNavigate("workerDetail", w.id)}
-            >
-              <span style={S.statusDot(STATUS_COLORS[w.status] || STATUS_COLORS.ready)} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div style={{ padding: "4px 24px", fontSize: "13px", color: "var(--text-tertiary)" }}>No workers yet</div>
-      )}
-      <div style={{ borderTop: "1px solid var(--border)", margin: "16px 16px" }} />
-      {navBtn("approvals", "Approvals", pendingApprovals > 0 && <span style={{ marginLeft: 8, fontSize: "12px", fontWeight: 700, color: "var(--accent)", fontVariantNumeric: "tabular-nums" }}>{pendingApprovals}</span>)}
-      {navBtn("receipts", "History")}
-      <div style={{ flex: 1 }} />
-      <div style={{ borderTop: "1px solid var(--border)", margin: "8px 16px" }} />
-      <div style={{ padding: "12px 16px", position: "relative" }} ref={menuRef}>
-        {menuOpen && <UserMenu onClose={() => setMenuOpen(false)} onNavigate={onNavigate} onOpenSettings={onOpenSettings} userEmail={userEmail} userTier={userTier} />}
-        <button style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }} onClick={() => setMenuOpen(!menuOpen)}>
-          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#1a1a1a", flexShrink: 0 }}>{getInitials(userEmail)}</div>
-          <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "14px", color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userEmail || "User"}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: tierColor(userTier) }}>{tierLabel(userTier)}</span>
-              {creditBalance != null && <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>${(creditBalance / 100).toFixed(2)}</span>}
-            </div>
-          </div>
-        </button>
-      </div>
-    </nav>
-  );
-}
-
-/* ===================================================================
-   AppSidebar
-   =================================================================== */
-
-function AppSidebar({ activeView, onNavigate, workers, pendingApprovals, userEmail, creditBalance, onNewWorker, collapsed, onToggle, onOpenSettings, userTier }) {
-  if (collapsed) return <CollapsedSidebar onToggle={onToggle} onNavigate={onNavigate} activeView={activeView} onNewWorker={onNewWorker} onOpenSettings={onOpenSettings} userEmail={userEmail} pendingApprovals={pendingApprovals} />;
-  return (
-    <div className="sidebar-wrap" style={{ width: 260, flexShrink: 0 }}>
-      <ExpandedSidebar activeView={activeView} onNavigate={onNavigate} workers={workers} pendingApprovals={pendingApprovals} userEmail={userEmail} creditBalance={creditBalance} onNewWorker={onNewWorker} onToggle={onToggle} onOpenSettings={onOpenSettings} userTier={userTier} />
     </div>
   );
 }
@@ -2363,11 +2316,6 @@ function InboxView() {
                           disabled={deciding === id}
                           onClick={() => handleDecide(id, "denied")}
                         >Deny</button>
-                        <button
-                          style={{ padding: "8px 20px", background: "transparent", color: "var(--text-200, var(--text-secondary))", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
-                          disabled={deciding === id}
-                          onClick={() => handleDecide(id, "approved")}
-                        >Edit &amp; Approve</button>
                       </>)}
                     </div>
                   </div>
@@ -3025,378 +2973,6 @@ function WorkerIntegrationsSection({ workerId }) {
 }
 
 /* ===================================================================
-   OnboardingFlow
-   =================================================================== */
-
-function OnboardingFlow({ onComplete, userEmail }) {
-  const [step, setStep] = useState(1);
-  const [businessDescription, setBusinessDescription] = useState("");
-  const [industryResult, setIndustryResult] = useState(null);
-  const [editingField, setEditingField] = useState(null);
-  const [editValues, setEditValues] = useState({});
-  const [selectedWorkflows, setSelectedWorkflows] = useState(new Set());
-  const [teamWorkers, setTeamWorkers] = useState([]);
-  const [integrations, setIntegrations] = useState([]);
-  const [connectingIntegration, setConnectingIntegration] = useState(null);
-  const [skippedIntegrations, setSkippedIntegrations] = useState(new Set());
-  const TOTAL_STEPS = 6;
-
-  function handleContinue() {
-    if (step === 1) {
-      const result = identifyIndustry(businessDescription);
-      setIndustryResult(result);
-      setEditValues({
-        industry: (result.industry || "") + (result.subIndustry ? " / " + result.subIndustry : ""),
-        size: result.companySize || "Small",
-        location: result.location || "Not specified",
-      });
-      setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-    } else if (step === 3) {
-      const team = proposeTeam(industryResult);
-      const workflowKeywords = Array.from(selectedWorkflows);
-      const relevantWorkers = team.workers.filter(w => {
-        const desc = (w.role + " " + (w.description || "") + " " + (w.canDo || []).join(" ")).toLowerCase();
-        return workflowKeywords.some(wf => {
-          if (wf === "communication") return /email|call|reply|respond|inquir|message|communicat/.test(desc);
-          if (wf === "scheduling") return /schedul|book|appoint|assign|calendar|coordinat/.test(desc);
-          if (wf === "billing") return /invoice|payment|bill|receipt|follow.up|collect/.test(desc);
-          return false;
-        });
-      });
-      setTeamWorkers(relevantWorkers.length > 0 ? relevantWorkers : team.workers.slice(0, 3));
-      setStep(4);
-    } else if (step === 4) {
-      const integ = identifyIntegrations(teamWorkers);
-      const relevantInteg = (integ.required || []).filter(ig => {
-        const name = (ig.name || ig.service || "").toLowerCase();
-        const available = ["email", "gmail", "calendar", "google_calendar", "slack"];
-        return available.some(a => name.includes(a) || (ig.service || "").includes(a));
-      });
-      const comingSoon = (integ.required || []).filter(ig => {
-        const name = (ig.name || ig.service || "").toLowerCase();
-        const available = ["email", "gmail", "calendar", "google_calendar", "slack"];
-        return !available.some(a => name.includes(a) || (ig.service || "").includes(a));
-      });
-      setIntegrations([
-        ...relevantInteg.map(ig => ({ ...ig, available: true })),
-        ...comingSoon.map(ig => ({ ...ig, available: false })),
-      ]);
-      setStep(5);
-    } else if (step === 5) {
-      setStep(6);
-    } else if (step === 6) {
-      localStorage.setItem("nooterra_onboarding_complete", "true");
-      onComplete();
-    }
-  }
-
-  function toggleWorkflow(id) {
-    setSelectedWorkflows(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else if (next.size < 2) next.add(id);
-      return next;
-    });
-  }
-
-  const stepDots = (
-    <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: "3rem" }}>
-      {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-        <div key={i} style={{
-          width: 8, height: 8, borderRadius: "50%",
-          background: i < step ? "var(--accent)" : "var(--border)",
-          transition: "background 300ms",
-        }} />
-      ))}
-    </div>
-  );
-
-  const continueBtn = (disabled = false) => (
-    <button
-      onClick={handleContinue}
-      disabled={disabled}
-      style={{
-        ...S.btnPrimary, width: "auto", padding: "14px 40px", fontSize: "15px",
-        marginTop: "2rem", opacity: disabled ? 0.4 : 1,
-      }}
-    >
-      {step === 6 ? "Go to Dashboard" : "Continue"}
-    </button>
-  );
-
-  const wrapStyle = {
-    display: "flex", flexDirection: "column", alignItems: "center",
-    justifyContent: "center", minHeight: "100vh", padding: "3rem 2rem",
-    background: "var(--bg-100)",
-  };
-
-  // STEP 1: What does your business do?
-  if (step === 1) {
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em" }}>
-            What does your business do?
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6 }}>
-            We'll propose an AI team tailored to your business.
-          </p>
-          <textarea
-            value={businessDescription}
-            onChange={e => setBusinessDescription(e.target.value)}
-            placeholder="Describe your business..."
-            rows={3}
-            style={{
-              display: "block", width: "100%", padding: "18px 20px", fontSize: "18px",
-              lineHeight: 1.6, border: "1px solid var(--border)", borderRadius: 12,
-              background: "var(--bg-400)", color: "var(--text-100)", outline: "none",
-              resize: "vertical", fontFamily: "var(--font-body)", boxSizing: "border-box",
-              transition: "border-color 150ms",
-            }}
-            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-          />
-          <p style={{ fontSize: "13px", color: "var(--text-300)", marginTop: "1rem", lineHeight: 1.8 }}>
-            e.g. Plumbing company in Denver with 5 techs &middot; Shopify store selling supplements &middot; Personal injury law firm
-          </p>
-          {continueBtn(!businessDescription.trim())}
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 2: Here's what we found
-  if (step === 2) {
-    const fields = [
-      { key: "industry", label: "Industry" },
-      { key: "size", label: "Size" },
-      { key: "location", label: "Location" },
-    ];
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 520, width: "100%" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
-            Here's what we found.
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
-            Edit any details below to improve our recommendations.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {fields.map(f => (
-              <div key={f.key} style={{
-                padding: "18px 20px", border: "1px solid var(--border)", borderRadius: 12,
-                background: "var(--bg-400)", display: "flex", alignItems: "center",
-                justifyContent: "space-between",
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{f.label}</div>
-                  {editingField === f.key ? (
-                    <input
-                      autoFocus
-                      value={editValues[f.key] || ""}
-                      onChange={e => setEditValues(prev => ({ ...prev, [f.key]: e.target.value }))}
-                      onBlur={() => setEditingField(null)}
-                      onKeyDown={e => { if (e.key === "Enter") setEditingField(null); }}
-                      style={{
-                        fontSize: "16px", fontWeight: 600, color: "var(--text-100)",
-                        background: "transparent", border: "none", outline: "none",
-                        padding: 0, fontFamily: "var(--font-body)", width: "100%",
-                        borderBottom: "1px solid var(--accent)",
-                      }}
-                    />
-                  ) : (
-                    <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-100)" }}>{editValues[f.key] || "--"}</div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setEditingField(editingField === f.key ? null : f.key)}
-                  style={{
-                    background: "none", border: "1px solid var(--border)", borderRadius: 6,
-                    padding: "4px 12px", fontSize: "12px", fontWeight: 500, color: "var(--text-200)",
-                    cursor: "pointer", fontFamily: "var(--font-body)", transition: "border-color 150ms",
-                  }}
-                >
-                  {editingField === f.key ? "Done" : "Edit"}
-                </button>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 3: What should we handle first?
-  if (step === 3) {
-    const workflows = [
-      { id: "communication", title: "Customer communication", desc: "Answer calls, reply to emails, respond to inquiries" },
-      { id: "scheduling", title: "Scheduling & coordination", desc: "Book appointments, assign jobs, manage calendar" },
-      { id: "billing", title: "Billing & follow-up", desc: "Send invoices, chase payments, manage receipts" },
-    ];
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 580, width: "100%" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
-            What should we handle first?
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
-            Select one or two areas to start with.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {workflows.map(wf => {
-              const selected = selectedWorkflows.has(wf.id);
-              return (
-                <button
-                  key={wf.id}
-                  onClick={() => toggleWorkflow(wf.id)}
-                  style={{
-                    padding: "24px", textAlign: "left", border: selected ? "2px solid var(--accent)" : "1px solid var(--border)",
-                    borderRadius: 12, background: selected ? "var(--accent-subtle, rgba(196,97,58,0.04))" : "var(--bg-400)",
-                    cursor: "pointer", fontFamily: "var(--font-body)", transition: "all 150ms",
-                  }}
-                >
-                  <div style={{ fontSize: "17px", fontWeight: 600, color: "var(--text-100)", marginBottom: 6 }}>{wf.title}</div>
-                  <div style={{ fontSize: "14px", color: "var(--text-200)", lineHeight: 1.5 }}>{wf.desc}</div>
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ textAlign: "center" }}>{continueBtn(selectedWorkflows.size === 0)}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 4: Meet your team
-  if (step === 4) {
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 720, width: "100%" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
-            Meet your team.
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
-            These AI workers are tailored to your business. You can customize them later.
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
-            {teamWorkers.map((w, i) => (
-              <div key={i} style={{
-                padding: "20px", border: "1px solid var(--border)", borderRadius: 12,
-                background: "var(--bg-400)", display: "flex", flexDirection: "column", gap: 10,
-              }}>
-                <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-100)" }}>{w.role}</div>
-                <div style={{ fontSize: "13px", color: "var(--text-200)", lineHeight: 1.5 }}>{w.description || "Handles tasks for your business."}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                  {(w.canDo || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--green)", fontFamily: "var(--font-mono)" }}>Handles: {(w.canDo || []).length} actions</div>}
-                  {(w.askFirst || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>Asks first: {(w.askFirst || []).length}</div>}
-                  {(w.neverDo || []).length > 0 && <div style={{ fontSize: "12px", color: "var(--red)", fontFamily: "var(--font-mono)" }}>Never does: {(w.neverDo || []).length}</div>}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                  <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--text-300)" }} />
-                  <span style={{ fontSize: "12px", color: "var(--text-300)", fontWeight: 500 }}>New</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 5: Connect your tools
-  if (step === 5) {
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 560, width: "100%" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em", textAlign: "center" }}>
-            Connect your tools.
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "2.5rem", lineHeight: 1.6, textAlign: "center" }}>
-            Your team needs access to these services to do their work.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {integrations.length === 0 && (
-              <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, color: "var(--text-200)", fontSize: "14px" }}>
-                No integrations required for your selected workflows. You can connect tools later from Settings.
-              </div>
-            )}
-            {integrations.map((ig, i) => (
-              <div key={i} style={{
-                padding: "18px 20px", border: "1px solid var(--border)", borderRadius: 12,
-                background: "var(--bg-400)", display: "flex", alignItems: "center",
-                justifyContent: "space-between", gap: 16,
-                opacity: ig.available ? 1 : 0.5,
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-100)" }}>{ig.name || ig.service}</div>
-                  <div style={{ fontSize: "13px", color: "var(--text-200)", marginTop: 2 }}>{ig.reason || ig.description || ""}</div>
-                </div>
-                {ig.available ? (
-                  skippedIntegrations.has(ig.name || ig.service) ? (
-                    <span style={{ fontSize: "13px", color: "var(--text-300)", fontWeight: 500 }}>Skipped</span>
-                  ) : connectingIntegration === (ig.name || ig.service) ? (
-                    <span style={{ fontSize: "13px", color: "var(--accent)", fontWeight: 500 }}>Connecting...</span>
-                  ) : (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        style={{ ...S.btnPrimary, width: "auto", padding: "6px 16px", fontSize: "13px" }}
-                        onClick={() => {
-                          setConnectingIntegration(ig.name || ig.service);
-                          setTimeout(() => setConnectingIntegration(null), 1500);
-                        }}
-                      >Connect</button>
-                      <button
-                        style={{ ...S.btnSecondary, padding: "6px 12px", fontSize: "12px" }}
-                        onClick={() => setSkippedIntegrations(prev => new Set([...prev, ig.name || ig.service]))}
-                      >Skip for now</button>
-                    </div>
-                  )
-                ) : (
-                  <span style={{ fontSize: "12px", color: "var(--text-300)", fontWeight: 500, padding: "4px 10px", border: "1px solid var(--border)", borderRadius: 6 }}>Coming soon</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: "center" }}>{continueBtn()}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 6: You're all set
-  if (step === 6) {
-    return (
-      <div style={wrapStyle} className="lovable-fade">
-        {stepDots}
-        <div style={{ maxWidth: 480, width: "100%", textAlign: "center" }}>
-          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--green)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem" }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <h1 style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-100)", marginBottom: "0.75rem", letterSpacing: "-0.02em" }}>
-            You're all set.
-          </h1>
-          <p style={{ fontSize: "16px", color: "var(--text-200)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-            Your team is learning. You'll get notifications when they need your input.
-          </p>
-          {continueBtn()}
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-/* ===================================================================
    AppShell
    =================================================================== */
 
@@ -3413,13 +2989,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [creditBalance, setCreditBalance] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (isFirstTime && !localStorage.getItem("nooterra_onboarding_complete")) {
-      setShowOnboarding(true);
-    }
     (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
@@ -3437,10 +3009,6 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
   function handleBuilderComplete() { refreshWorkers(); setView("team"); }
   function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
-
-  if (showOnboarding) {
-    return <OnboardingFlow onComplete={() => { setShowOnboarding(false); }} userEmail={userEmail} />;
-  }
 
   // =============================================
   // ALL VIEWS: Sidebar + content

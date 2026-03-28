@@ -600,7 +600,7 @@ export function createStreamingExecutor(worker, options = {}) {
     const charter = worker.charter;
     const provider = worker.provider || 'openai';
     const providerDef = PROVIDERS[provider] || PROVIDERS.openai;
-    const model = worker.model || providerDef?.defaultModel || 'gpt-4o';
+    const model = worker.model || providerDef?.defaultModel || 'gpt-5.4';
     const executionId = `srun_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     const startTime = Date.now();
 

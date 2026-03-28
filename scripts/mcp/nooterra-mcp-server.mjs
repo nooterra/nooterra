@@ -751,12 +751,12 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
     };
   }
 
-  async function llmCompletion({ prompt, model = "gpt-4o-mini", maxTokens = 128 } = {}) {
+  async function llmCompletion({ prompt, model = "gpt-5.4-mini", maxTokens = 128 } = {}) {
     if (!normalizedBaseUrl) throw new Error("NOOTERRA_PAID_TOOLS_BASE_URL is required for nooterra.llm_completion_paid");
     const normalizedPrompt = String(prompt ?? "").trim();
     assertNonEmptyString(normalizedPrompt, "prompt");
 
-    const normalizedModel = String(model ?? "").trim() || "gpt-4o-mini";
+    const normalizedModel = String(model ?? "").trim() || "gpt-5.4-mini";
     const normalizedMaxTokensRaw = Number(maxTokens ?? 128);
     if (!Number.isSafeInteger(normalizedMaxTokensRaw) || normalizedMaxTokensRaw < 1 || normalizedMaxTokensRaw > 512) {
       throw new TypeError("maxTokens must be an integer between 1 and 512");
@@ -1006,7 +1006,7 @@ function buildTools() {
         required: ["prompt"],
         properties: {
           prompt: { type: "string" },
-          model: { type: "string", default: "gpt-4o-mini" },
+          model: { type: "string", default: "gpt-5.4-mini" },
           maxTokens: { type: "integer", minimum: 1, maximum: 512, default: 128 }
         }
       }
@@ -3305,7 +3305,7 @@ async function main() {
           } else if (name === "nooterra.llm_completion_paid") {
             const prompt = String(args?.prompt ?? "").trim();
             assertNonEmptyString(prompt, "prompt");
-            const model = args?.model ?? "gpt-4o-mini";
+            const model = args?.model ?? "gpt-5.4-mini";
             const maxTokens = args?.maxTokens ?? 128;
             result = await paidToolsClient.llmCompletion({ prompt, model, maxTokens });
           } else if (name === "nooterra.create_agreement") {
