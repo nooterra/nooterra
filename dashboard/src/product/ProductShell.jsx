@@ -1373,12 +1373,76 @@ function InlineRuleAdder({ color, onAdd }) {
 }
 
 /* ===================================================================
+   ModeToggle — sliding pill toggle between Team / Worker
+   =================================================================== */
+
+function ModeToggle({ mode, onChange }) {
+  const isWorker = mode === "worker";
+  return (
+    <div
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        background: "var(--bg-200)",
+        border: "1px solid var(--border)",
+        borderRadius: 100,
+        padding: 3,
+        cursor: "pointer",
+        userSelect: "none",
+      }}
+    >
+      {/* Sliding indicator */}
+      <div
+        style={{
+          position: "absolute",
+          top: 3,
+          left: 3,
+          width: "calc(50% - 3px)",
+          height: "calc(100% - 6px)",
+          background: "var(--bg-400)",
+          borderRadius: 100,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.04)",
+          transform: isWorker ? "translateX(100%)" : "translateX(0)",
+          transition: "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      />
+      {["team", "worker"].map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          style={{
+            position: "relative",
+            zIndex: 1,
+            padding: "6px 20px",
+            fontSize: "13px",
+            fontWeight: mode === m ? 600 : 500,
+            fontFamily: "inherit",
+            color: mode === m ? "var(--text-100)" : "var(--text-300)",
+            background: "transparent",
+            border: "none",
+            borderRadius: 100,
+            cursor: "pointer",
+            transition: "color 200ms ease",
+            letterSpacing: "-0.01em",
+            lineHeight: 1,
+          }}
+        >
+          {m === "team" ? "Team" : "Worker"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ===================================================================
    BuilderView
    =================================================================== */
 
 function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [phase, setPhase] = useState("input"); // "input" | "generating" | "team"
   const [description, setDescription] = useState("");
+  const [builderMode, setBuilderMode] = useState("team"); // "team" | "worker"
   const [teamProposal, setTeamProposal] = useState(null);
   const [expandedCard, setExpandedCard] = useState(null);
   const [activating, setActivating] = useState(false);
@@ -1636,15 +1700,18 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         background: "var(--bg-100, #faf9f6)",
       }}>
         <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
+          <div style={{ marginBottom: 28 }}>
+            <ModeToggle mode={builderMode} onChange={setBuilderMode} />
+          </div>
           <h1 style={{
             fontSize: "clamp(1.75rem, 3vw, 2.5rem)", fontWeight: 800,
             letterSpacing: "-0.03em", color: "var(--text-100)",
             marginBottom: 12, lineHeight: 1.15,
           }}>
-            What do you need?
+            {builderMode === "team" ? "What are we terraforming?" : "Build a worker"}
           </h1>
           <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
-            Describe your business for a full team, or a specific task for a single worker.
+            {builderMode === "team" ? "Describe your business. We'll do the rest." : "Describe what this worker should do."}
           </p>
 
           <textarea
@@ -1654,7 +1721,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleGo(); }
             }}
-            placeholder="e.g. &quot;Plumbing company in Denver with 8 techs&quot; or &quot;Monitor my inbox and draft replies to customer questions&quot;"
+            placeholder={builderMode === "team" ? "e.g. We're a plumbing company in Denver with 8 technicians..." : "e.g. Monitor our Stripe dashboard and alert me about failed payments..."}
             rows={3}
             style={{
               display: "block", width: "100%", padding: "16px 18px",
@@ -1680,46 +1747,28 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
               opacity: description.trim() ? 1 : 0.35,
             }}
           >
-            Go
+            {builderMode === "team" ? "Build my team \u2192" : "Build worker \u2192"}
           </button>
 
-          <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Build a team</div>
-            <div style={{ color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
-              {["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements"].map((example, i) => (
-                <span key={example}>
-                  {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
-                  <span
-                    onClick={() => handleExampleClick(example)}
-                    style={{
-                      cursor: "pointer", textDecoration: "underline",
-                      textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
-                      transition: "color 120ms",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
-                  >{example}</span>
-                </span>
-              ))}
-            </div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 8 }}>Or create a single worker</div>
-            <div style={{ color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
-              {["Monitor my inbox and draft replies", "Track competitor prices daily", "Summarize Slack channels every morning"].map((example, i) => (
-                <span key={example}>
-                  {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
-                  <span
-                    onClick={() => handleExampleClick(example)}
-                    style={{
-                      cursor: "pointer", textDecoration: "underline",
-                      textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
-                      transition: "color 120ms",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
-                  >{example}</span>
-                </span>
-              ))}
-            </div>
+          <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
+            {(builderMode === "team"
+              ? ["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements"]
+              : ["Monitor my inbox and draft replies", "Track competitor prices daily", "Summarize Slack channels every morning"]
+            ).map((example, i) => (
+              <span key={example}>
+                {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
+                <span
+                  onClick={() => handleExampleClick(example)}
+                  style={{
+                    cursor: "pointer", textDecoration: "underline",
+                    textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
+                    transition: "color 120ms",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+                >{example}</span>
+              </span>
+            ))}
           </div>
         </div>
       </div>

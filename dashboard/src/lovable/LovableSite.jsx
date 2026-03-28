@@ -115,7 +115,7 @@ function SiteNav() {
         </div>
 
         {/* Mobile hamburger */}
-        <button onClick={() => setMobileOpen(!mobileOpen)} className="nav-mobile-btn" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-100)" }}>
+        <button onClick={() => setMobileOpen(!mobileOpen)} className="nav-mobile-btn" aria-label="Toggle menu" style={{ background: "none", border: "none", cursor: "pointer", padding: 12, color: "var(--text-100)" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
@@ -143,7 +143,7 @@ function SiteFooter() {
         <div className="footer-grid" style={{ marginBottom: 32 }}>
           <div>
             <div style={{ marginBottom: 16 }}>
-              <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 20 }} />
+              <img src="/nooterra-logo.png" alt="nooterra" loading="lazy" style={{ height: 20 }} />
             </div>
             <p style={{ fontSize: "0.75rem", color: "var(--text-300)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
               The AI workforce platform for consequential work. Open source.
@@ -155,6 +155,7 @@ function SiteFooter() {
             <a href={DOCS_EXTERNAL} style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"} target="_blank" rel="noopener noreferrer">Documentation</a>
             <a href="/security" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Security</a>
             <a href="/status" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Status</a>
+            <a href="/changelog" style={footerLinkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-300)"}>Changelog</a>
           </div>
           <div>
             <p style={{ fontSize: "0.6875rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-300)", marginBottom: 12 }}>Community</p>
@@ -180,8 +181,9 @@ function SiteFooter() {
 function SiteLayout({ children }) {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-100)", color: "var(--text-100)" }}>
+      <a href="#site-content" style={{ position: "absolute", top: -40, left: 0, background: "var(--accent)", color: "#fff", padding: "8px 16px", zIndex: 1000, fontSize: "14px", fontWeight: 600, borderRadius: "0 0 8px 0", transition: "top 150ms", textDecoration: "none" }} onFocus={e => { e.currentTarget.style.top = "0"; }} onBlur={e => { e.currentTarget.style.top = "-40px"; }}>Skip to content</a>
       <SiteNav />
-      <main style={{ paddingTop: 56 }}>{children}</main>
+      <main id="site-content" style={{ paddingTop: 56 }}>{children}</main>
       <SiteFooter />
     </div>
   );
@@ -626,6 +628,20 @@ function SecurityPage() {
             </FadeIn>
           ))}
         </div>
+        <div style={{ marginTop: 48, paddingTop: 48, borderTop: "1px solid var(--border)" }}>
+          <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", marginBottom: 20 }}>Infrastructure & compliance</h3>
+          {[
+            { label: "Encryption", desc: "All data encrypted in transit (TLS 1.3) and at rest (AES-256). API keys are encrypted with per-tenant keys." },
+            { label: "Hosting", desc: "Deployed on Railway with automatic SSL. No data leaves your configured region." },
+            { label: "Access control", desc: "Role-based access with per-worker permission scoping. OAuth tokens are scoped to minimum required permissions." },
+            { label: "Incident response", desc: "Automated alerting with manual escalation. Security issues can be reported to security@nooterra.ai." },
+          ].map((item, i) => (
+            <div key={i} style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-100)", marginBottom: 4 }}>{item.label}</div>
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6 }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
       </section>
     </SiteLayout>
   );
@@ -822,6 +838,57 @@ function SimpleInfoPage({ title, summary }) {
   );
 }
 
+/* ── 404 PAGE ── */
+
+function NotFoundPage() {
+  return (
+    <SiteLayout>
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "clamp(8rem, 20vh, 14rem) 24px 6rem", textAlign: "center" }}>
+        <div style={{ fontSize: "var(--text-display)", fontWeight: 800, color: "var(--accent)", lineHeight: 1, marginBottom: 16, letterSpacing: "-0.04em" }}>404</div>
+        <h1 style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--text-100)", marginBottom: 12 }}>Page not found</h1>
+        <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, marginBottom: 32 }}>
+          The page you're looking for doesn't exist or has been moved.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+          <a href="/" style={{ display: "inline-flex", alignItems: "center", padding: "12px 28px", fontSize: "var(--text-sm)", fontWeight: 600, backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 8, textDecoration: "none" }}>Go home</a>
+          <a href="/support" style={{ display: "inline-flex", alignItems: "center", padding: "12px 28px", fontSize: "var(--text-sm)", fontWeight: 500, border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 8, textDecoration: "none" }}>Get help</a>
+        </div>
+      </div>
+    </SiteLayout>
+  );
+}
+
+/* ── CHANGELOG PAGE ── */
+
+function ChangelogPage() {
+  const entries = [
+    { date: "March 2026", title: "Charter Rules & Approval Inbox", items: ["Three-tier charter system: canDo, askFirst, neverDo", "Real-time approval inbox with decision history", "Keyboard shortcuts (Cmd+K, 1/2/3 navigation)", "Skeleton loading screens across all views"] },
+    { date: "February 2026", title: "AI Team Builder", items: ["Natural language team generation — describe your business, get workers", "24+ model selection with cost-based categories", "Staged progress feedback during team creation", "Mobile bottom navigation and responsive settings"] },
+    { date: "January 2026", title: "Platform Launch", items: ["Worker deployment with scheduling (continuous, hourly, daily, cron)", "Gmail, Slack, GitHub, and Stripe integrations via OAuth", "Dark mode with full CSS variable theming", "Open source under Apache 2.0"] },
+  ];
+  return (
+    <SiteLayout>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "clamp(8rem, 18vh, 12rem) 24px 6rem" }}>
+        <InView><h1 style={{ fontSize: "var(--text-2xl)", fontWeight: 700, letterSpacing: "-0.03em", color: "var(--text-100)", marginBottom: 12 }}>Changelog</h1></InView>
+        <InView delay={0.05}><p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, marginBottom: 48 }}>What's new and improved in Nooterra.</p></InView>
+        {entries.map((entry, i) => (
+          <InView key={i} delay={0.1 + i * 0.05}>
+            <div style={{ marginBottom: 48, paddingBottom: 48, borderBottom: i < entries.length - 1 ? "1px solid var(--border)" : "none" }}>
+              <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, fontFamily: "var(--font-mono)" }}>{entry.date}</div>
+              <h2 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", marginBottom: 16 }}>{entry.title}</h2>
+              <ul style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+                {entry.items.map((item, j) => (
+                  <li key={j} style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6 }}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </InView>
+        ))}
+      </div>
+    </SiteLayout>
+  );
+}
+
 /* ── PRICING PAGE ── */
 
 const PRICING_TIERS = [
@@ -909,6 +976,27 @@ function PricingPage() {
           ))}
         </div>
       </section>
+
+      {/* FAQ */}
+      <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px var(--section-pad)" }}>
+        <InView>
+          <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--text-100)", marginBottom: 32, letterSpacing: "-0.02em" }}>Common questions</h2>
+        </InView>
+        {[
+          { q: "What counts as a worker run?", a: "Each time a worker executes its task — whether triggered by schedule, API call, or manual run — counts as one run. Failed runs that error before taking action don't count." },
+          { q: "Can I change plans later?", a: "Yes. Upgrade or downgrade anytime. When you upgrade, you're charged pro-rata for the remainder of the billing period. Downgrades take effect at the next billing cycle." },
+          { q: "What happens when I hit my limits?", a: "Workers pause and you'll get a notification. No surprise charges. You can upgrade your plan or wait for the next cycle." },
+          { q: "Do I need my own API keys?", a: "On the Free tier, yes — you bring your own model API keys. On paid tiers, model access is included in the price." },
+          { q: "Is my data used to train models?", a: "No. Your data is never used for model training. See our privacy policy for details." },
+        ].map((faq, i) => (
+          <InView key={i} delay={0.05 * i}>
+            <div style={{ padding: "20px 0", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)", marginBottom: 8 }}>{faq.q}</div>
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.7 }}>{faq.a}</div>
+            </div>
+          </InView>
+        ))}
+      </section>
     </SiteLayout>
   );
 }
@@ -917,6 +1005,8 @@ function PricingPage() {
 
 export default function LovableSite({ mode = "home" }) {
   if (mode === "pricing") return <PricingPage />;
+  if (mode === "changelog") return <ChangelogPage />;
+  if (mode === "not_found") return <NotFoundPage />;
   if (mode === "status") return <StatusPage />;
   if (mode === "security") return <SecurityPage />;
   if (mode === "privacy") return <PrivacyPage />;

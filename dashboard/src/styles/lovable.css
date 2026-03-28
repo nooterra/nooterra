@@ -9,7 +9,7 @@
 
   --text-100: #111110;
   --text-200: #4a4a45;
-  --text-300: #8a8a82;
+  --text-300: #74746d;
 
   /* Signature accent — warm terracotta, not generic gold */
   --accent: #c4613a;
@@ -83,7 +83,7 @@
 
   --text-100: #ededeb;
   --text-200: #a3a39d;
-  --text-300: #6b6b65;
+  --text-300: #8a8a84;
 
   --accent: #d97a52;
   --accent-hover: #e08a64;
@@ -127,7 +127,7 @@
     --bg-400: #1e1e1c;
     --text-100: #ededeb;
     --text-200: #a3a39d;
-    --text-300: #6b6b65;
+    --text-300: #8a8a84;
     --accent: #d97a52;
     --accent-hover: #e08a64;
     --accent-subtle: #d97a5218;
@@ -209,12 +209,6 @@ body {
 /* Blinking cursor for streaming */
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-/* Sidebar collapse */
-.sidebar-wrap {
-  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-}
-
 /* Dot grid pattern for hero */
 .dot-grid {
   background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
@@ -239,7 +233,7 @@ body {
   .lovable-pulse { animation: none; }
   .popover-animate { animation: none; opacity: 1; transform: none; }
   .modal-content { animation: none; opacity: 1; transform: none; }
-  .sidebar-wrap { transition: none; }
+  @keyframes skeletonPulse { 0%, 100% { opacity: 0.6; } }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -337,7 +331,10 @@ body {
   grid-template-columns: 1fr;
   gap: 20px;
 }
-@media (min-width: 768px) {
+@media (min-width: 640px) {
+  .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1024px) {
   .pricing-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -357,4 +354,25 @@ body {
 .sidebar-inner::-webkit-scrollbar { width: 4px; }
 .sidebar-inner::-webkit-scrollbar-track { background: transparent; }
 .sidebar-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+/* Skeleton loading animation */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* Settings modal responsive */
+@media (max-width: 640px) {
+  .settings-sidebar { display: none !important; }
+}
+
+/* Charter editor responsive */
+@media (max-width: 768px) {
+  .charter-grid { grid-template-columns: 1fr !important; }
+}
+
+/* Worker table responsive */
+@media (max-width: 640px) {
+  .hide-mobile { display: none !important; }
+}
+
 /* deploy trigger */

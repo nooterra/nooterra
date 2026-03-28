@@ -51,6 +51,7 @@ function getRouteMode() {
   if (path === "/docs/partner-kit") return { mode: "docs_partner_kit", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/launch-checklist") return { mode: "docs_launch_checklist", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/docs/incidents") return { mode: "docs_incidents", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/changelog") return { mode: "changelog", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/status") return { mode: "status", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/security") return { mode: "security", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/privacy") return { mode: "privacy", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -87,7 +88,7 @@ function getRouteMode() {
       requestedPath: null
     };
   }
-  return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
+  return { mode: "not_found", launchId: null, agentId: null, runId: null, requestedPath: null };
 }
 
 function hasManagedRuntimeSession() {
@@ -167,7 +168,9 @@ export default function App() {
     "expired",
     "revoked",
     "verification_failed",
-    "unsupported_host"
+    "unsupported_host",
+    "changelog",
+    "not_found"
   ]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "workspace"]);
   // OAuth callback — close the popup and signal the parent window
