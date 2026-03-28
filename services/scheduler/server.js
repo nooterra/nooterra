@@ -21,6 +21,7 @@ import { chatCompletion, listModels } from './openrouter.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
+import { handleWorkerRoute } from './workers-api.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import {
@@ -1114,6 +1115,13 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // --- Worker CRUD + credits routes ---
+  if (pathname.startsWith('/v1/workers') || pathname === '/v1/credits') {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const handled = await handleWorkerRoute(req, res, pool, pathname, url.searchParams);
+    if (handled) return;
   }
 
   // --- Integration routes (powered by Composio) ---
