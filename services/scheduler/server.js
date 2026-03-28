@@ -43,13 +43,38 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT || '5', 10);
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '10000', 10);
 
+// Minimum credit balance required before starting an LLM call
+const MIN_BALANCE_THRESHOLD = parseFloat(process.env.MIN_BALANCE_THRESHOLD || '0.10');
+
+// ---------------------------------------------------------------------------
+// Rate Limiter (in-memory, per-process)
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT = {
+  maxConcurrent: parseInt(process.env.MAX_CONCURRENT || '5', 10),
+  maxPerMinute: parseInt(process.env.MAX_CALLS_PER_MINUTE || '30', 10),
+  callsThisMinute: 0,
+  resetAt: Date.now() + 60000,
+};
+
+function canCallOpenRouter() {
+  const now = Date.now();
+  if (now > RATE_LIMIT.resetAt) {
+    RATE_LIMIT.callsThisMinute = 0;
+    RATE_LIMIT.resetAt = now + 60000;
+  }
+  if (RATE_LIMIT.callsThisMinute >= RATE_LIMIT.maxPerMinute) return false;
+  RATE_LIMIT.callsThisMinute++;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Postgres Connection
 // ---------------------------------------------------------------------------
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 10,
+  max: parseInt(process.env.PG_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
@@ -262,8 +287,8 @@ async function executeWorker(worker, executionId, triggerType) {
       'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
       [worker.tenant_id]
     );
-    const balance = creditResult.rows[0]?.balance_usd ?? 0;
-    if (parseFloat(balance) <= 0) {
+    const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? 0);
+    if (balance < MIN_BALANCE_THRESHOLD) {
       addActivity('error', 'Insufficient credits');
       await updateExecution(executionId, {
         status: 'budget_exceeded',
@@ -341,6 +366,19 @@ async function executeWorker(worker, executionId, triggerType) {
       addActivity('tools_warn', `Failed to load integration tools: ${toolErr.message}`);
     }
     if (tools.length === 0) tools = undefined;
+
+    // Rate limit check before calling OpenRouter
+    if (!canCallOpenRouter()) {
+      addActivity('rate_limited', 'OpenRouter rate limit reached, skipping execution (will retry next poll)');
+      log('warn', `Rate limited: skipping execution ${executionId} for worker ${worker.name}`);
+      await updateExecution(executionId, {
+        status: 'queued',
+        completedAt: null,
+        error: null,
+        activity,
+      });
+      return;
+    }
 
     // Execute via OpenRouter
     const result = await chatCompletion({
@@ -497,6 +535,14 @@ async function executeWorker(worker, executionId, triggerType) {
         // Feed tool results back to LLM
         currentMessages.push(...toolResults);
         rounds++;
+
+        // Rate limit check for subsequent LLM rounds
+        if (!canCallOpenRouter()) {
+          addActivity('rate_limited', `Round ${rounds}: rate limited, stopping agentic loop`);
+          log('warn', `Rate limited during agentic loop round ${rounds} for execution ${executionId}`);
+          break;
+        }
+
         addActivity('llm_call', `Round ${rounds}: feeding ${toolResults.length} tool result(s) back to LLM`);
 
         const nextResult = await chatCompletion({
@@ -1205,11 +1251,108 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Database Table Initialization
+// ---------------------------------------------------------------------------
+
+async function ensureTables() {
+  log('info', 'Ensuring database tables exist...');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workers (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      tenant_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      charter TEXT DEFAULT '{}',
+      knowledge TEXT DEFAULT '',
+      schedule TEXT DEFAULT 'on_demand',
+      model TEXT DEFAULT 'openai/gpt-5.4-mini',
+      status TEXT DEFAULT 'ready',
+      last_run_at TIMESTAMPTZ,
+      total_runs INTEGER DEFAULT 0,
+      total_cost NUMERIC(12,6) DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS executions (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+      tenant_id TEXT NOT NULL,
+      status TEXT DEFAULT 'running',
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      cost NUMERIC(12,6) DEFAULT 0,
+      result TEXT DEFAULT '',
+      error TEXT,
+      activity JSONB DEFAULT '[]'
+    );
+
+    CREATE TABLE IF NOT EXISTS tenant_credits (
+      tenant_id TEXT PRIMARY KEY,
+      balance NUMERIC(12,6) DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS approvals (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      tenant_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      rule TEXT,
+      detail TEXT,
+      status TEXT DEFAULT 'pending',
+      decided_at TIMESTAMPTZ,
+      decided_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS integrations (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      tenant_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      status TEXT DEFAULT 'connected',
+      config JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, service)
+    );
+
+    CREATE TABLE IF NOT EXISTS tool_results (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      execution_id TEXT REFERENCES executions(id) ON DELETE CASCADE,
+      tool_name TEXT NOT NULL,
+      input JSONB,
+      output JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workers_tenant ON workers(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule, status);
+    CREATE INDEX IF NOT EXISTS idx_executions_worker ON executions(worker_id);
+    CREATE INDEX IF NOT EXISTS idx_executions_tenant ON executions(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_approvals_tenant_status ON approvals(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON integrations(tenant_id);
+  `);
+
+  log('info', 'Database tables verified');
+}
+
+// ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
 
 async function start() {
   log('info', 'Worker scheduler starting...');
+
+  // Validate required environment variables
+  if (!process.env.DATABASE_URL) {
+    log('error', 'FATAL: DATABASE_URL not set');
+    process.exit(1);
+  }
+  if (!process.env.OPENROUTER_API_KEY) {
+    log('error', 'FATAL: OPENROUTER_API_KEY not set');
+    process.exit(1);
+  }
 
   // Verify database connection
   try {
@@ -1218,6 +1361,14 @@ async function start() {
     log('info', 'Database connection verified');
   } catch (err) {
     log('error', `Database connection failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  // Ensure tables exist (safe to run repeatedly — uses IF NOT EXISTS)
+  try {
+    await ensureTables();
+  } catch (err) {
+    log('error', `Failed to initialize database tables: ${err.message}`);
     process.exit(1);
   }
 
