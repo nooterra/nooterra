@@ -1641,10 +1641,10 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             letterSpacing: "-0.03em", color: "var(--text-100)",
             marginBottom: 12, lineHeight: 1.15,
           }}>
-            What does your business do?
+            What do you need?
           </h1>
           <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
-            Describe it in plain language. We'll build your team.
+            Describe your business for a full team, or a specific task for a single worker.
           </p>
 
           <textarea
@@ -1654,7 +1654,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleGo(); }
             }}
-            placeholder="e.g. We're a plumbing company in Denver with 8 technicians..."
+            placeholder="e.g. &quot;Plumbing company in Denver with 8 techs&quot; or &quot;Monitor my inbox and draft replies to customer questions&quot;"
             rows={3}
             style={{
               display: "block", width: "100%", padding: "16px 18px",
@@ -1683,22 +1683,43 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             Go
           </button>
 
-          <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
-            {["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements", "Personal injury law firm"].map((example, i) => (
-              <span key={example}>
-                {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
-                <span
-                  onClick={() => handleExampleClick(example)}
-                  style={{
-                    cursor: "pointer", textDecoration: "underline",
-                    textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
-                    transition: "color 120ms",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
-                >{example}</span>
-              </span>
-            ))}
+          <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Build a team</div>
+            <div style={{ color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
+              {["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements"].map((example, i) => (
+                <span key={example}>
+                  {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
+                  <span
+                    onClick={() => handleExampleClick(example)}
+                    style={{
+                      cursor: "pointer", textDecoration: "underline",
+                      textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
+                      transition: "color 120ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+                  >{example}</span>
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 8 }}>Or create a single worker</div>
+            <div style={{ color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
+              {["Monitor my inbox and draft replies", "Track competitor prices daily", "Summarize Slack channels every morning"].map((example, i) => (
+                <span key={example}>
+                  {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
+                  <span
+                    onClick={() => handleExampleClick(example)}
+                    style={{
+                      cursor: "pointer", textDecoration: "underline",
+                      textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
+                      transition: "color 120ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+                  >{example}</span>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -2368,27 +2389,44 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   );
 }
 
+// Clean SVG icons — no emoji, professional like Claude/Linear/Vercel
+const ActivityIcons = {
+  play: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+  sparkle: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>,
+  zap: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  tool: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
+  check: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  shield: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  pause: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
+  alert: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  x: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  refresh: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
+  eye: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  dot: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill={c}><circle cx="12" cy="12" r="4"/></svg>,
+};
+
 function ActivityLogEntry({ entry, isNew }) {
   const typeConfig = {
-    start: { icon: "\u25b6", color: "var(--green, #5bb98c)", label: "Started" },
-    llm_call: { icon: "\u2726", color: "var(--accent, #c4613a)", label: "Thinking" },
-    llm_response: { icon: "\u2726", color: "var(--accent, #c4613a)", label: "Response" },
-    tools_loaded: { icon: "\u26a1", color: "var(--text-300)", label: "Tools" },
-    tool_calls: { icon: "\ud83d\udd27", color: "#6366f1", label: "Tool calls" },
-    tool_exec: { icon: "\u2699", color: "#6366f1", label: "Executing" },
-    tool_result: { icon: "\u2713", color: "var(--green, #5bb98c)", label: "Result" },
-    charter_block: { icon: "\ud83d\udee1", color: "#dc2626", label: "Blocked" },
-    charter_approval: { icon: "\u23f8", color: "#d97706", label: "Approval" },
-    charter_warn: { icon: "\u26a0", color: "#d97706", label: "Warning" },
-    anomaly_detected: { icon: "\u26a0", color: "#dc2626", label: "Anomaly" },
-    error: { icon: "\u2715", color: "#dc2626", label: "Error" },
-    loop_limit: { icon: "\u21bb", color: "#d97706", label: "Loop limit" },
-    shadow: { icon: "\u{1F441}", color: "#7c3aed", label: "Shadow mode" },
-    shadow_tool: { icon: "\u{1F441}", color: "#7c3aed", label: "Would execute" },
-    shadow_completed: { icon: "\u2713", color: "#7c3aed", label: "Shadow complete" },
+    start: { icon: "play", color: "var(--green, #5bb98c)", label: "Started" },
+    llm_call: { icon: "sparkle", color: "var(--accent, #c4613a)", label: "Thinking" },
+    llm_response: { icon: "sparkle", color: "var(--accent, #c4613a)", label: "Response" },
+    tools_loaded: { icon: "zap", color: "var(--text-300)", label: "Tools" },
+    tool_calls: { icon: "tool", color: "#6366f1", label: "Tool calls" },
+    tool_exec: { icon: "tool", color: "#6366f1", label: "Executing" },
+    tool_result: { icon: "check", color: "var(--green, #5bb98c)", label: "Result" },
+    charter_block: { icon: "shield", color: "#dc2626", label: "Blocked" },
+    charter_approval: { icon: "pause", color: "#d97706", label: "Approval" },
+    charter_warn: { icon: "alert", color: "#d97706", label: "Warning" },
+    anomaly_detected: { icon: "alert", color: "#dc2626", label: "Anomaly" },
+    error: { icon: "x", color: "#dc2626", label: "Error" },
+    loop_limit: { icon: "refresh", color: "#d97706", label: "Loop limit" },
+    shadow: { icon: "eye", color: "#7c3aed", label: "Shadow mode" },
+    shadow_tool: { icon: "eye", color: "#7c3aed", label: "Would execute" },
+    shadow_completed: { icon: "check", color: "#7c3aed", label: "Shadow complete" },
   };
 
-  const config = typeConfig[entry.type] || { icon: "\u2022", color: "var(--text-300)", label: entry.type || "Event" };
+  const config = typeConfig[entry.type] || { icon: "dot", color: "var(--text-300)", label: entry.type || "Event" };
+  const IconFn = ActivityIcons[config.icon] || ActivityIcons.dot;
 
   return (
     <div className={isNew ? "activity-fade-in" : ""} style={{
@@ -2397,11 +2435,10 @@ function ActivityLogEntry({ entry, isNew }) {
     }}>
       <div style={{
         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-        background: `${config.color}15`, color: config.color,
+        background: `${config.color}15`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "14px", fontWeight: 600,
       }}>
-        {config.icon}
+        {IconFn(config.color)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -3389,7 +3426,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New team
+            New worker
           </button>
         </div>
 
