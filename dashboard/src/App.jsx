@@ -16,6 +16,7 @@ function getRouteMode() {
   const searchParams = new URLSearchParams(window.location.search);
   const wantsManagedOnboarding = searchParams.get("experience") === "app";
 
+  if (path === "/" || path === "") return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
