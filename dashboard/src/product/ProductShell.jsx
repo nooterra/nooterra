@@ -1500,7 +1500,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             description: worker.description || "",
             charter: JSON.stringify(charter),
             schedule: scheduleValue,
-            model: worker.model || "google/gemini-3-flash",
+            model: worker.model || "openai/gpt-5.4-mini",
           },
         });
       }
@@ -1934,14 +1934,31 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                       </div>
                     </div>
                     <div style={{ flexShrink: 0, marginLeft: 16 }}>
-                      <button style={{
-                        padding: "6px 14px", fontSize: "12px", fontWeight: 600,
-                        border: "1px solid var(--border)", borderRadius: 8,
-                        background: "transparent", color: "var(--text-200)",
-                        cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                      <button
+                        onClick={() => {
+                          const runtime = loadRuntimeConfig();
+                          const tenantId = runtime?.tenantId || "";
+                          // Find matching integration config
+                          const intgKey = intg.toLowerCase().replace(/\s+/g, "_");
+                          const match = AVAILABLE_INTEGRATIONS.find(a =>
+                            a.key === intgKey || a.key === intg || a.name.toLowerCase() === intg.toLowerCase()
+                          );
+                          if (match && match.authType === "oauth") {
+                            window.location.href = WORKER_API_BASE + match.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
+                          } else {
+                            // Navigate to connections page for manual setup
+                            window.history.pushState({}, "", "/dashboard");
+                            window.dispatchEvent(new PopStateEvent("popstate"));
+                          }
+                        }}
+                        style={{
+                          padding: "6px 14px", fontSize: "12px", fontWeight: 600,
+                          border: "1px solid var(--border)", borderRadius: 8,
+                          background: "transparent", color: "var(--text-200)",
+                          cursor: "pointer", fontFamily: "inherit", transition: "border-color 120ms",
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
                       >Connect</button>
                     </div>
                   </div>
