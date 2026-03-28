@@ -278,6 +278,11 @@ async function executeWorker(worker, executionId, triggerType) {
     const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
     const knowledge = typeof worker.knowledge === 'string' ? JSON.parse(worker.knowledge) : worker.knowledge;
 
+    const isShadowMode = worker.shadow === true || worker.status === 'shadow' || triggerType === 'shadow';
+    if (isShadowMode) {
+      addActivity('shadow', 'Running in shadow mode — no real actions will be taken');
+    }
+
     // --- Charter enforcement: prompt injection detection on task prompt ---
     const taskPromptRaw = charter.task || charter.prompt || 'Execute your scheduled task.';
     const injectionCheck = detectPromptInjection(taskPromptRaw);
@@ -468,7 +473,13 @@ async function executeWorker(worker, executionId, triggerType) {
           const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
           addActivity('tool_exec', `Executing ${tc.name}`);
 
-          const toolResult = await executeTool(worker.tenant_id, tc.name, args);
+          let toolResult;
+          if (isShadowMode) {
+            toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+            addActivity('shadow_tool', `Would execute: ${tc.name}`);
+          } else {
+            toolResult = await executeTool(worker.tenant_id, tc.name, args);
+          }
           const resultStr = toolResult.success
             ? JSON.stringify(toolResult.result)
             : `Error: ${toolResult.error}`;
@@ -581,7 +592,7 @@ async function executeWorker(worker, executionId, triggerType) {
 
     // Update execution record
     await updateExecution(executionId, {
-      status: 'completed',
+      status: isShadowMode ? 'shadow_completed' : 'completed',
       completedAt: new Date(),
       model: worker.model,
       tokensIn: totalPromptTokens,

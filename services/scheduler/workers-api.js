@@ -159,10 +159,14 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     if (wr.rows[0].status === 'archived') return err(res, 409, 'cannot run archived worker'), true;
     if (wr.rows[0].status === 'paused') return err(res, 409, 'cannot run paused worker'), true;
 
+    const body = await readBody(req);
+    const isShadow = searchParams.get('shadow') === 'true' || body?.shadow === true;
+    const triggerType = isShadow ? 'shadow' : 'manual';
+
     const execId = generateId('exec');
     const result = await pool.query(
-      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at) VALUES ($1,$2,$3,'manual','queued',$4,$5) RETURNING *`,
-      [execId, runMatch[1], tid, wr.rows[0].model, new Date().toISOString()]
+      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at) VALUES ($1,$2,$3,$4,'queued',$5,$6) RETURNING *`,
+      [execId, runMatch[1], tid, triggerType, wr.rows[0].model, new Date().toISOString()]
     );
     return json(res, 202, { execution: result.rows[0] }), true;
   }

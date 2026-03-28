@@ -2215,7 +2215,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
 
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch { setWorker(null); } setLoading(false); })(); }, [workerId]);
   useEffect(() => { if (tab === "activity" && workerId) { setLogsLoading(true); (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.items || result || []); } catch { setLogs([]); } setLogsLoading(false); })(); } }, [tab, workerId]);
-  useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); } } catch { /* ignore */ } }, 5000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
+  useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); } } catch { /* ignore */ } }, 2000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
 
   async function handleRunNow() { setRunningAction(true); setError(""); try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch (err) { setError(err?.message || "Failed to run worker."); } setRunningAction(false); }
   async function handlePauseResume() { if (!worker) return; setRunningAction(true); setError(""); const newStatus = worker.status === "paused" ? "ready" : "paused"; try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); } catch (err) { setError(err?.message || "Failed to update worker."); } setRunningAction(false); }
@@ -2251,21 +2251,105 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
         <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }} disabled={runningAction} onClick={handleRunNow}>{runningAction ? "Running..." : "Run now"}</button>
         <button style={S.btnSecondary} disabled={runningAction} onClick={handlePauseResume}>{worker.status === "paused" ? "Resume" : "Pause"}</button>
+        <button style={{ ...S.btnSecondary, background: "transparent", borderStyle: "dashed" }} disabled={runningAction} onClick={async () => {
+          setRunningAction(true); setError("");
+          try {
+            await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST", body: { shadow: true } });
+            const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
+            setWorker(result);
+            setTab("activity");
+          } catch (err) { setError(err?.message || "Failed to run shadow."); }
+          setRunningAction(false);
+        }}>Shadow run</button>
       </div>
-      {worker.cost != null && <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "2rem" }}>Cost this period: <span style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}</span></div>}
+      {/* Last run summary */}
+      {(worker.lastRun || worker.lastRunAt) && (
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: 12, marginBottom: "1.5rem",
+          padding: "14px 18px", borderRadius: 10,
+          border: "1px solid var(--border)", background: "var(--bg-surface, var(--bg-400))",
+        }}>
+          <div>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Last run</div>
+            <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+              {timeAgo(worker.lastRun || worker.lastRunAt)}
+            </div>
+          </div>
+          {worker.stats?.totalRuns != null && (
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total runs</div>
+              <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                {worker.stats.totalRuns}
+              </div>
+            </div>
+          )}
+          {worker.stats?.successfulRuns != null && worker.stats?.totalRuns > 0 && (
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Success rate</div>
+              <div style={{ fontSize: "14px", color: "var(--green, #5bb98c)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                {Math.round((worker.stats.successfulRuns / worker.stats.totalRuns) * 100)}%
+              </div>
+            </div>
+          )}
+          {worker.cost != null && (
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Cost this period</div>
+              <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                ${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border)", marginBottom: "2rem" }}>
         {tabs.map(t => <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600, color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)", background: "none", border: "none", borderBottom: tab === t.key ? "2px solid var(--accent)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{t.label}</button>)}
       </div>
       {tab === "charter" && <CharterDisplay charter={charter} />}
       {tab === "activity" && (
         <div>
+          <style>{`
+            @keyframes activity-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+            @keyframes activity-spin { to { transform: rotate(360deg); } }
+            @keyframes activity-fade-slide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+            .activity-fade-in { animation: activity-fade-slide 0.3s ease-out; }
+          `}</style>
+
+          {/* Running indicator */}
+          {worker.status === "running" && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
+              borderRadius: 10, background: "var(--accent-subtle, rgba(196,97,58,0.04))",
+              border: "1px solid var(--accent)", marginBottom: 16,
+            }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: "50%", background: "var(--accent)",
+                animation: "activity-pulse 1.5s ease-in-out infinite",
+              }} />
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}>Running...</span>
+            </div>
+          )}
+
+          {/* Queued state for new deploys */}
           {isNewDeploy && logs.length === 0 && !logsLoading && (
             <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
               <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your worker is queued and will run shortly.</div>
-              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--accent)", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "1rem auto 0" }} />
+              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--accent)", borderRadius: "50%", animation: "activity-spin 1s linear infinite", margin: "1rem auto 0" }} />
             </div>
           )}
-          {logsLoading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div> : logs.length === 0 && !isNewDeploy ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div> : logs.map((entry, i) => <ActivityLogEntry key={entry.id || i} entry={entry} />)}
+
+          {logsLoading && <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div>}
+
+          {!logsLoading && logs.length === 0 && !isNewDeploy && (
+            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div>
+          )}
+
+          {logs.length > 0 && (
+            <div>
+              {logs.map((entry, i) => (
+                <ActivityLogEntry key={entry.id || entry.ts || i} entry={entry} isNew={isNewDeploy && i >= logs.length - 3} />
+              ))}
+            </div>
+          )}
         </div>
       )}
       {tab === "integrations" && (
@@ -2284,13 +2368,52 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   );
 }
 
-function ActivityLogEntry({ entry }) {
-  const [expanded, setExpanded] = useState(false);
+function ActivityLogEntry({ entry, isNew }) {
+  const typeConfig = {
+    start: { icon: "\u25b6", color: "var(--green, #5bb98c)", label: "Started" },
+    llm_call: { icon: "\u2726", color: "var(--accent, #c4613a)", label: "Thinking" },
+    llm_response: { icon: "\u2726", color: "var(--accent, #c4613a)", label: "Response" },
+    tools_loaded: { icon: "\u26a1", color: "var(--text-300)", label: "Tools" },
+    tool_calls: { icon: "\ud83d\udd27", color: "#6366f1", label: "Tool calls" },
+    tool_exec: { icon: "\u2699", color: "#6366f1", label: "Executing" },
+    tool_result: { icon: "\u2713", color: "var(--green, #5bb98c)", label: "Result" },
+    charter_block: { icon: "\ud83d\udee1", color: "#dc2626", label: "Blocked" },
+    charter_approval: { icon: "\u23f8", color: "#d97706", label: "Approval" },
+    charter_warn: { icon: "\u26a0", color: "#d97706", label: "Warning" },
+    anomaly_detected: { icon: "\u26a0", color: "#dc2626", label: "Anomaly" },
+    error: { icon: "\u2715", color: "#dc2626", label: "Error" },
+    loop_limit: { icon: "\u21bb", color: "#d97706", label: "Loop limit" },
+    shadow: { icon: "\u{1F441}", color: "#7c3aed", label: "Shadow mode" },
+    shadow_tool: { icon: "\u{1F441}", color: "#7c3aed", label: "Would execute" },
+    shadow_completed: { icon: "\u2713", color: "#7c3aed", label: "Shadow complete" },
+  };
+
+  const config = typeConfig[entry.type] || { icon: "\u2022", color: "var(--text-300)", label: entry.type || "Event" };
+
   return (
-    <div style={S.logEntry}>
-      <div style={S.logTime}>{entry.time ? timeAgo(entry.time) : ""}</div>
-      <div style={S.logSummary}>{entry.summary}</div>
-      {entry.detail && (<><button style={{ ...S.btnGhost, marginTop: "0.4rem", fontSize: "12px" }} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide details" : "Show details"}</button>{expanded && <div style={S.logDetail}>{entry.detail}</div>}</>)}
+    <div className={isNew ? "activity-fade-in" : ""} style={{
+      display: "flex", gap: 12, padding: "10px 0",
+      borderBottom: "1px solid var(--border)",
+    }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+        background: `${config.color}15`, color: config.color,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "14px", fontWeight: 600,
+      }}>
+        {config.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: config.color }}>{config.label}</span>
+          <span style={{ fontSize: "11px", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>
+            {entry.ts ? new Date(entry.ts).toLocaleTimeString() : entry.time ? timeAgo(entry.time) : ""}
+          </span>
+        </div>
+        <div style={{ fontSize: "13px", color: "var(--text-200)", marginTop: 2, lineHeight: 1.5, wordBreak: "break-word" }}>
+          {entry.detail || entry.summary || ""}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3092,7 +3215,8 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [view, setView] = useState(() => {
     // First-time users go to builder; returning users go to inbox or team
     if (isFirstTime) return "builder";
-    return initialView === "home" ? "builder" : initialView;
+    if (initialView === "home" || initialView === "builder") return "inbox";
+    return initialView;
   });
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
