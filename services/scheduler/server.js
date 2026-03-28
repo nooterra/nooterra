@@ -164,18 +164,53 @@ function generateId(prefix = 'exec') {
 let activeExecutions = 0;
 
 /**
- * Build messages for a worker execution from its charter.
+ * Build messages for a worker execution from its charter and worker metadata.
  */
-function buildMessages(charter, knowledge) {
+function buildMessages(charter, knowledge, worker) {
   const messages = [];
 
-  // System prompt from charter
+  // System prompt — combine charter fields with worker metadata
   let systemContent = '';
-  if (charter.role) systemContent += `You are: ${charter.role}\n\n`;
+
+  // Use charter.role if set, otherwise derive from worker name/description
+  if (charter.role) {
+    systemContent += `You are: ${charter.role}\n\n`;
+  } else if (worker?.name) {
+    systemContent += `You are: ${worker.name}${worker.description ? ' — ' + worker.description : ''}\n\n`;
+  }
+
   if (charter.goal) systemContent += `Your goal: ${charter.goal}\n\n`;
   if (charter.instructions) systemContent += `Instructions:\n${charter.instructions}\n\n`;
   if (charter.constraints) systemContent += `Constraints:\n${charter.constraints}\n\n`;
   if (charter.outputFormat) systemContent += `Output format:\n${charter.outputFormat}\n\n`;
+
+  // Build behavioral rules from canDo/askFirst/neverDo arrays
+  const canDo = charter.canDo || [];
+  const askFirst = charter.askFirst || [];
+  const neverDo = charter.neverDo || [];
+
+  if (canDo.length > 0 || askFirst.length > 0 || neverDo.length > 0) {
+    systemContent += '--- Charter Rules ---\n';
+    if (canDo.length > 0) {
+      systemContent += 'You CAN and SHOULD do these autonomously:\n';
+      for (const rule of canDo) systemContent += `  - ${rule}\n`;
+      systemContent += '\n';
+    }
+    if (askFirst.length > 0) {
+      systemContent += 'You MUST request approval before doing these (use the tools, but the system will pause for human approval):\n';
+      for (const rule of askFirst) systemContent += `  - ${rule}\n`;
+      systemContent += '\n';
+    }
+    if (neverDo.length > 0) {
+      systemContent += 'You must NEVER do these under any circumstances:\n';
+      for (const rule of neverDo) systemContent += `  - ${rule}\n`;
+      systemContent += '\n';
+    }
+  }
+
+  // Core behavioral instruction
+  systemContent += `You are an AI worker. Use the tools available to you to accomplish your tasks. Take real actions — read real emails, create real events, send real messages. Do not just describe what you would do; actually do it using the tools provided.\n\n`;
+  systemContent += `If you have no tools available, describe what you would do and what integrations need to be connected.\n`;
 
   // Append knowledge context
   if (knowledge && Array.isArray(knowledge) && knowledge.length > 0) {
@@ -190,7 +225,7 @@ function buildMessages(charter, knowledge) {
   }
 
   // Task prompt
-  const taskPrompt = charter.task || charter.prompt || 'Execute your scheduled task.';
+  const taskPrompt = charter.task || charter.prompt || `You are ${worker?.name || 'a worker'}. Check your connected integrations, look for work that needs doing, and handle it according to your charter rules. Report what you did.`;
   messages.push({ role: 'user', content: taskPrompt });
 
   return messages;
@@ -277,7 +312,7 @@ async function executeWorker(worker, executionId, triggerType) {
       }
     }
 
-    const messages = buildMessages(charter, knowledge);
+    const messages = buildMessages(charter, knowledge, worker);
 
     addActivity('llm_call', `Calling ${worker.model}`);
 
