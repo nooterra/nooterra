@@ -59,6 +59,9 @@ function getAuthConfigId(toolkit) {
 /**
  * GET /v1/integrations/:toolkit/authorize?tenantId=...
  * Redirects user to the OAuth consent screen for this toolkit.
+ *
+ * Uses Composio's session-based auth: create(userId) → session.authorize(toolkit)
+ * No manual auth config setup needed — Composio has built-in OAuth for popular apps.
  */
 export async function handleAuthorize(req, res, toolkit) {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -78,23 +81,18 @@ export async function handleAuthorize(req, res, toolkit) {
   }
 
   try {
-    // Find the auth config for this toolkit
-    const configs = await client.authConfigs.list();
-    const config = (configs.items || []).find(c =>
-      (c.appName || c.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase()
-    );
+    // Normalize toolkit name (e.g. "google-calendar" → "googlecalendar")
+    const normalizedToolkit = toolkit.replace(/-/g, '');
 
-    if (!config) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: `No auth config found for ${toolkit}. Set it up in Composio dashboard.` }));
-      return;
-    }
-
-    const connRequest = await client.connectedAccounts.initiate(tenantId, config.id, {
+    // Create a session for this tenant and authorize the toolkit
+    const session = await client.create(tenantId, {
+      toolkits: [normalizedToolkit],
+    });
+    const connRequest = await session.authorize(normalizedToolkit, {
       callbackUrl: CALLBACK_URL,
     });
 
-    log('info', `OAuth initiated: tenant=${tenantId} toolkit=${toolkit}`);
+    log('info', `OAuth initiated: tenant=${tenantId} toolkit=${normalizedToolkit}`);
 
     // Redirect to the OAuth consent screen
     res.writeHead(302, { Location: connRequest.redirectUrl });
