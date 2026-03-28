@@ -3393,10 +3393,9 @@ function WorkerIntegrationsSection({ workerId }) {
 
 function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [view, setView] = useState(() => {
-    // First-time users go to builder; returning users go to inbox or team
-    if (isFirstTime) return "builder";
-    if (initialView === "home" || initialView === "builder") return "inbox";
-    return initialView;
+    // Default to builder (chat) — only go to inbox if user has active workers
+    if (initialView !== "home" && initialView !== "builder") return initialView;
+    return "builder";
   });
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
@@ -3413,6 +3412,17 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-redirect to inbox if workers have activity (only on initial load)
+  const hasRedirected = useRef(false);
+  useEffect(() => {
+    if (hasRedirected.current || view !== "builder") return;
+    const hasActiveWorkers = workers.some(w => w.status === "running" || w.lastRunAt || w.last_run_at || w.totalRuns > 0 || w.total_runs > 0);
+    if (hasActiveWorkers) {
+      hasRedirected.current = true;
+      setView("inbox");
+    }
+  }, [workers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function refreshWorkers() {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
