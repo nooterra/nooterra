@@ -2760,12 +2760,12 @@ function PricingView() {
    =================================================================== */
 
 const AVAILABLE_INTEGRATIONS = [
-  { key: "gmail", name: "Gmail", description: "Read and send emails", authType: "oauth", oauthUrl: "/v1/integrations/gmail/auth" },
+  { key: "gmail", name: "Gmail", description: "Read and send emails", authType: "oauth", oauthUrl: "/v1/integrations/gmail/authorize" },
   { key: "slack", name: "Slack", description: "Send messages and get approvals", authType: "webhook", fieldLabel: "Webhook URL", fieldPlaceholder: "https://hooks.slack.com/services/..." },
-  { key: "github", name: "GitHub", description: "Repos, issues, PRs", authType: "oauth", oauthUrl: "/v1/integrations/github/auth" },
-  { key: "google_calendar", name: "Google Calendar", description: "Schedule and manage events", authType: "oauth", oauthUrl: "/v1/integrations/google-calendar/auth" },
+  { key: "github", name: "GitHub", description: "Repos, issues, PRs", authType: "oauth", oauthUrl: "/v1/integrations/github/authorize" },
+  { key: "google_calendar", name: "Google Calendar", description: "Schedule and manage events", authType: "oauth", oauthUrl: "/v1/integrations/google-calendar/authorize" },
   { key: "stripe", name: "Stripe", description: "Payment and billing data", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "sk_live_..." },
-  { key: "notion", name: "Notion", description: "Notes and databases", authType: "oauth", oauthUrl: "/v1/integrations/notion/auth" },
+  { key: "notion", name: "Notion", description: "Notes and databases", authType: "oauth", oauthUrl: "/v1/integrations/notion/authorize" },
   { key: "linear", name: "Linear", description: "Issue tracking", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "lin_api_..." },
   { key: "custom_webhook", name: "Custom Webhook", description: "Any HTTP endpoint", authType: "webhook", fieldLabel: "URL", fieldPlaceholder: "https://example.com/webhook", hasSecret: true },
 ];
@@ -2838,7 +2838,9 @@ function IntegrationsView() {
 
   async function handleConnect(integration) {
     if (integration.authType === "oauth") {
-      window.location.href = WORKER_API_BASE + integration.oauthUrl;
+      const runtime = loadRuntimeConfig();
+      const tenantId = runtime?.tenantId || "";
+      window.location.href = WORKER_API_BASE + integration.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
       return;
     }
     setConnectModal(integration);
