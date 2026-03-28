@@ -960,7 +960,7 @@ function setCorsHeaders(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   log('info', `${req.method} ${req.url}`);
   setCorsHeaders(req, res);
 
