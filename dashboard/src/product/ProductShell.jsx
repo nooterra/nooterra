@@ -1474,6 +1474,69 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
+const WORKER_TEMPLATES = [
+  {
+    name: "Customer Support",
+    description: "Reads emails, drafts replies, and handles common support questions. Escalates refunds for your approval.",
+    charter: {
+      canDo: ["Read incoming emails", "Draft reply to customer questions", "Search knowledge base", "Categorize support tickets"],
+      askFirst: ["Issue refunds", "Send external emails", "Escalate to human agent"],
+      neverDo: ["Delete customer data", "Share customer PII", "Make promises about timelines"],
+    },
+    model: "anthropic/claude-haiku-4.5",
+    schedule: "continuous",
+    integrations: ["Gmail"],
+  },
+  {
+    name: "Social Media Monitor",
+    description: "Tracks brand mentions across platforms. Drafts responses and alerts you to negative sentiment.",
+    charter: {
+      canDo: ["Monitor brand mentions", "Track competitor activity", "Draft response suggestions", "Summarize daily sentiment"],
+      askFirst: ["Post public responses", "Engage with influencers", "Flag crisis-level mentions"],
+      neverDo: ["Share internal data publicly", "Make commitments on behalf of company", "Engage with trolls"],
+    },
+    model: "google/gemini-2.5-flash",
+    schedule: "0 */2 * * *",
+    integrations: ["Slack"],
+  },
+  {
+    name: "Invoice Processor",
+    description: "Reads incoming invoices, categorizes expenses, and flags duplicates. Routes high-value items for approval.",
+    charter: {
+      canDo: ["Read and parse invoices", "Categorize expenses", "Match against purchase orders", "Flag duplicate invoices"],
+      askFirst: ["Approve invoices over $500", "Create new vendor records", "Adjust payment terms"],
+      neverDo: ["Modify bank account details", "Delete financial records", "Bypass approval thresholds"],
+    },
+    model: "openai/gpt-4.1-mini",
+    schedule: "0 9 * * *",
+    integrations: ["Gmail", "Stripe"],
+  },
+  {
+    name: "Email Responder",
+    description: "Monitors your inbox, drafts context-aware replies, and sends routine responses. Flags anything unusual.",
+    charter: {
+      canDo: ["Read incoming emails", "Draft replies using context", "Sort and label emails", "Archive handled threads"],
+      askFirst: ["Send replies to new contacts", "Forward emails internally", "Unsubscribe from lists"],
+      neverDo: ["Forward emails externally", "Delete emails", "Share attachments with third parties"],
+    },
+    model: "anthropic/claude-haiku-4.5",
+    schedule: "continuous",
+    integrations: ["Gmail"],
+  },
+  {
+    name: "Competitor Tracker",
+    description: "Monitors competitor websites, pricing, and announcements. Sends you a daily summary of changes.",
+    charter: {
+      canDo: ["Scan competitor websites", "Track pricing changes", "Monitor press releases", "Compare feature sets"],
+      askFirst: ["Alert team about major changes", "Generate competitive analysis report"],
+      neverDo: ["Share competitive intel externally", "Access paid/gated content", "Scrape at high frequency"],
+    },
+    model: "google/gemini-2.5-flash",
+    schedule: "0 8 * * *",
+    integrations: ["Slack"],
+  },
+];
+
 /* ===================================================================
    BuilderView
    =================================================================== */
@@ -1624,6 +1687,26 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
   function handleExampleClick(text) {
     setDescription(text);
+  }
+
+  function handleTemplateSelect(template) {
+    const workerProposal = {
+      teamName: template.name,
+      summary: template.description,
+      workers: [{
+        role: template.name,
+        title: template.description,
+        description: template.description,
+        canDo: [...template.charter.canDo],
+        askFirst: [...template.charter.askFirst],
+        neverDo: [...template.charter.neverDo],
+        model: template.model,
+        schedule: template.schedule,
+        integrations: template.integrations,
+      }],
+    };
+    setTeamProposal(workerProposal);
+    setPhase("team");
   }
 
   function goBackToPhase1() {
@@ -1828,26 +1911,54 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             {builderMode === "team" ? "Build my team \u2192" : "Build worker \u2192"}
           </button>
 
-          <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
-            {(builderMode === "team"
-              ? ["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements"]
-              : ["Monitor my inbox and draft replies", "Track competitor prices daily", "Summarize Slack channels every morning"]
-            ).map((example, i) => (
-              <span key={example}>
-                {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
-                <span
-                  onClick={() => handleExampleClick(example)}
-                  style={{
-                    cursor: "pointer", textDecoration: "underline",
-                    textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
-                    transition: "color 120ms",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
-                >{example}</span>
-              </span>
-            ))}
-          </div>
+          {builderMode === "team" && (
+            <div style={{ marginTop: 24, color: "var(--text-300)", fontSize: "13px", lineHeight: 2 }}>
+              {["Plumbing company in Denver with 8 techs", "Gem restoration studio in LA", "Shopify store selling supplements"].map((example, i) => (
+                <span key={example}>
+                  {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
+                  <span
+                    onClick={() => handleExampleClick(example)}
+                    style={{
+                      cursor: "pointer", textDecoration: "underline",
+                      textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
+                      transition: "color 120ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-100)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-300)"; }}
+                  >{example}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {builderMode === "worker" && (
+            <div style={{ marginTop: 32 }}>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-300)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+                Or start from a template
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, textAlign: "left" }}>
+                {WORKER_TEMPLATES.map((tpl) => (
+                  <div
+                    key={tpl.name}
+                    onClick={() => handleTemplateSelect(tpl)}
+                    style={{
+                      padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 10,
+                      background: "var(--bg-400, var(--bg-surface))", cursor: "pointer",
+                      transition: "border-color 150ms, box-shadow 150ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border-strong, var(--border))"; e.currentTarget.style.boxShadow = "var(--shadow-sm)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+                  >
+                    <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-100, var(--text-primary))", marginBottom: 4 }}>{tpl.name}</div>
+                    <div style={{ fontSize: "12px", color: "var(--text-300, var(--text-tertiary))", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{tpl.description}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-300)", fontFamily: "var(--font-mono)", marginTop: 8 }}>
+                      {tpl.charter.canDo.length} auto · {tpl.charter.askFirst.length} approval · {tpl.integrations.join(", ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2463,10 +2574,31 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   const [logsLoading, setLogsLoading] = useState(false);
   const [runningAction, setRunningAction] = useState(false);
   const [error, setError] = useState("");
+  const [editingCharter, setEditingCharter] = useState(false);
+  const [editCharter, setEditCharter] = useState(null);
+  const [savingCharter, setSavingCharter] = useState(false);
 
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch { setWorker(null); } setLoading(false); })(); }, [workerId]);
   useEffect(() => { if (tab === "activity" && workerId) { setLogsLoading(true); (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.items || result || []); } catch { setLogs([]); } setLogsLoading(false); })(); } }, [tab, workerId]);
   useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.items || logResult || []); } } catch { /* ignore */ } }, 2000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
+
+  async function handleSaveCharter() {
+    if (!editCharter || savingCharter) return;
+    setSavingCharter(true);
+    try {
+      await workerApiRequest({
+        pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
+        method: "PUT",
+        body: { charter: JSON.stringify(editCharter) },
+      });
+      setWorker(prev => prev ? { ...prev, charter: JSON.stringify(editCharter) } : prev);
+      setEditingCharter(false);
+      setError("");
+    } catch (err) {
+      setError("Failed to save charter: " + (err?.message || "Unknown error"));
+    }
+    setSavingCharter(false);
+  }
 
   async function handleRunNow() { setRunningAction(true); setError(""); try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch (err) { setError(err?.message || "Failed to run worker."); } setRunningAction(false); }
   async function handlePauseResume() { if (!worker) return; setRunningAction(true); setError(""); const newStatus = worker.status === "paused" ? "ready" : "paused"; try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); } catch (err) { setError(err?.message || "Failed to update worker."); } setRunningAction(false); }
@@ -2555,7 +2687,99 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
       <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border)", marginBottom: "2rem" }}>
         {tabs.map(t => <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600, color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)", background: "none", border: "none", borderBottom: tab === t.key ? "2px solid var(--accent)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{t.label}</button>)}
       </div>
-      {tab === "charter" && <CharterDisplay charter={charter} />}
+      {tab === "charter" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Charter Rules
+            </div>
+            {!editingCharter ? (
+              <button
+                onClick={() => { setEditCharter(charter ? { ...charter } : { canDo: [], askFirst: [], neverDo: [] }); setEditingCharter(true); }}
+                style={{
+                  fontSize: "12px", fontWeight: 600, color: "var(--accent)",
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "inherit", padding: "4px 8px",
+                }}
+              >
+                Edit
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleSaveCharter}
+                  disabled={savingCharter}
+                  style={{
+                    fontSize: "12px", fontWeight: 600, color: "#fff",
+                    background: "var(--green, #5bb98c)", border: "none",
+                    borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+                    padding: "4px 12px", opacity: savingCharter ? 0.5 : 1,
+                  }}
+                >
+                  {savingCharter ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => { setEditingCharter(false); setEditCharter(null); }}
+                  style={{
+                    fontSize: "12px", fontWeight: 500, color: "var(--text-200, var(--text-secondary))",
+                    background: "none", border: "1px solid var(--border)",
+                    borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+                    padding: "4px 12px",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+
+          {editingCharter && editCharter ? (
+            <div>
+              {[
+                { key: "canDo", label: "Handles on its own", color: "var(--green, #5bb98c)" },
+                { key: "askFirst", label: "Asks you first", color: "var(--amber, #c08c30)" },
+                { key: "neverDo", label: "Never does", color: "var(--red, #c43a3a)" },
+              ].map(sec => {
+                const rules = editCharter[sec.key] || [];
+                return (
+                  <div key={sec.key} style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: sec.color, marginBottom: 6 }}>
+                      {sec.label} ({rules.length})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {rules.map((rule, i) => (
+                        <div key={i} style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          padding: "5px 10px", borderRadius: 6, fontSize: "13px",
+                          borderLeft: `3px solid ${sec.color}`, color: "var(--text-200)",
+                          background: "var(--bg-100, rgba(0,0,0,0.02))",
+                        }}>
+                          <span style={{ flex: 1, lineHeight: 1.5 }}>{rule}</span>
+                          <button
+                            onClick={() => {
+                              const updated = { ...editCharter };
+                              updated[sec.key] = rules.filter((_, ri) => ri !== i);
+                              setEditCharter(updated);
+                            }}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-300)", fontSize: "14px", padding: "0 2px", opacity: 0.6 }}
+                          >&times;</button>
+                        </div>
+                      ))}
+                    </div>
+                    <InlineRuleAdder color={sec.color} label={sec.label} onAdd={(text) => {
+                      const updated = { ...editCharter };
+                      updated[sec.key] = [...(editCharter[sec.key] || []), text];
+                      setEditCharter(updated);
+                    }} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            charter ? <CharterDisplay charter={charter} /> : <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>No charter rules defined.</div>
+          )}
+        </div>
+      )}
       {tab === "activity" && (
         <div>
           <style>{`
