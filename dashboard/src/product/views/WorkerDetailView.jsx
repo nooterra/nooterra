@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { S, STATUS_COLORS, ALL_MODELS, MODEL_CATEGORIES, timeAgo, humanizeSchedule, workerApiRequest } from "../shared.js";
+import React, { useState, useEffect, useRef } from "react";
+import { S, STATUS_COLORS, ALL_MODELS, MODEL_CATEGORIES, timeAgo, humanizeSchedule, workerApiRequest, WORKER_API_BASE } from "../shared.js";
+import { loadRuntimeConfig } from "../api.js";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
 import { WorkerIntegrationsSection } from "./IntegrationsView.jsx";
@@ -45,7 +46,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   if (!worker) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Worker not found.</div></div>);
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
-  const tabs = [{ key: "charter", label: "Charter" }, { key: "activity", label: "Activity" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
@@ -265,6 +266,9 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
           )}
         </div>
       )}
+      {tab === "chat" && (
+        <WorkerChat workerId={workerId} workerName={worker.name} model={worker.model} />
+      )}
       {tab === "integrations" && (
         <div style={{ maxWidth: 480 }}>
           <WorkerIntegrationsSection workerId={workerId} />
@@ -277,6 +281,175 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
           {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{ALL_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Worker Chat — conversational interface to a specific worker
+// ---------------------------------------------------------------------------
+
+function WorkerChat({ workerId, workerName, model }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState("");
+  const scrollRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || streaming) return;
+    setInput("");
+    setError("");
+
+    const userMsg = { role: "user", content: text };
+    const updatedMessages = [...messages, userMsg];
+    setMessages([...updatedMessages, { role: "assistant", content: "" }]);
+    setStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const runtime = loadRuntimeConfig();
+      const res = await fetch(`${WORKER_API_BASE}/v1/workers/${encodeURIComponent(workerId)}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
+        credentials: "include",
+        body: JSON.stringify({ messages: updatedMessages }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          try {
+            const p = JSON.parse(data);
+            if (p.error) { setError(p.error); break; }
+            const d = p.choices?.[0]?.delta?.content || "";
+            if (d) {
+              fullResponse += d;
+              setMessages(prev => {
+                const copy = [...prev];
+                copy[copy.length - 1] = { role: "assistant", content: fullResponse };
+                return copy;
+              });
+            }
+          } catch {}
+        }
+      }
+
+      // Finalize — make sure the last message has the full content
+      setMessages(prev => {
+        const copy = [...prev];
+        if (copy[copy.length - 1]?.role === "assistant") {
+          copy[copy.length - 1] = { role: "assistant", content: fullResponse || "(No response)" };
+        }
+        return copy;
+      });
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        setError(err.message || "Chat failed");
+        setMessages(prev => prev.filter(m => !(m.role === "assistant" && m.content === "")));
+      }
+    }
+
+    setStreaming(false);
+    abortRef.current = null;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "min(60vh, 500px)" }}>
+      {/* Messages */}
+      <div ref={scrollRef} style={{
+        flex: 1, overflowY: "auto", padding: "12px 0",
+        display: "flex", flexDirection: "column", gap: 12,
+      }}>
+        {messages.length === 0 && (
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-tertiary)", fontSize: "14px" }}>
+            Chat with <strong style={{ color: "var(--text-secondary)" }}>{workerName}</strong> — ask questions, give instructions, or check on their work.
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} style={{
+            display: "flex",
+            justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+          }}>
+            <div style={{
+              maxWidth: "80%", padding: "10px 14px", borderRadius: 12,
+              fontSize: "14px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+              ...(msg.role === "user" ? {
+                background: "var(--accent, #c4613a)",
+                color: "#fff",
+                borderBottomRightRadius: 4,
+              } : {
+                background: "var(--bg-300, var(--bg-hover))",
+                color: "var(--text-primary)",
+                borderBottomLeftRadius: 4,
+              }),
+            }}>
+              {msg.content || (streaming && i === messages.length - 1 ? (
+                <span style={{ opacity: 0.5 }}>Thinking...</span>
+              ) : "")}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {error && <div style={{ ...S.error, marginBottom: 8 }}>{error}</div>}
+
+      {/* Input */}
+      <div style={{
+        display: "flex", gap: 8, paddingTop: 12,
+        borderTop: "1px solid var(--border)",
+      }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          placeholder={`Message ${workerName}...`}
+          disabled={streaming}
+          style={{
+            flex: 1, padding: "10px 14px", fontSize: "14px",
+            fontFamily: "inherit", border: "1px solid var(--border)",
+            borderRadius: 8, background: "var(--bg-400, var(--bg-surface))",
+            color: "var(--text-primary)", outline: "none",
+            opacity: streaming ? 0.6 : 1,
+          }}
+          onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+          onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+        />
+        <button
+          onClick={streaming ? () => abortRef.current?.abort() : handleSend}
+          disabled={!streaming && !input.trim()}
+          style={{
+            ...S.btnPrimary, width: "auto", padding: "10px 20px",
+            opacity: (!streaming && !input.trim()) ? 0.4 : 1,
+            flexShrink: 0,
+          }}
+        >
+          {streaming ? "Stop" : "Send"}
+        </button>
+      </div>
     </div>
   );
 }

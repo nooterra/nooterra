@@ -205,27 +205,30 @@ function generateId(prefix = 'exec') {
 // Worker Memory — Postgres-backed persistent memory per worker
 // ---------------------------------------------------------------------------
 
-async function loadWorkerMemory(workerId) {
+async function loadWorkerMemory(workerId, tenantId) {
   try {
+    // Load BOTH worker-specific memory AND team-wide shared memory
     const result = await pool.query(
-      `SELECT key, value, updated_at FROM worker_memory
-       WHERE worker_id = $1 AND (expires_at IS NULL OR expires_at > now())
+      `SELECT key, value, scope, updated_at FROM worker_memory
+       WHERE (worker_id = $1 OR (tenant_id = $2 AND scope = 'team'))
+         AND (expires_at IS NULL OR expires_at > now())
        ORDER BY updated_at DESC LIMIT 50`,
-      [workerId]
+      [workerId, tenantId]
     );
     return result.rows;
   } catch {
-    return []; // Table may not exist yet — gracefully degrade
+    return [];
   }
 }
 
-async function saveWorkerMemory(workerId, key, value) {
+async function saveWorkerMemory(workerId, tenantId, key, value, scope = 'worker') {
   try {
+    const conflictTarget = scope === 'team' ? 'tenant_id, key' : 'worker_id, key';
     await pool.query(`
-      INSERT INTO worker_memory (id, worker_id, key, value, updated_at)
-      VALUES ($1, $2, $3, $4, now())
-      ON CONFLICT (worker_id, key) DO UPDATE SET value = $4, updated_at = now()
-    `, [generateId('mem'), workerId, key, value]);
+      INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, now())
+      ON CONFLICT (worker_id, key) DO UPDATE SET value = $5, updated_at = now()
+    `, [generateId('mem'), workerId, tenantId, key, value, scope]);
   } catch (err) {
     log('warn', `Failed to save worker memory for ${workerId}: ${err.message}`);
   }
@@ -236,15 +239,18 @@ async function ensureWorkerMemoryTable() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS worker_memory (
         id TEXT PRIMARY KEY,
-        worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+        worker_id TEXT NOT NULL,
+        tenant_id TEXT,
         key TEXT NOT NULL,
         value TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'worker',
         expires_at TIMESTAMPTZ,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (worker_id, key)
       )
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_worker_memory_worker ON worker_memory (worker_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_worker_memory_tenant ON worker_memory (tenant_id, scope)`);
   } catch (err) {
     log('warn', `Could not create worker_memory table: ${err.message}`);
   }
@@ -323,13 +329,20 @@ function buildMessages(charter, knowledge, worker, memory) {
 
   // Append persistent memory from previous runs
   if (memory && memory.length > 0) {
-    systemContent += '\n--- Memory (from previous runs) ---\n';
-    systemContent += 'You have remembered the following from your previous executions. Use this context to be more effective:\n\n';
-    for (const m of memory) {
-      systemContent += `[${m.key}]: ${m.value}\n`;
+    const workerMems = memory.filter(m => m.scope !== 'team');
+    const teamMems = memory.filter(m => m.scope === 'team');
+
+    if (workerMems.length > 0) {
+      systemContent += '\n--- Your Memory (from previous runs) ---\n';
+      for (const m of workerMems) systemContent += `[${m.key}]: ${m.value}\n`;
+    }
+    if (teamMems.length > 0) {
+      systemContent += '\n--- Team Notes (shared by other workers) ---\n';
+      for (const m of teamMems) systemContent += `[${m.key}]: ${m.value}\n`;
     }
     systemContent += '\n--- End Memory ---\n';
-    systemContent += 'To save new information for future runs, include a line starting with "REMEMBER:" followed by what you want to save.\n';
+    systemContent += 'To save information for your own future runs: include "REMEMBER: <fact>" in your response.\n';
+    systemContent += 'To share information with other workers on your team: include "TEAM_NOTE: <fact>" in your response.\n';
   }
 
   if (systemContent.trim()) {
@@ -361,6 +374,36 @@ async function executeWorker(worker, executionId, triggerType) {
   addActivity('start', `Execution started via ${triggerType}`);
 
   try {
+    // Check monthly execution limit for tenant's plan
+    try {
+      const tierResult = await pool.query('SELECT tier FROM tenant_credits WHERE tenant_id = $1', [worker.tenant_id]);
+      const tier = tierResult.rows[0]?.tier || 'free';
+      const limits = { free: 50, starter: 500, pro: 5000, scale: 25000 };
+      const monthlyLimit = limits[tier] || 50;
+
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const countResult = await pool.query(
+        `SELECT COUNT(*) as cnt FROM worker_executions WHERE tenant_id = $1 AND started_at >= $2`,
+        [worker.tenant_id, monthStart]
+      );
+      const monthlyCount = parseInt(countResult.rows[0]?.cnt || 0);
+      if (monthlyCount >= monthlyLimit) {
+        addActivity('error', `Monthly execution limit reached (${monthlyCount}/${monthlyLimit} for ${tier} plan)`);
+        await updateExecution(executionId, {
+          status: 'budget_exceeded',
+          completedAt: new Date(),
+          error: `Monthly execution limit reached (${monthlyLimit} for ${tier} plan). Upgrade to increase.`,
+          activity,
+        });
+        return;
+      }
+    } catch (err) {
+      log('warn', `Plan limit check failed for ${worker.tenant_id}: ${err.message}`);
+      // Don't block execution if the check fails — fail open
+    }
+
     // Check per-tenant rate limit
     if (!canTenantCall(worker.tenant_id)) {
       addActivity('rate_limited', `Tenant ${worker.tenant_id} exceeded ${TENANT_MAX_PER_MINUTE} executions/min`);
@@ -441,8 +484,8 @@ async function executeWorker(worker, executionId, triggerType) {
       }
     }
 
-    // Load persistent memory from previous runs
-    const workerMemory = await loadWorkerMemory(worker.id);
+    // Load persistent memory from previous runs + team-wide shared memory
+    const workerMemory = await loadWorkerMemory(worker.id, worker.tenant_id);
     if (workerMemory.length > 0) {
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
     }
@@ -784,15 +827,26 @@ async function executeWorker(worker, executionId, triggerType) {
     // Deduct credits
     await deductCredits(worker.tenant_id, totalCost, executionId);
 
-    // Extract and save memory entries from LLM response (REMEMBER: lines)
+    // Extract and save memory entries from LLM response
+    // REMEMBER: saves to this worker only
+    // TEAM_NOTE: saves to shared team memory (all workers can see it)
     if (finalResponse) {
-      const memoryLines = finalResponse.split('\n').filter(l => l.trim().startsWith('REMEMBER:'));
-      for (const line of memoryLines) {
-        const content = line.replace(/^REMEMBER:\s*/i, '').trim();
-        if (content) {
-          const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-          await saveWorkerMemory(worker.id, key, content);
-          addActivity('memory', `Saved memory: "${key}"`);
+      for (const line of finalResponse.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('REMEMBER:')) {
+          const content = trimmed.replace(/^REMEMBER:\s*/i, '').trim();
+          if (content) {
+            const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+            await saveWorkerMemory(worker.id, worker.tenant_id, key, content, 'worker');
+            addActivity('memory', `Saved memory: "${key}"`);
+          }
+        } else if (trimmed.startsWith('TEAM_NOTE:')) {
+          const content = trimmed.replace(/^TEAM_NOTE:\s*/i, '').trim();
+          if (content) {
+            const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+            await saveWorkerMemory(worker.id, worker.tenant_id, key, content, 'team');
+            addActivity('memory', `Shared with team: "${key}"`);
+          }
         }
       }
     }
@@ -1147,6 +1201,162 @@ async function pollCycle() {
 }
 
 // ---------------------------------------------------------------------------
+// Worker Chat — conversational interface to a specific worker
+// ---------------------------------------------------------------------------
+
+async function handleWorkerChat(req, res, workerId) {
+  let body = '';
+  for await (const chunk of req) body += chunk;
+
+  let parsed;
+  try { parsed = JSON.parse(body); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+    return;
+  }
+
+  const { messages } = parsed;
+  const tenantId = req.headers['x-tenant-id'] || parsed.tenantId;
+
+  if (!tenantId) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'tenantId required' }));
+    return;
+  }
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'messages array required' }));
+    return;
+  }
+
+  // Load the worker
+  let worker;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tenantId]
+    );
+    worker = result.rows[0];
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Database error' }));
+    return;
+  }
+
+  if (!worker) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Worker not found' }));
+    return;
+  }
+
+  // Credit check
+  try {
+    const creditResult = await pool.query(
+      'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1', [tenantId]
+    );
+    const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? 0);
+    if (balance < MIN_BALANCE_THRESHOLD) {
+      res.writeHead(402, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Insufficient credits' }));
+      return;
+    }
+  } catch { /* fail open */ }
+
+  // Build system prompt from worker's charter + memory (same as execution)
+  const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : (worker.charter || {});
+  const knowledge = typeof worker.knowledge === 'string' ? JSON.parse(worker.knowledge) : (worker.knowledge || []);
+  const workerMemory = await loadWorkerMemory(worker.id, tenantId);
+  const systemMessages = buildMessages(charter, knowledge, worker, workerMemory);
+  const systemPrompt = systemMessages.find(m => m.role === 'system')?.content || '';
+
+  // Build conversation: system prompt + user-provided messages
+  const fullMessages = [
+    { role: 'system', content: systemPrompt + '\n\nYou are in a live conversation with your manager. Answer their questions, take direction, and share what you know. Be concise and helpful.' },
+    ...messages.filter(m => m.role !== 'system'),
+  ];
+
+  // Stream SSE response
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const chatId = generateId('wchat');
+  log('info', `Worker chat ${chatId}: tenant=${tenantId} worker=${worker.name} model=${worker.model}`);
+
+  try {
+    const stream = chatCompletion({
+      model: worker.model,
+      messages: fullMessages,
+      maxTokens: charter.maxTokens || 4096,
+      temperature: charter.temperature ?? 0.4,
+      stream: true,
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'token') {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: event.content }, index: 0 }] })}\n\n`);
+      } else if (event.type === 'done') {
+        res.write('data: [DONE]\n\n');
+
+        // Deduct credits
+        const { usage } = event;
+        if (usage?.cost > 0) {
+          try {
+            const client = await pool.connect();
+            try {
+              await client.query('BEGIN');
+              await client.query(
+                `UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1`,
+                [tenantId, usage.cost]
+              );
+              await client.query(
+                `INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, created_at) VALUES ($1, $2, $3, 'worker_chat', $4, now())`,
+                [chatId, tenantId, -usage.cost, `Chat with ${worker.name}: ${usage.promptTokens}in/${usage.completionTokens}out $${usage.cost.toFixed(6)}`]
+              );
+              await client.query('COMMIT');
+            } catch { await client.query('ROLLBACK'); } finally { client.release(); }
+          } catch (err) {
+            log('warn', `Failed to deduct chat credits: ${err.message}`);
+          }
+        }
+
+        // Extract memory from response
+        if (event.response) {
+          for (const line of event.response.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('REMEMBER:')) {
+              const content = trimmed.replace(/^REMEMBER:\s*/i, '').trim();
+              if (content) {
+                const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+                await saveWorkerMemory(worker.id, tenantId, key, content, 'worker');
+              }
+            } else if (trimmed.startsWith('TEAM_NOTE:')) {
+              const content = trimmed.replace(/^TEAM_NOTE:\s*/i, '').trim();
+              if (content) {
+                const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+                await saveWorkerMemory(worker.id, tenantId, key, content, 'team');
+              }
+            }
+          }
+        }
+
+        log('info', `Worker chat ${chatId} done: ${usage?.totalTokens || 0} tokens, $${(usage?.cost || 0).toFixed(6)}`);
+      }
+    }
+  } catch (err) {
+    log('error', `Worker chat error: ${err.message}`);
+    try {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.write('data: [DONE]\n\n');
+    } catch { /* stream already closed */ }
+  }
+
+  res.end();
+}
+
+// ---------------------------------------------------------------------------
 // Health Endpoint
 // ---------------------------------------------------------------------------
 
@@ -1188,6 +1398,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && pathname === '/v1/chat') {
     handleChatRequest(req, res, pool);
+    return;
+  }
+
+  // --- Chat with a specific worker ---
+  const workerChatMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/chat$/);
+  if (req.method === 'POST' && workerChatMatch) {
+    handleWorkerChat(req, res, workerChatMatch[1]);
     return;
   }
 
