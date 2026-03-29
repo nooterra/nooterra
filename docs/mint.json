@@ -46,48 +46,35 @@
     "name": "Start free",
     "url": "https://nooterra.ai/signup"
   },
-  "tabs": [
-    {
-      "name": "Guides",
-      "url": "guides"
-    },
-    {
-      "name": "API Reference",
-      "url": "reference"
-    }
-  ],
   "anchors": [
     {
       "name": "Discord",
       "icon": "discord",
       "url": "https://discord.gg/nooterra"
-    },
-    {
-      "name": "Status",
-      "icon": "signal",
-      "url": "https://nooterra.ai/status"
     }
   ],
   "navigation": [
     {
-      "group": "",
-      "pages": ["introduction"]
-    },
-    {
-      "group": "Get Started",
+      "group": "Overview",
       "pages": [
-        "getting-started",
-        "creating-workers",
-        "charters"
+        "introduction",
+        "getting-started"
       ]
     },
     {
-      "group": "Core Concepts",
+      "group": "Building",
       "pages": [
+        "creating-workers",
+        "charters",
         "capabilities",
-        "approvals",
-        "scheduling",
         "providers"
+      ]
+    },
+    {
+      "group": "Operating",
+      "pages": [
+        "approvals",
+        "scheduling"
       ]
     },
     {
@@ -107,19 +94,11 @@
       ]
     },
     {
-      "group": "API Reference",
+      "group": "Reference",
       "pages": [
         "reference/api",
         "reference/charter-schema",
         "reference/cli"
-      ]
-    },
-    {
-      "group": "Architecture",
-      "pages": [
-        "ARCHITECTURE",
-        "TRUST",
-        "CONFIG"
       ]
     }
   ],
@@ -129,10 +108,5 @@
   },
   "feedback": {
     "thumbsRating": true
-  },
-  "analytics": {
-    "posthog": {
-      "apiKey": ""
-    }
   }
 }
