@@ -444,6 +444,15 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   return (
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-100)", overflow: "hidden" }}>
+      {/* ===== MOBILE RESPONSIVE — must be outside sidebar so it renders when sidebar is hidden ===== */}
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-topbar { display: flex !important; }
+          .mobile-overlay { display: block !important; }
+          .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); width: min(240px, 80vw) !important; }
+          .app-main-content { margin-top: 48px; height: calc(100vh - 48px) !important; min-height: calc(100vh - 48px) !important; }
+        }
+      `}</style>
 
       {/* ===== MOBILE HEADER BAR ===== */}
       <div className="mobile-topbar" style={{
@@ -477,14 +486,6 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         height: "100vh", overflow: "hidden",
         ...(mobileMenuOpen ? { position: "fixed", top: 0, left: 0, zIndex: 200, boxShadow: "4px 0 20px rgba(0,0,0,0.15)" } : {}),
       }}>
-      <style>{`
-        @media (max-width: 768px) {
-          .mobile-topbar { display: flex !important; }
-          .mobile-overlay { display: block !important; }
-          .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); width: min(240px, 80vw) !important; }
-          .app-main-content { margin-top: 48px; height: calc(100vh - 48px) !important; min-height: calc(100vh - 48px) !important; }
-        }
-      `}</style>
         {/* Logo */}
         <div style={{ padding: "16px 16px 12px", display: "flex", alignItems: "center" }}>
           <img src="/nooterra-logo.png" alt="nooterra" style={{ height: 18 }} />
