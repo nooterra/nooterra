@@ -12,6 +12,15 @@ const authProxyTarget =
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+        }
+      }
+    }
+  },
   server: {
     host: "127.0.0.1",
     // Avoid clashing with Nooterra API default port (3000).
