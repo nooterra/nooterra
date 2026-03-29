@@ -218,6 +218,8 @@ export function loadConfig({ mode = "api" } = {}) {
     );
   }
 
+  const redisUrl = parseOptionalStringEnv("REDIS_URL");
+
   const autotickEnabled = typeof process !== "undefined" && process.env.PROXY_AUTOTICK === "1";
   const autotickIntervalMs = (() => {
     const raw = typeof process !== "undefined" ? (process.env.PROXY_AUTOTICK_INTERVAL_MS ?? null) : null;
@@ -301,6 +303,9 @@ export function loadConfig({ mode = "api" } = {}) {
         privateKeyPem: coordinatorSigningPrivateKeyPem
       }
     },
+    redis: {
+      url: redisUrl
+    },
     exports: {
       allowInlineSecrets,
       destinationsConfigured: countDestinationsByTenant(exportDestinations)
@@ -341,6 +346,9 @@ export function configForLog(config) {
         enabled: config.federation?.signing?.enabled ?? false,
         keyId: config.federation?.signing?.keyId ?? null
       }
+    },
+    redis: {
+      url: config.redis?.url ? "[REDACTED]" : null
     },
     exports: config.exports ?? null
   };

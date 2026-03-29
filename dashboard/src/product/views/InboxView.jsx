@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from "react";
 import { S, timeAgo, workerApiRequest } from "../shared.js";
-import { loadRuntimeConfig, fetchApprovalInbox, decideApprovalInboxItem } from "../api.js";
+import { track } from "../analytics.js";
 
 function InboxView() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => { loadInbox(); }, []);
 
   async function loadInbox() {
     setLoading(true);
+    setError(null);
     try {
-      const runtime = loadRuntimeConfig();
-      const result = await fetchApprovalInbox(runtime, { status: "pending" });
+      const result = await workerApiRequest({ pathname: "/v1/approvals" });
       setItems(result?.items || result || []);
-    } catch {
+    } catch (err) {
+      console.error("Failed to load inbox:", err);
+      setError("Failed to load inbox. Please try again.");
       setItems([]);
     }
     setLastChecked(new Date());
@@ -25,11 +28,19 @@ function InboxView() {
 
   async function handleDecide(requestId, decision) {
     setDeciding(requestId);
+    setError(null);
     try {
-      const runtime = loadRuntimeConfig();
-      await decideApprovalInboxItem(runtime, requestId, { approved: decision === "approved" });
+      const action = decision === "approved" ? "approve" : "deny";
+      await workerApiRequest({
+        pathname: `/v1/approvals/${encodeURIComponent(requestId)}/${action}`,
+        method: "POST"
+      });
+      track("approval.decided", { decision, workerId: requestId });
       await loadInbox();
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error("Failed to process decision:", err);
+      setError(`Failed to ${decision === "approved" ? "approve" : "deny"} this action. Please try again.`);
+    }
     setDeciding(null);
   }
 
@@ -54,6 +65,12 @@ function InboxView() {
     <div>
       <h1 style={S.pageTitle}>Inbox</h1>
       <p style={S.pageSub}>What needs you now.</p>
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", marginBottom: 16, borderRadius: 8, background: "var(--red-bg, rgba(196,58,58,0.08))", border: "1px solid var(--red, #c43a3a)", color: "var(--red, #c43a3a)", fontSize: "14px" }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "var(--red, #c43a3a)", cursor: "pointer", fontWeight: 700, fontSize: "16px", padding: "0 4px", lineHeight: 1 }} aria-label="Dismiss error">&times;</button>
+        </div>
+      )}
 
       {/* Summary strip */}
       <div style={{ display: "flex", gap: 16, padding: "20px 0", borderBottom: "1px solid var(--border)", marginBottom: 24, flexWrap: "wrap" }}>
@@ -142,64 +159,4 @@ function InboxView() {
   );
 }
 
-function ApprovalsView() {
-  const [items, setItems] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [deciding, setDeciding] = useState(null);
-
-  useEffect(() => { loadApprovals(); }, []);
-  async function loadApprovals() { setLoading(true); try { const runtime = loadRuntimeConfig(); const [pending, decided] = await Promise.all([fetchApprovalInbox(runtime, { status: "pending" }), fetchApprovalInbox(runtime, { status: "decided" })]); setItems(pending?.items || pending || []); setHistory(decided?.items || decided || []); } catch { setItems([]); setHistory([]); } setLoading(false); }
-  async function handleDecide(requestId, approved) { setDeciding(requestId); try { const runtime = loadRuntimeConfig(); await decideApprovalInboxItem(runtime, requestId, { approved }); await loadApprovals(); } catch { /* ignore */ } setDeciding(null); }
-
-  return (
-    <div>
-      <h1 style={S.pageTitle}>Approvals</h1>
-      <p style={S.pageSub}>Workers ask before taking sensitive actions. Review and decide here.</p>
-      {loading ? <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div> : (<>
-        {items.length === 0 ? (
-          <div style={{ padding: "3rem 2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, marginBottom: "3rem" }}>
-            <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Nothing pending</div>
-            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>When a worker needs your approval, it will appear here.</div>
-          </div>
-        ) : (
-          <div style={{ marginBottom: "3rem" }}>
-            {items.map(item => (
-              <div key={item.requestId || item.id} style={S.approvalRow}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>{item.workerName || item.agentName || "Worker"}</div>
-                    <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>{item.action || item.summary || item.description || "Action requires approval"}</div>
-                    {item.detail && <div style={{ fontSize: "13px", color: "var(--text-tertiary)", lineHeight: 1.5 }}>{item.detail}</div>}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--text-tertiary)", flexShrink: 0, marginLeft: "1rem" }}>{item.createdAt ? timeAgo(item.createdAt) : ""}</div>
-                </div>
-                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                  <button style={{ ...S.btnPrimary, width: "auto", padding: "0.5rem 1.25rem", fontSize: "13px" }} disabled={deciding === (item.requestId || item.id)} onClick={() => handleDecide(item.requestId || item.id, true)}>Approve</button>
-                  <button style={{ ...S.btnSecondary, padding: "0.5rem 1.25rem", fontSize: "13px" }} disabled={deciding === (item.requestId || item.id)} onClick={() => handleDecide(item.requestId || item.id, false)}>Deny</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {history.length > 0 && (<>
-          <div style={{ ...S.label, marginBottom: "1rem" }}>Recent decisions</div>
-          {history.slice(0, 20).map(item => (
-            <div key={item.requestId || item.id} style={{ ...S.approvalRow, opacity: 0.7 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>{item.workerName || item.agentName || "Worker"}</span>
-                  <span style={{ fontSize: "13px", color: "var(--text-tertiary)", marginLeft: "0.75rem" }}>{item.action || item.summary || "Action"}</span>
-                </div>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: item.approved || item.decision === "approved" ? "var(--green, #2a9d6e)" : "var(--red, #c43a3a)" }}>{item.approved || item.decision === "approved" ? "Approved" : "Denied"}</span>
-              </div>
-            </div>
-          ))}
-        </>)}
-      </>)}
-    </div>
-  );
-}
-
-export { ApprovalsView };
 export default InboxView;

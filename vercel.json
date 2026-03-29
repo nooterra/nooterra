@@ -38,6 +38,14 @@
       "destination": "https://nooterra-scheduler-production.up.railway.app/v1/credits"
     },
     {
+      "source": "/__nooterra/v1/approvals/:match*",
+      "destination": "https://nooterra-scheduler-production.up.railway.app/v1/approvals/:match*"
+    },
+    {
+      "source": "/__nooterra/v1/approvals",
+      "destination": "https://nooterra-scheduler-production.up.railway.app/v1/approvals"
+    },
+    {
       "source": "/__nooterra/:match*",
       "destination": "https://nooterra-scheduler-production.up.railway.app/:match*"
     },

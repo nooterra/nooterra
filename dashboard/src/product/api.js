@@ -1,11 +1,6 @@
 import { captureFrontendSentryException } from "../sentry.jsx";
 
 export const DEFAULT_PUBLIC_API_BASE_URL = "https://api.nooterra.ai";
-export const LEGACY_PUBLIC_API_BASE_URL = "https://api.nooterra.work";
-export const DEFAULT_PUBLIC_API_BASE_URL_CANDIDATES = Object.freeze([
-  DEFAULT_PUBLIC_API_BASE_URL,
-  LEGACY_PUBLIC_API_BASE_URL
-]);
 
 export function isManagedWebsiteHostname(hostname) {
   const normalized = String(hostname ?? "").trim().toLowerCase();
@@ -33,6 +28,15 @@ export const DEFAULT_AUTH_BASE_URL = resolveDefaultAuthBaseUrl();
 
 export const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v2";
 export const PRODUCT_BUYER_PASSKEY_STORAGE_KEY = "nooterra_product_buyer_passkeys_v1";
+
+// Migrate passkeys from localStorage to sessionStorage (security hardening)
+try {
+  const legacyData = localStorage.getItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
+  if (legacyData) {
+    sessionStorage.setItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY, legacyData);
+    localStorage.removeItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
+  }
+} catch {}
 
 function toBase64(bytes) {
   let binary = "";
@@ -203,9 +207,9 @@ function normalizeStoredBuyerPasskeyBundle(value) {
 }
 
 function readStoredBuyerPasskeyMap() {
-  if (typeof window === "undefined" || !globalThis.localStorage) return {};
+  if (typeof window === "undefined" || !globalThis.sessionStorage) return {};
   try {
-    const raw = localStorage.getItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
+    const raw = sessionStorage.getItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -216,9 +220,9 @@ function readStoredBuyerPasskeyMap() {
 }
 
 function writeStoredBuyerPasskeyMap(value) {
-  if (typeof window === "undefined" || !globalThis.localStorage) return;
+  if (typeof window === "undefined" || !globalThis.sessionStorage) return;
   try {
-    localStorage.setItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY, JSON.stringify(value));
+    sessionStorage.setItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY, JSON.stringify(value));
   } catch {
     // ignore
   }
@@ -290,22 +294,50 @@ function createRequestContractError({ response, code, message, details = null } 
   return error;
 }
 
+async function fetchWithRetry(url, options, { maxRetries = 2, baseDelayMs = 500 } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      // Only retry on 502, 503, 504 (server errors that may be transient)
+      if (response.status >= 502 && response.status <= 504 && attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
+        continue;
+      }
+      return response;
+    } catch (err) {
+      lastError = err;
+      // Retry on network errors (fetch throws on network failure)
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
+        continue;
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function requestJson({
   baseUrl,
   pathname,
   method = "GET",
   headers,
   body = null,
-  credentials
+  credentials,
+  retry = null,
 } = {}) {
   const url = `${String(baseUrl).replace(/\/$/, "")}${pathname}`;
+  // By default, only retry GET requests to avoid double-mutations.
+  // Non-GET requests can opt in by passing retry: true.
+  const shouldRetry = retry !== null ? retry : method === "GET";
+  const retryOpts = shouldRetry ? { maxRetries: 2, baseDelayMs: 500 } : { maxRetries: 0 };
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method,
       headers,
       body: body === null ? undefined : JSON.stringify(body),
       ...(credentials ? { credentials } : {})
-    });
+    }, retryOpts);
     const text = await response.text();
     let parsed = null;
     try {
@@ -373,31 +405,40 @@ export async function requestBinaryJson({
   credentials
 } = {}) {
   const url = `${String(baseUrl).replace(/\/$/, "")}${pathname}`;
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body ?? undefined,
-    ...(credentials ? { credentials } : {})
-  });
-  const text = await response.text();
-  let parsed = null;
   try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = text;
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ?? undefined,
+      ...(credentials ? { credentials } : {})
+    });
+    const text = await response.text();
+    let parsed = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = text;
+    }
+    if (!response.ok) {
+      const message =
+        parsed && typeof parsed === "object"
+          ? String(parsed?.message ?? parsed?.error ?? `HTTP ${response.status}`)
+          : String(parsed ?? `HTTP ${response.status}`);
+      const error = new Error(message);
+      error.status = response.status;
+      error.code = parsed && typeof parsed === "object" ? parsed?.code ?? null : null;
+      error.details = parsed && typeof parsed === "object" ? parsed?.details ?? null : null;
+      throw error;
+    }
+    return parsed;
+  } catch (err) {
+    captureFrontendSentryException(err, {
+      routePath: typeof window !== "undefined" ? window.location.pathname : null,
+      requestUrl: url,
+      requestMethod: method
+    });
+    throw err;
   }
-  if (!response.ok) {
-    const message =
-      parsed && typeof parsed === "object"
-        ? String(parsed?.message ?? parsed?.error ?? `HTTP ${response.status}`)
-        : String(parsed ?? `HTTP ${response.status}`);
-    const error = new Error(message);
-    error.status = response.status;
-    error.code = parsed && typeof parsed === "object" ? parsed?.code ?? null : null;
-    error.details = parsed && typeof parsed === "object" ? parsed?.details ?? null : null;
-    throw error;
-  }
-  return parsed;
 }
 
 export function createClientId(prefix = "ui") {
@@ -614,6 +655,13 @@ function resolveRuntimeConfig(runtime) {
   };
 }
 
+function resolveAndValidateRuntime(runtime) {
+  const resolved = resolveRuntimeConfig(runtime);
+  const tenantId = String(resolved.tenantId ?? "").trim();
+  if (!tenantId) throw new Error("tenantId is required");
+  return resolved;
+}
+
 export async function fetchApprovalInbox(runtime, { status = "pending" } = {}) {
   const resolvedRuntime = resolveRuntimeConfig(runtime);
   const query = new URLSearchParams();
@@ -688,24 +736,20 @@ export async function upsertApprovalPolicy(runtime, policy) {
 }
 
 export async function fetchTenantSettings(runtime) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function updateTenantSettings(runtime, patch) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings`,
     method: "PUT",
     credentials: "include",
     body: patch
@@ -713,24 +757,20 @@ export async function updateTenantSettings(runtime, patch) {
 }
 
 export async function fetchTenantConsumerInboxState(runtime) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/consumer-inbox`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/consumer-inbox`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function updateTenantConsumerInboxState(runtime, state) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/consumer-inbox`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/consumer-inbox`,
     method: "PUT",
     credentials: "include",
     body: state
@@ -738,26 +778,22 @@ export async function updateTenantConsumerInboxState(runtime, state) {
 }
 
 export async function fetchTenantIntegrationsState(runtime) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/integrations/state`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/integrations/state`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function disconnectTenantIntegration(runtime, provider) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedProvider = String(provider ?? "").trim().toLowerCase();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedProvider) throw new Error("provider is required");
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/integrations/${encodeURIComponent(normalizedProvider)}/disconnect`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/integrations/${encodeURIComponent(normalizedProvider)}/disconnect`,
     method: "POST",
     credentials: "include",
     body: {}
@@ -765,15 +801,13 @@ export async function disconnectTenantIntegration(runtime, provider) {
 }
 
 export async function fetchTenantDocuments(runtime, { includeRevoked = false, limit = 50 } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const query = new URLSearchParams();
   if (includeRevoked) query.set("includeRevoked", "true");
   if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents${query.size ? `?${query.toString()}` : ""}`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/documents${query.size ? `?${query.toString()}` : ""}`,
     method: "GET",
     credentials: "include"
   });
@@ -787,9 +821,7 @@ export async function uploadTenantDocument(
     label = ""
   } = {}
 ) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   if (!(file instanceof Blob)) throw new Error("file is required");
   const headers = {};
   const contentType = typeof file.type === "string" && file.type.trim() ? file.type.trim() : "application/octet-stream";
@@ -799,7 +831,7 @@ export async function uploadTenantDocument(
   if (String(label).trim()) headers["x-upload-label"] = String(label).trim();
   return requestBinaryJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/documents`,
     method: "POST",
     headers,
     body: file,
@@ -808,14 +840,12 @@ export async function uploadTenantDocument(
 }
 
 export async function revokeTenantDocument(runtime, documentId, { reason = "USER_REVOKED_DOCUMENT" } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedDocumentId = String(documentId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedDocumentId) throw new Error("documentId is required");
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/documents/${encodeURIComponent(normalizedDocumentId)}/revoke`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/documents/${encodeURIComponent(normalizedDocumentId)}/revoke`,
     method: "POST",
     credentials: "include",
     body: {
@@ -825,27 +855,23 @@ export async function revokeTenantDocument(runtime, documentId, { reason = "USER
 }
 
 export async function fetchTenantBrowserStates(runtime, { includeRevoked = false, limit = 50 } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const query = new URLSearchParams();
   if (includeRevoked) query.set("includeRevoked", "true");
   if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states${query.size ? `?${query.toString()}` : ""}`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/browser-states${query.size ? `?${query.toString()}` : ""}`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function createTenantBrowserState(runtime, browserState) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/browser-states`,
     method: "POST",
     credentials: "include",
     body: browserState
@@ -853,14 +879,12 @@ export async function createTenantBrowserState(runtime, browserState) {
 }
 
 export async function revokeTenantBrowserState(runtime, stateId, { reason = "USER_WALLET_REVOKE_BROWSER_STATE" } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedStateId = String(stateId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedStateId) throw new Error("stateId is required");
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/browser-states/${encodeURIComponent(normalizedStateId)}/revoke`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/browser-states/${encodeURIComponent(normalizedStateId)}/revoke`,
     method: "POST",
     credentials: "include",
     body: {
@@ -870,28 +894,24 @@ export async function revokeTenantBrowserState(runtime, stateId, { reason = "USE
 }
 
 export async function fetchTenantConsumerConnectors(runtime, { kind = null, includeRevoked = false, limit = 50 } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const query = new URLSearchParams();
   if (kind && String(kind).trim()) query.set("kind", String(kind).trim());
   if (includeRevoked) query.set("includeRevoked", "true");
   if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors${query.size ? `?${query.toString()}` : ""}`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/consumer-connectors${query.size ? `?${query.toString()}` : ""}`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function createTenantConsumerConnector(runtime, connector) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/consumer-connectors`,
     method: "POST",
     credentials: "include",
     body: connector
@@ -899,14 +919,12 @@ export async function createTenantConsumerConnector(runtime, connector) {
 }
 
 export async function revokeTenantConsumerConnector(runtime, connectorId, { reason = "USER_WALLET_REVOKE_CONNECTOR" } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedConnectorId = String(connectorId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedConnectorId) throw new Error("connectorId is required");
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors/${encodeURIComponent(normalizedConnectorId)}/revoke`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/consumer-connectors/${encodeURIComponent(normalizedConnectorId)}/revoke`,
     method: "POST",
     credentials: "include",
     body: {
@@ -919,11 +937,9 @@ export function buildTenantConsumerConnectorOauthStartUrl(
   runtime,
   { kind, provider, returnTo = null, accountAddressHint = null, accountLabelHint = null, timezone = null } = {}
 ) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedKind = String(kind ?? "").trim().toLowerCase();
   const normalizedProvider = String(provider ?? "").trim().toLowerCase();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedKind) throw new Error("kind is required");
   if (!normalizedProvider) throw new Error("provider is required");
   const query = new URLSearchParams();
@@ -931,32 +947,28 @@ export function buildTenantConsumerConnectorOauthStartUrl(
   if (accountAddressHint && String(accountAddressHint).trim()) query.set("accountAddressHint", String(accountAddressHint).trim());
   if (accountLabelHint && String(accountLabelHint).trim()) query.set("accountLabelHint", String(accountLabelHint).trim());
   if (timezone && String(timezone).trim()) query.set("timezone", String(timezone).trim());
-  const path = `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/consumer-connectors/${encodeURIComponent(normalizedKind)}/${encodeURIComponent(normalizedProvider)}/oauth/start`;
+  const path = `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/consumer-connectors/${encodeURIComponent(normalizedKind)}/${encodeURIComponent(normalizedProvider)}/oauth/start`;
   return `${String(resolvedRuntime.authBaseUrl).replace(/\/$/, "")}${path}${query.size ? `?${query.toString()}` : ""}`;
 }
 
 export async function fetchTenantAccountSessions(runtime, { includeRevoked = false, limit = 50 } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const query = new URLSearchParams();
   if (includeRevoked) query.set("includeRevoked", "true");
   if (Number.isSafeInteger(Number(limit)) && Number(limit) > 0) query.set("limit", String(Math.min(Number(limit), 200)));
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions${query.size ? `?${query.toString()}` : ""}`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/account-sessions${query.size ? `?${query.toString()}` : ""}`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function createTenantAccountSession(runtime, session) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/account-sessions`,
     method: "POST",
     credentials: "include",
     body: session
@@ -964,14 +976,12 @@ export async function createTenantAccountSession(runtime, session) {
 }
 
 export async function revokeTenantAccountSession(runtime, sessionId, { reason = "USER_REVOKED_ACCOUNT_SESSION" } = {}) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   const normalizedSessionId = String(sessionId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
   if (!normalizedSessionId) throw new Error("sessionId is required");
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/account-sessions/${encodeURIComponent(normalizedSessionId)}/revoke`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/account-sessions/${encodeURIComponent(normalizedSessionId)}/revoke`,
     method: "POST",
     credentials: "include",
     body: {
@@ -981,36 +991,30 @@ export async function revokeTenantAccountSession(runtime, sessionId, { reason = 
 }
 
 export async function fetchTenantBuyerNotificationPreview(runtime) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/preview`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/buyer-notifications/preview`,
     method: "GET",
     credentials: "include"
   });
 }
 
 export async function sendTenantBuyerNotificationTest(runtime) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/test`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/buyer-notifications/test`,
     method: "POST",
     credentials: "include"
   });
 }
 
 export async function previewTenantBuyerProductNotification(runtime, payload) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/product-event/preview`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/buyer-notifications/product-event/preview`,
     method: "POST",
     credentials: "include",
     body: payload
@@ -1018,12 +1022,10 @@ export async function previewTenantBuyerProductNotification(runtime, payload) {
 }
 
 export async function sendTenantBuyerProductNotification(runtime, payload) {
-  const resolvedRuntime = resolveRuntimeConfig(runtime);
-  const normalizedTenantId = String(resolvedRuntime.tenantId ?? "").trim();
-  if (!normalizedTenantId) throw new Error("tenantId is required");
+  const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({
     baseUrl: resolvedRuntime.authBaseUrl,
-    pathname: `/v1/tenants/${encodeURIComponent(normalizedTenantId)}/settings/buyer-notifications/product-event/send`,
+    pathname: `/v1/tenants/${encodeURIComponent(resolvedRuntime.tenantId)}/settings/buyer-notifications/product-event/send`,
     method: "POST",
     credentials: "include",
     body: payload

@@ -3,21 +3,7 @@ import { S, WORKER_API_BASE, workerApiRequest } from "../shared.js";
 import { loadRuntimeConfig } from "../api.js";
 import { ToggleSwitch } from "../components/SettingsModal.jsx";
 
-/* ===================================================================
-   FocusInput (local)
-   =================================================================== */
-
-function FocusInput({ style, ...props }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      {...props}
-      style={{ ...S.input, ...style, ...(focused ? S.inputFocus : {}) }}
-      onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
-      onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
-    />
-  );
-}
+import { FocusInput } from "../components/shared.jsx";
 
 /* ===================================================================
    AVAILABLE_INTEGRATIONS
@@ -61,18 +47,18 @@ export function IntegrationConnectModal({ integration, onClose, onSave }) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
       <div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
         <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Connect {integration.name}</h2>
         <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{integration.description}</p>
         {error && <div style={S.error}>{error}</div>}
         <form onSubmit={handleSubmit}>
-          <label style={S.label}>{integration.fieldLabel}</label>
-          <FocusInput type="text" value={value} onChange={e => setValue(e.target.value)} placeholder={integration.fieldPlaceholder} />
+          <label htmlFor="integration-field" style={S.label}>{integration.fieldLabel}</label>
+          <FocusInput id="integration-field" type="text" value={value} onChange={e => setValue(e.target.value)} placeholder={integration.fieldPlaceholder} />
           {integration.hasSecret && (<>
-            <label style={S.label}>Secret (optional)</label>
-            <FocusInput type="text" value={secret} onChange={e => setSecret(e.target.value)} placeholder="Signing secret" />
+            <label htmlFor="integration-secret" style={S.label}>Secret (optional)</label>
+            <FocusInput id="integration-secret" type="text" value={secret} onChange={e => setSecret(e.target.value)} placeholder="Signing secret" />
           </>)}
           <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
             <button type="button" style={S.btnSecondary} onClick={onClose}>Cancel</button>
@@ -93,12 +79,18 @@ function IntegrationsView() {
   const [loading, setLoading] = useState(true);
   const [connectModal, setConnectModal] = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
+  const [error, setError] = useState(null);
 
   async function loadIntegrations() {
     try {
+      setError(null);
       const result = await workerApiRequest({ pathname: "/v1/integrations", method: "GET" });
       setConnected(result?.items || result || []);
-    } catch { setConnected([]); }
+    } catch (err) {
+      console.error("Failed to load integrations:", err);
+      setError("Failed to load integrations. Please try again.");
+      setConnected([]);
+    }
     setLoading(false);
   }
 
@@ -125,7 +117,10 @@ function IntegrationsView() {
     try {
       await workerApiRequest({ pathname: `/v1/integrations/${encodeURIComponent(entry.id)}`, method: "DELETE" });
       await loadIntegrations();
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error("Failed to disconnect integration:", err);
+      setError("Failed to disconnect integration. Please try again.");
+    }
     setDisconnecting(null);
   }
 
@@ -133,6 +128,12 @@ function IntegrationsView() {
     <div>
       <h1 style={S.pageTitle}>Integrations</h1>
       <p style={S.pageSub}>Connect services your workers can use to get work done.</p>
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", marginBottom: 16, borderRadius: 8, background: "var(--red-bg, rgba(196,58,58,0.08))", border: "1px solid var(--red, #c43a3a)", color: "var(--red, #c43a3a)", fontSize: "14px" }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "var(--red, #c43a3a)", cursor: "pointer", fontWeight: 700, fontSize: "16px", padding: "0 4px", lineHeight: 1 }} aria-label="Dismiss error">&times;</button>
+        </div>
+      )}
       {loading ? (
         <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
       ) : (

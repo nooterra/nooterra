@@ -34,6 +34,7 @@ import {
   autoPauseWorker,
   createApprovalRecord,
 } from './charter-enforcement.js';
+import { pollApprovedActions } from './approval-resume.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -359,9 +360,10 @@ function buildMessages(charter, knowledge, worker, memory) {
 /**
  * Execute a single worker and record results.
  */
-async function executeWorker(worker, executionId, triggerType) {
+async function executeWorker(worker, executionId, triggerType, resumeContext = null) {
   const startedAt = new Date();
   const activity = [];
+  const isResume = triggerType === 'approval_resume' && resumeContext?.approvedToolCalls;
 
   function addActivity(type, detail) {
     activity.push({
@@ -371,7 +373,9 @@ async function executeWorker(worker, executionId, triggerType) {
     });
   }
 
-  addActivity('start', `Execution started via ${triggerType}`);
+  addActivity('start', isResume
+    ? `Execution resumed after approval (tools: ${resumeContext.approvedToolCalls.map(t => t.name).join(', ')})`
+    : `Execution started via ${triggerType}`);
 
   try {
     // Check monthly execution limit for tenant's plan
@@ -657,7 +661,7 @@ async function executeWorker(worker, executionId, triggerType) {
       }
 
       // --- AGENTIC LOOP: execute tools and feed results back to LLM ---
-      const MAX_ROUNDS = 8;
+      const MAX_ROUNDS = 12;
       let currentMessages = [...messages];
       let lastResult = result;
 
@@ -665,19 +669,31 @@ async function executeWorker(worker, executionId, triggerType) {
       currentMessages.push({ role: 'assistant', content: lastResult.response || '', tool_calls: lastResult.toolCalls });
 
       while (lastResult.toolCalls && lastResult.toolCalls.length > 0 && rounds < MAX_ROUNDS) {
-        // Execute each allowed tool call
-        const toolResults = [];
-        for (const tc of lastResult.toolCalls) {
-          const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-          addActivity('tool_exec', `Executing ${tc.name}`);
+        // Execute tool calls IN PARALLEL for better latency
+        const toolCalls = lastResult.toolCalls;
+        addActivity('tool_exec', `Executing ${toolCalls.length} tool(s) in parallel: ${toolCalls.map(tc => tc.name).join(', ')}`);
 
+        const toolPromises = toolCalls.map(async (tc) => {
+          const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
           let toolResult;
           if (isShadowMode) {
             toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
-            addActivity('shadow_tool', `Would execute: ${tc.name}`);
           } else {
             toolResult = await executeTool(worker.tenant_id, tc.name, args);
           }
+          return { tc, toolResult, args };
+        });
+
+        const settledResults = await Promise.allSettled(toolPromises);
+        const toolResults = [];
+        for (const settled of settledResults) {
+          if (settled.status === 'rejected') {
+            const err = settled.reason;
+            toolResults.push({ role: 'tool', tool_call_id: 'unknown', name: 'error', content: `Tool execution failed: ${err?.message || String(err)}` });
+            addActivity('tool_error', `Tool execution failed: ${err?.message}`);
+            continue;
+          }
+          const { tc, toolResult } = settled.value;
           const resultStr = toolResult.success
             ? JSON.stringify(toolResult.result)
             : `Error: ${toolResult.error}`;
@@ -689,7 +705,11 @@ async function executeWorker(worker, executionId, triggerType) {
             content: resultStr.slice(0, 20000), // Cap tool output
           });
 
-          addActivity('tool_result', `${tc.name}: ${toolResult.success ? 'success' : 'error: ' + toolResult.error}`);
+          if (isShadowMode) {
+            addActivity('shadow_tool', `Would execute: ${tc.name}`);
+          } else {
+            addActivity('tool_result', `${tc.name}: ${toolResult.success ? 'success' : 'error: ' + toolResult.error}`);
+          }
         }
 
         // Feed tool results back to LLM
@@ -1177,6 +1197,20 @@ async function pollCycle() {
           triggerType: 'cron',
         });
       }
+    }
+
+    // 3. Resume approved executions (check for approved actions awaiting resume)
+    try {
+      const resumed = await pollApprovedActions({
+        pool,
+        executeWorker,
+        log: (level, msg) => log(level, msg)
+      });
+      if (resumed > 0) {
+        log('info', `Resumed ${resumed} execution(s) after approval`);
+      }
+    } catch (err) {
+      log('error', `Approval resume poll error: ${err.message}`);
     }
 
     // Dispatch all tasks concurrently

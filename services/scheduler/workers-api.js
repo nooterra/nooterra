@@ -289,6 +289,71 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return true;
   }
 
+  // GET /v1/approvals — list pending approvals
+  if (method === 'GET' && pathname === '/v1/approvals') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const result = await pool.query(
+        `SELECT wa.*, w.name as worker_name
+         FROM worker_approvals wa
+         LEFT JOIN workers w ON w.id = wa.worker_id AND w.tenant_id = wa.tenant_id
+         WHERE wa.tenant_id = $1
+         ORDER BY wa.created_at DESC LIMIT 50`,
+        [tid]
+      );
+      return json(res, 200, { items: result.rows }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch approvals'), true;
+    }
+  }
+
+  // POST /v1/approvals/:id/approve — approve an action
+  if (method === 'POST' && pathname.match(/^\/v1\/approvals\/[^/]+\/approve$/)) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const approvalId = pathname.split('/')[3];
+    try {
+      const result = await pool.query(
+        `UPDATE worker_approvals SET decision = 'approved', decided_by = $1, decided_at = NOW()
+         WHERE id = $2 AND tenant_id = $3 AND decision = 'pending'
+         RETURNING id, worker_id, tool_name`,
+        [tid, approvalId, tid]
+      );
+      if (result.rows.length === 0) return err(res, 404, 'approval not found or already decided'), true;
+      // The NOTIFY trigger (from migration 035) will signal the scheduler to resume
+      return json(res, 200, { ok: true, approval: result.rows[0] }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to approve'), true;
+    }
+  }
+
+  // POST /v1/approvals/:id/deny — deny an action
+  if (method === 'POST' && pathname.match(/^\/v1\/approvals\/[^/]+\/deny$/)) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const approvalId = pathname.split('/')[3];
+    try {
+      const result = await pool.query(
+        `UPDATE worker_approvals SET decision = 'denied', decided_by = $1, decided_at = NOW()
+         WHERE id = $2 AND tenant_id = $3 AND decision = 'pending'
+         RETURNING id, worker_id, tool_name`,
+        [tid, approvalId, tid]
+      );
+      if (result.rows.length === 0) return err(res, 404, 'approval not found or already decided'), true;
+      // Mark the paused execution as charter_blocked
+      await pool.query(
+        `UPDATE worker_executions SET status = 'charter_blocked', completed_at = NOW(),
+         error = $1
+         WHERE worker_id = $2 AND tenant_id = $3 AND status = 'awaiting_approval'`,
+        [`Action denied: ${result.rows[0].tool_name} was denied`, result.rows[0].worker_id, tid]
+      );
+      return json(res, 200, { ok: true, approval: result.rows[0] }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to deny'), true;
+    }
+  }
+
   // GET /v1/credits — credit balance
   if (method === 'GET' && pathname === '/v1/credits') {
     const tid = getTenantId(req);

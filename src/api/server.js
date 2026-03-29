@@ -1,3 +1,7 @@
+// OpenTelemetry MUST be initialized before any other imports for auto-instrumentation.
+import { initTracing } from "../core/tracing.js";
+initTracing({ serviceName: "nooterra-api" });
+
 import http from "node:http";
 import { createApi } from "./app.js";
 import { createStore } from "./store.js";
@@ -17,6 +21,40 @@ const cfg = loadConfig({ mode: "api" });
 logger.info("config.effective", { config: configForLog(cfg) });
 initNodeSentry({ service: "api", logger });
 installNodeSentryProcessHandlers({ service: "api", logger });
+
+// Redis client (optional — enables distributed rate limiting and caching)
+let redis = null;
+if (cfg.redis?.url) {
+  try {
+    const { createRedisClient } = await import("../core/redis.js");
+    redis = await createRedisClient({ url: cfg.redis.url });
+    logger.info("redis.enabled", { keyPrefix: "nooterra:" });
+  } catch (err) {
+    logger.warn("redis.init_failed", {
+      err: err?.message ?? String(err),
+      hint: "Install ioredis for Redis support. Falling back to in-memory rate limiting."
+    });
+  }
+}
+
+// Rate limiter (Redis if available, in-memory fallback)
+let rateLimiter = null;
+{
+  const { createInMemoryRateLimiter, createRedisRateLimiter } = await import("../core/rate-limiter.js");
+  if (redis) {
+    try {
+      rateLimiter = await createRedisRateLimiter({ redis });
+      logger.info("rate_limiter.mode", { mode: "redis" });
+    } catch (err) {
+      logger.warn("rate_limiter.redis_failed", { err: err?.message });
+      rateLimiter = createInMemoryRateLimiter();
+      logger.info("rate_limiter.mode", { mode: "memory" });
+    }
+  } else {
+    rateLimiter = createInMemoryRateLimiter();
+    logger.info("rate_limiter.mode", { mode: "memory" });
+  }
+}
 if (cfg.federation?.enabled) {
   logger.info("federation.coordinator", {
     coordinatorDid: cfg.federation.coordinatorDid,
@@ -154,7 +192,44 @@ async function runAutotickOnce() {
   }
 }
 
-if (autotickIntervalMs) {
+// LISTEN/NOTIFY: event-driven outbox processing (replaces aggressive polling).
+// Falls back to a slower interval poll as a safety net.
+let listenClient = null;
+
+if (autotickIntervalMs && cfg.store.mode === "pg" && cfg.store.databaseUrl) {
+  // Try to set up LISTEN/NOTIFY for instant outbox processing
+  try {
+    const pg = await import("pg");
+    listenClient = new pg.default.Client({ connectionString: cfg.store.databaseUrl });
+    await listenClient.connect();
+    await listenClient.query("LISTEN outbox_ready");
+    listenClient.on("notification", (msg) => {
+      // Immediately trigger a tick when outbox gets a new row
+      if (!autotickStopped && !autotickInFlight) {
+        runAutotickOnce();
+      }
+    });
+    listenClient.on("error", (err) => {
+      logger.warn("listen_client.error", { err: err?.message });
+      // Don't crash — the fallback interval poll will cover us
+    });
+    logger.info("outbox.listen_notify_enabled", {
+      channel: "outbox_ready",
+      fallbackIntervalMs: 5000
+    });
+    // With LISTEN/NOTIFY active, use a slower fallback poll (5s instead of 250ms)
+    autotickTimer = setInterval(runAutotickOnce, 5000);
+  } catch (err) {
+    logger.warn("outbox.listen_notify_failed", {
+      err: err?.message,
+      hint: "Falling back to interval polling"
+    });
+    // Fallback: use the original polling interval
+    autotickTimer = setInterval(runAutotickOnce, autotickIntervalMs);
+  }
+  runAutotickOnce();
+} else if (autotickIntervalMs) {
+  // No Postgres — use interval polling (memory mode)
   autotickTimer = setInterval(runAutotickOnce, autotickIntervalMs);
   runAutotickOnce();
 }
@@ -166,6 +241,13 @@ async function shutdown() {
     autotickTimer = null;
   }
   try {
+    if (listenClient) {
+      await listenClient.end().catch(() => {});
+      listenClient = null;
+    }
+    if (redis) {
+      await redis.close().catch(() => {});
+    }
     await flushNodeSentry();
     await new Promise((resolve) => {
       try {

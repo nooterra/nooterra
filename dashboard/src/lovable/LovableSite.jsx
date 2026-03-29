@@ -114,7 +114,7 @@ function SiteNav() {
         </div>
 
         {/* Mobile hamburger */}
-        <button onClick={() => setMobileOpen(!mobileOpen)} className="nav-mobile-btn" aria-label="Toggle menu" style={{ background: "none", border: "none", cursor: "pointer", padding: 12, color: "var(--text-100)" }}>
+        <button onClick={() => setMobileOpen(!mobileOpen)} className="nav-mobile-btn" aria-label="Toggle menu" aria-expanded={mobileOpen} style={{ background: "none", border: "none", cursor: "pointer", padding: 12, color: "var(--text-100)" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
@@ -511,7 +511,7 @@ function HomePage() {
         </div>
       </section>
       <style>{`
-        @media (max-width: 768px) {
+        @media (max-width: 820px) {
           .rules-content { grid-template-columns: 1fr !important; }
         }
         html { scroll-behavior: smooth; }

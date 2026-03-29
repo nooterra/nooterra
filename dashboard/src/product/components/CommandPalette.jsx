@@ -65,6 +65,9 @@ function CommandPalette({ open, onClose, workers, onNavigate, onSelectWorker, on
   return (
     <div
       className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ alignItems: "flex-start", paddingTop: "min(20vh, 160px)" }}
     >
@@ -85,6 +88,10 @@ function CommandPalette({ open, onClose, workers, onNavigate, onSelectWorker, on
             onChange={e => { setQuery(e.target.value); setSelectedIndex(0); }}
             placeholder="Type a command or search..."
             aria-label="Command palette search"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="cmd-results"
+            aria-activedescendant={filtered[clamped] ? `cmd-item-${filtered[clamped].id}` : undefined}
             style={{
               width: "100%", padding: "8px 0", fontSize: "15px", fontFamily: "inherit",
               border: "none", outline: "none", background: "transparent",
@@ -94,7 +101,7 @@ function CommandPalette({ open, onClose, workers, onNavigate, onSelectWorker, on
         </div>
 
         {/* Results */}
-        <div style={{ maxHeight: 360, overflowY: "auto", padding: "4px 0" }}>
+        <div id="cmd-results" role="listbox" style={{ maxHeight: 360, overflowY: "auto", padding: "4px 0" }}>
           {filtered.length === 0 && (
             <div style={{ padding: "24px 16px", textAlign: "center", fontSize: "13px", color: "var(--text-300, var(--text-tertiary))" }}>
               No results for &ldquo;{query}&rdquo;
@@ -113,6 +120,9 @@ function CommandPalette({ open, onClose, workers, onNavigate, onSelectWorker, on
                 return (
                   <button
                     key={item.id}
+                    id={`cmd-item-${item.id}`}
+                    role="option"
+                    aria-selected={isActive}
                     onClick={() => { item.action(); onClose(); }}
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between",

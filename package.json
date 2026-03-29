@@ -138,6 +138,8 @@
     "lint:eslint": "eslint bin openclaw scripts src services test packages dashboard/src --cache --cache-location .cache/eslint",
     "lint:ci": "npm run -s lint && npm run -s test:ci:branding-copy-hygiene && npm run -s test:ci:secret-hygiene",
     "test": "bash scripts/test/run.sh",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
     "test:ops:arbitration:browser": "bash scripts/ci/run-arbitration-workspace-browser-e2e.sh",
     "test:ops:throughput:10x": "node scripts/ci/run-10x-throughput-drill.mjs",
     "test:ops:throughput:incident": "node scripts/ci/run-10x-throughput-incident-rehearsal.mjs",
@@ -219,7 +221,9 @@
     "@composio/core": "^0.6.7",
     "@playwright/test": "^1.58.2",
     "@sentry/node": "^10.16.0",
-    "pg": "^8.19.0"
+    "ioredis": "^5.10.1",
+    "pg": "^8.19.0",
+    "posthog-js": "^1.364.1"
   },
   "devDependencies": {
     "ajv": "^8.18.0",

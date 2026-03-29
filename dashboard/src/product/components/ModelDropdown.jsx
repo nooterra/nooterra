@@ -38,6 +38,8 @@ function ModelDropdown({ model, onModelChange }) {
     <div ref={ref} style={{ position: "relative" }}>
       <button
         onClick={() => { setOpen(!open); setSearch(""); }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         style={{
           background: "transparent", border: "none", color: "var(--text-secondary)",
           fontSize: "13px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit",
@@ -52,6 +54,8 @@ function ModelDropdown({ model, onModelChange }) {
       {open && (
         <div
           className="popover-animate"
+          role="listbox"
+          onKeyDown={e => { if (e.key === "Escape") setOpen(false); }}
           style={{
             position: "absolute", top: "100%", left: 0, marginTop: 4,
             background: "var(--bg-400, var(--bg-surface))", border: "1px solid var(--border)",
@@ -96,6 +100,8 @@ function ModelDropdown({ model, onModelChange }) {
                     return (
                       <button
                         key={m.id}
+                        role="option"
+                        aria-selected={m.id === model}
                         onClick={() => { onModelChange(m.id); setOpen(false); }}
                         style={{
                           display: "flex", alignItems: "center", gap: 8,

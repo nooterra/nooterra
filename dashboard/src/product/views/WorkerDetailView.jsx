@@ -185,9 +185,9 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "2px", borderBottom: "1px solid var(--border)", marginBottom: "1.5rem" }}>
+      <div role="tablist" style={{ display: "flex", gap: "2px", borderBottom: "1px solid var(--border)", marginBottom: "1.5rem" }}>
         {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
+          <button key={t.key} role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key} onClick={() => setTab(t.key)} style={{
             padding: "0.6rem 1rem", fontSize: "13px", fontWeight: 600,
             color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
             background: "none", border: "none",
@@ -201,7 +201,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
       </div>
 
       {/* Tab content with entrance animation */}
-      <div key={tab} className="tab-content-enter">
+      <div key={tab} className="tab-content-enter" role="tabpanel" aria-labelledby={`tab-${tab}`}>
 
       {tab === "charter" && (
         <div>
@@ -217,7 +217,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={handleSaveCharter} disabled={savingCharter} style={{
-                  fontSize: "12px", fontWeight: 600, color: "#fff", background: "var(--green, #5bb98c)",
+                  fontSize: "12px", fontWeight: 600, color: "var(--bg-100)", background: "var(--green, #5bb98c)",
                   border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
                   padding: "4px 12px", opacity: savingCharter ? 0.5 : 1, transition: "opacity 150ms",
                 }}>
@@ -570,7 +570,7 @@ function WorkerChat({ workerId, workerName, model }) {
               fontSize: "14px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
               position: "relative",
               ...(msg.role === "user" ? {
-                background: "var(--accent, #c4613a)", color: "#fff", borderBottomRightRadius: 4,
+                background: "var(--accent, #c4613a)", color: "var(--bg-100)", borderBottomRightRadius: 4,
               } : {
                 background: "var(--bg-300, var(--bg-hover))", color: "var(--text-primary)", borderBottomLeftRadius: 4,
               }),

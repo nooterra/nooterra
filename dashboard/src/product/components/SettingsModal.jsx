@@ -14,37 +14,12 @@ import {
    ToggleSwitch
    =================================================================== */
 
-export function ToggleSwitch({ on, onToggle }) {
-  return <button onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--accent)" : "var(--bg-hover)", position: "relative", flexShrink: 0, transition: "background 150ms" }}><div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 150ms" }} /></button>;
+export function ToggleSwitch({ on, onToggle, "aria-label": ariaLabel }) {
+  return <button role="switch" aria-checked={on} aria-label={ariaLabel} onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--accent)" : "var(--bg-hover)", position: "relative", flexShrink: 0, transition: "background 150ms" }}><div style={{ width: 18, height: 18, borderRadius: "50%", background: "var(--bg-100)", position: "absolute", top: 3, left: on ? 23 : 3, transition: "left 150ms" }} /></button>;
 }
 
-/* ===================================================================
-   FocusInput (local to settings)
-   =================================================================== */
-
-function FocusInput({ style, ...props }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      {...props}
-      style={{ ...S.input, ...style, ...(focused ? S.inputFocus : {}) }}
-      onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
-      onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
-    />
-  );
-}
-
-/* ===================================================================
-   CloseIcon
-   =================================================================== */
-
-function CloseIcon({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" style={{ display: "block" }}>
-      <path d="M5 5l8 8M13 5l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
+/* -- Shared UI components --------------------------------------------- */
+import { FocusInput, CloseIcon } from "./shared.jsx";
 
 /* ===================================================================
    ThemePreview
@@ -215,17 +190,17 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   function SaveButton({ label = "Save" }) {
     const isSaved = saveState === "saved"; const isSaving = saveState === "saving"; const isError = saveState === "error";
-    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "#5bb98c" : isError ? "#c97055" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
+    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "var(--green)" : isError ? "var(--red)" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
   }
 
   const currentTier = userTier || "free";
   const balance = creditBalance != null ? (creditBalance / 100).toFixed(2) : "0.00";
 
   return (
-    <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-content" style={{ width: "100%", maxWidth: 720, maxHeight: "85vh", background: "var(--bg-surface)", borderRadius: 16, boxShadow: "var(--shadow-lg)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Settings</h2>
+          <h2 id="settings-modal-title" style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Settings</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
             onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
@@ -245,10 +220,10 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
               {tab === "general" && (<div>
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1.25rem" }}>Profile</div>
-                  <label style={S.label}>Display name</label>
-                  <FocusInput type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
-                  <label style={S.label}>Work function</label>
-                  <select value={workFunction} onChange={(e) => setWorkFunction(e.target.value)} style={{ ...S.input, cursor: "pointer", appearance: "auto" }}>{WORK_FUNCTIONS.map(wf => <option key={wf.value} value={wf.value}>{wf.label}</option>)}</select>
+                  <label htmlFor="settings-display-name" style={S.label}>Display name</label>
+                  <FocusInput id="settings-display-name" type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+                  <label htmlFor="settings-work-function" style={S.label}>Work function</label>
+                  <select id="settings-work-function" value={workFunction} onChange={(e) => setWorkFunction(e.target.value)} style={{ ...S.input, cursor: "pointer", appearance: "auto" }}>{WORK_FUNCTIONS.map(wf => <option key={wf.value} value={wf.value}>{wf.label}</option>)}</select>
                 </div>
                 <div style={{ marginBottom: "2rem" }}>
                   <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Preferences</div>
@@ -325,7 +300,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 ))}
 
                 <div style={{ marginTop: "1.5rem" }}>
-                  <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "#5bb98c" : notifSaveState === "error" ? "#c97055" : "var(--text-100)", transition: "background 300ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : "Save"}</button>
+                  <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: notifSaveState === "saving" ? 0.6 : 1, background: notifSaveState === "saved" ? "var(--green)" : notifSaveState === "error" ? "var(--red)" : "var(--text-100)", transition: "background 300ms" }} disabled={notifSaveState === "saving"} onClick={handleNotifSave}>{notifSaveState === "saving" ? "Saving..." : notifSaveState === "saved" ? "\u2713 Saved" : "Save"}</button>
                 </div>
               </div>)}
               {tab === "account" && (<div>
@@ -335,26 +310,26 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 <label style={S.label}>Account ID</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "1.5rem" }}>
                   <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }}>{runtime.tenantId}</div>
-                  <button onClick={handleCopyAccountId} style={{ fontSize: "12px", padding: "2px 8px", borderRadius: 4, border: "1px solid var(--border)", background: copiedAccountId ? "#5bb98c" : "transparent", color: copiedAccountId ? "white" : "var(--text-tertiary)", cursor: "pointer", fontFamily: "inherit", transition: "all 150ms" }}>{copiedAccountId ? "Copied" : "Copy"}</button>
+                  <button onClick={handleCopyAccountId} style={{ fontSize: "12px", padding: "2px 8px", borderRadius: 4, border: "1px solid var(--border)", background: copiedAccountId ? "var(--green)" : "transparent", color: copiedAccountId ? "var(--bg-100)" : "var(--text-tertiary)", cursor: "pointer", fontFamily: "inherit", transition: "all 150ms" }}>{copiedAccountId ? "Copied" : "Copy"}</button>
                 </div>
                 <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
                 <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "1rem" }}>Active sessions</div>
                 <div style={{ padding: "1rem", border: "1px solid var(--border)", borderRadius: 8, marginBottom: "1rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div><div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>This browser</div><div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Current session</div></div>
-                    <div style={{ fontSize: "12px", color: "#5bb98c", fontWeight: 600 }}>Active</div>
+                    <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 600 }}>Active</div>
                   </div>
                 </div>
                 <button style={{ ...S.btnSecondary, fontSize: "13px", padding: "0.5rem 1rem" }} onClick={async () => { await logoutSession(); navigate("/login"); }}>Log out of all devices</button>
                 <div style={{ borderTop: "1px solid var(--border)", margin: "2rem 0" }} />
                 {!showDeleteConfirm ? (
-                  <button style={{ ...S.btnSecondary, borderColor: "#c97055", color: "#c97055" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
+                  <button style={{ ...S.btnSecondary, borderColor: "var(--red)", color: "var(--red)" }} onClick={() => setShowDeleteConfirm(true)}>Delete account</button>
                 ) : (
-                  <div style={{ padding: "1.25rem", border: "1px solid #c97055", borderRadius: 10, background: "rgba(201,112,85,0.06)" }}>
-                    <div style={{ fontSize: "15px", fontWeight: 600, color: "#c97055", marginBottom: "0.5rem" }}>Are you sure?</div>
+                  <div style={{ padding: "1.25rem", border: "1px solid var(--red)", borderRadius: 10, background: "var(--red-bg, rgba(201,112,85,0.06))" }}>
+                    <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--red)", marginBottom: "0.5rem" }}>Are you sure?</div>
                     <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.5 }}>This will permanently delete your account and all workers. This action cannot be undone.</div>
                     <div style={{ display: "flex", gap: "0.75rem" }}>
-                      <button style={{ ...S.btnPrimary, width: "auto", background: "#c97055" }} onClick={async () => { await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Yes, delete my account</button>
+                      <button style={{ ...S.btnPrimary, width: "auto", background: "var(--red)" }} onClick={async () => { await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Yes, delete my account</button>
                       <button style={S.btnSecondary} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
                     </div>
                   </div>

@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${PROXY_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - proxy_redis_data:/data
+
   postgres:
     image: postgres:16
     environment:
@@ -21,6 +33,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       minio:
         condition: service_started
     environment:
@@ -28,6 +42,7 @@ services:
       STORE: pg
       DATABASE_URL: postgres://proxy:proxy@postgres:5432/proxy
       PROXY_PG_SCHEMA: ${PROXY_PG_SCHEMA:-public}
+      REDIS_URL: redis://redis:6379
       PROXY_AUTOTICK: "1"
       PROXY_AUTOTICK_INTERVAL_MS: "250"
       PROXY_AUTOTICK_MAX_MESSAGES: "100"
@@ -151,6 +166,7 @@ services:
 
 volumes:
   proxy_pgdata:
+  proxy_redis_data:
   proxy_minio_data:
   proxy_receiver_data:
   proxy_finance_sink_data:

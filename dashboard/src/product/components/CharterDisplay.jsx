@@ -13,11 +13,13 @@ function CharterDisplay({ charter, compact = false }) {
       {sections.map((sec) => sec.items.length > 0 ? (
         <div key={sec.key} style={{ marginBottom: compact ? "0.75rem" : "1.25rem" }}>
           <div style={{ ...S.charterLabel, color: sec.color, fontSize: compact ? "10px" : "11px" }}>{sec.label}</div>
-          {sec.items.map((item, i) => (
-            <div key={i} style={{ ...S.charterItem, fontSize: compact ? "13px" : "14px" }}>
-              <span style={S.statusDot(sec.color)} />{item}
-            </div>
-          ))}
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {sec.items.map((item, i) => (
+              <li key={i} style={{ ...S.charterItem, fontSize: compact ? "13px" : "14px" }}>
+                <span style={S.statusDot(sec.color)} />{item}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null)}
     </div>

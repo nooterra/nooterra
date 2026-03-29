@@ -3,6 +3,7 @@ import {
   S, AUTH_BASE, saveRuntime, saveOnboardingState, loadOnboardingState,
   authRequest, fetchSessionPrincipal,
 } from "../shared.js";
+import { track } from "../analytics.js";
 import {
   loadRuntimeConfig,
   loadStoredBuyerPasskeyBundle,
@@ -35,16 +36,9 @@ const A = {
   resend: { fontSize: 14, color: "var(--text-200, #4a4a45)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: "1.5rem", textAlign: "center", width: "100%", textDecoration: "underline", textUnderlineOffset: "2px" },
 };
 
-function AuthInput({ style, ...props }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      {...props}
-      style={{ ...A.input, ...style, ...(focused ? A.inputFocus : {}) }}
-      onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
-      onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
-    />
-  );
+import { FocusInput } from "../components/shared.jsx";
+function AuthInput(props) {
+  return <FocusInput baseStyle={A.input} focusStyle={A.inputFocus} {...props} />;
 }
 
 function AuthView({ onAuth }) {
@@ -79,6 +73,7 @@ function AuthView({ onAuth }) {
               localStorage.setItem("nooterra_user_name", principal.principal.email.split("@")[0]);
             }
             window.history.replaceState({}, "", window.location.pathname);
+            track("user.logged_in", { method: "google" });
             onAuth?.("dashboard");
             return;
           }
@@ -101,6 +96,7 @@ function AuthView({ onAuth }) {
           const principal = await fetchSessionPrincipal();
           saveRuntime({ ...loadRuntimeConfig(), tenantId: tid });
           saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+          track("user.logged_in", { method: "passkey" });
           onAuth?.("dashboard");
         }
       } catch { /* no stored passkey or it failed */ }
@@ -126,6 +122,7 @@ function AuthView({ onAuth }) {
             const principal = await fetchSessionPrincipal();
             saveRuntime({ ...loadRuntimeConfig(), tenantId: tid });
             saveOnboardingState({ buyer: principal, sessionExpected: true, completed: true });
+            track("user.logged_in", { method: "passkey" });
             onAuth?.("dashboard");
             return;
           }
@@ -163,6 +160,7 @@ function AuthView({ onAuth }) {
           saveStoredBuyerPasskeyBundle({ tenantId: tid, email: em, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
         }
       } catch { /* Passkey registration is optional */ }
+      track("user.logged_in", { method: "otp" });
       onAuth?.(isNewAccount ? "builder" : "dashboard");
     } catch (err) { setError(err?.message || "Invalid code. Please try again."); }
     finally { setLoading(false); }

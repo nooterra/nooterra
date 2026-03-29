@@ -1,5 +1,8 @@
 import { Suspense, lazy, useEffect } from "react";
 import { setFrontendSentryRoute } from "./sentry.jsx";
+import { initAnalytics, page } from "./product/analytics.js";
+
+initAnalytics();
 
 const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
@@ -119,6 +122,7 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     setFrontendSentryRoute({ mode: route.mode, path: window.location.pathname });
+    page(window.location.pathname, { mode: route.mode });
   }, [route.mode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -174,15 +178,16 @@ export default function App() {
     "not_found"
   ]);
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "workspace"]);
-  // OAuth callback — close the popup and signal the parent window
-  if (route.mode === "oauth_callback") {
-    // Auto-close popup after brief success message
-    useEffect(() => {
-      try { window.opener && window.opener.focus(); } catch(e) {}
-      const timer = setTimeout(() => { window.close(); }, 1500);
-      return () => clearTimeout(timer);
-    }, []);
+  // OAuth callback — auto-close popup after brief success message
+  const isOAuthCallback = route.mode === "oauth_callback";
+  useEffect(() => {
+    if (!isOAuthCallback) return;
+    try { window.opener && window.opener.focus(); } catch(e) {}
+    const timer = setTimeout(() => { window.close(); }, 1500);
+    return () => clearTimeout(timer);
+  }, [isOAuthCallback]);
 
+  if (isOAuthCallback) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#faf9f6", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ textAlign: "center" }}>

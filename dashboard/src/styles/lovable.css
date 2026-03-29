@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 :root {
   /* Core palette — warm but with more contrast than generic cream */
@@ -31,7 +31,7 @@
   --shadow-lg: 0 16px 48px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
   --shadow-xl: 0 24px 64px rgba(0,0,0,0.10), 0 8px 20px rgba(0,0,0,0.06);
 
-  /* Semantic mappings for dashboard/product */
+  /* Alias lovable tokens → product canonical tokens */
   --bg-primary: var(--bg-100);
   --bg-sidebar: var(--bg-200);
   --bg-surface: var(--bg-400);
@@ -307,7 +307,7 @@ body {
   gap: 48px;
   align-items: center;
 }
-@media (min-width: 768px) {
+@media (min-width: 820px) {
   .hero-grid { grid-template-columns: 1.15fr 0.85fr; gap: 56px; }
 }
 
@@ -320,7 +320,7 @@ body {
   overflow: hidden;
   border: 1px solid var(--border);
 }
-@media (min-width: 768px) {
+@media (min-width: 820px) {
   .steps-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -329,7 +329,7 @@ body {
   grid-template-columns: 1fr;
   gap: 20px;
 }
-@media (min-width: 768px) {
+@media (min-width: 820px) {
   .rules-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -338,7 +338,7 @@ body {
   grid-template-columns: 1fr;
   gap: 20px;
 }
-@media (min-width: 768px) {
+@media (min-width: 820px) {
   .use-cases-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -347,7 +347,7 @@ body {
   grid-template-columns: 1fr;
   gap: 0 40px;
 }
-@media (min-width: 768px) {
+@media (min-width: 820px) {
   .features-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
@@ -359,7 +359,7 @@ body {
 @media (min-width: 640px) {
   .footer-grid { grid-template-columns: repeat(2, 1fr); gap: 32px; }
 }
-@media (min-width: 1024px) {
+@media (min-width: 1080px) {
   .footer-grid { grid-template-columns: 2fr 1fr 1fr 1fr; gap: 48px; }
 }
 
@@ -371,7 +371,7 @@ body {
 @media (min-width: 640px) {
   .pricing-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (min-width: 1024px) {
+@media (min-width: 1080px) {
   .pricing-grid { grid-template-columns: repeat(3, 1fr); }
 }
 

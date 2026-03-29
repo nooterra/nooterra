@@ -10,29 +10,8 @@ import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
 import { AVAILABLE_INTEGRATIONS } from "./IntegrationsView.jsx";
 
-/* ===================================================================
-   SendArrow
-   =================================================================== */
-
-function SendArrow({ disabled, onClick }) {
-  return (
-    <button
-      onClick={onClick} disabled={disabled} aria-label="Send"
-      style={{
-        width: 32, height: 32, borderRadius: "50%",
-        background: disabled ? "var(--bg-hover)" : "var(--text-primary)",
-        border: "none", cursor: disabled ? "default" : "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0, transition: "opacity 150ms",
-        opacity: disabled ? 0.3 : 1,
-      }}
-    >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-        <path d="M8 12V4M4 8l4-4 4 4" stroke={disabled ? "var(--text-tertiary)" : "var(--bg-primary)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-}
+import { SendArrow } from "../components/shared.jsx";
+import { track } from "../analytics.js";
 
 
 /* ===================================================================
@@ -140,7 +119,7 @@ function BuilderMessage({ msg, isStreaming, onWorkerDefDetected, onOptionClick }
   if (isUser) {
     return (
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }} className="lovable-fade">
-        <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: "16px 16px 4px 16px", fontSize: "14px", lineHeight: 1.5, color: "#fff", background: "var(--text-primary)", wordBreak: "break-word" }}>{msg.content}</div>
+        <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: "16px 16px 4px 16px", fontSize: "14px", lineHeight: 1.5, color: "var(--bg-100)", background: "var(--text-primary)", wordBreak: "break-word" }}>{msg.content}</div>
       </div>
     );
   }
@@ -200,10 +179,13 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
 function TemplateCard({ template, onClick }) {
   return (
     <div
+      role="button"
+      tabIndex={0}
       style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-surface)", cursor: "pointer", transition: "border-color 150ms", display: "flex", flexDirection: "column", gap: "0.4rem" }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-tertiary)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
       onClick={onClick}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
     >
       <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{template.name}</div>
       <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, flex: 1 }}>{template.description}</div>
@@ -370,7 +352,7 @@ function TerraformingScreen({ onCancel, mode, apiDone, onFinished }) {
                     </svg>
                   )}
                   {isCurrent && (
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#fff" }} />
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "var(--bg-100)" }} />
                   )}
                 </div>
 
@@ -726,6 +708,9 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       try { sessionStorage.removeItem(TEAM_SESSION_KEY); } catch {}
+      for (const w of teamProposal.workers) {
+        track("worker.created", { model: w.model, name: w.role });
+      }
       setDeploySuccess(true);
       setTimeout(() => { onComplete?.(); }, 2000);
     } catch (err) {
@@ -856,7 +841,10 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                 <span key={example}>
                   {i > 0 && <span style={{ margin: "0 6px" }}>&middot;</span>}
                   <span
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleExampleClick(example)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleExampleClick(example); } }}
                     style={{
                       cursor: "pointer", textDecoration: "underline",
                       textDecorationColor: "var(--border)", textUnderlineOffset: "3px",
@@ -1348,7 +1336,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                       disabled={activating}
                       style={{
                         padding: "10px 32px", fontSize: "14px", fontWeight: 700,
-                        background: "var(--green, #5bb98c)", color: "#fff",
+                        background: "var(--green, #5bb98c)", color: "var(--bg-100)",
                         border: "none", borderRadius: 8, cursor: "pointer",
                         fontFamily: "inherit", opacity: activating ? 0.5 : 1,
                       }}

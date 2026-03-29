@@ -20,6 +20,7 @@ function WorkerCard({ worker, onClick, index = 0 }) {
   return (
     <button
       onClick={onClick}
+      className="worker-card"
       aria-label={`View ${worker.name} — ${worker.status}`}
       style={{
         display: "flex", flexDirection: "column", gap: 0,
@@ -27,19 +28,8 @@ function WorkerCard({ worker, onClick, index = 0 }) {
         borderRadius: 12, cursor: "pointer",
         background: "var(--bg-surface, var(--bg-400))",
         textAlign: "left", fontFamily: "inherit",
-        transition: "border-color 200ms, box-shadow 200ms, transform 200ms",
         overflow: "hidden", width: "100%",
         animation: `cardEnter 0.3s cubic-bezier(0.16,1,0.3,1) ${index * 0.05}s both`,
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.borderColor = "var(--border-strong, var(--accent))";
-        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)";
-        e.currentTarget.style.transform = "translateY(-2px)";
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.borderColor = "var(--border)";
-        e.currentTarget.style.boxShadow = "none";
-        e.currentTarget.style.transform = "translateY(0)";
       }}
     >
       {/* Header: status bar + name */}
@@ -129,8 +119,9 @@ function WorkersListView({ onSelect, onCreate }) {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState(null);
   const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
-  useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch { setWorkers([]); } setLoading(false); })(); }, []);
+  useEffect(() => { (async () => { try { setError(null); const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch (err) { console.error("Failed to load workers:", err); setError("Failed to load workers. Please try again."); setWorkers([]); } setLoading(false); })(); }, []);
 
   const filteredWorkers = searchQuery.trim()
     ? workers.filter(w => {
@@ -149,8 +140,17 @@ function WorkersListView({ onSelect, onCreate }) {
         @keyframes workerCardPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes cardEnter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes shimmer { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+        .worker-card { transition: border-color 200ms, box-shadow 200ms, transform 200ms; }
+        .worker-card:hover { border-color: var(--border-strong, var(--accent)); box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); }
         @media (prefers-reduced-motion: reduce) { .worker-card, [style*="cardEnter"] { animation: none !important; } }
       `}</style>
+
+      {error && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", marginBottom: 16, borderRadius: 8, background: "var(--red-bg, rgba(196,58,58,0.08))", border: "1px solid var(--red, #c43a3a)", color: "var(--red, #c43a3a)", fontSize: "14px" }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "var(--red, #c43a3a)", cursor: "pointer", fontWeight: 700, fontSize: "16px", padding: "0 4px", lineHeight: 1 }} aria-label="Dismiss error">&times;</button>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>

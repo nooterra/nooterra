@@ -90,7 +90,26 @@ function FrontendErrorFallback() {
   );
 }
 
+class FallbackErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("FallbackErrorBoundary caught:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
 export function withFrontendSentryBoundary(children) {
-  if (!frontendSentryEnabled) return children;
+  if (!frontendSentryEnabled) {
+    return <FallbackErrorBoundary fallback={<FrontendErrorFallback />}>{children}</FallbackErrorBoundary>;
+  }
   return <Sentry.ErrorBoundary fallback={<FrontendErrorFallback />}>{children}</Sentry.ErrorBoundary>;
 }

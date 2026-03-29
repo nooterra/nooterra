@@ -33,24 +33,7 @@ import CommandPalette from "./components/CommandPalette.jsx";
 import { ToastContainer, useToasts } from "./components/ToastNotification.jsx";
 
 /* ===================================================================
-   FocusInput
-   =================================================================== */
-
-function FocusInput({ style, ...props }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      {...props}
-      style={{ ...S.input, ...style, ...(focused ? S.inputFocus : {}) }}
-      onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
-      onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
-    />
-  );
-}
-
-
-/* ===================================================================
-   Inline SVG icons
+   Inline SVG icons (local to ProductShell)
    =================================================================== */
 
 function SidebarToggleIcon({ size = 18 }) {
@@ -74,34 +57,6 @@ function SearchIcon({ size = 16 }) {
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
       <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
       <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SendArrow({ disabled, onClick }) {
-  return (
-    <button
-      onClick={onClick} disabled={disabled} aria-label="Send"
-      style={{
-        width: 32, height: 32, borderRadius: "50%",
-        background: disabled ? "var(--bg-hover)" : "var(--text-primary)",
-        border: "none", cursor: disabled ? "default" : "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0, transition: "opacity 150ms",
-        opacity: disabled ? 0.3 : 1,
-      }}
-    >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-        <path d="M8 12V4M4 8l4-4 4 4" stroke={disabled ? "var(--text-tertiary)" : "var(--bg-primary)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-}
-
-function CloseIcon({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" style={{ display: "block" }}>
-      <path d="M5 5l8 8M13 5l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -450,7 +405,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-100)", overflow: "hidden" }}>
       {/* ===== MOBILE RESPONSIVE — must be outside sidebar so it renders when sidebar is hidden ===== */}
       <style>{`
-        @media (max-width: 768px) {
+        @media (max-width: 820px) {
           .mobile-topbar { display: flex !important; }
           .mobile-overlay { display: block !important; }
           .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); width: min(240px, 80vw) !important; }
@@ -464,7 +419,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         height: 48, background: "var(--bg-400)", borderBottom: "1px solid var(--border)",
         alignItems: "center", padding: "0 12px", justifyContent: "space-between",
       }}>
-        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle menu" style={{
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle menu" aria-expanded={mobileMenuOpen} style={{
           background: "none", border: "none", cursor: "pointer", color: "var(--text-200)",
           padding: 8, display: "flex", alignItems: "center",
           minWidth: 44, minHeight: 44, justifyContent: "center",

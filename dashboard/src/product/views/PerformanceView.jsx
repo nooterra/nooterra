@@ -82,31 +82,43 @@ function PerformanceView() {
       {/* Worker performance table */}
       <div style={{ marginBottom: 40 }}>
         <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Worker performance</div>
-        <div>
-          {workers.map(w => {
-            const runs = w.totalRuns || w.total_runs || w.stats?.totalRuns || 0;
-            const cost = typeof w.cost === "number" ? w.cost : 0;
-            const lastRun = w.lastRun || w.lastRunAt || w.last_run_at;
-            return (
-              <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={S.statusDot(healthColor(w.status))} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</div>
-                  <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>
-                    {w.status}{w.schedule ? ` \u00b7 ${humanizeSchedule(w.schedule)}` : ""}
-                  </div>
-                </div>
-                <div style={{ fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 60 }}>
-                  <div>{runs} runs</div>
-                  <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 1 }}>{lastRun ? timeAgo(lastRun) : "\u2014"}</div>
-                </div>
-                <div style={{ fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 60 }}>
-                  ${cost.toFixed(2)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "left", borderBottom: "1px solid var(--border)" }}>Status</th>
+              <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "left", borderBottom: "1px solid var(--border)" }}>Worker</th>
+              <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "right", borderBottom: "1px solid var(--border)", minWidth: 60 }}>Runs</th>
+              <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "right", borderBottom: "1px solid var(--border)", minWidth: 60 }}>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {workers.map(w => {
+              const runs = w.totalRuns || w.total_runs || w.stats?.totalRuns || 0;
+              const cost = typeof w.cost === "number" ? w.cost : 0;
+              const lastRun = w.lastRun || w.lastRunAt || w.last_run_at;
+              return (
+                <tr key={w.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "14px 12px 14px 0", verticalAlign: "middle" }}>
+                    <span style={S.statusDot(healthColor(w.status))} />
+                  </td>
+                  <td style={{ padding: "14px 0", verticalAlign: "middle" }}>
+                    <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</div>
+                    <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>
+                      {w.status}{w.schedule ? ` \u00b7 ${humanizeSchedule(w.schedule)}` : ""}
+                    </div>
+                  </td>
+                  <td style={{ padding: "14px 0", fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 60, verticalAlign: "middle" }}>
+                    <div>{runs} runs</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 1 }}>{lastRun ? timeAgo(lastRun) : "\u2014"}</div>
+                  </td>
+                  <td style={{ padding: "14px 0", fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 60, verticalAlign: "middle" }}>
+                    ${cost.toFixed(2)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Cost breakdown */}

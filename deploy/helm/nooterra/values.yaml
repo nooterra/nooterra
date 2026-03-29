@@ -111,6 +111,16 @@ evidenceStore:
 config:
   exportDestinationsJson: "" # e.g. {"tenant_default":[{"destinationId":"dst","kind":"webhook","url":"https://...","secretRef":"file:/var/run/secrets/webhook_secret"}]}
 
+# Redis for distributed rate limiting and caching (optional).
+# If not set, falls back to in-memory rate limiting (single-instance only).
+redis:
+  url: "" # e.g. redis://redis:6379
+
+# OpenTelemetry tracing (optional).
+# If not set, tracing is disabled.
+otel:
+  endpoint: "" # e.g. http://otel-collector:4318
+
 # Mount extra secrets to support file:/... refs in config.
 extraSecretMounts: []
 # - name: webhook-secret
