@@ -104,7 +104,15 @@ function IntegrationsView() {
     if (integration.authType === "oauth") {
       const runtime = loadRuntimeConfig();
       const tenantId = runtime?.tenantId || "";
-      window.location.href = WORKER_API_BASE + integration.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
+      const oauthHref = WORKER_API_BASE + integration.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
+      const popup = window.open(oauthHref, "nooterra_oauth", "width=520,height=700,popup=yes");
+      if (!popup) {
+        window.location.href = oauthHref;
+        return;
+      }
+      const poll = setInterval(() => {
+        if (popup.closed) { clearInterval(poll); loadIntegrations(); }
+      }, 500);
       return;
     }
     setConnectModal(integration);

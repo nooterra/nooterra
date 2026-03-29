@@ -180,10 +180,16 @@ export default function App() {
   const trustEntryModes = new Set(["wallet", "approvals", "receipts", "disputes", "workspace"]);
   // OAuth callback — auto-close popup after brief success message
   const isOAuthCallback = route.mode === "oauth_callback";
+  const [oauthCloseFailed, setOauthCloseFailed] = useState(false);
   useEffect(() => {
     if (!isOAuthCallback) return;
     try { window.opener && window.opener.focus(); } catch(e) {}
-    const timer = setTimeout(() => { window.close(); }, 1500);
+    const timer = setTimeout(() => {
+      try { window.close(); } catch(e) {}
+      // window.close() is silently ignored when the browser didn't open this tab via JS.
+      // If we're still here after a beat, show a redirect fallback.
+      setTimeout(() => setOauthCloseFailed(true), 400);
+    }, 1500);
     return () => clearTimeout(timer);
   }, [isOAuthCallback]);
 
@@ -195,7 +201,11 @@ export default function App() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
           <div style={{ fontSize: "16px", fontWeight: 600, color: "#1a1a1a", marginBottom: 8 }}>Connected!</div>
-          <div style={{ fontSize: "13px", color: "#888" }}>This window will close automatically.</div>
+          {oauthCloseFailed ? (
+            <a href="/integrations" style={{ fontSize: "13px", color: "#5bb98c", textDecoration: "underline" }}>Return to Integrations</a>
+          ) : (
+            <div style={{ fontSize: "13px", color: "#888" }}>This window will close automatically.</div>
+          )}
         </div>
       </div>
     );
