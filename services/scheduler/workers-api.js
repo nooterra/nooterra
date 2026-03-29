@@ -37,8 +37,8 @@ function err(res, status, msg) {
 }
 
 const VALID_STATUSES = new Set(['ready', 'running', 'paused', 'error', 'archived']);
-const UPDATABLE = new Set(['name', 'description', 'charter', 'schedule', 'model', 'status', 'knowledge', 'triggers', 'provider_mode', 'byok_provider']);
-const JSON_FIELDS = new Set(['charter', 'schedule', 'knowledge', 'triggers']);
+const UPDATABLE = new Set(['name', 'description', 'charter', 'schedule', 'model', 'status', 'knowledge', 'triggers', 'provider_mode', 'byok_provider', 'chain']);
+const JSON_FIELDS = new Set(['charter', 'schedule', 'knowledge', 'triggers', 'chain']);
 
 /**
  * Handle a /v1/workers* request. Returns true if handled, false if not matched.
@@ -68,13 +68,13 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const id = generateId('wrk');
     const now = new Date().toISOString();
     const result = await pool.query(
-      `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, provider_mode, byok_provider, knowledge, triggers, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, provider_mode, byok_provider, knowledge, triggers, chain, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
       [id, tid, body.name.trim(), body.description ?? null,
        JSON.stringify(body.charter ?? {}), body.schedule ? JSON.stringify(body.schedule) : null,
        body.model ?? 'google/gemini-2.5-flash', body.provider_mode ?? 'platform',
        body.byok_provider ?? null, JSON.stringify(body.knowledge ?? []),
-       JSON.stringify(body.triggers ?? []), now, now]
+       JSON.stringify(body.triggers ?? []), body.chain ? JSON.stringify(body.chain) : null, now, now]
     );
     return json(res, 201, { worker: result.rows[0] }), true;
   }

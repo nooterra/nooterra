@@ -33,6 +33,7 @@ import CommandPalette from "./components/CommandPalette.jsx";
 import { ToastContainer, useToasts } from "./components/ToastNotification.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import OnboardingWizard from "./components/OnboardingWizard.jsx";
+import ProductTour from "./components/ProductTour.jsx";
 
 /* ===================================================================
    Inline SVG icons (local to ProductShell)
@@ -197,6 +198,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [userTier, setUserTier] = useState("free");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [tourComplete, setTourComplete] = useState(() => {
+    try { const s = localStorage.getItem("nooterra_tour_complete"); return s ? JSON.parse(s)?.tourComplete : false; } catch { return false; }
+  });
 
   useEffect(() => {
     function handleGlobalKey(e) {
@@ -341,6 +345,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     const active = sidebarActiveView === item.key;
     return (
       <button
+        data-tour={item.key}
         onClick={() => { if (item.action) item.action(); else navAndClose(item.key); }}
         style={{
           display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
@@ -472,6 +477,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         {/* New team button */}
         <div style={{ padding: "0 12px 8px" }}>
           <button
+            data-tour="builder"
             onClick={() => { setView("builder"); setMobileMenuOpen(false); }}
             style={{
               width: "100%", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)",
@@ -546,6 +552,10 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
       />
 
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      {onboardingComplete && !tourComplete && (
+        <ProductTour onComplete={() => setTourComplete(true)} />
+      )}
     </div>
   );
 }

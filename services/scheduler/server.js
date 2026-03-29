@@ -25,6 +25,7 @@ import { chatCompletionForWorker } from './providers/index.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
+import { getBuiltinTools, isBuiltinTool, executeBuiltinTool } from './builtin-tools.js';
 import { handleWorkerRoute } from './workers-api.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
@@ -580,7 +581,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
 
     addActivity('llm_call', `Calling ${worker.model}`);
 
-    // Build tools: merge charter-defined tools with connected integration tools
+    // Build tools: merge charter-defined tools with connected integration tools and builtins
     let tools = charter.tools && Array.isArray(charter.tools) ? [...charter.tools] : [];
     try {
       const integrationTools = await getAvailableTools(worker.tenant_id);
@@ -591,6 +592,9 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     } catch (toolErr) {
       addActivity('tools_warn', `Failed to load integration tools: ${toolErr.message}`);
     }
+    const builtinTools = getBuiltinTools();
+    tools.push(...builtinTools);
+    addActivity('tools_loaded', `${builtinTools.length} built-in tool(s) available`);
     if (tools.length === 0) tools = undefined;
 
     // Rate limit check before calling OpenRouter
@@ -763,6 +767,8 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             let toolResult;
             if (isShadowMode) {
               toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+            } else if (isBuiltinTool(tc.name)) {
+              toolResult = await executeBuiltinTool(tc.name, args);
             } else {
               toolResult = await executeTool(worker.tenant_id, tc.name, args);
             }
@@ -1023,6 +1029,34 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       });
     } catch (notifErr) {
       log('warn', `Notification delivery failed for ${executionId}: ${notifErr.message}`);
+    }
+
+    // Execution chaining: trigger the next worker if configured
+    try {
+      const chain = typeof worker.chain === 'string' ? JSON.parse(worker.chain) : worker.chain;
+      if (chain?.onComplete) {
+        const nextWorker = await pool.query(
+          'SELECT * FROM workers WHERE id = $1 AND tenant_id = $2',
+          [chain.onComplete, worker.tenant_id]
+        );
+        if (nextWorker.rows[0] && nextWorker.rows[0].status !== 'archived' && nextWorker.rows[0].status !== 'paused') {
+          const chainExecId = generateId('exec');
+          const chainActivity = chain.passResult
+            ? [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}`, data: finalResponse?.slice(0, 10000) }]
+            : [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}` }];
+          await pool.query(
+            `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity)
+             VALUES ($1, $2, $3, 'chain', 'queued', $4, $5, $6::jsonb)`,
+            [chainExecId, chain.onComplete, worker.tenant_id, nextWorker.rows[0].model, new Date().toISOString(), JSON.stringify(chainActivity)]
+          );
+          addActivity('chain', `Chained to worker "${nextWorker.rows[0].name}" (${chainExecId})`);
+          log('info', `Chain triggered: ${worker.name} -> ${nextWorker.rows[0].name} (${chainExecId})`);
+        } else if (!nextWorker.rows[0]) {
+          log('warn', `Chain target worker ${chain.onComplete} not found for worker ${worker.name}`);
+        }
+      }
+    } catch (chainErr) {
+      log('warn', `Chain execution failed for worker ${worker.name}: ${chainErr.message}`);
     }
 
     // Check for low balance and send budget alert

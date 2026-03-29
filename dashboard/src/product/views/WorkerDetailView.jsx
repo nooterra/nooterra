@@ -370,6 +370,30 @@ function SettingsTab({ worker, onUpdate }) {
   const [saving, setSaving] = useState(false);
   const modelInfo = ALL_MODELS.find(m => m.id === selectedModel);
 
+  // Chain config
+  const workerChain = typeof worker.chain === "string" ? (() => { try { return JSON.parse(worker.chain); } catch { return null; } })() : worker.chain;
+  const [chainTarget, setChainTarget] = useState(workerChain?.onComplete || "");
+  const [chainPassResult, setChainPassResult] = useState(workerChain?.passResult ?? true);
+  const [chainWorkers, setChainWorkers] = useState([]);
+  const [chainSaving, setChainSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        const all = result?.workers || result?.items || (Array.isArray(result) ? result : []);
+        setChainWorkers(all.filter(w => w.id !== worker.id && w.status !== "archived"));
+      } catch { setChainWorkers([]); }
+    })();
+  }, [worker.id]);
+
+  async function handleChainSave() {
+    setChainSaving(true);
+    const chainValue = chainTarget ? { onComplete: chainTarget, passResult: chainPassResult } : null;
+    await onUpdate("chain", chainValue);
+    setChainSaving(false);
+  }
+
   async function handleModelChange(newModel) {
     setSelectedModel(newModel);
     setSaving(true);
@@ -417,6 +441,72 @@ function SettingsTab({ worker, onUpdate }) {
         <label style={{ ...S.label, marginBottom: 4, display: "block" }}>Schedule</label>
         <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{humanizeSchedule(worker.schedule) || "Manual (on-demand)"}</div>
         <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>Schedule changes coming soon. Use the builder to set a schedule.</div>
+      </div>
+
+      {/* Execution Chain */}
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ ...S.label, marginBottom: 8, display: "block" }}>Execution Chain</label>
+        <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginBottom: 8 }}>After this worker completes, automatically run another worker.</div>
+        <select
+          value={chainTarget}
+          onChange={(e) => setChainTarget(e.target.value)}
+          style={{
+            width: "100%", padding: "8px 12px", borderRadius: 8,
+            border: "1px solid var(--border)", background: "var(--bg-surface, var(--bg-400))",
+            color: "var(--text-primary)", fontSize: "13px", fontFamily: "inherit",
+            cursor: "pointer", appearance: "auto",
+          }}
+        >
+          <option value="">None (no chain)</option>
+          {chainWorkers.map(w => (
+            <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
+        </select>
+
+        {chainTarget && (
+          <div style={{ marginTop: 10 }}>
+            <label style={{
+              display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+              fontSize: "13px", color: "var(--text-secondary)",
+            }}>
+              <input
+                type="checkbox"
+                checked={chainPassResult}
+                onChange={(e) => setChainPassResult(e.target.checked)}
+                style={{ accentColor: "var(--accent)" }}
+              />
+              Pass result as context to next worker
+            </label>
+
+            {/* Visual chain display */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8, marginTop: 12,
+              padding: "10px 14px", borderRadius: 8,
+              background: "var(--bg-surface, var(--bg-400))", border: "1px solid var(--border)",
+            }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{worker.name}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+              </svg>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}>
+                {chainWorkers.find(w => w.id === chainTarget)?.name || chainTarget}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleChainSave}
+          disabled={chainSaving}
+          style={{
+            marginTop: 10, padding: "6px 16px", borderRadius: 6, fontSize: "13px",
+            fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+            background: "var(--accent)", color: "#fff", border: "none",
+            opacity: chainSaving ? 0.5 : 1, transition: "opacity 150ms",
+          }}
+        >
+          {chainSaving ? "Saving..." : "Save chain"}
+        </button>
       </div>
 
       <div style={{ marginBottom: 24 }}>
