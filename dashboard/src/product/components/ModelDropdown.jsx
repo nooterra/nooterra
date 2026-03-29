@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ALL_MODELS, MODEL_CATEGORIES } from "../shared.js";
 
-function ModelDropdown({ model, onModelChange }) {
+function ModelDropdown({ model, onModelChange, providerFilter }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef(null);
@@ -19,13 +19,18 @@ function ModelDropdown({ model, onModelChange }) {
     if (open && searchRef.current) searchRef.current.focus();
   }, [open]);
 
+  // Filter models by provider if BYOK provider is selected
+  const baseModels = providerFilter
+    ? ALL_MODELS.filter(m => m.provider.toLowerCase() === providerFilter.toLowerCase() || m.id.startsWith(providerFilter + "/"))
+    : ALL_MODELS;
+
   const filtered = search.trim()
-    ? ALL_MODELS.filter(m =>
+    ? baseModels.filter(m =>
         m.name.toLowerCase().includes(search.toLowerCase()) ||
         m.provider.toLowerCase().includes(search.toLowerCase()) ||
         m.category.toLowerCase().includes(search.toLowerCase())
       )
-    : ALL_MODELS;
+    : baseModels;
 
   const priceColor = (price) => {
     if (price === "Free") return "var(--green)";

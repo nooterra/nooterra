@@ -8,10 +8,76 @@ import { loadRuntimeConfig } from "../api.js";
 import ModelDropdown from "../components/ModelDropdown.jsx";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
-import { AVAILABLE_INTEGRATIONS } from "./IntegrationsView.jsx";
+import { AVAILABLE_INTEGRATIONS, AI_PROVIDERS } from "./IntegrationsView.jsx";
 
 import { SendArrow } from "../components/shared.jsx";
 import { track } from "../analytics.js";
+
+
+/* ===================================================================
+   ProviderModeToggle — segmented control for BYOK
+   =================================================================== */
+
+const PROVIDER_MODE_OPTIONS = [
+  { key: "platform", label: "Platform (OpenRouter)" },
+  { key: "openai", label: "My OpenAI key" },
+  { key: "anthropic", label: "My Anthropic key" },
+];
+
+function ProviderModeToggle({ value, onChange, connectedProviders }) {
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center",
+      background: "var(--bg-200, var(--bg-surface))", border: "1px solid var(--border)",
+      borderRadius: 8, padding: 2, gap: 0, overflow: "hidden",
+    }}>
+      {PROVIDER_MODE_OPTIONS.map(opt => {
+        const isActive = (opt.key === "platform" && value === "platform") ||
+          (opt.key !== "platform" && value === opt.key);
+        const isByok = opt.key !== "platform";
+        const isConnected = isByok ? connectedProviders.has(opt.key) : true;
+        return (
+          <button
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            title={isByok && !isConnected ? `Connect your ${opt.key === "openai" ? "OpenAI" : "Anthropic"} key in Integrations first` : ""}
+            style={{
+              padding: "5px 12px", fontSize: "12px", fontWeight: isActive ? 600 : 400,
+              fontFamily: "inherit", color: isActive ? "var(--text-100, var(--text-primary))" : "var(--text-300, var(--text-tertiary))",
+              background: isActive ? "var(--bg-400, var(--bg-surface))" : "transparent",
+              border: "none", borderRadius: 6, cursor: "pointer",
+              transition: "all 150ms", whiteSpace: "nowrap", lineHeight: 1.4,
+              opacity: isByok && !isConnected ? 0.5 : 1,
+              boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProviderNotConnectedHint({ providerKey }) {
+  const name = providerKey === "openai" ? "OpenAI" : "Anthropic";
+  return (
+    <div style={{
+      fontSize: "12px", color: "var(--amber, #c08c30)", marginTop: 4,
+      display: "flex", alignItems: "center", gap: 4,
+    }}>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={() => navigate("/integrations")}
+        onKeyDown={e => { if (e.key === "Enter") navigate("/integrations"); }}
+        style={{ cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "2px" }}
+      >
+        Connect your {name} account in Integrations &rarr;
+      </span>
+    </div>
+  );
+}
 
 
 /* ===================================================================
@@ -152,9 +218,14 @@ function BuilderMessage({ msg, isStreaming, onWorkerDefDetected, onOptionClick }
    BuilderInputBox
    =================================================================== */
 
-function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder }) {
+function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChange, placeholder, providerMode, onProviderModeChange, connectedProviders }) {
   const [focused, setFocused] = useState(false);
   function handleKeyDown(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend?.(); } }
+
+  const isByok = providerMode && providerMode !== "platform";
+  const providerFilter = isByok ? (providerMode === "openai" ? "OpenAI" : "Anthropic") : null;
+  const isProviderConnected = isByok ? connectedProviders?.has(providerMode) : true;
+
   return (
     <div style={{ position: "relative", maxWidth: 680, width: "100%" }}>
       <div
@@ -163,7 +234,11 @@ function BuilderInputBox({ value, onChange, onSend, disabled, model, onModelChan
       >
         <AutoTextarea value={value} onChange={onChange} onKeyDown={handleKeyDown} placeholder={placeholder || "Describe what you need..."} disabled={disabled} autoFocus ariaLabel="Describe what you need" style={{ paddingLeft: "1rem" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px 10px" }}>
-          <ModelDropdown model={model} onModelChange={onModelChange} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <ProviderModeToggle value={providerMode || "platform"} onChange={onProviderModeChange} connectedProviders={connectedProviders || new Set()} />
+            {isByok && !isProviderConnected && <ProviderNotConnectedHint providerKey={providerMode} />}
+            <ModelDropdown model={model} onModelChange={onModelChange} providerFilter={providerFilter} />
+          </div>
           <SendArrow disabled={disabled || !value.trim()} onClick={onSend} />
         </div>
       </div>
@@ -490,6 +565,18 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [connectingIntegration, setConnectingIntegration] = useState(null);
   const [deploySuccess, setDeploySuccess] = useState(false);
   const textareaRef = useRef(null);
+  const [connectedProviders, setConnectedProviders] = useState(new Set());
+
+  // Load connected BYOK providers
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/providers", method: "GET" });
+        const connected = new Set((result?.providers || []).filter(p => p.connected).map(p => p.provider));
+        setConnectedProviders(connected);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   // Persist team proposal to sessionStorage so it survives app switches / reloads
   const TEAM_SESSION_KEY = "nooterra_team_draft";
@@ -695,15 +782,20 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           neverDo: worker.neverDo || [],
         };
         const scheduleValue = worker.schedule === "continuous" ? "continuous" : (worker.schedule || "0 9 * * *");
+        const workerBody = {
+          name: worker.role,
+          description: worker.description || "",
+          charter: JSON.stringify(charter),
+          schedule: scheduleValue,
+          model: worker.model || "openai/gpt-5.4-mini",
+        };
+        if (worker.provider_mode === "byok" && worker.byok_provider) {
+          workerBody.provider_mode = "byok";
+          workerBody.byok_provider = worker.byok_provider;
+        }
         await workerApiRequest({
           pathname: "/v1/workers", method: "POST",
-          body: {
-            name: worker.role,
-            description: worker.description || "",
-            charter: JSON.stringify(charter),
-            schedule: scheduleValue,
-            model: worker.model || "openai/gpt-5.4-mini",
-          },
+          body: workerBody,
         });
       }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
@@ -1098,39 +1190,76 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
                         </div>
                       );
                     })}
-                    {/* Model selector */}
+                    {/* Provider mode + Model selector */}
                     <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
                       <div style={{
                         fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
                         letterSpacing: "0.08em", color: "var(--text-300)",
                         marginBottom: 8, fontFamily: "var(--font-mono)",
+                      }}>Provider</div>
+                      <div onClick={e => e.stopPropagation()} style={{ marginBottom: 10 }}>
+                        <ProviderModeToggle
+                          value={worker.provider_mode === "byok" ? (worker.byok_provider || "platform") : "platform"}
+                          onChange={(key) => {
+                            const updated = { ...teamProposal };
+                            updated.workers = [...updated.workers];
+                            if (key === "platform") {
+                              updated.workers[idx] = { ...worker, provider_mode: "platform", byok_provider: null };
+                            } else {
+                              updated.workers[idx] = { ...worker, provider_mode: "byok", byok_provider: key };
+                            }
+                            setTeamProposal(updated);
+                          }}
+                          connectedProviders={connectedProviders}
+                        />
+                        {worker.provider_mode === "byok" && worker.byok_provider && !connectedProviders.has(worker.byok_provider) && (
+                          <ProviderNotConnectedHint providerKey={worker.byok_provider} />
+                        )}
+                      </div>
+                      <div style={{
+                        fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                        letterSpacing: "0.08em", color: "var(--text-300)",
+                        marginBottom: 8, fontFamily: "var(--font-mono)",
                       }}>Model</div>
-                      <select
-                        value={worker.model || ""}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => {
-                          e.stopPropagation();
-                          const updated = { ...teamProposal };
-                          updated.workers = [...updated.workers];
-                          updated.workers[idx] = { ...worker, model: e.target.value };
-                          setTeamProposal(updated);
-                        }}
-                        style={{
-                          width: "100%", padding: "8px 12px", fontSize: "13px",
-                          fontFamily: "var(--font-mono)", background: "var(--bg-100, var(--bg-400))",
-                          color: "var(--text-100)", border: "1px solid var(--border)",
-                          borderRadius: 8, outline: "none", cursor: "pointer",
-                          appearance: "auto",
-                        }}
-                      >
-                        {MODEL_CATEGORIES.map(cat => (
-                          <optgroup key={cat.key} label={cat.label}>
-                            {ALL_MODELS.filter(m => m.category === cat.key).map(m => (
-                              <option key={m.id} value={m.id}>{m.name} — {m.price}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                      {(() => {
+                        const isByok = worker.provider_mode === "byok" && worker.byok_provider;
+                        const providerName = isByok ? (worker.byok_provider === "openai" ? "OpenAI" : "Anthropic") : null;
+                        const filteredModels = isByok
+                          ? ALL_MODELS.filter(m => m.provider.toLowerCase() === worker.byok_provider || m.id.startsWith(worker.byok_provider + "/"))
+                          : ALL_MODELS;
+                        return (
+                          <select
+                            value={worker.model || ""}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => {
+                              e.stopPropagation();
+                              const updated = { ...teamProposal };
+                              updated.workers = [...updated.workers];
+                              updated.workers[idx] = { ...worker, model: e.target.value };
+                              setTeamProposal(updated);
+                            }}
+                            style={{
+                              width: "100%", padding: "8px 12px", fontSize: "13px",
+                              fontFamily: "var(--font-mono)", background: "var(--bg-100, var(--bg-400))",
+                              color: "var(--text-100)", border: "1px solid var(--border)",
+                              borderRadius: 8, outline: "none", cursor: "pointer",
+                              appearance: "auto",
+                            }}
+                          >
+                            {MODEL_CATEGORIES.map(cat => {
+                              const catModels = filteredModels.filter(m => m.category === cat.key);
+                              if (catModels.length === 0) return null;
+                              return (
+                                <optgroup key={cat.key} label={cat.label}>
+                                  {catModels.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name} — {m.price}</option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
+                          </select>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

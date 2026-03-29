@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { S, STATUS_COLORS, timeAgo, humanizeSchedule, workerApiRequest } from "../shared.js";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { S, STATUS_COLORS, timeAgo, humanizeSchedule, workerApiRequest, WORKER_API_BASE } from "../shared.js";
+import { loadRuntimeConfig } from "../api.js";
 import ExecutionTraceViewer from "../components/ExecutionTraceViewer.jsx";
 
 function PerformanceView() {
@@ -20,18 +21,91 @@ function PerformanceView() {
     })();
   }, []);
 
+  const [liveStream, setLiveStream] = useState(false);
+  const abortRef = useRef(null);
+
+  // Clean up SSE stream on unmount
+  useEffect(() => {
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, []);
+
+  function startSSEStream(workerId, execId, workerName) {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const runtime = loadRuntimeConfig();
+    const url = `${WORKER_API_BASE}/v1/workers/${workerId}/executions/${execId}/stream`;
+
+    setLiveStream(true);
+    setSelectedExecution(prev => ({ ...(prev || {}), workerName, _streaming: true }));
+
+    (async () => {
+      try {
+        const response = await fetch(url, {
+          headers: { "x-tenant-id": runtime.tenantId },
+          signal: controller.signal,
+        });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); // keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const event = JSON.parse(line.slice(6));
+                setSelectedExecution(prev => {
+                  if (!prev) return prev;
+                  const activity = [...(prev.activity || []), event];
+                  return { ...prev, activity };
+                });
+                // End stream on terminal events
+                if (event.type === "complete" || event.type === "error") {
+                  setLiveStream(false);
+                  controller.abort();
+                  return;
+                }
+              } catch { /* ignore malformed SSE data */ }
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          setLiveStream(false);
+        }
+      }
+    })();
+  }
+
   async function handleViewTrace(worker) {
+    if (abortRef.current) abortRef.current.abort();
+    setLiveStream(false);
     setTraceLoading(true);
     try {
       const result = await workerApiRequest({
         pathname: `/v1/workers/${worker.id}/executions/latest`,
         method: "GET",
       });
-      setSelectedExecution({
+      const activity = result?.activity || result?.events || [];
+      const exec = {
         ...result,
         workerName: worker.name,
-        activity: result?.activity || result?.events || [],
-      });
+        activity,
+      };
+      setSelectedExecution(exec);
+
+      // If worker is running and execution is in progress, open SSE stream
+      const lastEvent = activity[activity.length - 1];
+      const isTerminal = lastEvent?.type === "complete" || lastEvent?.type === "error";
+      if (worker.status === "running" && result?.id && !isTerminal) {
+        startSSEStream(worker.id, result.id, worker.name);
+      }
     } catch {
       setSelectedExecution({
         workerName: worker.name,
@@ -75,7 +149,12 @@ function PerformanceView() {
         <ExecutionTraceViewer
           execution={selectedExecution}
           activity={selectedExecution.activity}
-          onClose={() => setSelectedExecution(null)}
+          live={liveStream}
+          onClose={() => {
+            if (abortRef.current) abortRef.current.abort();
+            setLiveStream(false);
+            setSelectedExecution(null);
+          }}
         />
       </div>
     );

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 /* ── Event type metadata ─────────────────────────────────────────── */
 const EVENT_META = {
@@ -154,13 +154,40 @@ function EventRow({ event, baseMs, isLast }) {
   );
 }
 
+/* ── Live badge ──────────────────────────────────────────────────── */
+
+function LiveBadge() {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "11px", fontWeight: 700, color: "var(--product-good, #2f6d56)", background: "var(--product-good-bg, rgba(47,109,86,0.12))", padding: "2px 8px", borderRadius: 6 }}>
+      <span style={{
+        display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+        background: "var(--product-good, #2f6d56)",
+        animation: "livePulse 1.5s ease-in-out infinite",
+      }} />
+      Live
+      <style>{`@keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }`}</style>
+    </span>
+  );
+}
+
 /* ── Main component ──────────────────────────────────────────────── */
 
-function ExecutionTraceViewer({ execution, activity, onClose }) {
+function ExecutionTraceViewer({ execution, activity, onClose, live, onNewActivity }) {
+  const timelineEndRef = useRef(null);
+  const prevLengthRef = useRef(activity?.length || 0);
+
+  // Auto-scroll to bottom when new events arrive in live mode
+  useEffect(() => {
+    if (live && activity && activity.length > prevLengthRef.current) {
+      timelineEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+    prevLengthRef.current = activity?.length || 0;
+  }, [live, activity?.length]);
+
   if (!activity || activity.length === 0) {
     return (
       <div style={{ padding: "2rem 0", textAlign: "center", color: "var(--product-ink-soft, var(--text-tertiary))", fontSize: "14px" }}>
-        No activity recorded for this execution.
+        {live ? "Waiting for events..." : "No activity recorded for this execution."}
       </div>
     );
   }
@@ -183,6 +210,7 @@ function ExecutionTraceViewer({ execution, activity, onClose }) {
           <div style={{ fontSize: "15px", fontWeight: 700, color: "var(--product-ink-strong, var(--text-primary))" }}>
             Execution trace
           </div>
+          {live && <LiveBadge />}
         </div>
         <div style={{ fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))" }}>
           {activity.length} event{activity.length !== 1 ? "s" : ""}
@@ -202,6 +230,7 @@ function ExecutionTraceViewer({ execution, activity, onClose }) {
             isLast={i === activity.length - 1}
           />
         ))}
+        <div ref={timelineEndRef} />
       </div>
     </div>
   );

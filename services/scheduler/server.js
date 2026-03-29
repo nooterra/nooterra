@@ -1631,8 +1631,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // --- Worker CRUD + credits routes ---
-  if (pathname.startsWith('/v1/workers') || pathname === '/v1/credits') {
+  // --- Worker CRUD + credits + provider routes ---
+  if (pathname.startsWith('/v1/workers') || pathname === '/v1/credits' || pathname.startsWith('/v1/providers')) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const handled = await handleWorkerRoute(req, res, pool, pathname, url.searchParams);
     if (handled) return;
@@ -1681,6 +1681,8 @@ async function ensureTables() {
       knowledge TEXT DEFAULT '',
       schedule TEXT DEFAULT 'on_demand',
       model TEXT DEFAULT 'openai/gpt-5.4-mini',
+      provider_mode TEXT NOT NULL DEFAULT 'platform',
+      byok_provider TEXT,
       status TEXT DEFAULT 'ready',
       last_run_at TIMESTAMPTZ,
       total_runs INTEGER DEFAULT 0,

@@ -31,6 +31,8 @@ const IntegrationsView = React.lazy(() => import("./views/IntegrationsView.jsx")
 import SettingsModal from "./components/SettingsModal.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
 import { ToastContainer, useToasts } from "./components/ToastNotification.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import OnboardingWizard from "./components/OnboardingWizard.jsx";
 
 /* ===================================================================
    Inline SVG icons (local to ProductShell)
@@ -176,6 +178,11 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
    =================================================================== */
 
 function AppShell({ initialView = "home", userEmail, isFirstTime }) {
+  const [onboardingComplete, setOnboardingComplete] = useState(() => {
+    const s = loadOnboardingState();
+    return !!(s?.onboardingComplete || s?.completed);
+  });
+
   const needsWorkerCheck = initialView === "home" || initialView === "builder";
   const [view, setView] = useState(() => {
     if (!needsWorkerCheck) return initialView;
@@ -388,18 +395,30 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   // --- Determine what content shows (inline, NOT a component — avoids Suspense remount) ---
   const mainContent = view === null ? suspenseFallback : (
-    view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} addToast={addToast} />
-    : view === "team" ? <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
-    : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} addToast={addToast} /></div>
-    : view === "inbox" || view === "approvals" ? <div style={S.main}><InboxView /></div>
-    : view === "activity" || view === "receipts" ? <div style={S.main}><ReceiptsView /></div>
-    : view === "performance" ? <div style={S.main}><PerformanceView /></div>
-    : view === "connections" || view === "integrations" ? <div style={S.main}><IntegrationsView /></div>
-    : <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
+    view === "builder" ? <ErrorBoundary name="BuilderView" key="builder"><BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} addToast={addToast} /></ErrorBoundary>
+    : view === "team" ? <div style={S.main}><ErrorBoundary name="WorkersListView" key="team"><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></ErrorBoundary></div>
+    : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><ErrorBoundary name="WorkerDetailView" key="workerDetail"><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} addToast={addToast} /></ErrorBoundary></div>
+    : view === "inbox" || view === "approvals" ? <div style={S.main}><ErrorBoundary name="InboxView" key="inbox"><InboxView /></ErrorBoundary></div>
+    : view === "activity" || view === "receipts" ? <div style={S.main}><ErrorBoundary name="ReceiptsView" key="activity"><ReceiptsView /></ErrorBoundary></div>
+    : view === "performance" ? <div style={S.main}><ErrorBoundary name="PerformanceView" key="performance"><PerformanceView /></ErrorBoundary></div>
+    : view === "connections" || view === "integrations" ? <div style={S.main}><ErrorBoundary name="IntegrationsView" key="connections"><IntegrationsView /></ErrorBoundary></div>
+    : <div style={S.main}><ErrorBoundary name="WorkersListView" key="default"><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></ErrorBoundary></div>
   );
 
   // Close mobile menu when navigating
   const navAndClose = (dest) => { handleNavigate(dest); setMobileMenuOpen(false); };
+
+  // Show onboarding wizard for first-time users who haven't completed it
+  if (!onboardingComplete && isFirstTime) {
+    return (
+      <OnboardingWizard
+        onComplete={() => {
+          setOnboardingComplete(true);
+          setView("team");
+        }}
+      />
+    );
+  }
 
   return (
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-100)", overflow: "hidden" }}>

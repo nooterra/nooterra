@@ -481,6 +481,116 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
   }
 
+  // POST /v1/providers/openai/validate — validate OpenAI API key
+  if (method === 'POST' && pathname === '/v1/providers/openai/validate') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body?.apiKey) return err(res, 400, 'apiKey is required'), true;
+    try {
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${body.apiKey}` },
+      });
+      if (!resp.ok) {
+        const e = await resp.json().catch(() => ({}));
+        return err(res, 401, e?.error?.message || 'Invalid API key'), true;
+      }
+      const data = await resp.json();
+      const modelCount = data?.data?.length || 0;
+      return json(res, 200, { ok: true, models: modelCount }), true;
+    } catch (e) {
+      return err(res, 502, 'Failed to reach OpenAI API'), true;
+    }
+  }
+
+  // POST /v1/providers/anthropic/validate — validate Anthropic API key
+  if (method === 'POST' && pathname === '/v1/providers/anthropic/validate') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body?.apiKey) return err(res, 400, 'apiKey is required'), true;
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': body.apiKey, 'anthropic-version': '2023-06-01' },
+      });
+      if (!resp.ok) {
+        const e = await resp.json().catch(() => ({}));
+        return err(res, 401, e?.error?.message || 'Invalid API key'), true;
+      }
+      return json(res, 200, { ok: true }), true;
+    } catch (e) {
+      return err(res, 502, 'Failed to reach Anthropic API'), true;
+    }
+  }
+
+  // POST /v1/providers — store a provider API key
+  if (method === 'POST' && pathname === '/v1/providers') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body?.provider || !body?.apiKey) return err(res, 400, 'provider and apiKey are required'), true;
+    const allowed = new Set(['openai', 'anthropic']);
+    if (!allowed.has(body.provider)) return err(res, 400, `unsupported provider: ${body.provider}`), true;
+    // Use a tenant-scoped worker_id to avoid collisions: "tenant:{tid}"
+    const systemWorkerId = `tenant:${tid}`;
+    const memKey = `provider_${body.provider}_key`;
+    try {
+      // Delete existing entry then insert (upsert via delete+insert for compatibility)
+      await pool.query(
+        `DELETE FROM worker_memory WHERE worker_id = $1 AND key = $2`,
+        [systemWorkerId, memKey]
+      );
+      await pool.query(
+        `INSERT INTO worker_memory (id, worker_id, tenant_id, scope, key, value, updated_at)
+         VALUES ($1, $2, $3, 'tenant', $4, $5, NOW())`,
+        [generateId('mem'), systemWorkerId, tid, memKey, body.apiKey]
+      );
+      return json(res, 200, { ok: true, provider: body.provider }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to store provider key'), true;
+    }
+  }
+
+  // GET /v1/providers — list connected providers (masked keys)
+  if (method === 'GET' && pathname === '/v1/providers') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const systemWorkerId = `tenant:${tid}`;
+    try {
+      const result = await pool.query(
+        `SELECT key, value FROM worker_memory WHERE worker_id = $1 AND scope = 'tenant' AND key LIKE 'provider_%_key'`,
+        [systemWorkerId]
+      );
+      const providers = result.rows.map(row => {
+        const provider = row.key.replace('provider_', '').replace('_key', '');
+        const masked = row.value ? '****' + row.value.slice(-4) : '';
+        return { provider, connected: true, maskedKey: masked };
+      });
+      return json(res, 200, { providers }), true;
+    } catch {
+      return json(res, 200, { providers: [] }), true;
+    }
+  }
+
+  // DELETE /v1/providers/:provider — remove a provider key
+  const providerDeleteMatch = pathname.match(/^\/v1\/providers\/(openai|anthropic)$/);
+  if (method === 'DELETE' && providerDeleteMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const provider = providerDeleteMatch[1];
+    const systemWorkerId = `tenant:${tid}`;
+    const memKey = `provider_${provider}_key`;
+    try {
+      await pool.query(
+        `DELETE FROM worker_memory WHERE worker_id = $1 AND key = $2`,
+        [systemWorkerId, memKey]
+      );
+      return json(res, 200, { ok: true }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to remove provider key'), true;
+    }
+  }
+
   // GET /v1/credits — credit balance
   if (method === 'GET' && pathname === '/v1/credits') {
     const tid = getTenantId(req);
