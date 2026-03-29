@@ -239,6 +239,69 @@ async function saveWorkerMemory(workerId, tenantId, key, value, scope = 'worker'
   }
 }
 
+/**
+ * Parse REMEMBER: and TEAM_NOTE: entries from LLM output.
+ * Supports single-line format:
+ *   REMEMBER: some fact
+ * And multiline format:
+ *   REMEMBER: first line
+ *   continuation lines
+ *   END_REMEMBER
+ * Returns array of { content, scope } objects.
+ */
+function parseMemoryEntries(text) {
+  const entries = [];
+  const lines = text.split('\n');
+  const seen = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    let tag = null;
+    let scope = null;
+    let endMarker = null;
+
+    if (trimmed.startsWith('REMEMBER:')) {
+      tag = 'REMEMBER:';
+      scope = 'worker';
+      endMarker = 'END_REMEMBER';
+    } else if (trimmed.startsWith('TEAM_NOTE:')) {
+      tag = 'TEAM_NOTE:';
+      scope = 'team';
+      endMarker = 'END_TEAM_NOTE';
+    }
+
+    if (!tag) continue;
+
+    const firstLine = trimmed.replace(new RegExp('^' + tag.replace(':', '\\:') + '\\s*', 'i'), '').trim();
+
+    // Check if a multiline block follows (look for END marker)
+    let multilineContent = null;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === endMarker) {
+        // Collect everything from firstLine through lines before END marker
+        const extraLines = lines.slice(i + 1, j).map(l => l.trimEnd());
+        multilineContent = [firstLine, ...extraLines].join('\n').trim();
+        i = j; // skip past END marker
+        break;
+      }
+      // Stop scanning if we hit another REMEMBER/TEAM_NOTE (no END marker found)
+      if (lines[j].trim().startsWith('REMEMBER:') || lines[j].trim().startsWith('TEAM_NOTE:')) break;
+    }
+
+    const content = multilineContent || firstLine;
+    if (!content) continue;
+
+    // Deduplicate by key
+    const key = content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    entries.push({ content, scope });
+  }
+
+  return entries;
+}
+
 async function ensureWorkerMemoryTable() {
   try {
     await pool.query(`
@@ -373,6 +436,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     'trigger.type': triggerType,
   }, async () => {
   const startedAt = new Date();
+  const executionDeadline = Date.now() + 5 * 60 * 1000; // 5-minute per-execution timeout
   const activity = [];
   const isResume = triggerType === 'approval_resume' && resumeContext?.approvedToolCalls;
 
@@ -745,6 +809,44 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           break;
         }
 
+        // Per-execution timeout check (5 minutes)
+        if (Date.now() >= executionDeadline) {
+          addActivity('error', 'Execution timeout exceeded (5 min)');
+          log('warn', `Execution ${executionId} hit 5-minute deadline`);
+          await updateExecution(executionId, {
+            status: 'failed',
+            completedAt: new Date(),
+            error: 'Execution timeout exceeded',
+            activity,
+            model: worker.model,
+            tokensIn: totalPromptTokens,
+            tokensOut: totalCompletionTokens,
+            costUsd: totalCost,
+            rounds,
+            toolCalls: toolCallCount,
+            result: finalResponse?.slice(0, 50000),
+          });
+          await deductCredits(worker.tenant_id, totalCost, executionId);
+          return;
+        }
+
+        // Overspend protection — check tenant balance after each round
+        try {
+          const roundBalance = await pool.query(
+            'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
+            [worker.tenant_id]
+          );
+          const currentBalance = parseFloat(roundBalance.rows[0]?.balance_usd ?? 0);
+          if (currentBalance < MIN_BALANCE_THRESHOLD) {
+            addActivity('error', 'Insufficient balance — execution stopped');
+            log('warn', `Execution ${executionId} stopped: tenant ${worker.tenant_id} balance $${currentBalance.toFixed(4)} < $${MIN_BALANCE_THRESHOLD}`);
+            break;
+          }
+        } catch (balErr) {
+          log('warn', `Balance check failed during agentic loop: ${balErr.message}`);
+          // Fail open — don't kill execution if the check itself fails
+        }
+
         // Rate limit check for subsequent LLM rounds
         if (!canCallOpenRouter()) {
           addActivity('rate_limited', `Round ${rounds}: rate limited, stopping agentic loop`);
@@ -874,23 +976,17 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     // Extract and save memory entries from LLM response
     // REMEMBER: saves to this worker only
     // TEAM_NOTE: saves to shared team memory (all workers can see it)
+    // Supports both single-line and multiline (END_REMEMBER / END_TEAM_NOTE) formats
     if (finalResponse) {
-      for (const line of finalResponse.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('REMEMBER:')) {
-          const content = trimmed.replace(/^REMEMBER:\s*/i, '').trim();
-          if (content) {
-            const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-            await saveWorkerMemory(worker.id, worker.tenant_id, key, content, 'worker');
-            addActivity('memory', `Saved memory: "${key}"`);
-          }
-        } else if (trimmed.startsWith('TEAM_NOTE:')) {
-          const content = trimmed.replace(/^TEAM_NOTE:\s*/i, '').trim();
-          if (content) {
-            const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-            await saveWorkerMemory(worker.id, worker.tenant_id, key, content, 'team');
-            addActivity('memory', `Shared with team: "${key}"`);
-          }
+      const memoryEntries = parseMemoryEntries(finalResponse);
+      for (const entry of memoryEntries) {
+        const key = entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+        if (!key) continue;
+        await saveWorkerMemory(worker.id, worker.tenant_id, key, entry.content, entry.scope);
+        if (entry.scope === 'team') {
+          addActivity('memory', `Shared with team: "${key}"`);
+        } else {
+          addActivity('memory', `Saved memory: "${key}"`);
         }
       }
     }
@@ -1384,21 +1480,11 @@ async function handleWorkerChat(req, res, workerId) {
 
         // Extract memory from response
         if (event.response) {
-          for (const line of event.response.split('\n')) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('REMEMBER:')) {
-              const content = trimmed.replace(/^REMEMBER:\s*/i, '').trim();
-              if (content) {
-                const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-                await saveWorkerMemory(worker.id, tenantId, key, content, 'worker');
-              }
-            } else if (trimmed.startsWith('TEAM_NOTE:')) {
-              const content = trimmed.replace(/^TEAM_NOTE:\s*/i, '').trim();
-              if (content) {
-                const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-                await saveWorkerMemory(worker.id, tenantId, key, content, 'team');
-              }
-            }
+          const memoryEntries = parseMemoryEntries(event.response);
+          for (const entry of memoryEntries) {
+            const key = entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+            if (!key) continue;
+            await saveWorkerMemory(worker.id, tenantId, key, entry.content, entry.scope);
           }
         }
 
@@ -1710,16 +1796,17 @@ async function ensureTables() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS approvals (
-      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    CREATE TABLE IF NOT EXISTS worker_approvals (
+      id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
-      worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
-      action TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      execution_id TEXT,
+      tool_name TEXT,
+      tool_args JSONB,
       rule TEXT,
-      detail TEXT,
       status TEXT DEFAULT 'pending',
-      decided_at TIMESTAMPTZ,
       decided_by TEXT,
+      decided_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
@@ -1746,7 +1833,8 @@ async function ensureTables() {
     CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule, status);
     CREATE INDEX IF NOT EXISTS idx_executions_worker ON executions(worker_id);
     CREATE INDEX IF NOT EXISTS idx_executions_tenant ON executions(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_approvals_tenant_status ON approvals(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_approvals_tenant_status ON worker_approvals(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_approvals_worker ON worker_approvals(worker_id);
     CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON integrations(tenant_id);
   `);
 

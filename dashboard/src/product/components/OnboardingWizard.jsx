@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  WORKER_TEMPLATES,
+  WORKER_TEMPLATES, WORKER_API_BASE,
   workerApiRequest, saveOnboardingState, loadOnboardingState,
 } from "../shared.js";
+import { loadRuntimeConfig } from "../api.js";
+import { AVAILABLE_INTEGRATIONS } from "../views/IntegrationsView.jsx";
 
 /* ===================================================================
    Styles
@@ -93,6 +95,11 @@ const INTEGRATIONS = [
   { key: "github", name: "GitHub", icon: "\u{1F4BB}" },
 ];
 
+/* Look up full integration config from IntegrationsView */
+function getIntegrationConfig(key) {
+  return AVAILABLE_INTEGRATIONS.find(i => i.key === key);
+}
+
 /* ===================================================================
    Steps
    =================================================================== */
@@ -124,11 +131,16 @@ function WelcomeStep({ workspaceName, setWorkspaceName, onNext }) {
   );
 }
 
-function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack, creating }) {
+function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack, creating, error }) {
   return (
     <div>
       <h1 style={W.heading}>Create your first worker</h1>
       <p style={W.sub}>Pick a template to start with. You can customize everything later.</p>
+      {error && (
+        <div style={{ padding: "10px 14px", marginBottom: 14, borderRadius: 8, background: "rgba(196,58,58,0.08)", border: "1px solid var(--red, #c43a3a)", color: "var(--red, #c43a3a)", fontSize: 14, lineHeight: 1.5 }}>
+          {error}
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {WORKER_TEMPLATES.map((tpl, i) => (
           <div
@@ -152,13 +164,20 @@ function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack
       </div>
       <div style={W.footer}>
         <button style={W.btnSecondary} onClick={onBack}>Back</button>
-        <button
-          style={{ ...W.btn, opacity: selectedTemplate === null || creating ? 0.4 : 1 }}
-          disabled={selectedTemplate === null || creating}
-          onClick={onNext}
-        >
-          {creating ? "Creating..." : "Create worker"}
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          {error && (
+            <button style={W.btnSecondary} onClick={onNext}>
+              Retry
+            </button>
+          )}
+          <button
+            style={{ ...W.btn, opacity: selectedTemplate === null || creating ? 0.4 : 1 }}
+            disabled={selectedTemplate === null || creating}
+            onClick={onNext}
+          >
+            {creating ? "Creating..." : "Create worker"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -166,10 +185,39 @@ function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack
 
 function ConnectStep({ onDone, onBack }) {
   const [connected, setConnected] = useState({});
+  const pollRef = useRef(null);
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   function handleConnect(key) {
-    // Mark as "connected" for UI purposes -- actual OAuth would redirect
-    setConnected(prev => ({ ...prev, [key]: !prev[key] }));
+    const config = getIntegrationConfig(key);
+    if (!config) return;
+
+    // Non-OAuth integrations (webhook, apikey) -- skip for onboarding
+    if (config.authType !== "oauth") {
+      setConnected(prev => ({ ...prev, [key]: "later" }));
+      return;
+    }
+
+    // Open OAuth popup (same pattern as IntegrationsView)
+    const runtime = loadRuntimeConfig();
+    const tenantId = runtime?.tenantId || "";
+    const oauthHref = WORKER_API_BASE + config.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
+    const popup = window.open(oauthHref, "nooterra_oauth", "width=520,height=700,popup=yes");
+    if (!popup) {
+      window.location.href = oauthHref;
+      return;
+    }
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setConnected(prev => ({ ...prev, [key]: true }));
+      }
+    }, 500);
   }
 
   return (
@@ -191,8 +239,11 @@ function ConnectStep({ onDone, onBack }) {
           >
             <span style={{ fontSize: 20 }}>{intg.icon}</span>
             <span style={{ flex: 1, textAlign: "left" }}>{intg.name}</span>
-            {connected[intg.key] && (
+            {connected[intg.key] === true && (
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--green, #2a9d6e)" }}>Connected</span>
+            )}
+            {connected[intg.key] === "later" && (
+              <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-300, #8a8a82)" }}>Configure later</span>
             )}
           </button>
         ))}
@@ -217,10 +268,12 @@ function OnboardingWizard({ onComplete }) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
 
   async function handleCreateWorker() {
     if (selectedTemplate === null) return;
     setCreating(true);
+    setCreateError(null);
     const tpl = WORKER_TEMPLATES[selectedTemplate];
     try {
       await workerApiRequest({
@@ -234,9 +287,13 @@ function OnboardingWizard({ onComplete }) {
           charter: tpl.charter,
         },
       });
-    } catch { /* non-fatal -- worker may still be created */ }
-    setCreating(false);
-    setStep(2);
+      setCreating(false);
+      setStep(2);
+    } catch (err) {
+      console.error("Failed to create worker:", err);
+      setCreateError("Failed to create worker. Check your connection and try again.");
+      setCreating(false);
+    }
   }
 
   function handleDone() {
@@ -269,6 +326,7 @@ function OnboardingWizard({ onComplete }) {
             onNext={handleCreateWorker}
             onBack={() => setStep(0)}
             creating={creating}
+            error={createError}
           />
         )}
         {step === 2 && (

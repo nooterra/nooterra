@@ -377,7 +377,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     // Send initial snapshot
     try {
       const result = await pool.query(
-        'SELECT * FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL ORDER BY created_at DESC LIMIT 20',
+        `SELECT * FROM worker_approvals WHERE tenant_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 20`,
         [tenantId]
       );
       res.write(`event: snapshot\ndata: ${JSON.stringify(result.rows)}\n\n`);
@@ -388,14 +388,14 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const pollInterval = setInterval(async () => {
       try {
         const result = await pool.query(
-          'SELECT COUNT(*)::int as count FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL',
+          `SELECT COUNT(*)::int as count FROM worker_approvals WHERE tenant_id = $1 AND status = 'pending'`,
           [tenantId]
         );
         const count = result.rows[0]?.count || 0;
         if (count !== lastCount) {
           lastCount = count;
           const pending = await pool.query(
-            'SELECT * FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL ORDER BY created_at DESC LIMIT 20',
+            `SELECT * FROM worker_approvals WHERE tenant_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 20`,
             [tenantId]
           );
           res.write(`event: update\ndata: ${JSON.stringify({ count, items: pending.rows })}\n\n`);
@@ -442,8 +442,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const approvalId = pathname.split('/')[3];
     try {
       const result = await pool.query(
-        `UPDATE worker_approvals SET decision = 'approved', decided_by = $1, decided_at = NOW()
-         WHERE id = $2 AND tenant_id = $3 AND decision = 'pending'
+        `UPDATE worker_approvals SET status = 'approved', decided_by = $1, decided_at = NOW()
+         WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
          RETURNING id, worker_id, tool_name`,
         [tid, approvalId, tid]
       );
@@ -462,8 +462,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const approvalId = pathname.split('/')[3];
     try {
       const result = await pool.query(
-        `UPDATE worker_approvals SET decision = 'denied', decided_by = $1, decided_at = NOW()
-         WHERE id = $2 AND tenant_id = $3 AND decision = 'pending'
+        `UPDATE worker_approvals SET status = 'denied', decided_by = $1, decided_at = NOW()
+         WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
          RETURNING id, worker_id, tool_name`,
         [tid, approvalId, tid]
       );

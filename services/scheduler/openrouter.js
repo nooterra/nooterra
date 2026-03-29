@@ -41,11 +41,12 @@ async function sleep(ms) {
 /**
  * Fetch with automatic retry on 429 and 5xx errors.
  */
-async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
+async function fetchWithRetry(url, options, retries = MAX_RETRIES, signal = null) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      const fetchOpts = signal ? { ...options, signal } : options;
+      const res = await fetch(url, fetchOpts);
 
       if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
         if (attempt < retries) {
@@ -132,7 +133,7 @@ function createSSEParser() {
  * @param {boolean} [params.stream=false] - Enable streaming
  * @returns {Object|AsyncGenerator} Non-streaming: { response, toolCalls, usage }. Streaming: async generator.
  */
-async function chatCompletion({ model, messages, tools, maxTokens = 4096, temperature = 0.2, stream = false }) {
+async function chatCompletion({ model, messages, tools, maxTokens = 4096, temperature = 0.2, stream = false, signal }) {
   if (!model) throw new Error('model is required');
   if (!messages || !messages.length) throw new Error('messages array is required');
 
@@ -162,7 +163,7 @@ async function chatCompletion({ model, messages, tools, maxTokens = 4096, temper
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify(body),
-  });
+  }, MAX_RETRIES, signal);
 
   const data = await res.json();
   const choice = data.choices?.[0];

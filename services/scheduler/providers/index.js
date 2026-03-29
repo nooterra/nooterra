@@ -49,7 +49,14 @@ async function chatCompletionForWorker(worker, params) {
     params = { ...params, apiKey: worker.byok_api_key };
   }
 
-  return completionFn(params);
+  // Per-LLM-call timeout (30 seconds)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    return await completionFn({ ...params, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export { resolveProvider, chatCompletionForWorker };

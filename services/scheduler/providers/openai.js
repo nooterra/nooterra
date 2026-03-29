@@ -41,11 +41,12 @@ function estimateCost(model, promptTokens, completionTokens) {
   );
 }
 
-async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
+async function fetchWithRetry(url, options, retries = MAX_RETRIES, signal = null) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      const fetchOpts = signal ? { ...options, signal } : options;
+      const res = await fetch(url, fetchOpts);
 
       if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
         if (attempt < retries) {
@@ -92,7 +93,7 @@ async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
  * @param {string} [params.apiKey] - BYOK API key (falls back to env)
  * @returns {Object} { response, toolCalls, finishReason, usage: { promptTokens, completionTokens, totalTokens, cost } }
  */
-async function openaiChatCompletion({ model, messages, tools, maxTokens = 4096, temperature = 0.2, apiKey }) {
+async function openaiChatCompletion({ model, messages, tools, maxTokens = 4096, temperature = 0.2, apiKey, signal }) {
   if (!model) throw new Error('model is required');
   if (!messages || !messages.length) throw new Error('messages array is required');
 
@@ -124,7 +125,7 @@ async function openaiChatCompletion({ model, messages, tools, maxTokens = 4096, 
       Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify(body),
-  });
+  }, MAX_RETRIES, signal);
 
   const data = await res.json();
   const choice = data.choices?.[0];

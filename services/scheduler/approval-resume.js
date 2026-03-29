@@ -7,7 +7,7 @@
  *
  * Flow:
  *   1. User approves action in dashboard (PATCH /v1/approvals/:id)
- *   2. worker_approvals.decision is updated to 'approved'
+ *   2. worker_approvals.status is updated to 'approved'
  *   3. Postgres trigger fires NOTIFY 'approval_decided'
  *   4. This module's listener picks it up and resumes the execution
  *   5. The paused tool call is executed and the agentic loop continues
@@ -30,7 +30,7 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
 
   // 1. Load the approval record
   const approvalResult = await pool.query(
-    `SELECT id, worker_id, tenant_id, tool_name, tool_args, decision
+    `SELECT id, worker_id, tenant_id, execution_id, tool_name, tool_args, rule, status
      FROM worker_approvals WHERE id = $1`,
     [approvalId]
   );
@@ -38,8 +38,8 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
   if (!approval) {
     return { resumed: false, error: "approval not found" };
   }
-  if (approval.decision !== "approved") {
-    return { resumed: false, error: `approval decision is '${approval.decision}', not 'approved'` };
+  if (approval.status !== "approved") {
+    return { resumed: false, error: `approval status is '${approval.status}', not 'approved'` };
   }
 
   // 2. Find the paused execution
@@ -91,6 +91,12 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
       approvalId: approval.id
     });
 
+    // 7. Mark approval as 'resumed' to prevent double-processing
+    await pool.query(
+      `UPDATE worker_approvals SET status = 'resumed' WHERE id = $1`,
+      [approvalId]
+    );
+
     return { resumed: true, executionId: execution.id };
   } catch (err) {
     logFn("error", `Failed to resume execution ${execution.id}: ${err?.message}`);
@@ -111,12 +117,12 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
 export async function pollApprovedActions({ pool, executeWorker, log }) {
   const logFn = log ?? (() => {});
 
-  // Find recently approved actions that haven't been processed
+  // Find recently approved actions that haven't been resumed yet
   const result = await pool.query(
     `SELECT wa.id AS approval_id, wa.worker_id, wa.tenant_id
      FROM worker_approvals wa
      JOIN worker_executions we ON we.worker_id = wa.worker_id AND we.tenant_id = wa.tenant_id
-     WHERE wa.decision = 'approved'
+     WHERE wa.status = 'approved'
        AND wa.decided_at > NOW() - INTERVAL '1 hour'
        AND we.status = 'awaiting_approval'
      ORDER BY wa.decided_at ASC
@@ -156,8 +162,8 @@ export async function handleApprovalDecision({ pool, approvalId, decision, decid
   // 1. Update the approval record
   const result = await pool.query(
     `UPDATE worker_approvals
-     SET decision = $1, decided_by = $2, decided_at = NOW()
-     WHERE id = $3 AND decision = 'pending'
+     SET status = $1, decided_by = $2, decided_at = NOW()
+     WHERE id = $3 AND status = 'pending'
      RETURNING id, worker_id, tenant_id, tool_name`,
     [decision, decidedBy, approvalId]
   );

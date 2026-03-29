@@ -44,13 +44,14 @@ function InboxView() {
     setDeciding(null);
   }
 
-  const pendingCount = Array.isArray(items) ? items.length : 0;
+  const allItems = Array.isArray(items) ? items : [];
+  const pendingCount = allItems.filter(i => !i.status || i.status === "pending").length;
+  const handledCount = allItems.filter(i => i.status === "approved" || i.status === "denied").length;
+  const blockedCount = allItems.filter(i => i.status === "denied" || i.type === "charter_blocked").length;
   const stats = [
     { label: "waiting", value: pendingCount, color: "var(--amber, #c08c30)" },
-    { label: "blocked", value: 0, color: "var(--red, #c43a3a)" },
-    { label: "handled", value: 0, color: "var(--green, #2a9d6e)" },
-    { label: "hrs saved", value: 0, color: "var(--accent, #c4613a)" },
-    { label: "violations", value: 0, color: "var(--green, #2a9d6e)" },
+    { label: "blocked", value: blockedCount, color: "var(--red, #c43a3a)" },
+    { label: "handled", value: handledCount, color: "var(--green, #2a9d6e)" },
   ];
 
   const roleColors = ["var(--accent, #c4613a)", "var(--amber, #c08c30)", "var(--green, #2a9d6e)", "var(--red, #c43a3a)", "var(--text-200, #a3a39d)", "var(--accent, #c4613a)", "var(--amber, #c08c30)"];
