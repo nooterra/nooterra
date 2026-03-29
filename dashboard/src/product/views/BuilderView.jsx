@@ -727,7 +727,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       try { sessionStorage.removeItem(TEAM_SESSION_KEY); } catch {}
       setDeploySuccess(true);
-      setTimeout(() => { onComplete?.(); }, 1500);
+      setTimeout(() => { onComplete?.(); }, 2000);
     } catch (err) {
       setError("Couldn't deploy this team. Check your connection and try again.");
     }

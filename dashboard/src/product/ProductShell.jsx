@@ -335,7 +335,14 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); pushView(dest); }
   }
   function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); pushView("workerDetail", worker.id); }
-  function handleBuilderComplete() { refreshWorkers(); setView("team"); pushView("team"); }
+  async function handleBuilderComplete() {
+    try {
+      const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+      setWorkers(result?.items || result || []);
+    } catch { /* refreshed workers may be stale, but view will show what's there */ }
+    setView("team");
+    pushView("team");
+  }
   function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); pushView("workerDetail", w.id); } else { setView("team"); pushView("team"); } }
 
   // =============================================
