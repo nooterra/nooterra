@@ -9,7 +9,7 @@ function PerformanceView() {
     (async () => {
       try {
         const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.items || result || []);
+        setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
       } catch {
         setWorkers([]);
       }

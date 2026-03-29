@@ -306,7 +306,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   }, []);
 
   function refreshWorkers() {
-    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
+    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch { /* ignore */ } })();
   }
 
   // --- History-backed navigation: browser back/forward works ---
@@ -338,7 +338,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   async function handleBuilderComplete() {
     try {
       const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-      setWorkers(result?.items || result || []);
+      setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
     } catch { /* refreshed workers may be stale, but view will show what's there */ }
     setView("team");
     pushView("team");

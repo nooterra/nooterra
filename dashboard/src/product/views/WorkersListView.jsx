@@ -127,7 +127,7 @@ function WorkersListView({ onSelect, onCreate }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
-  useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); } setLoading(false); })(); }, []);
+  useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch { setWorkers([]); } setLoading(false); })(); }, []);
 
   const filteredWorkers = searchQuery.trim()
     ? workers.filter(w => {
