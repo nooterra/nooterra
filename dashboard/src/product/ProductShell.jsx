@@ -381,8 +381,22 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     );
   }
 
+  // --- Loading skeleton (prevents white/split screen flash) ---
+  const suspenseFallback = (
+    <div style={{ ...S.main, minHeight: "100vh", background: "var(--bg-100)" }}>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ width: 180, height: 24, borderRadius: 6, background: "var(--bg-300, var(--bg-hover))", animation: "skeletonPulse 1.5s ease-in-out infinite" }} />
+        <div style={{ width: 120, height: 14, borderRadius: 4, background: "var(--bg-300, var(--bg-hover))", marginTop: 8, animation: "skeletonPulse 1.5s ease-in-out infinite", animationDelay: "0.15s" }} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{ height: 56, borderRadius: 8, background: "var(--bg-300, var(--bg-hover))", animation: "skeletonPulse 1.5s ease-in-out infinite", animationDelay: `${i * 0.15}s` }} />
+        ))}
+      </div>
+    </div>
+  );
+
   // --- Determine what content shows ---
-  const suspenseFallback = <div style={{ ...S.main, fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>;
   function MainContent() {
     return (
       <React.Suspense fallback={suspenseFallback}>
@@ -497,8 +511,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
       <main className="app-main-content" style={{
         flex: 1, display: "flex", flexDirection: "column", minWidth: 0,
         background: "var(--bg-100)", height: "100vh", overflow: "auto",
+        minHeight: "100vh",
       }}>
-        <div key={view} className="view-enter">
+        <div key={view} className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
           <MainContent />
         </div>
       </main>
@@ -583,12 +598,16 @@ export default function ProductShell({ mode, launchId, agentId, runId, requested
 
   if (!sessionChecked) {
     return (
-      <div style={S.shell}>
-        <div style={S.authWrap}>
-          <div style={{ textAlign: "center" }}>
-            <NooterraLogo height={24} style={{ color: "var(--text-primary)", margin: "0 auto 0.75rem" }} />
-            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
-          </div>
+      <div style={{ ...S.shell, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "var(--bg-100)" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            borderRadius: "50%",
+            border: "3px solid var(--border)",
+            borderTopColor: "var(--accent)",
+            animation: "spin 0.8s linear infinite",
+          }} />
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div>
         </div>
       </div>
     );

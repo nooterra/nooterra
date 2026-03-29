@@ -231,24 +231,22 @@ function RouteLoadingScreen({ label }) {
     <main
       style={{
         minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        background: "linear-gradient(180deg, #f6f4ee 0%, #efe8db 100%)",
-        color: "#2b2a27"
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--bg-100, #faf9f6)",
+        color: "var(--text-100, #111110)",
       }}
     >
-      <div
-        style={{
-          padding: "1rem 1.25rem",
-          border: "1px solid rgba(78, 76, 68, 0.14)",
-          borderRadius: "999px",
-          background: "rgba(255, 252, 246, 0.88)",
-          boxShadow: "0 18px 48px rgba(37, 34, 26, 0.08)",
-          fontSize: "0.95rem",
-          letterSpacing: "0.01em"
-        }}
-      >
-        {label}
+      <div style={{ textAlign: "center" }}>
+        <div style={{
+          width: 40, height: 40, margin: "0 auto 16px",
+          borderRadius: "50%",
+          border: "3px solid var(--border, #e5e3dd)",
+          borderTopColor: "var(--accent, #c4613a)",
+          animation: "spin 0.8s linear infinite",
+        }} />
+        <div style={{ fontSize: "14px", color: "var(--text-300, #74746d)" }}>{label}</div>
       </div>
     </main>
   );
