@@ -814,21 +814,27 @@ function ChangelogPage() {
 
 const PRICING_TIERS = [
   {
-    name: "Preview", price: "$0", period: "",
-    description: "See your team proposal, shadow mode preview, and ROI estimate. No live automation.",
-    features: ["Team proposal for your business", "Shadow mode preview", "ROI estimate", "Standard AI models"],
-    cta: "Try free", ctaHref: "/signup", ctaExternal: false, highlighted: false,
+    name: "Free", price: "$0", period: "",
+    description: "See what Nooterra builds for your business. Shadow mode only.",
+    features: ["Team proposal", "Shadow mode preview", "1 worker", "50 executions/mo", "Gemini Flash model"],
+    cta: "Start free", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },
   {
-    name: "Live Team", price: "$99", period: "/mo",
-    description: "Your AI team, live. Inbox, approvals, audit trail, and real integrations.",
-    features: ["Everything in Preview", "Live worker automation", "Email and calendar integrations", "Approval inbox", "Activity feed and audit trail", "Standard model routing"],
-    cta: "Start free preview", ctaHref: "/signup", ctaExternal: false, highlighted: true,
+    name: "Starter", price: "$29", period: "/mo",
+    description: "Your first live AI workers. Real actions, real integrations.",
+    features: ["3 workers", "500 executions/mo", "Email + calendar integrations", "Approval inbox", "GPT, Gemini, Haiku models", "Activity feed"],
+    cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },
   {
-    name: "Enterprise", price: "Custom", period: "",
-    description: "SSO, compliance, custom integrations, and dedicated support.",
-    features: ["Everything in Live Team", "SSO and admin controls", "Custom integrations", "Audit log export", "Dedicated support", "SLA guarantee"],
+    name: "Pro", price: "$99", period: "/mo",
+    description: "Run your operations with a full AI team.",
+    features: ["10 workers", "5,000 executions/mo", "All integrations", "All AI models", "Audit trail export", "Priority support"],
+    cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: true,
+  },
+  {
+    name: "Scale", price: "$249", period: "/mo",
+    description: "For businesses that run on Nooterra.",
+    features: ["Unlimited workers", "25,000 executions/mo", "All integrations + custom", "All AI models", "SLA guarantee", "Dedicated support"],
     cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
   },
 ];

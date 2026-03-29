@@ -47,7 +47,7 @@ const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '10000', 10);
 const MIN_BALANCE_THRESHOLD = parseFloat(process.env.MIN_BALANCE_THRESHOLD || '0.10');
 
 // ---------------------------------------------------------------------------
-// Rate Limiter (in-memory, per-process)
+// Rate Limiter — global + per-tenant
 // ---------------------------------------------------------------------------
 
 const RATE_LIMIT = {
@@ -56,6 +56,10 @@ const RATE_LIMIT = {
   callsThisMinute: 0,
   resetAt: Date.now() + 60000,
 };
+
+// Per-tenant rate limit: max executions per minute per tenant
+const TENANT_MAX_PER_MINUTE = parseInt(process.env.TENANT_MAX_PER_MINUTE || '10', 10);
+const tenantCallCounts = new Map(); // tenantId -> { count, resetAt }
 
 function canCallOpenRouter() {
   const now = Date.now();
@@ -67,6 +71,21 @@ function canCallOpenRouter() {
   RATE_LIMIT.callsThisMinute++;
   return true;
 }
+
+function canTenantCall(tenantId) {
+  const now = Date.now();
+  let entry = tenantCallCounts.get(tenantId);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + 60000 };
+    tenantCallCounts.set(tenantId, entry);
+  }
+  if (entry.count >= TENANT_MAX_PER_MINUTE) return false;
+  entry.count++;
+  return true;
+}
+
+// Per-execution cost ceiling — kill any run that exceeds this
+const EXECUTION_COST_CAP = parseFloat(process.env.EXECUTION_COST_CAP || '0.50');
 
 // ---------------------------------------------------------------------------
 // Postgres Connection
@@ -183,6 +202,55 @@ function generateId(prefix = 'exec') {
 }
 
 // ---------------------------------------------------------------------------
+// Worker Memory — Postgres-backed persistent memory per worker
+// ---------------------------------------------------------------------------
+
+async function loadWorkerMemory(workerId) {
+  try {
+    const result = await pool.query(
+      `SELECT key, value, updated_at FROM worker_memory
+       WHERE worker_id = $1 AND (expires_at IS NULL OR expires_at > now())
+       ORDER BY updated_at DESC LIMIT 50`,
+      [workerId]
+    );
+    return result.rows;
+  } catch {
+    return []; // Table may not exist yet — gracefully degrade
+  }
+}
+
+async function saveWorkerMemory(workerId, key, value) {
+  try {
+    await pool.query(`
+      INSERT INTO worker_memory (id, worker_id, key, value, updated_at)
+      VALUES ($1, $2, $3, $4, now())
+      ON CONFLICT (worker_id, key) DO UPDATE SET value = $4, updated_at = now()
+    `, [generateId('mem'), workerId, key, value]);
+  } catch (err) {
+    log('warn', `Failed to save worker memory for ${workerId}: ${err.message}`);
+  }
+}
+
+async function ensureWorkerMemoryTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS worker_memory (
+        id TEXT PRIMARY KEY,
+        worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        expires_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (worker_id, key)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_worker_memory_worker ON worker_memory (worker_id)`);
+  } catch (err) {
+    log('warn', `Could not create worker_memory table: ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Worker Execution
 // ---------------------------------------------------------------------------
 
@@ -191,7 +259,7 @@ let activeExecutions = 0;
 /**
  * Build messages for a worker execution from its charter and worker metadata.
  */
-function buildMessages(charter, knowledge, worker) {
+function buildMessages(charter, knowledge, worker, memory) {
   const messages = [];
 
   // System prompt — combine charter fields with worker metadata
@@ -253,6 +321,17 @@ function buildMessages(charter, knowledge, worker) {
     }
   }
 
+  // Append persistent memory from previous runs
+  if (memory && memory.length > 0) {
+    systemContent += '\n--- Memory (from previous runs) ---\n';
+    systemContent += 'You have remembered the following from your previous executions. Use this context to be more effective:\n\n';
+    for (const m of memory) {
+      systemContent += `[${m.key}]: ${m.value}\n`;
+    }
+    systemContent += '\n--- End Memory ---\n';
+    systemContent += 'To save new information for future runs, include a line starting with "REMEMBER:" followed by what you want to save.\n';
+  }
+
   if (systemContent.trim()) {
     messages.push({ role: 'system', content: systemContent.trim() });
   }
@@ -282,6 +361,18 @@ async function executeWorker(worker, executionId, triggerType) {
   addActivity('start', `Execution started via ${triggerType}`);
 
   try {
+    // Check per-tenant rate limit
+    if (!canTenantCall(worker.tenant_id)) {
+      addActivity('rate_limited', `Tenant ${worker.tenant_id} exceeded ${TENANT_MAX_PER_MINUTE} executions/min`);
+      await updateExecution(executionId, {
+        status: 'queued',
+        error: 'Rate limited — too many executions per minute',
+        activity,
+      });
+      log('warn', `Tenant ${worker.tenant_id} rate limited: ${TENANT_MAX_PER_MINUTE}/min exceeded`);
+      return;
+    }
+
     // Check tenant credits
     const creditResult = await pool.query(
       'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
@@ -350,7 +441,13 @@ async function executeWorker(worker, executionId, triggerType) {
       }
     }
 
-    const messages = buildMessages(charter, knowledge, worker);
+    // Load persistent memory from previous runs
+    const workerMemory = await loadWorkerMemory(worker.id);
+    if (workerMemory.length > 0) {
+      addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
+    }
+
+    const messages = buildMessages(charter, knowledge, worker, workerMemory);
 
     addActivity('llm_call', `Calling ${worker.model}`);
 
@@ -556,6 +653,13 @@ async function executeWorker(worker, executionId, triggerType) {
         currentMessages.push(...toolResults);
         rounds++;
 
+        // Cost cap check — kill execution if it's getting too expensive
+        if (totalCost >= EXECUTION_COST_CAP) {
+          addActivity('cost_cap', `Execution cost $${totalCost.toFixed(4)} exceeded cap $${EXECUTION_COST_CAP.toFixed(2)}, stopping`);
+          log('warn', `Execution ${executionId} hit cost cap: $${totalCost.toFixed(4)} >= $${EXECUTION_COST_CAP}`);
+          break;
+        }
+
         // Rate limit check for subsequent LLM rounds
         if (!canCallOpenRouter()) {
           addActivity('rate_limited', `Round ${rounds}: rate limited, stopping agentic loop`);
@@ -679,6 +783,19 @@ async function executeWorker(worker, executionId, triggerType) {
 
     // Deduct credits
     await deductCredits(worker.tenant_id, totalCost, executionId);
+
+    // Extract and save memory entries from LLM response (REMEMBER: lines)
+    if (finalResponse) {
+      const memoryLines = finalResponse.split('\n').filter(l => l.trim().startsWith('REMEMBER:'));
+      for (const line of memoryLines) {
+        const content = line.replace(/^REMEMBER:\s*/i, '').trim();
+        if (content) {
+          const key = content.slice(0, 60).replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+          await saveWorkerMemory(worker.id, key, content);
+          addActivity('memory', `Saved memory: "${key}"`);
+        }
+      }
+    }
 
     // Update worker stats
     await pool.query(`
@@ -1399,6 +1516,9 @@ async function start() {
   } catch (err) {
     log('warn', `Failed to fetch model pricing (will estimate $0): ${err.message}`);
   }
+
+  // Ensure worker memory table exists
+  await ensureWorkerMemoryTable();
 
   // Start health server
   server.listen(PORT, '0.0.0.0', () => {

@@ -32,8 +32,17 @@ async function stripeGet(endpoint) {
 }
 
 const PLANS = {
-  pro:   { name: 'Nooterra Pro Monthly',   amount: 2900,  recurring: true },
-  scale: { name: 'Nooterra Scale Monthly',  amount: 9900,  recurring: true },
+  starter: { name: 'Nooterra Starter Monthly', amount: 2900,  recurring: true },  // $29/mo — 3 workers, 500 exec/mo
+  pro:     { name: 'Nooterra Pro Monthly',      amount: 9900,  recurring: true },  // $99/mo — 10 workers, 5000 exec/mo
+  scale:   { name: 'Nooterra Scale Monthly',    amount: 24900, recurring: true },  // $249/mo — unlimited workers, 25000 exec/mo
+};
+
+// Execution limits per plan tier
+export const PLAN_LIMITS = {
+  free:    { maxWorkers: 1,  maxExecutionsPerMonth: 50,   allowedModels: ['google/gemini-2.5-flash'] },
+  starter: { maxWorkers: 3,  maxExecutionsPerMonth: 500,  allowedModels: ['google/gemini-2.5-flash', 'openai/gpt-5.4-mini', 'anthropic/claude-haiku-4.5'] },
+  pro:     { maxWorkers: 10, maxExecutionsPerMonth: 5000, allowedModels: null }, // null = all models
+  scale:   { maxWorkers: -1, maxExecutionsPerMonth: 25000, allowedModels: null }, // -1 = unlimited
 };
 const CREDIT_AMOUNTS = {
   5:   { name: 'Nooterra Credits $5',   amount: 500 },

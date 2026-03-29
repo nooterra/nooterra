@@ -54,6 +54,23 @@ body {
   outline-offset: 2px;
 }
 
+/* ── Button press feedback ── */
+button:active:not(:disabled),
+a[role="button"]:active {
+  transform: scale(0.97);
+  transition: transform 80ms ease;
+}
+
+/* ── Smooth view transitions ── */
+.view-enter {
+  animation: viewFadeIn 200ms ease both;
+}
+
+@keyframes viewFadeIn {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
