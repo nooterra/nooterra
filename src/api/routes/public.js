@@ -1,5 +1,6 @@
 /**
- * Public routes: /v1/public/*, /public/agent-cards/*, /.well-known/agent-locator/*, /public/agents/*/reputation-summary
+ * Public routes: /v1/public/*, /public/agent-cards/*, /.well-known/agent-locator/*,
+ * /public/agents/:agentId/reputation-summary
  *
  * Extracted from app.js following the route module pattern (see health.js).
  * The handler returns true if it handled the request, false otherwise.
@@ -686,6 +687,7 @@ export function createPublicRoutes(deps) {
       );
       return sendJson(res, 200, { ok: true, summary });
     }
+    } // end parts-based public routes block
 
     // Check if the response was sent by a route that uses bare "return;" (e.g. SSE streams).
     if (res.writableEnded || res.headersSent) return true;

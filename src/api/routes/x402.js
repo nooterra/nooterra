@@ -6775,7 +6775,6 @@ export function createX402Routes(deps) {
             : null;
         return sendJson(res, 200, { ok: true, gate, settlement, holdbackSettlement });
       }
-    }
 
     // Check if the response was sent by a route that uses bare "return;" (e.g. SSE streams).
     if (res.writableEnded || res.headersSent) return true;
