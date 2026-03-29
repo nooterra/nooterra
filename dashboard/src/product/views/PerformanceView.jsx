@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { S, STATUS_COLORS, timeAgo, humanizeSchedule, workerApiRequest } from "../shared.js";
+import ExecutionTraceViewer from "../components/ExecutionTraceViewer.jsx";
 
 function PerformanceView() {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedExecution, setSelectedExecution] = useState(null);
+  const [traceLoading, setTraceLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -16,6 +19,27 @@ function PerformanceView() {
       setLoading(false);
     })();
   }, []);
+
+  async function handleViewTrace(worker) {
+    setTraceLoading(true);
+    try {
+      const result = await workerApiRequest({
+        pathname: `/v1/workers/${worker.id}/executions/latest`,
+        method: "GET",
+      });
+      setSelectedExecution({
+        ...result,
+        workerName: worker.name,
+        activity: result?.activity || result?.events || [],
+      });
+    } catch {
+      setSelectedExecution({
+        workerName: worker.name,
+        activity: [],
+      });
+    }
+    setTraceLoading(false);
+  }
 
   if (loading) return (
     <div>
@@ -40,6 +64,24 @@ function PerformanceView() {
     </div>
   );
 
+  /* ── Trace detail view ───────────────────────────────────────────── */
+  if (selectedExecution) {
+    return (
+      <div>
+        <h1 style={S.pageTitle}>Performance</h1>
+        <p style={S.pageSub}>
+          Execution trace for <strong>{selectedExecution.workerName}</strong>
+        </p>
+        <ExecutionTraceViewer
+          execution={selectedExecution}
+          activity={selectedExecution.activity}
+          onClose={() => setSelectedExecution(null)}
+        />
+      </div>
+    );
+  }
+
+  /* ── Main performance view ───────────────────────────────────────── */
   const totalWorkers = workers.length;
   const activeWorkers = workers.filter(w => w.status === "running").length;
   const totalRuns = workers.reduce((sum, w) => sum + (w.totalRuns || w.total_runs || w.stats?.totalRuns || 0), 0);
@@ -89,6 +131,7 @@ function PerformanceView() {
               <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "left", borderBottom: "1px solid var(--border)" }}>Worker</th>
               <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "right", borderBottom: "1px solid var(--border)", minWidth: 60 }}>Runs</th>
               <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "right", borderBottom: "1px solid var(--border)", minWidth: 60 }}>Cost</th>
+              <th style={{ padding: "8px 0", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textAlign: "right", borderBottom: "1px solid var(--border)", minWidth: 60 }}>Trace</th>
             </tr>
           </thead>
           <tbody>
@@ -113,6 +156,22 @@ function PerformanceView() {
                   </td>
                   <td style={{ padding: "14px 0", fontSize: "13px", color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 60, verticalAlign: "middle" }}>
                     ${cost.toFixed(2)}
+                  </td>
+                  <td style={{ padding: "14px 0", textAlign: "right", verticalAlign: "middle" }}>
+                    <button
+                      onClick={() => handleViewTrace(w)}
+                      disabled={traceLoading}
+                      style={{
+                        background: "none", border: "1px solid var(--border)", borderRadius: 6,
+                        padding: "4px 10px", fontSize: "11px", fontWeight: 600,
+                        color: "var(--text-secondary)", cursor: "pointer",
+                        transition: "border-color 0.15s, color 0.15s",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent, var(--product-accent))"; e.currentTarget.style.color = "var(--text-primary)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+                    >
+                      View trace
+                    </button>
                   </td>
                 </tr>
               );

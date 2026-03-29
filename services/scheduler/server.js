@@ -14,10 +14,14 @@
  *   POLL_INTERVAL_MS      - Scheduler poll interval (default 10000)
  */
 
+import { initTracing, withSpan, addSpanAttributes } from '../../src/core/tracing.js';
+initTracing({ serviceName: 'nooterra-scheduler' });
+
 import http from 'node:http';
 import pg from 'pg';
 const { Pool } = pg;
 import { chatCompletion, listModels } from './openrouter.js';
+import { chatCompletionForWorker } from './providers/index.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
@@ -361,16 +365,30 @@ function buildMessages(charter, knowledge, worker, memory) {
  * Execute a single worker and record results.
  */
 async function executeWorker(worker, executionId, triggerType, resumeContext = null) {
+  return withSpan('worker.execute', {
+    'worker.id': worker.id,
+    'worker.model': worker.model,
+    'tenant.id': worker.tenant_id,
+    'execution.id': executionId,
+    'trigger.type': triggerType,
+  }, async () => {
   const startedAt = new Date();
   const activity = [];
   const isResume = triggerType === 'approval_resume' && resumeContext?.approvedToolCalls;
 
   function addActivity(type, detail) {
-    activity.push({
+    const entry = {
       ts: new Date().toISOString(),
       type,
       detail: typeof detail === 'string' ? detail : JSON.stringify(detail),
-    });
+    };
+    activity.push(entry);
+
+    // Write activity to DB immediately so SSE stream poller can read live updates
+    pool.query(
+      `UPDATE worker_executions SET activity = $2::jsonb WHERE id = $1`,
+      [executionId, JSON.stringify(activity)]
+    ).catch(() => { /* best-effort live update, final write happens at completion */ });
   }
 
   addActivity('start', isResume
@@ -524,14 +542,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       return;
     }
 
-    // Execute via OpenRouter
-    const result = await chatCompletion({
-      model: worker.model,
-      messages,
-      tools,
-      maxTokens: charter.maxTokens || 4096,
-      temperature: charter.temperature ?? 0.2,
-    });
+    // Execute via resolved provider (OpenRouter, Anthropic BYOK, or OpenAI BYOK)
+    const result = await withSpan('llm.call', { model: worker.model, round: 1 }, () =>
+      chatCompletionForWorker(worker, {
+        model: worker.model,
+        messages,
+        tools,
+        maxTokens: charter.maxTokens || 4096,
+        temperature: charter.temperature ?? 0.2,
+      })
+    );
 
     const { usage } = result;
     addActivity('llm_response', `Received ${usage.totalTokens} tokens (cost: $${usage.cost.toFixed(6)})`);
@@ -674,14 +694,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         addActivity('tool_exec', `Executing ${toolCalls.length} tool(s) in parallel: ${toolCalls.map(tc => tc.name).join(', ')}`);
 
         const toolPromises = toolCalls.map(async (tc) => {
-          const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-          let toolResult;
-          if (isShadowMode) {
-            toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
-          } else {
-            toolResult = await executeTool(worker.tenant_id, tc.name, args);
-          }
-          return { tc, toolResult, args };
+          return withSpan('tool.execute', { 'tool.name': tc.name }, async () => {
+            const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
+            let toolResult;
+            if (isShadowMode) {
+              toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+            } else {
+              toolResult = await executeTool(worker.tenant_id, tc.name, args);
+            }
+            return { tc, toolResult, args };
+          });
         });
 
         const settledResults = await Promise.allSettled(toolPromises);
@@ -732,13 +754,15 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
 
         addActivity('llm_call', `Round ${rounds}: feeding ${toolResults.length} tool result(s) back to LLM`);
 
-        const nextResult = await chatCompletion({
-          model: worker.model,
-          messages: currentMessages,
-          tools,
-          maxTokens: charter.maxTokens || 4096,
-          temperature: charter.temperature ?? 0.2,
-        });
+        const nextResult = await withSpan('llm.call', { model: worker.model, round: rounds }, () =>
+          chatCompletionForWorker(worker, {
+            model: worker.model,
+            messages: currentMessages,
+            tools,
+            maxTokens: charter.maxTokens || 4096,
+            temperature: charter.temperature ?? 0.2,
+          })
+        );
 
         totalPromptTokens += nextResult.usage.promptTokens;
         totalCompletionTokens += nextResult.usage.completionTokens;
@@ -963,6 +987,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       log('warn', `Failure notification delivery failed for ${executionId}: ${notifErr.message}`);
     }
   }
+  }); // end withSpan('worker.execute')
 }
 
 /**
@@ -1320,6 +1345,7 @@ async function handleWorkerChat(req, res, workerId) {
   log('info', `Worker chat ${chatId}: tenant=${tenantId} worker=${worker.name} model=${worker.model}`);
 
   try {
+    // Streaming uses OpenRouter directly (BYOK providers don't support streaming yet)
     const stream = chatCompletion({
       model: worker.model,
       messages: fullMessages,
@@ -1402,7 +1428,7 @@ function setCorsHeaders(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-tenant-id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-tenant-id, x-webhook-secret');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 

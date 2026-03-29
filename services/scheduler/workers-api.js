@@ -193,21 +193,43 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   }
 
   // POST /v1/workers/:id/trigger — webhook trigger
-  const trigMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/trigger$/);
+  // POST /v1/workers/:id/trigger/test — manual test trigger
+  const trigMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/trigger(\/test)?$/);
   if (method === 'POST' && trigMatch) {
     const tid = getTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
-    const wr = await pool.query(`SELECT id, model, status FROM workers WHERE id = $1 AND tenant_id = $2`, [trigMatch[1], tid]);
+    const isTest = trigMatch[2] === '/test';
+    const wr = await pool.query(`SELECT id, model, status, triggers FROM workers WHERE id = $1 AND tenant_id = $2`, [trigMatch[1], tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
-    if (wr.rows[0].status === 'archived') return err(res, 409, 'cannot trigger archived worker'), true;
-    if (wr.rows[0].status === 'paused') return err(res, 409, 'cannot trigger paused worker'), true;
+    const worker = wr.rows[0];
+    if (worker.status !== 'ready' && worker.status !== 'running') {
+      return err(res, 409, `cannot trigger worker in '${worker.status}' status`), true;
+    }
+
+    // Validate webhook secret if configured
+    const triggers = typeof worker.triggers === 'string' ? JSON.parse(worker.triggers) : (worker.triggers || {});
+    const webhookSecret = triggers.webhookSecret || (Array.isArray(triggers) ? null : triggers?.webhookSecret);
+    if (webhookSecret && !isTest) {
+      const providedSecret = req.headers['x-webhook-secret'];
+      if (!providedSecret || providedSecret !== webhookSecret) {
+        return err(res, 403, 'invalid or missing webhook secret'), true;
+      }
+    }
+
+    const body = await readBody(req);
+    const payload = body?.payload || null;
+    const triggerType = isTest ? 'manual_test' : 'webhook';
 
     const execId = generateId('exec');
+    const initialActivity = payload
+      ? [{ ts: new Date().toISOString(), type: 'webhook_payload', detail: JSON.stringify(payload).slice(0, 10000) }]
+      : [];
     const result = await pool.query(
-      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at) VALUES ($1,$2,$3,'webhook','queued',$4,$5) RETURNING *`,
-      [execId, trigMatch[1], tid, wr.rows[0].model, new Date().toISOString()]
+      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6,$7::jsonb) RETURNING *`,
+      [execId, trigMatch[1], tid, triggerType, worker.model, new Date().toISOString(), JSON.stringify(initialActivity)]
     );
-    return json(res, 202, { execution: result.rows[0] }), true;
+    return json(res, 202, { ok: true, executionId: execId, execution: result.rows[0] }), true;
   }
 
   // GET /v1/workers/:id/feed — SSE activity feed
@@ -232,6 +254,111 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }, 2000);
     const ka = setInterval(() => { try { res.write(':keepalive\n\n'); } catch {} }, 15000);
     req.on('close', () => { clearInterval(poll); clearInterval(ka); });
+    return true;
+  }
+
+  // GET /v1/workers/:id/executions/:execId/stream — SSE execution streaming
+  const streamMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/stream$/);
+  if (method === 'GET' && streamMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const [, workerId, execId] = streamMatch;
+
+    // Validate execution belongs to worker and tenant
+    const execResult = await pool.query(
+      `SELECT * FROM worker_executions WHERE id = $1 AND worker_id = $2 AND tenant_id = $3`,
+      [execId, workerId, tid]
+    );
+    if (execResult.rowCount === 0) return err(res, 404, 'execution not found'), true;
+
+    // Set up SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Send current state immediately
+    const exec = execResult.rows[0];
+    const currentActivity = typeof exec.activity === 'string' ? JSON.parse(exec.activity) : (exec.activity || []);
+    res.write(`data: ${JSON.stringify({ type: 'status', status: exec.status, executionId: execId })}\n\n`);
+    for (const entry of currentActivity) {
+      res.write(`data: ${JSON.stringify({ type: 'activity', entry })}\n\n`);
+    }
+
+    // If already completed, send final event and close
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'shadow_completed', 'charter_blocked', 'budget_exceeded', 'auto_paused', 'error']);
+    if (TERMINAL_STATUSES.has(exec.status)) {
+      res.write(`data: ${JSON.stringify({ type: 'complete', status: exec.status, result: exec.result?.slice(0, 10000) || null })}\n\n`);
+      res.end();
+      return true;
+    }
+
+    // Poll for new activity entries and status changes
+    let lastActivityCount = currentActivity.length;
+    let lastStatus = exec.status;
+    let closed = false;
+
+    const pollInterval = setInterval(async () => {
+      if (closed) return;
+      try {
+        const updated = await pool.query(
+          `SELECT status, activity, result, error FROM worker_executions WHERE id = $1`,
+          [execId]
+        );
+        if (updated.rowCount === 0) { clearIntervals(); return; }
+        const row = updated.rows[0];
+        const activity = typeof row.activity === 'string' ? JSON.parse(row.activity) : (row.activity || []);
+
+        // Send status change
+        if (row.status !== lastStatus) {
+          lastStatus = row.status;
+          res.write(`data: ${JSON.stringify({ type: 'status', status: row.status })}\n\n`);
+        }
+
+        // Send new activity entries
+        if (activity.length > lastActivityCount) {
+          const newEntries = activity.slice(lastActivityCount);
+          for (const entry of newEntries) {
+            res.write(`data: ${JSON.stringify({ type: 'activity', entry })}\n\n`);
+          }
+          lastActivityCount = activity.length;
+        }
+
+        // Check for completion
+        if (TERMINAL_STATUSES.has(row.status)) {
+          res.write(`data: ${JSON.stringify({ type: 'complete', status: row.status, result: row.result?.slice(0, 10000) || null, error: row.error || null })}\n\n`);
+          clearIntervals();
+          res.end();
+        }
+      } catch { /* ignore poll errors */ }
+    }, 500);
+
+    // Heartbeat every 15 seconds
+    const heartbeatInterval = setInterval(() => {
+      if (closed) return;
+      try { res.write(`data: ${JSON.stringify({ type: 'heartbeat', ts: new Date().toISOString() })}\n\n`); } catch { /* ignore */ }
+    }, 15000);
+
+    // Timeout after 5 minutes
+    const timeout = setTimeout(() => {
+      if (closed) return;
+      try {
+        res.write(`data: ${JSON.stringify({ type: 'timeout', message: 'Stream timed out after 5 minutes' })}\n\n`);
+      } catch { /* ignore */ }
+      clearIntervals();
+      res.end();
+    }, 5 * 60 * 1000);
+
+    function clearIntervals() {
+      closed = true;
+      clearInterval(pollInterval);
+      clearInterval(heartbeatInterval);
+      clearTimeout(timeout);
+    }
+
+    req.on('close', () => { clearIntervals(); });
     return true;
   }
 
