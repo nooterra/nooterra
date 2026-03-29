@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   S, ALL_MODELS, MODEL_CATEGORIES, WORKER_TEMPLATES, WORKER_API_BASE,
   workerApiRequest, saveOnboardingState, loadOnboardingState,
@@ -243,81 +243,140 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    TerraformingScreen — ASCII "nooterra" being built character by character
    =================================================================== */
 
-const TERRA_ASCII = [
-  "                    _                        ",
-  "  _ __   ___   ___ | |_ ___ _ __ _ __ __ _   ",
-  " | '_ \\ / _ \\ / _ \\| __/ _ \\ '__| '__/ _` |  ",
-  " | | | | (_) | (_) | ||  __/ |  | | | (_| |  ",
-  " |_| |_|\\___/ \\___/ \\__\\___|_|  |_|  \\__,_|  ",
-];
+/* -------------------------------------------------------------------
+   Pixel font — each letter is a 7-row bitmap, variable width.
+   Render via SVG rects so it scales perfectly on every screen.
+   ------------------------------------------------------------------- */
+const PX_FONT = {
+  T: [[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  E: [[1,1,1,1],[1,0,0,0],[1,0,0,0],[1,1,1,0],[1,0,0,0],[1,0,0,0],[1,1,1,1]],
+  R: [[1,1,1,0],[1,0,0,1],[1,0,0,1],[1,1,1,0],[1,0,1,0],[1,0,0,1],[1,0,0,1]],
+  A: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[1,1,1,1],[1,0,0,1],[1,0,0,1],[1,0,0,1]],
+  F: [[1,1,1,1],[1,0,0,0],[1,0,0,0],[1,1,1,0],[1,0,0,0],[1,0,0,0],[1,0,0,0]],
+  O: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[1,0,0,1],[1,0,0,1],[1,0,0,1],[0,1,1,0]],
+  M: [[1,0,0,0,1],[1,1,0,1,1],[1,0,1,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  I: [[1,1,1],[0,1,0],[0,1,0],[0,1,0],[0,1,0],[0,1,0],[1,1,1]],
+  N: [[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  G: [[0,1,1,1],[1,0,0,0],[1,0,0,0],[1,0,1,1],[1,0,0,1],[1,0,0,1],[0,1,1,0]],
+};
+
+function buildPixelGrid(word) {
+  const letters = word.split("").map(ch => PX_FONT[ch]);
+  const rows = 7;
+  const grid = [];
+  for (let r = 0; r < rows; r++) {
+    const row = [];
+    letters.forEach((letter, li) => {
+      if (li > 0) row.push(0); // 1-col gap between letters
+      row.push(...letter[r]);
+    });
+    grid.push(row);
+  }
+  return grid;
+}
+
+const BLOCK_COLOR = "#c4613a";
 
 function TerraformingScreen({ onCancel, mode }) {
-  const [charCount, setCharCount] = useState(0);
   const [msgIndex, setMsgIndex] = useState(0);
-  const totalChars = TERRA_ASCII.join("").length;
+  const [showMessages, setShowMessages] = useState(false);
 
+  const grid = useMemo(() => buildPixelGrid("TERRAFORMING"), []);
+  const totalCols = grid[0].length;
+  const totalRows = grid.length;
+
+  // Inject Tetris drop keyframes
   useEffect(() => {
-    const id = setInterval(() => {
-      setCharCount(prev => {
-        if (prev >= totalChars) return 0; // loop
-        return prev + 2; // 2 chars at a time for speed
-      });
-    }, 30);
-    return () => clearInterval(id);
-  }, [totalChars]);
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes blockDrop {
+        0% { transform: translateY(-200px); opacity: 0; }
+        35% { opacity: 0.7; }
+        72% { transform: translateY(4px); opacity: 1; }
+        88% { transform: translateY(-2px); }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => style.remove();
+  }, []);
+
+  // Show status messages after drop animation settles
+  useEffect(() => {
+    const t = setTimeout(() => setShowMessages(true), 2200);
+    return () => clearTimeout(t);
+  }, []);
 
   const messages = mode === "worker"
-    ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Preparing your worker..."]
-    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Preparing your team..."];
+    ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Activating worker..."]
+    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Terraforming your team..."];
 
   useEffect(() => {
-    const id = setInterval(() => setMsgIndex(p => (p + 1) % messages.length), 2500);
+    if (!showMessages) return;
+    const id = setInterval(() => setMsgIndex(p => (p + 1) % messages.length), 4000);
     return () => clearInterval(id);
-  }, [messages.length]);
+  }, [showMessages, messages.length]);
 
-  // Build the visible portion of ASCII art
-  let remaining = charCount;
-  const lines = TERRA_ASCII.map(line => {
-    if (remaining <= 0) return "";
-    const visible = line.slice(0, remaining);
-    remaining -= line.length;
-    return visible;
-  });
+  // Pre-compute block positions + staggered delays
+  const blocks = useMemo(() => {
+    const result = [];
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        if (!grid[r][c]) continue;
+        // Left-to-right column sweep + bottom rows land first (Tetris stacking)
+        const colDelay = c * 14;
+        const rowBonus = (totalRows - 1 - r) * 55;
+        const jitter = ((r * 7 + c * 13) % 23) * 4;
+        result.push({ r, c, delay: colDelay + rowBonus + jitter });
+      }
+    }
+    return result;
+  }, [grid, totalRows, totalCols]);
+
+  const blockSize = 0.82;
+  const gap = (1 - blockSize) / 2;
 
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", minHeight: "100%", padding: "2rem",
-      background: "var(--bg-100, #faf9f6)",
+      justifyContent: "center", minHeight: "100%",
+      padding: "2rem 1rem",
+      background: "var(--bg, #071521)",
     }}>
-      <div style={{ textAlign: "center", maxWidth: 500 }}>
-        {/* ASCII art */}
-        <pre style={{
-          fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)",
-          fontSize: "clamp(8px, 2.5vw, 14px)",
-          lineHeight: 1.3,
-          color: "var(--accent, #c4613a)",
-          margin: "0 auto 32px",
-          textAlign: "left",
-          display: "inline-block",
-          minHeight: `${TERRA_ASCII.length * 1.3}em`,
-          letterSpacing: "0.02em",
-          whiteSpace: "pre",
-        }}>
-          {lines.map((line, i) => (
-            <span key={i}>
-              {line}
-              {i < lines.length - 1 ? "\n" : ""}
-            </span>
+      <div style={{ width: "100%", maxWidth: 880, textAlign: "center" }}>
+        {/* Pixel-block TERRAFORMING — SVG scales to any screen */}
+        <svg
+          viewBox={`0 0 ${totalCols} ${totalRows}`}
+          style={{ width: "100%", height: "auto", display: "block", margin: "0 auto 36px" }}
+          aria-label="Terraforming"
+          role="img"
+        >
+          {blocks.map(({ r, c, delay }) => (
+            <rect
+              key={`${r}-${c}`}
+              x={c + gap}
+              y={r + gap}
+              width={blockSize}
+              height={blockSize}
+              rx={0.06}
+              fill={BLOCK_COLOR}
+              style={{
+                animation: `blockDrop 0.65s ${delay}ms cubic-bezier(0.22, 1, 0.36, 1) both`,
+              }}
+            />
           ))}
-          <span style={{ opacity: 0.6, animation: "blink 1s step-end infinite" }}>_</span>
-        </pre>
+        </svg>
 
-        {/* Status message */}
+        {/* Status message — fades in after blocks land */}
         <p style={{
-          fontSize: "14px", color: "var(--text-300)",
-          lineHeight: 1.6, transition: "opacity 300ms",
+          fontSize: "clamp(12px, 2vw, 15px)",
+          color: "var(--ink-500, #89a4bc)",
+          lineHeight: 1.6,
           minHeight: "1.6em",
+          opacity: showMessages ? 1 : 0,
+          transition: "opacity 600ms ease",
+          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+          letterSpacing: "0.02em",
         }}>
           {messages[msgIndex]}
         </p>
@@ -325,10 +384,12 @@ function TerraformingScreen({ onCancel, mode }) {
         <button
           onClick={onCancel}
           style={{
-            marginTop: 24, background: "none", border: "none",
-            color: "var(--text-300)", fontSize: "13px", cursor: "pointer",
-            fontFamily: "inherit", textDecoration: "underline",
-            textUnderlineOffset: "3px",
+            marginTop: 20, background: "none", border: "none",
+            color: "var(--ink-500, #89a4bc)", fontSize: "13px", cursor: "pointer",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            textDecoration: "underline", textUnderlineOffset: "3px",
+            opacity: showMessages ? 1 : 0,
+            transition: "opacity 600ms ease",
           }}
         >Cancel</button>
       </div>
@@ -704,7 +765,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             marginBottom: 12, lineHeight: 1.15,
             fontFamily: "var(--font-display, 'Fraunces', serif)",
           }}>
-            {builderMode === "team" ? "What are we terraforming?" : "Build a worker"}
+            {builderMode === "team" ? "What are we terraforming?" : "Activate a worker"}
           </h1>
           <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
             {builderMode === "team" ? "Describe your business. We'll do the rest." : "Describe what this worker should do."}
