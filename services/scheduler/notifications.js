@@ -256,6 +256,121 @@ async function sendSlackTestNotification(webhookUrl) {
 }
 
 // ---------------------------------------------------------------------------
+// Email Delivery (stub)
+// ---------------------------------------------------------------------------
+
+async function sendEmailNotification({ email, event, worker, execution }) {
+  // TODO: Wire to email provider (Resend, SES, Postmark)
+  return { ok: false, error: 'Email delivery not yet configured' };
+}
+
+// ---------------------------------------------------------------------------
+// SMS Delivery (Twilio)
+// ---------------------------------------------------------------------------
+
+async function sendSmsNotification({ phoneNumber, event, worker, execution }) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+  if (!accountSid || !authToken || !fromNumber || !phoneNumber) {
+    return { ok: false, error: 'Twilio not configured or no phone number' };
+  }
+
+  const messages = {
+    'approval.required': `[Nooterra] ${worker.name} needs your approval to ${execution?.action || 'perform an action'}. Open your inbox: ${DASHBOARD_BASE_URL}/dashboard`,
+    'execution.completed': `[Nooterra] ${worker.name} completed. Cost: $${(execution?.costUsd || 0).toFixed(3)}`,
+    'execution.failed': `[Nooterra] ${worker.name} failed: ${execution?.error || 'Unknown error'}`,
+    'budget.low': `[Nooterra] Credits running low ($${(execution?.balance || 0).toFixed(2)}). Top up at ${DASHBOARD_BASE_URL}/dashboard`,
+  };
+  const body = messages[event] || `[Nooterra] ${worker.name}: ${event}`;
+
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ To: phoneNumber, From: fromNumber, Body: body }).toString(),
+    });
+    if (!response.ok) return { ok: false, error: `Twilio returned ${response.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp Delivery (Twilio)
+// ---------------------------------------------------------------------------
+
+async function sendWhatsAppNotification({ phoneNumber, event, worker, execution }) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+  if (!accountSid || !authToken || !phoneNumber) {
+    return { ok: false, error: 'Twilio WhatsApp not configured or no phone number' };
+  }
+
+  const messages = {
+    'approval.required': `*Approval Required*\n${worker.name} needs your approval to ${execution?.action || 'perform an action'}.\n\nOpen inbox: ${DASHBOARD_BASE_URL}/dashboard`,
+    'execution.completed': `*Worker Completed*\n${worker.name} finished. Cost: $${(execution?.costUsd || 0).toFixed(3)}`,
+    'execution.failed': `*Worker Error*\n${worker.name} failed: ${execution?.error || 'Unknown error'}`,
+    'budget.low': `*Budget Alert*\nCredits at $${(execution?.balance || 0).toFixed(2)}. Top up: ${DASHBOARD_BASE_URL}/dashboard`,
+  };
+  const body = messages[event] || `*${worker.name}*: ${event}`;
+
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ To: `whatsapp:${phoneNumber}`, From: fromNumber, Body: body }).toString(),
+    });
+    if (!response.ok) return { ok: false, error: `Twilio WhatsApp returned ${response.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Telegram Delivery
+// ---------------------------------------------------------------------------
+
+async function sendTelegramNotification({ chatId, event, worker, execution }) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken || !chatId) {
+    return { ok: false, error: 'Telegram not configured or no chat ID' };
+  }
+
+  const messages = {
+    'approval.required': `<b>Approval Required</b>\n${worker.name} needs your approval to ${execution?.action || 'perform an action'}.\n\n<a href="${DASHBOARD_BASE_URL}/dashboard">Open Inbox</a>`,
+    'execution.completed': `<b>Worker Completed</b>\n${worker.name} finished. Cost: $${(execution?.costUsd || 0).toFixed(3)}`,
+    'execution.failed': `<b>Worker Error</b>\n${worker.name} failed: ${execution?.error || 'Unknown error'}`,
+    'budget.low': `<b>Budget Alert</b>\nCredits at $${(execution?.balance || 0).toFixed(2)}. <a href="${DASHBOARD_BASE_URL}/dashboard">Top Up</a>`,
+  };
+  const text = messages[event] || `<b>${worker.name}</b>: ${event}`;
+
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+    if (!response.ok) return { ok: false, error: `Telegram returned ${response.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Preference Loading
 // ---------------------------------------------------------------------------
 
@@ -314,48 +429,57 @@ function isEventEnabled(prefs, event) {
  * @param {function} [params.log] - Logging function
  */
 async function deliverNotification({ pool, tenantId, event, worker, execution, log }) {
-  const logFn = log || (() => {});
-
+  const logFn = log || console.log;
   try {
     const prefs = await getNotificationPreferences(pool, tenantId);
     if (!prefs) return;
-
     if (!isEventEnabled(prefs, event)) return;
 
     const results = [];
 
-    // Slack notifications
-    if (prefs.slackEnabled && prefs.slackWebhookUrl) {
-      const slackResult = await sendSlackNotification({
-        webhookUrl: prefs.slackWebhookUrl,
-        event,
-        worker,
-        execution,
-      });
-      if (!slackResult.ok) {
-        logFn('warn', `Slack notification failed for tenant ${tenantId}: ${slackResult.error}`);
+    // Slack
+    if (prefs.channels?.slack && prefs.slackWebhookUrl) {
+      results.push(sendSlackNotification({ webhookUrl: prefs.slackWebhookUrl, event, worker, execution }));
+    }
+
+    // Email
+    if (prefs.channels?.email && prefs.email) {
+      results.push(sendEmailNotification({ email: prefs.email, event, worker, execution }));
+    }
+
+    // SMS
+    if (prefs.channels?.sms && prefs.smsPhone) {
+      results.push(sendSmsNotification({ phoneNumber: prefs.smsPhone, event, worker, execution }));
+    }
+
+    // WhatsApp
+    if (prefs.channels?.whatsapp && prefs.whatsappPhone) {
+      results.push(sendWhatsAppNotification({ phoneNumber: prefs.whatsappPhone, event, worker, execution }));
+    }
+
+    // Telegram
+    if (prefs.channels?.telegram && prefs.telegramChatId) {
+      results.push(sendTelegramNotification({ chatId: prefs.telegramChatId, event, worker, execution }));
+    }
+
+    const settled = await Promise.allSettled(results);
+    for (const r of settled) {
+      if (r.status === 'rejected' || (r.value && !r.value.ok)) {
+        logFn('warn', `[notifications] delivery failed: ${r.reason || r.value?.error}`);
       }
-      results.push({ channel: 'slack', ...slackResult });
     }
-
-    // Email notifications (placeholder -- email delivery requires an email service)
-    if (prefs.emailEnabled && prefs.emailAddress) {
-      // Email delivery would be handled by an email service (SendGrid, SES, etc.)
-      // For now, log the intent
-      logFn('info', `Email notification queued for ${prefs.emailAddress}: ${event} - ${worker.name}`);
-      results.push({ channel: 'email', ok: true, queued: true });
-    }
-
-    return results;
   } catch (err) {
-    logFn('error', `Notification delivery error for tenant ${tenantId}: ${err.message}`);
-    return [];
+    logFn('warn', `[notifications] error: ${err.message}`);
   }
 }
 
 export {
   sendSlackNotification,
   sendSlackTestNotification,
+  sendEmailNotification,
+  sendSmsNotification,
+  sendWhatsAppNotification,
+  sendTelegramNotification,
   getNotificationPreferences,
   deliverNotification,
   buildSlackBlocks,

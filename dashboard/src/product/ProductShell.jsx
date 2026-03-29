@@ -2344,8 +2344,19 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
 function WorkersListView({ onSelect, onCreate }) {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { setWorkers([]); } setLoading(false); })(); }, []);
+
+  const filteredWorkers = searchQuery.trim()
+    ? workers.filter(w => {
+        const q = searchQuery.toLowerCase();
+        return (w.name || "").toLowerCase().includes(q) ||
+               (w.status || "").toLowerCase().includes(q) ||
+               (w.description || "").toLowerCase().includes(q);
+      })
+    : workers;
+
   return (
     <div>
       {/* Header */}
@@ -2360,6 +2371,31 @@ function WorkersListView({ onSelect, onCreate }) {
         </div>
         <button style={{ ...S.btnPrimary, width: "auto", flexShrink: 0 }} onClick={onCreate}>New worker</button>
       </div>
+      {!loading && workers.length > 3 && (
+        <div style={{ marginBottom: 16, position: "relative" }}>
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search workers..."
+            aria-label="Search workers"
+            style={{
+              width: "100%", padding: "10px 14px", paddingLeft: 36,
+              fontSize: "14px", fontFamily: "inherit",
+              border: "1px solid var(--border)", borderRadius: 8,
+              background: "var(--bg-400, var(--bg-surface))",
+              color: "var(--text-100, var(--text-primary))",
+              outline: "none", boxSizing: "border-box",
+              transition: "border-color 150ms",
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--border-strong, var(--accent))"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          />
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+            <circle cx="7" cy="7" r="4.5" stroke="var(--text-300)" strokeWidth="1.5" fill="none" />
+            <path d="M10.5 10.5L14 14" stroke="var(--text-300)" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+      )}
       {loading && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[1, 2, 3].map(i => (
@@ -2374,9 +2410,14 @@ function WorkersListView({ onSelect, onCreate }) {
           <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
         </div>
       )}
-      {!loading && workers.length > 0 && (
+      {!loading && filteredWorkers.length === 0 && searchQuery.trim() && (
+        <div style={{ padding: "2rem", textAlign: "center", fontSize: "14px", color: "var(--text-secondary)" }}>
+          No workers match &ldquo;{searchQuery}&rdquo;
+        </div>
+      )}
+      {!loading && filteredWorkers.length > 0 && (
         <div>
-          {workers.map(w => (
+          {filteredWorkers.map(w => (
             <div
               key={w.id}
               onClick={() => onSelect(w)}
@@ -2954,6 +2995,12 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const [notifSlackWebhook, setNotifSlackWebhook] = useState("");
   const [notifSlackTesting, setNotifSlackTesting] = useState(false);
   const [notifSlackTestResult, setNotifSlackTestResult] = useState(null);
+  const [notifSmsEnabled, setNotifSmsEnabled] = useState(false);
+  const [notifSmsPhone, setNotifSmsPhone] = useState("");
+  const [notifWhatsappEnabled, setNotifWhatsappEnabled] = useState(false);
+  const [notifWhatsappPhone, setNotifWhatsappPhone] = useState("");
+  const [notifTelegramEnabled, setNotifTelegramEnabled] = useState(false);
+  const [notifTelegramChatId, setNotifTelegramChatId] = useState("");
   const [notifEvents, setNotifEvents] = useState({
     approvalRequired: true,
     workerCompleted: false,
@@ -2973,6 +3020,12 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
           if (prefs.emailAddress) setNotifEmailAddress(prefs.emailAddress);
           if (prefs.slackEnabled != null) setNotifSlackEnabled(prefs.slackEnabled);
           if (prefs.slackWebhookUrl) setNotifSlackWebhook(prefs.slackWebhookUrl);
+          if (prefs.smsEnabled != null) setNotifSmsEnabled(prefs.smsEnabled);
+          if (prefs.smsPhone) setNotifSmsPhone(prefs.smsPhone);
+          if (prefs.whatsappEnabled != null) setNotifWhatsappEnabled(prefs.whatsappEnabled);
+          if (prefs.whatsappPhone) setNotifWhatsappPhone(prefs.whatsappPhone);
+          if (prefs.telegramEnabled != null) setNotifTelegramEnabled(prefs.telegramEnabled);
+          if (prefs.telegramChatId) setNotifTelegramChatId(prefs.telegramChatId);
           if (prefs.events) setNotifEvents(prev => ({ ...prev, ...prefs.events }));
         }
       } catch { /* no prefs yet */ }
@@ -2990,6 +3043,12 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
           emailAddress: notifEmailAddress.trim(),
           slackEnabled: notifSlackEnabled,
           slackWebhookUrl: notifSlackWebhook.trim(),
+          smsEnabled: notifSmsEnabled,
+          smsPhone: notifSmsPhone.trim(),
+          whatsappEnabled: notifWhatsappEnabled,
+          whatsappPhone: notifWhatsappPhone.trim(),
+          telegramEnabled: notifTelegramEnabled,
+          telegramChatId: notifTelegramChatId.trim(),
           events: notifEvents,
         },
       });
@@ -3087,14 +3146,34 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                 {[
                   { key: "email", label: "Email", desc: "Get notifications delivered to your inbox", enabled: notifEmailEnabled, onToggle: () => setNotifEmailEnabled(!notifEmailEnabled) },
                   { key: "slack", label: "Slack", desc: "Get notifications in a Slack channel", enabled: notifSlackEnabled, onToggle: () => setNotifSlackEnabled(!notifSlackEnabled) },
+                  { key: "sms", label: "SMS", desc: "Text message alerts", enabled: notifSmsEnabled, onToggle: () => setNotifSmsEnabled(!notifSmsEnabled) },
+                  { key: "whatsapp", label: "WhatsApp", desc: "WhatsApp message alerts", enabled: notifWhatsappEnabled, onToggle: () => setNotifWhatsappEnabled(!notifWhatsappEnabled) },
+                  { key: "telegram", label: "Telegram", desc: "Telegram bot alerts", enabled: notifTelegramEnabled, onToggle: () => setNotifTelegramEnabled(!notifTelegramEnabled) },
                   { key: "dashboard", label: "Dashboard", desc: "See notifications in your Nooterra dashboard", enabled: true, onToggle: () => {} },
                 ].map((ch) => (
-                  <div key={ch.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
-                    <div>
-                      <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{ch.label}</div>
-                      <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 2 }}>{ch.desc}</div>
+                  <div key={ch.key}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--border)" }}>
+                      <div>
+                        <div style={{ fontSize: "14px", color: "var(--text-primary)", fontWeight: 500 }}>{ch.label}</div>
+                        <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 2 }}>{ch.desc}</div>
+                      </div>
+                      <ToggleSwitch on={ch.enabled} onToggle={ch.onToggle} />
                     </div>
-                    <ToggleSwitch on={ch.enabled} onToggle={ch.onToggle} />
+                    {ch.key === "sms" && notifSmsEnabled && (
+                      <div style={{ padding: "8px 0 16px" }}>
+                        <FocusInput value={notifSmsPhone} onChange={e => setNotifSmsPhone(e.target.value)} placeholder="+1 555 123 4567" style={{ marginBottom: 0 }} />
+                      </div>
+                    )}
+                    {ch.key === "whatsapp" && notifWhatsappEnabled && (
+                      <div style={{ padding: "8px 0 16px" }}>
+                        <FocusInput value={notifWhatsappPhone} onChange={e => setNotifWhatsappPhone(e.target.value)} placeholder="+1 555 123 4567" style={{ marginBottom: 0 }} />
+                      </div>
+                    )}
+                    {ch.key === "telegram" && notifTelegramEnabled && (
+                      <div style={{ padding: "8px 0 16px" }}>
+                        <FocusInput value={notifTelegramChatId} onChange={e => setNotifTelegramChatId(e.target.value)} placeholder="Chat ID (e.g. 123456789)" style={{ marginBottom: 0 }} />
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -3569,6 +3648,199 @@ function PerformanceView() {
 }
 
 /* ===================================================================
+   CommandPalette
+   =================================================================== */
+
+function CommandPalette({ open, onClose, workers, onNavigate, onSelectWorker, onToggleTheme }) {
+  const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  useEffect(() => { setQuery(""); setSelectedIndex(0); }, [open]);
+
+  if (!open) return null;
+
+  const staticActions = [
+    { id: "inbox", label: "Go to Inbox", section: "Navigate", action: () => onNavigate("inbox") },
+    { id: "team", label: "Go to Team", section: "Navigate", action: () => onNavigate("team") },
+    { id: "activity", label: "Go to Activity", section: "Navigate", action: () => onNavigate("activity") },
+    { id: "performance", label: "Go to Performance", section: "Navigate", action: () => onNavigate("performance") },
+    { id: "connections", label: "Go to Connections", section: "Navigate", action: () => onNavigate("connections") },
+    { id: "new-worker", label: "New Worker", section: "Actions", action: () => onNavigate("builder") },
+    { id: "settings", label: "Open Settings", section: "Actions", action: () => onNavigate("settings") },
+    { id: "theme", label: "Toggle Dark Mode", section: "Actions", action: onToggleTheme },
+  ];
+
+  const workerActions = (workers || []).map(w => ({
+    id: `worker-${w.id}`,
+    label: w.name,
+    section: "Workers",
+    meta: w.status,
+    action: () => onSelectWorker(w),
+  }));
+
+  const allActions = [...staticActions, ...workerActions];
+
+  const q = query.toLowerCase().trim();
+  const filtered = q
+    ? allActions.filter(a => a.label.toLowerCase().includes(q) || (a.meta && a.meta.toLowerCase().includes(q)))
+    : allActions;
+
+  const clamped = Math.min(selectedIndex, filtered.length - 1);
+
+  function handleKeyDown(e) {
+    if (e.key === "Escape") { onClose(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, filtered.length - 1)); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); return; }
+    if (e.key === "Enter" && filtered[clamped]) {
+      e.preventDefault();
+      filtered[clamped].action();
+      onClose();
+      return;
+    }
+  }
+
+  // Group by section
+  const sections = {};
+  for (const item of filtered) {
+    if (!sections[item.section]) sections[item.section] = [];
+    sections[item.section].push(item);
+  }
+
+  let globalIndex = 0;
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ alignItems: "flex-start", paddingTop: "min(20vh, 160px)" }}
+    >
+      <div
+        className="popover-animate"
+        style={{
+          width: "100%", maxWidth: 520, background: "var(--bg-400, var(--bg-surface))",
+          border: "1px solid var(--border)", borderRadius: 16,
+          boxShadow: "var(--shadow-xl)", overflow: "hidden",
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        {/* Search input */}
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => { setQuery(e.target.value); setSelectedIndex(0); }}
+            placeholder="Type a command or search..."
+            aria-label="Command palette search"
+            style={{
+              width: "100%", padding: "8px 0", fontSize: "15px", fontFamily: "inherit",
+              border: "none", outline: "none", background: "transparent",
+              color: "var(--text-100, var(--text-primary))", boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {/* Results */}
+        <div style={{ maxHeight: 360, overflowY: "auto", padding: "4px 0" }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: "24px 16px", textAlign: "center", fontSize: "13px", color: "var(--text-300, var(--text-tertiary))" }}>
+              No results for &ldquo;{query}&rdquo;
+            </div>
+          )}
+          {Object.entries(sections).map(([section, items]) => (
+            <div key={section}>
+              <div style={{
+                padding: "8px 16px 4px", fontSize: "10px", fontWeight: 700,
+                color: "var(--text-300, var(--text-tertiary))", textTransform: "uppercase",
+                letterSpacing: "0.08em", fontFamily: "var(--font-mono)",
+              }}>{section}</div>
+              {items.map(item => {
+                const idx = globalIndex++;
+                const isActive = idx === clamped;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { item.action(); onClose(); }}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      width: "100%", padding: "8px 16px", fontSize: "14px",
+                      fontFamily: "inherit", border: "none", cursor: "pointer",
+                      background: isActive ? "var(--bg-200, var(--bg-hover))" : "transparent",
+                      color: isActive ? "var(--text-100, var(--text-primary))" : "var(--text-200, var(--text-secondary))",
+                      textAlign: "left", transition: "background 80ms",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-200, var(--bg-hover))"; }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <span>{item.label}</span>
+                    {item.meta && (
+                      <span style={{ fontSize: "11px", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>{item.meta}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer hint */}
+        <div style={{
+          padding: "8px 16px", borderTop: "1px solid var(--border)",
+          fontSize: "11px", color: "var(--text-300, var(--text-tertiary))",
+          display: "flex", gap: 12,
+        }}>
+          <span><kbd style={{ padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>&#8593;&#8595;</kbd> navigate</span>
+          <span><kbd style={{ padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>&#8629;</kbd> select</span>
+          <span><kbd style={{ padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>esc</kbd> close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================================
+   ToastNotification
+   =================================================================== */
+
+function ToastNotification({ message, onClose, onClick }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    requestAnimationFrame(() => setVisible(true));
+    const timer = setTimeout(() => { setVisible(false); setTimeout(onClose, 300); }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        position: "fixed", top: 16, right: 16, zIndex: 300,
+        maxWidth: 360, padding: "14px 18px",
+        background: "var(--bg-400, var(--bg-surface))",
+        border: "1px solid var(--border)",
+        borderLeft: "3px solid var(--amber, #c08c30)",
+        borderRadius: 10,
+        boxShadow: "var(--shadow-lg)",
+        cursor: onClick ? "pointer" : "default",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateX(0)" : "translateX(20px)",
+        transition: "opacity 300ms ease, transform 300ms ease",
+      }}
+    >
+      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-100, var(--text-primary))", marginBottom: 2 }}>
+        Approval needed
+      </div>
+      <div style={{ fontSize: "12px", color: "var(--text-200, var(--text-secondary))", lineHeight: 1.5 }}>
+        {message}
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================================
    AppShell
    =================================================================== */
 
@@ -3586,6 +3858,18 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userTier, setUserTier] = useState("free");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    function handleGlobalKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdPaletteOpen(prev => !prev);
+      }
+    }
+    document.addEventListener("keydown", handleGlobalKey);
+    return () => document.removeEventListener("keydown", handleGlobalKey);
+  }, []);
 
   useEffect(() => {
     (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); } catch { /* ignore */ } })();
@@ -3593,6 +3877,43 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Real-time approval feed via SSE
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    let es;
+    try {
+      es = new EventSource("/__nooterra/v1/approvals/feed");
+      es.addEventListener("update", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (typeof data.count === "number") {
+            setPendingApprovals(data.count);
+          }
+          // Show toast for new approvals
+          if (data.items && data.items.length > 0) {
+            const newest = data.items[0];
+            const workerName = newest.worker_name || newest.workerName || "A worker";
+            const action = newest.tool_name || newest.action || "an action";
+            setToasts(prev => [...prev, {
+              id: Date.now(),
+              message: `${workerName} wants to ${action}`,
+            }]);
+          }
+        } catch { /* ignore parse errors */ }
+      });
+      es.addEventListener("snapshot", (e) => {
+        try {
+          const items = JSON.parse(e.data);
+          if (Array.isArray(items)) setPendingApprovals(items.length);
+        } catch { /* ignore */ }
+      });
+      es.onerror = () => {
+        // SSE will auto-reconnect, no action needed
+      };
+    } catch { /* SSE not supported or endpoint unavailable */ }
+    return () => { if (es) es.close(); };
+  }, []);
 
   // Auto-redirect to inbox if workers have activity (only on initial load)
   const hasRedirected = useRef(false);
@@ -3802,6 +4123,31 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
       </main>
 
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
+
+      <CommandPalette
+        open={cmdPaletteOpen}
+        onClose={() => setCmdPaletteOpen(false)}
+        workers={workers}
+        onNavigate={(dest) => {
+          if (dest === "settings") setSettingsOpen(true);
+          else navAndClose(dest);
+        }}
+        onSelectWorker={handleSelectWorker}
+        onToggleTheme={() => {
+          const current = loadTheme();
+          const next = current === "dark" ? "light" : "dark";
+          saveTheme(next);
+        }}
+      />
+
+      {toasts.map(toast => (
+        <ToastNotification
+          key={toast.id}
+          message={toast.message}
+          onClose={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+          onClick={() => { setToasts(prev => prev.filter(t => t.id !== toast.id)); navAndClose("inbox"); }}
+        />
+      ))}
     </div>
   );
 }

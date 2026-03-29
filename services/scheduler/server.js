@@ -493,6 +493,26 @@ async function executeWorker(worker, executionId, triggerType) {
         });
 
         await deductCredits(worker.tenant_id, totalCost, executionId);
+
+        // Notify tenant that approval is needed
+        try {
+          await deliverNotification({
+            pool,
+            tenantId: worker.tenant_id,
+            event: 'approval.required',
+            worker: { id: worker.id, name: worker.name },
+            execution: {
+              id: executionId,
+              action: approvalNeeded[0]?.toolCall?.name || 'unknown action',
+              requestId: executionId,
+              details: `Rule: ${approvalNeeded[0]?.validation?.matchedRule || approvalNeeded[0]?.validation?.rule || 'ask first'}`,
+            },
+            log,
+          });
+        } catch (notifErr) {
+          log('warn', `[notifications] Failed to send approval notification: ${notifErr.message}`);
+        }
+
         return;
       }
 

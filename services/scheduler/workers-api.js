@@ -235,6 +235,60 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return true;
   }
 
+  // GET /v1/approvals/feed — SSE feed for approval inbox updates
+  if (method === 'GET' && pathname === '/v1/approvals/feed') {
+    const tenantId = getTenantId(req);
+    if (!tenantId) { res.writeHead(401); res.end('Unauthorized'); return true; }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Send initial snapshot
+    try {
+      const result = await pool.query(
+        'SELECT * FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL ORDER BY created_at DESC LIMIT 20',
+        [tenantId]
+      );
+      res.write(`event: snapshot\ndata: ${JSON.stringify(result.rows)}\n\n`);
+    } catch { res.write(`event: snapshot\ndata: []\n\n`); }
+
+    // Poll for changes
+    let lastCount = -1;
+    const pollInterval = setInterval(async () => {
+      try {
+        const result = await pool.query(
+          'SELECT COUNT(*)::int as count FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL',
+          [tenantId]
+        );
+        const count = result.rows[0]?.count || 0;
+        if (count !== lastCount) {
+          lastCount = count;
+          const pending = await pool.query(
+            'SELECT * FROM worker_approvals WHERE tenant_id = $1 AND decision IS NULL ORDER BY created_at DESC LIMIT 20',
+            [tenantId]
+          );
+          res.write(`event: update\ndata: ${JSON.stringify({ count, items: pending.rows })}\n\n`);
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+
+    // Keepalive
+    const keepalive = setInterval(() => {
+      res.write(': keepalive\n\n');
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(pollInterval);
+      clearInterval(keepalive);
+    });
+
+    return true;
+  }
+
   // GET /v1/credits — credit balance
   if (method === 'GET' && pathname === '/v1/credits') {
     const tid = getTenantId(req);
