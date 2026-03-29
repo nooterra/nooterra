@@ -1,14 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#faf9f6">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#faf9f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)" />
     <title>Nooterra | AI Workers for Consequential Work</title>
     <meta
       name="description"
       content="Create AI workers in plain English. They run 24/7 with guardrails, approvals, and audit trails. Any AI provider. Free to start."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Prevent flash of unstyled content — matches CSS variables */
+      html, body { margin: 0; background: #faf9f6; }
+      @media (prefers-color-scheme: dark) { html, body { background: #141413; } }
+      html[data-theme="dark"], html[data-theme="dark"] body { background: #141413; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
