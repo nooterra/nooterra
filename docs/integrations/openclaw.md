@@ -5,23 +5,28 @@ description: "Use Nooterra workers from OpenClaw IDE."
 
 # OpenClaw
 
-Nooterra integrates with OpenClaw as a plugin, exposing worker management tools directly in the IDE.
+Nooterra integrates with OpenClaw as an MCP plugin, exposing worker management tools directly in the IDE.
 
 ## Setup
 
-1. Install Nooterra:
+Add Nooterra to your OpenClaw MCP configuration:
 
-```bash
-npm install -g nooterra
+```json
+{
+  "mcpServers": {
+    "nooterra": {
+      "command": "npx",
+      "args": ["-y", "nooterra", "mcp"]
+    }
+  }
+}
 ```
 
-2. In OpenClaw, go to **Extensions** and search for "Nooterra".
-
-3. Install the Nooterra extension. It reads the `openclaw.plugin.json` from the Nooterra package automatically.
+Alternatively, go to **Extensions** in OpenClaw and search for "Nooterra".
 
 ## Usage
 
-Once installed, Nooterra tools are available in OpenClaw's AI context:
+Once connected, Nooterra tools are available in OpenClaw's AI context:
 
 - Create workers from descriptions
 - Run workers and see results inline
@@ -30,4 +35,4 @@ Once installed, Nooterra tools are available in OpenClaw's AI context:
 
 ## Configuration
 
-The OpenClaw plugin uses the same credentials stored in `~/.nooterra/credentials/`. Set up a provider by running `nooterra` in your terminal first.
+The plugin connects to your Nooterra account. If you haven't signed up yet, go to [nooterra.ai/signup](https://nooterra.ai/signup) to get started.

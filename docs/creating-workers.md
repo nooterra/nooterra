@@ -1,213 +1,172 @@
 ---
 title: "Creating Workers"
-description: "Three ways to create workers: conversational flow, instant mode, and templates."
+description: "Build your AI workforce using team mode, worker mode, or pre-built templates."
 ---
 
 # Creating Workers
 
-There are three ways to create a worker: conversational flow, instant mode, and templates.
+There are three ways to create workers in Nooterra: **team mode**, **worker mode**, and **templates**. All three are available from the dashboard.
 
-## Conversational Flow
+---
 
-Start with `/new` or just describe what you want:
+## Team mode
 
-```
-> /new Monitor my inbox and forward urgent emails to Slack
-```
+Team mode is the primary way to build your workforce. Describe your business (or a part of it) and Nooterra designs a full team of workers tailored to your operations.
 
-Nooterra walks you through a multi-step conversation. Each step gathers one piece of information.
+<Steps>
+  <Step title="Open the builder">
+    From your dashboard, click **New team** to open the team builder. Select **Team mode** if not already selected.
+  </Step>
+  <Step title="Describe your business">
+    Enter a one-sentence description of your business or the area you need help with:
 
-### Step 1: Task Description
+    - "I run a property management company with 40 rental units."
+    - "We sell handmade candles on Etsy and our own Shopify store."
+    - "I'm a freelance accountant with 25 clients."
 
-Describe the worker's job. The more detail, the better the inference:
+    The more specific you are, the better the team Nooterra designs for you.
+  </Step>
+  <Step title="Review the proposed team">
+    Nooterra generates a team of workers, each with a defined role, capabilities, and charter. For a property management company, you might see:
 
-```
-Nooterra: Here's what I'm thinking for this worker:
+    | Worker | Role | Capabilities |
+    |--------|------|-------------|
+    | **Tenant Coordinator** | Handle tenant inquiries and maintenance requests | Email, Calendar, CRM |
+    | **Rent Collector** | Send rent reminders and track payments | Email, Stripe, QuickBooks |
+    | **Maintenance Dispatcher** | Route repair requests to contractors | Email, SMS, Calendar |
+    | **Listing Manager** | Post and update vacancy listings | Browser, Email |
 
-This worker will use:
-  Email (Gmail/IMAP)
-  Slack
+    Each worker comes with a **charter** -- explicit rules defining what it can do autonomously (canDo), what requires your approval (askFirst), and what's permanently blocked (neverDo).
+  </Step>
+  <Step title="Customize and activate">
+    Before activating, you can:
 
-Other tools available: Web Browser, GitHub, File System, Terminal
+    - **Remove** workers you don't need
+    - **Add** workers to fill gaps
+    - **Edit** any worker's charter, capabilities, or schedule
+    - **Rename** workers to match your terminology
 
-I also need to know:
-  - Can this worker spend money? If so, what's the budget?
-  - Should it need approval before taking action?
-  - Any services it should NEVER access?
+    When you're satisfied, activate the team. Workers begin operating on their assigned schedules immediately.
+  </Step>
+</Steps>
 
-Let's start -- are these tools right? (yes / add more / change)
-```
+---
 
-### Step 2: Confirm Capabilities
+## Worker mode
 
-Say "yes" to accept, "add more" to include additional tools, or "change" to swap tools out.
+Worker mode creates a single worker for a specific task. Use this when you need one worker, not a whole team.
 
-### Step 3: Configure Each Capability
+<Steps>
+  <Step title="Open the builder">
+    From your dashboard, click **New team** and switch to **Worker mode**.
+  </Step>
+  <Step title="Describe the task">
+    Enter what you need in plain language:
 
-For tools that need authentication (Slack, GitHub, Stripe, etc.), you'll be prompted to connect:
+    - "Monitor competitor websites for pricing changes and alert me on Slack."
+    - "Review every new GitHub pull request and leave comments on code quality."
+    - "Check my inbox every 15 minutes and forward urgent emails to my phone."
 
-```
-How do you want to connect Email (Gmail/IMAP)?
-  1. OAuth (recommended)
-  2. Manual credentials
-```
+    Nooterra infers everything from your description: name, capabilities, charter rules, and schedule.
+  </Step>
+  <Step title="Review and deploy">
+    You'll see a full preview of the worker:
 
-Tools like Web Browser and File System work out of the box with no auth.
+    - **Name** and role description
+    - **Capabilities** -- which tools and integrations it will use
+    - **Charter** -- canDo, askFirst, and neverDo rules
+    - **Schedule** -- when and how often it runs
 
-### Step 4: Define Rules
+    Edit anything that needs adjusting, then activate. The worker starts immediately.
+  </Step>
+</Steps>
 
-Nooterra infers canDo/askFirst/neverDo rules from your description and capabilities, then asks you to confirm or adjust:
-
-```
-Based on what you've told me, here's what this worker can do:
-
-CAN DO:
-  - Read emails matching search criteria
-  - Read messages from allowed channels
-  - Send messages to allowed channels
-
-ASK FIRST:
-  - Send emails
-  - Send direct messages to individuals
-
-NEVER DO:
-  - Delete emails permanently
-  - Share email content externally
-  - Post to channels not in the allowed list
-
-Look good? (yes / add rules / change)
-```
-
-### Step 5: Schedule
-
-A schedule is inferred from your description. "Every morning" becomes `0 8 * * *`. "Hourly" becomes `0 */1 * * *`. You can accept or change it.
-
-### Step 6: Name and Deploy
-
-Pick a name (or accept the auto-generated one), review the full charter, and deploy.
-
-### Cancelling
-
-Type `/cancel` at any point to abort the creation flow.
-
-## Instant Mode
-
-Describe a worker in natural language and Nooterra infers everything without asking questions:
-
-```
-> I need a worker that reviews PRs on GitHub every 30 minutes
-```
-
-Nooterra detects this as a worker request and runs `instantCreate()`, which infers:
-- **Name** from the task description
-- **Capabilities** from keywords (GitHub, browser, email, etc.)
-- **Charter rules** from the capabilities and task
-- **Schedule** from time expressions ("every 30 minutes", "daily", "24/7")
-
-You get a charter preview and a single confirmation prompt:
-
-```
-Instant worker:
-
-  PR Reviewer
-  Review new pull requests on GitHub, check for code quality issues
-
-  Can Do:
-    - Read repository contents
-    - Create and update issues
-  Ask First:
-    - Create pull requests
-    - Merge pull requests
-  Never Do:
-    - Delete branches or repositories
-    - Modify repository settings
-
-  Provider: ChatGPT  Schedule: every 30m  Tools: GitHub
-
-Deploy this worker? (yes / edit / cancel)
-```
-
-Say "yes" to deploy, or "edit" to switch to the full conversational flow.
+---
 
 ## Templates
 
-Pre-built workers for common use cases:
+Templates are pre-built workers for common roles. Browse, activate, and customize -- no description needed.
 
-```
-> /templates
-```
+From your dashboard, click **New team** and select the **Templates** tab.
 
-| # | Template | Description | Schedule |
-|---|----------|-------------|----------|
-| 1 | Price Monitor | Track prices on websites | Every 1h |
-| 2 | Inbox Triage | Categorize and forward emails | Every 15m |
-| 3 | Standup Summarizer | Summarize team standups | Weekdays 10 AM |
-| 4 | Competitor Watcher | Monitor competitor websites | Daily 8 AM |
-| 5 | PR Reviewer | Review GitHub pull requests | Every 30m |
-| 6 | Social Monitor | Track brand mentions | Every 2h |
+<CardGroup cols={2}>
+  <Card title="Price Monitor" icon="tag">
+    Track prices on competitor websites and alert you when they change. Runs hourly.
+  </Card>
+  <Card title="Inbox Triage" icon="envelope">
+    Read incoming email, categorize messages by urgency, and forward critical ones. Runs every 15 minutes.
+  </Card>
+  <Card title="Standup Summarizer" icon="clipboard-list">
+    Read team standup messages from Slack and create a daily summary. Runs weekdays at 10 AM.
+  </Card>
+  <Card title="Competitor Watcher" icon="binoculars">
+    Monitor competitor websites for changes, new features, and content updates. Runs daily.
+  </Card>
+  <Card title="PR Reviewer" icon="code-pull-request">
+    Review new GitHub pull requests and leave comments on code quality and potential issues. Runs every 30 minutes.
+  </Card>
+  <Card title="Social Monitor" icon="hashtag">
+    Track mentions of your brand across the web and social platforms. Runs every 2 hours.
+  </Card>
+</CardGroup>
 
-Select a template number, review the charter, and deploy.
+Select a template, review its charter, adjust anything you want, and activate.
 
-## Guided Setup (Profiles)
+---
 
-For recognized worker types, Nooterra runs a guided setup that knows exactly which tools and knowledge the worker needs. Detected profiles:
+## Editing workers after creation
 
-| Profile | Triggers On | Required Tools | Knowledge Collected |
-|---------|------------|----------------|-------------------|
-| Customer Support | "customer support", "help desk", "FAQ" | Email | Company overview, refund policy, business hours, tone |
-| Sales Assistant | "sales", "leads", "outreach" | Browser | Product overview, ideal customer, competitors, value prop |
-| Content Writer | "write blog", "content marketing" | Browser | Topics, writing style, audience, style guide |
-| Data Monitor | "monitor", "watch", "track prices" | Browser | Sources, what to watch for, frequency, notification targets |
-| HR Onboarding | "onboard", "new employee" | -- | Company info, first-week tasks, benefits, IT contact |
-| Meeting Assistant | "meeting summary", "action items" | Slack | Channels, summary format, participants |
+Every worker can be edited at any time from the dashboard. Click on any worker to open its detail view.
 
-When a profile is detected, the guided setup walks through required tools, optional tools, and knowledge collection specific to that worker type.
+### Charter editing
 
-## Editing Workers
+The charter is the core of every worker -- it defines what the worker is allowed to do. From the worker detail view, you can edit all three permission levels:
 
-After creation, you can teach workers additional knowledge:
+| Level | What it controls | Example rules |
+|---|---|---|
+| **canDo** | Actions the worker takes autonomously | Read emails, search databases, draft documents |
+| **askFirst** | Actions that pause and route to you for approval | Send external emails, issue refunds, modify records |
+| **neverDo** | Hard-blocked actions, no exceptions | Delete customer data, share PII, exceed spending limits |
 
-```
-> /teach "Price Monitor" "Competitor list: Acme Corp, Globex, Initech"
-> /teach "Support Bot" https://company.com/faq
-> /teach "Support Bot" ~/documents/refund-policy.txt
-```
+Changes take effect immediately. If you remove a capability from canDo, the worker stops performing that action on its next run.
 
-Manage knowledge:
+### Other editable settings
 
-```
-> /teach "Support Bot" --list     # See what the worker knows
-> /teach "Support Bot" --clear    # Remove all knowledge
-```
+<CardGroup cols={2}>
+  <Card title="Capabilities" icon="puzzle-piece">
+    Add or remove tools and integrations. Connect new services (Slack, GitHub, Stripe, etc.) or disconnect ones the worker no longer needs.
+  </Card>
+  <Card title="Schedule" icon="clock">
+    Change when and how often the worker runs -- cron expressions, intervals, or event-based triggers.
+  </Card>
+  <Card title="Knowledge" icon="book">
+    Teach the worker about your business. Add company info, policies, procedures, FAQs, or any context it needs to do its job well. Paste text, upload files, or provide URLs.
+  </Card>
+  <Card title="Name and role" icon="pen">
+    Rename the worker or update its role description at any time.
+  </Card>
+</CardGroup>
 
-## Listing and Monitoring Workers
+### Pausing and deleting
 
-```
-> /workers
-```
+- **Pause** a worker to stop it from running without losing its configuration. Resume anytime.
+- **Delete** a worker to remove it permanently. All execution history and audit logs are retained for 90 days.
 
-Shows all workers with their status, provider, and run count:
+---
 
-```
-  Workers
+## What's next
 
-    running  Inbox Triage      ChatGPT  12 runs
-    ready    Price Monitor     OpenAI   3 runs
-    paused   Social Monitor    Groq     0 runs
-```
-
-View execution history for a specific worker:
-
-```
-> /logs "Inbox Triage"
-```
-
-## Worker Delegation
-
-Workers can delegate tasks to other workers during execution:
-
-```
-> /delegate "sales lead" to "Price Monitor" "check competitor pricing"
-```
-
-Delegations use transitive trust with attenuation (child workers inherit parent constraints), have a max depth of 3, and produce a full audit trail.
+<CardGroup cols={2}>
+  <Card title="Charters" icon="shield-halved" href="/charters">
+    Deep dive into the permission system that makes workers safe to trust.
+  </Card>
+  <Card title="Capabilities" icon="puzzle-piece" href="/capabilities">
+    Full list of tools and integrations available to workers.
+  </Card>
+  <Card title="Scheduling" icon="clock" href="/scheduling">
+    Configure cron schedules, intervals, and event triggers.
+  </Card>
+  <Card title="Approvals" icon="circle-check" href="/approvals">
+    How the human-in-the-loop approval system works.
+  </Card>
+</CardGroup>

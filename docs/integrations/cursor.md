@@ -9,15 +9,9 @@ Use Nooterra as an MCP server in Cursor. Create and manage workers while you cod
 
 ## Setup
 
-1. Install Nooterra:
+1. Open Cursor Settings (Cmd+, or Ctrl+,) and go to **MCP Servers**.
 
-```bash
-npm install -g nooterra
-```
-
-2. Open Cursor Settings (Cmd+, or Ctrl+,) and go to **MCP Servers**.
-
-3. Add a new server with this configuration:
+2. Add a new server with this configuration:
 
 ```json
 {
@@ -28,7 +22,20 @@ npm install -g nooterra
 }
 ```
 
-4. Restart Cursor.
+Or add it to your project's `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "nooterra": {
+      "command": "npx",
+      "args": ["-y", "nooterra", "mcp"]
+    }
+  }
+}
+```
+
+3. Restart Cursor.
 
 ## Usage
 
@@ -38,6 +45,9 @@ In Cursor's AI chat, you can now reference Nooterra tools:
 - "List my nooterra workers"
 - "Run my Data Monitor worker"
 
-## First-time Setup
+## Troubleshooting
 
-The first time Nooterra runs via MCP, it uses whatever provider credentials you've configured. If you haven't set up a provider yet, run `nooterra` in your terminal first to complete onboarding.
+**Cursor doesn't see Nooterra tools:**
+- Make sure you restarted Cursor after adding the config
+- Check that `npx nooterra mcp` works in your terminal
+- Verify Node.js 20+ is installed: `node --version`

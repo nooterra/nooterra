@@ -5,7 +5,28 @@ description: "How to use Nooterra as an MCP server with Claude Desktop, Cursor, 
 
 # MCP Server Integration
 
-Nooterra ships an MCP (Model Context Protocol) server that exposes worker management as tools. Add it to Claude Desktop, Cursor, or any MCP-compatible client and say "create a nooterra worker that monitors competitor prices" -- it just works.
+Nooterra ships an MCP (Model Context Protocol) server that exposes worker management as tools. Add it to any MCP-compatible client and say "create a nooterra worker that monitors competitor prices" -- it just works.
+
+No global install needed. The server runs via `npx`.
+
+---
+
+## Quick Start
+
+Add this to your MCP client's config:
+
+```json
+{
+  "mcpServers": {
+    "nooterra": {
+      "command": "npx",
+      "args": ["-y", "nooterra", "mcp"]
+    }
+  }
+}
+```
+
+See [Claude Desktop](./claude-desktop.md) and [Cursor](./cursor.md) for client-specific setup.
 
 ---
 
@@ -14,10 +35,9 @@ Nooterra ships an MCP (Model Context Protocol) server that exposes worker manage
 | Property | Value |
 |----------|-------|
 | Server name | `nooterra` |
-| Version | `0.4.0` |
 | Protocol version | `2024-11-05` |
 | Transport | STDIO (JSON-RPC 2.0 over stdin/stdout) |
-| Entry point | `node scripts/worker-builder/mcp-server.mjs` |
+| Entry point | `npx nooterra mcp` |
 
 Diagnostic output goes to stderr to avoid corrupting the wire protocol.
 
@@ -35,12 +55,7 @@ Create a worker from a natural language description.
 |-----------|------|----------|-------------|
 | `description` | `string` | Yes | Natural language description of what the worker should do |
 
-**Returns:** `workerId`, `name`, `capabilities`, `schedule`, `charterSummary` (with `purpose`, `canDo`, `askFirst`, `neverDo`).
-
-**Example input:**
-```
-"monitor competitor prices every hour and alert me on Slack"
-```
+**Returns:** `workerId`, `name`, `capabilities`, `schedule`, `charterSummary`.
 
 ### `nooterra_create_from_template`
 
@@ -64,7 +79,7 @@ No parameters.
 
 ### `nooterra_run_worker`
 
-Execute a worker immediately. Calls the AI provider and runs the worker's tools. May take 10-30 seconds.
+Execute a worker immediately. May take 10-30 seconds.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -95,13 +110,13 @@ Get detailed status including charter, provider, run history, and next scheduled
 
 ### `nooterra_add_tool`
 
-Connect a tool/integration to Nooterra. Returns what credentials are needed and setup instructions.
+Connect a tool/integration to Nooterra.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `tool` | `string` | Yes | Tool ID (e.g., `browser`, `slack`, `github`, `email`, `filesystem`, `search`) |
 
-**Returns:** `{ status, needsAuth, instructions }` where status is `"ready"` or `"needs_setup"`.
+**Returns:** `{ status, needsAuth, instructions }`.
 
 ### `nooterra_list_tools`
 
@@ -113,7 +128,7 @@ No parameters.
 
 ### `nooterra_daemon_status`
 
-Check if the background daemon is running. The daemon executes scheduled workers automatically.
+Check if the background daemon is running.
 
 No parameters.
 
@@ -129,85 +144,23 @@ No parameters.
 
 ---
 
-## Setup for Claude Desktop
+## JSON-RPC Protocol
 
-Add the following to your Claude Desktop MCP configuration file:
-
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**Linux:** `~/.config/claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "nooterra": {
-      "command": "node",
-      "args": ["/absolute/path/to/nooterra/scripts/worker-builder/mcp-server.mjs"]
-    }
-  }
-}
-```
-
-Replace `/absolute/path/to/nooterra` with the actual path to your Nooterra installation.
-
-After saving, restart Claude Desktop. You can then say things like:
-
-- "Create a worker that monitors competitor prices every hour"
-- "List my workers"
-- "Run the Price Monitor worker"
-- "What templates are available?"
-
----
-
-## Setup for Cursor
-
-Add the server to your Cursor MCP settings. Open **Settings > MCP Servers** and add:
-
-```json
-{
-  "nooterra": {
-    "command": "node",
-    "args": ["/absolute/path/to/nooterra/scripts/worker-builder/mcp-server.mjs"]
-  }
-}
-```
-
-Or add it to your project's `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "nooterra": {
-      "command": "node",
-      "args": ["./scripts/worker-builder/mcp-server.mjs"]
-    }
-  }
-}
-```
-
----
-
-## Setup for Generic MCP Hosts
-
-Any MCP client that supports STDIO transport can connect to Nooterra. The server speaks JSON-RPC 2.0 over stdin/stdout.
+Any MCP client that supports STDIO transport can connect. The server speaks JSON-RPC 2.0 over stdin/stdout.
 
 ### Start the server
 
 ```bash
-node scripts/worker-builder/mcp-server.mjs
+npx nooterra mcp
 ```
 
 ### Get the manifest
 
 ```bash
-node scripts/worker-builder/mcp-server.mjs --manifest
+npx nooterra mcp --manifest
 ```
 
-This prints a JSON manifest with server name, version, description, transport type, command, args, and tool summaries.
-
-### JSON-RPC protocol
-
-The server handles these MCP methods:
+### Supported methods
 
 | Method | Description |
 |--------|-------------|
@@ -216,7 +169,7 @@ The server handles these MCP methods:
 | `tools/list` | Returns the full list of tools with input schemas |
 | `tools/call` | Executes a tool by name with arguments |
 
-**Example: Initialize**
+### Example: Initialize
 
 ```json
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
@@ -235,13 +188,7 @@ Response:
 }
 ```
 
-**Example: List tools**
-
-```json
-{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-```
-
-**Example: Call a tool**
+### Example: Call a tool
 
 ```json
 {
@@ -259,26 +206,18 @@ Response:
 
 ### Error codes
 
-The server uses standard JSON-RPC error codes:
-
 | Code | Meaning |
 |------|---------|
 | `-32700` | Parse error (invalid JSON) |
-| `-32600` | Invalid request (missing jsonrpc or method) |
+| `-32600` | Invalid request |
 | `-32601` | Method not found |
-| `-32602` | Invalid params (unknown tool name) |
+| `-32602` | Invalid params |
 | `-32603` | Internal error |
 
-Tool execution errors are returned as successful responses with `isError: true` in the result, following MCP conventions.
+Tool execution errors return successful responses with `isError: true` in the result, following MCP conventions.
 
 ---
 
 ## Lifecycle
 
-The server runs until stdin is closed or a `SIGINT`/`SIGTERM` signal is received. It logs lifecycle events to stderr:
-
-```
-[nooterra-mcp] Starting MCP server on stdio...
-[nooterra-mcp] MCP server ready.
-[nooterra-mcp] stdin closed, shutting down.
-```
+The server runs until stdin is closed or a `SIGINT`/`SIGTERM` signal is received. Lifecycle events are logged to stderr.

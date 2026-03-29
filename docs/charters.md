@@ -197,7 +197,7 @@ This means enforcement happens at two levels: the AI is instructed to follow the
 
 ## Editing Charters
 
-Charter rules are set during worker creation. To modify rules after creation, edit the worker's charter JSON file directly in `~/.nooterra/workers/<worker-id>/`.
+Charter rules are set during worker creation. To modify rules after creation, open the worker in the dashboard and edit the charter from the worker detail page. You can add, remove, or change canDo, askFirst, and neverDo rules at any time.
 
 ## Validation
 

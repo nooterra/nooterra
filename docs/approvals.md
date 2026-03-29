@@ -1,6 +1,6 @@
 ---
 title: "Approvals"
-description: "Human-in-the-loop approval system: channels, auto-approve, timeouts."
+description: "Human-in-the-loop approval system: dashboard inbox, Slack, webhooks, auto-approve policies, and timeouts."
 ---
 
 # Approvals
@@ -13,31 +13,35 @@ An approval is triggered when:
 
 1. A tool call matches an `askFirst` rule in the worker's charter
 2. A tool call matches no charter rule at all (the default is askFirst to be safe)
-3. The worker explicitly calls the `__ask_first__` tool to request permission for an action
+3. The worker explicitly calls the `__ask_first__` tool to request permission
 
-During execution, the worker sees:
+During execution, the worker shows:
 
 ```
 PAUSED: "send_email" requires approval (rule: "Send emails"). NOT executed.
-[Execution paused -- waiting for human approval.]
+[Execution paused — waiting for human approval.]
 ```
 
 ## Approval Channels
 
-Approval requests are sent to all configured channels simultaneously. The first response wins -- all other channels are cancelled (anti-stamping).
+Approval requests are sent to all configured channels simultaneously. The first response wins — all other channels are cancelled (anti-stamping).
 
-### Terminal
+### Dashboard Inbox
 
-The default channel. Prompts directly in the terminal where the worker is running:
+The primary approval channel. All pending approvals appear in your **Inbox** on the Nooterra dashboard at [nooterra.ai](https://nooterra.ai). Each request shows:
 
-```
-  Approval required for worker "Inbox Triage"
-  Action:  send_email
-  Detail:  Send reply to customer about refund status
-  Expires: 3:45:00 PM
+- The worker name and action
+- A description of what the worker wants to do
+- Approve / Deny buttons
+- Time remaining before expiry
 
-  Approve? (y/n)
-```
+<Info>
+You receive real-time push notifications in the dashboard when a new approval is waiting. Enable browser notifications so you never miss one.
+</Info>
+
+### Slack
+
+Approval requests can be sent to a Slack channel. Connect Slack from **Settings > Integrations** in the dashboard. Approve or deny directly from the Slack message using interactive buttons.
 
 ### Webhook
 
@@ -50,7 +54,7 @@ POST the approval request to a URL, then listen for a callback:
   "action": "send_email",
   "description": "Send reply to customer about refund status",
   "expiresAt": "2026-03-25T15:45:00.000Z",
-  "callbackUrl": "http://localhost:54321/approval-callback"
+  "callbackUrl": "https://api.nooterra.ai/v1/approvals/apr_m2abc_xyz123/respond"
 }
 ```
 
@@ -60,19 +64,9 @@ To approve, POST back to the callback URL:
 { "approved": true, "respondedBy": "admin@company.com" }
 ```
 
-### Slack
-
-Approval requests can be sent to a Slack channel (requires Slack capability to be connected).
-
-### Email and SMS
-
-Approval requests can also be routed through email or SMS channels.
-
 ## Configuring Channels
 
-Channels are configured when creating the approval engine. The default is terminal-only. To add webhook or Slack channels, configure them in the worker's notification settings.
-
-If no channels are configured, the engine falls back to terminal.
+Channels are configured per-worker from **Workers > [Worker] > Settings > Approvals** in the dashboard. The default is dashboard inbox only. Add Slack or webhook channels from the same screen.
 
 ## Timeouts
 
@@ -82,6 +76,10 @@ If no response is received within the timeout, the request is resolved based on 
 
 - **Fail-closed** (default): The action is **denied**. This is the safe default.
 - **Fail-open**: The action is **approved**. Only use this for low-risk scenarios.
+
+<Warning>
+Fail-open mode means unattended workers can take actions without human review. Only enable this for workers with low-risk charters.
+</Warning>
 
 ## Auto-Approve Policies
 
@@ -107,15 +105,11 @@ respondedBy: "auto:auto-approved: 4 approvals in last 24h"
 
 ### Bulk Approve
 
-For development or trusted workers, you can bulk-approve all pending actions:
-
-```
-respondedBy: "bulk:approveAll"
-```
+For development or trusted workers, you can bulk-approve all pending actions from the dashboard Inbox using the **Approve All** button.
 
 ## Approval Records
 
-Every approval request is persisted to `~/.nooterra/approvals/` as a JSON file. The record structure:
+Every approval request is persisted and accessible via the API. The record structure:
 
 ```json
 {
@@ -123,11 +117,11 @@ Every approval request is persisted to `~/.nooterra/approvals/` as a JSON file. 
   "workerId": "worker_123",
   "action": "send_email",
   "description": "Send reply to customer about refund status",
-  "channels": ["terminal", "webhook"],
+  "channels": ["dashboard", "webhook"],
   "status": "approved",
   "requestedAt": "2026-03-25T15:40:00.000Z",
   "respondedAt": "2026-03-25T15:40:32.000Z",
-  "respondedBy": "terminal:user",
+  "respondedBy": "dashboard:user@company.com",
   "expiresAt": "2026-03-25T15:45:00.000Z"
 }
 ```
@@ -145,38 +139,32 @@ Every approval request is persisted to `~/.nooterra/approvals/` as a JSON file. 
 
 | Value | Source |
 |-------|--------|
-| `terminal:user` | Approved/denied in the terminal |
-| `terminal:timeout` | Terminal channel timed out |
+| `dashboard:user@co.com` | Approved/denied in the dashboard |
+| `dashboard:timeout` | Dashboard channel timed out |
+| `slack:user@co.com` | Approved via Slack |
 | `webhook:admin@co.com` | Approved via webhook callback |
 | `webhook:timeout` | Webhook channel timed out |
 | `auto:<reason>` | Auto-approved by policy |
-| `bulk:approveAll` | Bulk-approved |
+| `bulk:approveAll` | Bulk-approved from dashboard |
 | `system:timeout` | Global timeout (no channel responded) |
 
 ## Viewing Approvals
 
-In the Nooterra REPL:
+All pending and historical approvals are available in the dashboard under **Inbox**. Filter by worker, status, or date range.
 
+Approval history is also available via the API:
+
+```bash
+curl https://api.nooterra.ai/v1/approvals?worker_id={worker_id} \
+  -H "Authorization: Bearer $NOOTERRA_API_KEY"
 ```
-> /approvals
-```
-
-Shows all pending approval requests:
-
-```
-  Pending Approvals (2)
-
-    Inbox Triage: Send reply to customer about refund...
-      3m ago -- /approve apr_m2abc_xyz123 or /deny apr_m2abc_xyz123
-
-    Price Monitor: Make purchase on Amazon for tracked it...
-      1m ago -- /approve apr_m2def_abc456 or /deny apr_m2def_abc456
-```
-
-## Approval History
-
-Approval history can be retrieved programmatically via `getHistory(workerId)`. Pass no arguments to get history for all workers. Records are sorted newest-first.
 
 ## External Response
 
-Pending approvals can be resolved externally by calling `respond(approvalId, decision, respondedBy)`. This is how webhook callbacks and UI integrations work -- they look up the pending approval by ID and resolve it.
+Pending approvals can be resolved externally via the API by POSTing to the approval's respond endpoint. This is how webhook callbacks and custom integrations work — they look up the pending approval by ID and resolve it.
+
+```bash
+curl -X POST https://api.nooterra.ai/v1/approvals/{approval_id}/respond \
+  -H "Authorization: Bearer $NOOTERRA_API_KEY" \
+  -d '{"approved": true, "respondedBy": "api:automation"}'
+```
