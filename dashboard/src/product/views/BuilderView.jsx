@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   S, ALL_MODELS, MODEL_CATEGORIES, WORKER_TEMPLATES, WORKER_API_BASE,
   workerApiRequest, saveOnboardingState, loadOnboardingState,
@@ -244,178 +244,246 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    =================================================================== */
 
 /* -------------------------------------------------------------------
-   Pixel font — each letter is a 7-row bitmap, variable width.
-   Render via SVG rects so it scales perfectly on every screen.
+   Particle Assembly — TERRAFORMING text built from scattered particles
+   Canvas 2D at 60fps. Particles scatter from random positions and
+   magnetically assemble into text. Once formed, they gently breathe.
    ------------------------------------------------------------------- */
-const PX_FONT = {
-  T: [[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
-  E: [[1,1,1,1],[1,0,0,0],[1,0,0,0],[1,1,1,0],[1,0,0,0],[1,0,0,0],[1,1,1,1]],
-  R: [[1,1,1,0],[1,0,0,1],[1,0,0,1],[1,1,1,0],[1,0,1,0],[1,0,0,1],[1,0,0,1]],
-  A: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[1,1,1,1],[1,0,0,1],[1,0,0,1],[1,0,0,1]],
-  F: [[1,1,1,1],[1,0,0,0],[1,0,0,0],[1,1,1,0],[1,0,0,0],[1,0,0,0],[1,0,0,0]],
-  O: [[0,1,1,0],[1,0,0,1],[1,0,0,1],[1,0,0,1],[1,0,0,1],[1,0,0,1],[0,1,1,0]],
-  M: [[1,0,0,0,1],[1,1,0,1,1],[1,0,1,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
-  I: [[1,1,1],[0,1,0],[0,1,0],[0,1,0],[0,1,0],[0,1,0],[1,1,1]],
-  N: [[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
-  G: [[0,1,1,1],[1,0,0,0],[1,0,0,0],[1,0,1,1],[1,0,0,1],[1,0,0,1],[0,1,1,0]],
-};
 
-function buildPixelGrid(word) {
-  const letters = word.split("").map(ch => PX_FONT[ch]);
-  const rows = 7;
-  const grid = [];
-  for (let r = 0; r < rows; r++) {
-    const row = [];
-    letters.forEach((letter, li) => {
-      if (li > 0) row.push(0); // 1-col gap between letters
-      row.push(...letter[r]);
-    });
-    grid.push(row);
+const PARTICLE_COLOR = [196, 97, 58]; // #c4613a rgb
+const PARTICLE_FONT = "900 clamp(48px, 10vw, 120px) 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif";
+
+function getTextTargets(canvas, ctx, text, dpr) {
+  const w = canvas.width / dpr;
+  const h = canvas.height / dpr;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = PARTICLE_FONT;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#000";
+  ctx.fillText(text, w / 2, h / 2 - 10);
+  ctx.restore();
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const targets = [];
+  const step = Math.max(2, Math.round(3 * dpr));
+  for (let y = 0; y < canvas.height; y += step) {
+    for (let x = 0; x < canvas.width; x += step) {
+      if (imageData.data[(y * canvas.width + x) * 4 + 3] > 128) {
+        targets.push({ x: x / dpr, y: y / dpr });
+      }
+    }
   }
-  return grid;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  return targets;
 }
 
-const BLOCK_COLOR = "var(--bg-100, #faf3eb)";
-
 function TerraformingScreen({ onCancel, mode }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const animRef = useRef(null);
+  const particlesRef = useRef(null);
+  const [showUI, setShowUI] = useState(false);
   const [msgIndex, setMsgIndex] = useState(0);
-  const [showMessages, setShowMessages] = useState(false);
-  const [cycle, setCycle] = useState(0);
+  const reducedMotion = useRef(
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+  );
 
-  const grid = useMemo(() => buildPixelGrid("TERRAFORMING"), []);
-  const totalCols = grid[0].length;
-  const totalRows = grid.length;
-
-  // Inject Tetris drop keyframes
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent = `
-      @keyframes blockDrop {
-        0% { transform: translateY(-200px); opacity: 0; }
-        35% { opacity: 0.7; }
-        72% { transform: translateY(4px); opacity: 1; }
-        88% { transform: translateY(-2px); }
-        100% { transform: translateY(0); opacity: 1; }
-      }
-      @keyframes blockFadeOut {
-        0% { transform: translateY(0); opacity: 1; }
-        100% { transform: translateY(40px); opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    return () => style.remove();
-  }, []);
-
-  // Show status messages after first drop settles
-  useEffect(() => {
-    const t = setTimeout(() => setShowMessages(true), 2200);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Compute max delay for the current drop so we know when it finishes
-  const maxDelay = useMemo(() => {
-    let max = 0;
-    for (let r = 0; r < totalRows; r++) {
-      for (let c = 0; c < totalCols; c++) {
-        if (!grid[r][c]) continue;
-        const d = c * 14 + (totalRows - 1 - r) * 55 + ((r * 7 + c * 13) % 23) * 4;
-        if (d > max) max = d;
-      }
-    }
-    return max;
-  }, [grid, totalRows, totalCols]);
-
-  // Loop: after all blocks land + a pause, restart the animation
-  useEffect(() => {
-    const dropDuration = maxDelay + 650; // last block delay + animation duration
-    const pauseAfterLand = 1800;
-    const t = setTimeout(() => setCycle(c => c + 1), dropDuration + pauseAfterLand);
-    return () => clearTimeout(t);
-  }, [cycle, maxDelay]);
-
-  const messages = mode === "worker"
+  const messages = useMemo(() => mode === "worker"
     ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Activating worker..."]
-    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Terraforming your team..."];
+    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Terraforming your team..."],
+  [mode]);
 
+  // Rotate status messages
   useEffect(() => {
-    if (!showMessages) return;
+    if (!showUI) return;
     const id = setInterval(() => setMsgIndex(p => (p + 1) % messages.length), 4000);
     return () => clearInterval(id);
-  }, [showMessages, messages.length]);
+  }, [showUI, messages.length]);
 
-  // Pre-compute block positions + staggered delays
-  const blocks = useMemo(() => {
-    const result = [];
-    for (let r = 0; r < totalRows; r++) {
-      for (let c = 0; c < totalCols; c++) {
-        if (!grid[r][c]) continue;
-        const colDelay = c * 14;
-        const rowBonus = (totalRows - 1 - r) * 55;
-        const jitter = ((r * 7 + c * 13) % 23) * 4;
-        result.push({ r, c, delay: colDelay + rowBonus + jitter });
-      }
+  const initParticles = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = container.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    const targets = getTextTargets(canvas, ctx, "TERRAFORMING", dpr);
+
+    // Reduced motion: just draw the text statically
+    if (reducedMotion.current) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.font = PARTICLE_FONT;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = `rgb(${PARTICLE_COLOR.join(",")})`;
+      ctx.fillText("TERRAFORMING", w / 2, h / 2 - 10);
+      setShowUI(true);
+      return;
     }
-    return result;
-  }, [grid, totalRows, totalCols]);
 
-  const blockSize = 0.82;
-  const gap = (1 - blockSize) / 2;
+    // Create particles at random positions scattered around center
+    const particles = targets.map(t => {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 200 + Math.random() * 400;
+      return {
+        x: w / 2 + Math.cos(angle) * dist,
+        y: h / 2 + Math.sin(angle) * dist,
+        tx: t.x,
+        ty: t.y,
+        vx: (Math.random() - 0.5) * 4,
+        vy: (Math.random() - 0.5) * 4,
+        size: 1.5 + Math.random() * 1.5,
+        alpha: 0,
+        settled: false,
+        delay: Math.random() * 600,
+      };
+    });
+    particlesRef.current = particles;
+
+    let startTime = null;
+    let uiShown = false;
+
+    function render(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      let allSettled = true;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (elapsed < p.delay) { allSettled = false; continue; }
+
+        // Fade in
+        if (p.alpha < 1) p.alpha = Math.min(1, p.alpha + 0.04);
+
+        if (!p.settled) {
+          // Spring physics toward target
+          const dx = p.tx - p.x;
+          const dy = p.ty - p.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Attraction force (spring)
+          const spring = 0.06;
+          const damping = 0.82;
+          p.vx += dx * spring;
+          p.vy += dy * spring;
+          p.vx *= damping;
+          p.vy *= damping;
+          p.x += p.vx;
+          p.y += p.vy;
+
+          if (dist < 0.5 && Math.abs(p.vx) < 0.1 && Math.abs(p.vy) < 0.1) {
+            p.x = p.tx;
+            p.y = p.ty;
+            p.settled = true;
+          } else {
+            allSettled = false;
+          }
+        } else {
+          // Gentle breathing once settled
+          const breathe = Math.sin(timestamp * 0.002 + i * 0.1) * 0.3;
+          p.x = p.tx + breathe;
+          p.y = p.ty + Math.cos(timestamp * 0.0015 + i * 0.07) * 0.2;
+        }
+
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = `rgb(${PARTICLE_COLOR[0]},${PARTICLE_COLOR[1]},${PARTICLE_COLOR[2]})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      if (allSettled && !uiShown) {
+        uiShown = true;
+        setShowUI(true);
+      }
+
+      animRef.current = requestAnimationFrame(render);
+    }
+
+    animRef.current = requestAnimationFrame(render);
+  }, []);
+
+  useEffect(() => {
+    initParticles();
+
+    const onResize = () => {
+      cancelAnimationFrame(animRef.current);
+      setShowUI(false);
+      initParticles();
+    };
+
+    // Debounced resize
+    let resizeTimer;
+    const handleResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(onResize, 300); };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      window.removeEventListener("resize", handleResize);
+      clearTimeout(resizeTimer);
+    };
+  }, [initParticles]);
 
   return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", minHeight: "100%",
-      padding: "clamp(1rem, 4vh, 2rem) clamp(0.5rem, 2vw, 1rem)",
-      background: "var(--accent, #c4613a)",
-    }}>
-      <div style={{ width: "100%", maxWidth: 880, textAlign: "center" }}>
-        {/* Pixel-block TERRAFORMING — SVG scales to any screen, re-keyed to restart animation */}
-        <svg
-          key={cycle}
-          viewBox={`0 0 ${totalCols} ${totalRows}`}
-          style={{ width: "100%", maxWidth: 880, minWidth: 200, height: "auto", display: "block", margin: "0 auto clamp(20px, 4vh, 36px)" }}
-          aria-label="Terraforming"
-          role="img"
-        >
-          {blocks.map(({ r, c, delay }) => (
-            <rect
-              key={`${r}-${c}`}
-              x={c + gap}
-              y={r + gap}
-              width={blockSize}
-              height={blockSize}
-              rx={0.06}
-              fill={BLOCK_COLOR}
-              style={{
-                animation: `blockDrop 0.65s ${delay}ms cubic-bezier(0.22, 1, 0.36, 1) both`,
-              }}
-            />
-          ))}
-        </svg>
+    <div
+      ref={containerRef}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", minHeight: "100%",
+        position: "relative", overflow: "hidden",
+        background: "var(--bg-100, #faf9f6)",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        aria-label="Terraforming"
+        role="img"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+      />
 
-        {/* Status message — fades in after blocks land */}
+      {/* Status message + cancel — positioned below the text */}
+      <div style={{
+        position: "absolute", bottom: "clamp(2rem, 8vh, 5rem)",
+        left: 0, right: 0, textAlign: "center",
+        opacity: showUI ? 1 : 0,
+        transform: showUI ? "translateY(0)" : "translateY(8px)",
+        transition: "opacity 800ms ease, transform 800ms ease",
+      }}>
         <p style={{
           fontSize: "clamp(12px, 2vw, 15px)",
-          color: "rgba(255,255,255,0.75)",
+          color: "var(--text-300, #74746d)",
           lineHeight: 1.6,
           minHeight: "1.6em",
-          opacity: showMessages ? 1 : 0,
-          transition: "opacity 600ms ease",
           fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
           letterSpacing: "0.02em",
+          margin: 0,
         }}>
           {messages[msgIndex]}
         </p>
-
         <button
           onClick={onCancel}
           style={{
-            marginTop: 20, background: "none", border: "none",
-            color: "rgba(255,255,255,0.55)", fontSize: "13px", cursor: "pointer",
+            marginTop: 16, background: "none", border: "none",
+            color: "var(--text-300, #74746d)", fontSize: "13px", cursor: "pointer",
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             textDecoration: "underline", textUnderlineOffset: "3px",
-            opacity: showMessages ? 1 : 0,
-            transition: "opacity 600ms ease",
           }}
         >Cancel</button>
       </div>
