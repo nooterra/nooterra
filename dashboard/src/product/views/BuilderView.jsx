@@ -275,11 +275,12 @@ function buildPixelGrid(word) {
   return grid;
 }
 
-const BLOCK_COLOR = "#c4613a";
+const BLOCK_COLOR = "#faf3eb";
 
 function TerraformingScreen({ onCancel, mode }) {
   const [msgIndex, setMsgIndex] = useState(0);
   const [showMessages, setShowMessages] = useState(false);
+  const [cycle, setCycle] = useState(0);
 
   const grid = useMemo(() => buildPixelGrid("TERRAFORMING"), []);
   const totalCols = grid[0].length;
@@ -296,16 +297,41 @@ function TerraformingScreen({ onCancel, mode }) {
         88% { transform: translateY(-2px); }
         100% { transform: translateY(0); opacity: 1; }
       }
+      @keyframes blockFadeOut {
+        0% { transform: translateY(0); opacity: 1; }
+        100% { transform: translateY(40px); opacity: 0; }
+      }
     `;
     document.head.appendChild(style);
     return () => style.remove();
   }, []);
 
-  // Show status messages after drop animation settles
+  // Show status messages after first drop settles
   useEffect(() => {
     const t = setTimeout(() => setShowMessages(true), 2200);
     return () => clearTimeout(t);
   }, []);
+
+  // Compute max delay for the current drop so we know when it finishes
+  const maxDelay = useMemo(() => {
+    let max = 0;
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        if (!grid[r][c]) continue;
+        const d = c * 14 + (totalRows - 1 - r) * 55 + ((r * 7 + c * 13) % 23) * 4;
+        if (d > max) max = d;
+      }
+    }
+    return max;
+  }, [grid, totalRows, totalCols]);
+
+  // Loop: after all blocks land + a pause, restart the animation
+  useEffect(() => {
+    const dropDuration = maxDelay + 650; // last block delay + animation duration
+    const pauseAfterLand = 1800;
+    const t = setTimeout(() => setCycle(c => c + 1), dropDuration + pauseAfterLand);
+    return () => clearTimeout(t);
+  }, [cycle, maxDelay]);
 
   const messages = mode === "worker"
     ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Activating worker..."]
@@ -323,7 +349,6 @@ function TerraformingScreen({ onCancel, mode }) {
     for (let r = 0; r < totalRows; r++) {
       for (let c = 0; c < totalCols; c++) {
         if (!grid[r][c]) continue;
-        // Left-to-right column sweep + bottom rows land first (Tetris stacking)
         const colDelay = c * 14;
         const rowBonus = (totalRows - 1 - r) * 55;
         const jitter = ((r * 7 + c * 13) % 23) * 4;
@@ -341,11 +366,12 @@ function TerraformingScreen({ onCancel, mode }) {
       display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", minHeight: "100%",
       padding: "2rem 1rem",
-      background: "var(--bg, #071521)",
+      background: "#c4613a",
     }}>
       <div style={{ width: "100%", maxWidth: 880, textAlign: "center" }}>
-        {/* Pixel-block TERRAFORMING — SVG scales to any screen */}
+        {/* Pixel-block TERRAFORMING — SVG scales to any screen, re-keyed to restart animation */}
         <svg
+          key={cycle}
           viewBox={`0 0 ${totalCols} ${totalRows}`}
           style={{ width: "100%", height: "auto", display: "block", margin: "0 auto 36px" }}
           aria-label="Terraforming"
@@ -370,7 +396,7 @@ function TerraformingScreen({ onCancel, mode }) {
         {/* Status message — fades in after blocks land */}
         <p style={{
           fontSize: "clamp(12px, 2vw, 15px)",
-          color: "var(--ink-500, #89a4bc)",
+          color: "rgba(255,255,255,0.75)",
           lineHeight: 1.6,
           minHeight: "1.6em",
           opacity: showMessages ? 1 : 0,
@@ -385,7 +411,7 @@ function TerraformingScreen({ onCancel, mode }) {
           onClick={onCancel}
           style={{
             marginTop: 20, background: "none", border: "none",
-            color: "var(--ink-500, #89a4bc)", fontSize: "13px", cursor: "pointer",
+            color: "rgba(255,255,255,0.55)", fontSize: "13px", cursor: "pointer",
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             textDecoration: "underline", textUnderlineOffset: "3px",
             opacity: showMessages ? 1 : 0,

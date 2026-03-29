@@ -309,13 +309,34 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
   }
 
-  function handleNavigate(dest, workerId) {
-    if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); }
-    else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); }
+  // --- History-backed navigation: browser back/forward works ---
+  function pushView(newView, workerId) {
+    const state = { view: newView, workerId: workerId || null };
+    window.history.pushState(state, "", window.location.pathname);
   }
-  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); }
-  function handleBuilderComplete() { refreshWorkers(); setView("team"); }
-  function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); } else setView("team"); }
+
+  useEffect(() => {
+    function onPopState(e) {
+      const s = e.state;
+      if (s && s.view) {
+        setView(s.view);
+        setSelectedWorkerId(s.workerId || null);
+        setIsNewDeploy(false);
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    // Seed current state so the first back press has somewhere to go
+    window.history.replaceState({ view: view || "team", workerId: selectedWorkerId }, "", window.location.pathname);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleNavigate(dest, workerId) {
+    if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); pushView("workerDetail", workerId); }
+    else { setView(dest); setSelectedWorkerId(null); setIsNewDeploy(false); pushView(dest); }
+  }
+  function handleSelectWorker(worker) { setSelectedWorkerId(worker.id); setIsNewDeploy(false); setView("workerDetail"); pushView("workerDetail", worker.id); }
+  function handleBuilderComplete() { refreshWorkers(); setView("team"); pushView("team"); }
+  function handleViewWorker(w) { refreshWorkers(); if (w?.id) { setSelectedWorkerId(w.id); setIsNewDeploy(true); setView("workerDetail"); pushView("workerDetail", w.id); } else { setView("team"); pushView("team"); } }
 
   // =============================================
   // ALL VIEWS: Sidebar + content
