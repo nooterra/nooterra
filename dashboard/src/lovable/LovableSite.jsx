@@ -103,7 +103,6 @@ function SiteNav() {
         <div style={{ alignItems: "center", gap: 28 }} className="nav-desktop">
           <a href="/pricing" style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Pricing</a>
           <a href={DOCS_EXTERNAL} style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Docs</a>
-          <a href={ossLinks.repo} style={linkStyle} target="_blank" rel="noopener noreferrer" onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>GitHub</a>
           <a href="/login" style={linkStyle} onMouseEnter={e => e.currentTarget.style.color = "var(--text-100)"} onMouseLeave={e => e.currentTarget.style.color = "var(--text-200)"}>Sign in</a>
           <a href="/signup" style={{
             display: "inline-flex", alignItems: "center", padding: "7px 18px",
@@ -125,7 +124,6 @@ function SiteNav() {
         <div className="nav-mobile-menu" style={{ padding: "8px 24px 20px", borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-100)", flexDirection: "column", gap: 16 }}>
           <a href="/pricing" style={linkStyle}>Pricing</a>
           <a href={DOCS_EXTERNAL} style={linkStyle}>Docs</a>
-          <a href={ossLinks.repo} style={linkStyle} target="_blank" rel="noopener noreferrer">GitHub</a>
           <a href="/login" style={linkStyle}>Sign in</a>
           <a href="/signup" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "10px 20px", fontSize: "0.875rem", fontWeight: 600, backgroundColor: "var(--text-100)", color: "var(--bg-100)", borderRadius: 8, textDecoration: "none" }}>Get started</a>
         </div>
@@ -150,7 +148,7 @@ function SiteFooter() {
               <img src="/nooterra-logo.png" alt="nooterra" loading="lazy" style={{ height: 20 }} />
             </div>
             <p style={{ fontSize: "0.75rem", color: "var(--text-300)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
-              The AI workforce platform for consequential work. Open source.
+              The operating system for autonomous businesses.
             </p>
           </div>
           <div>
@@ -175,7 +173,7 @@ function SiteFooter() {
         </div>
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>&copy; {new Date().getFullYear()} Nooterra</span>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>Open source under Apache 2.0</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>Apache 2.0</span>
         </div>
       </div>
     </footer>
@@ -334,7 +332,7 @@ function HomePage() {
                   >
                     Start hiring &rarr;
                   </a>
-                  <a href={ossLinks.repo} style={{
+                  <a href={DOCS_EXTERNAL} style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
                     fontSize: "var(--text-base)", fontWeight: 500,
                     border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
@@ -342,9 +340,8 @@ function HomePage() {
                   }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.backgroundColor = "var(--bg-200)"; }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                    target="_blank" rel="noopener noreferrer"
                   >
-                    <GitHubIcon /> View source
+                    How it works
                   </a>
                 </div>
               </InView>
