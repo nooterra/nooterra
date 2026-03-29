@@ -364,7 +364,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   ];
   const manageNav = [
     { key: "performance", label: "Performance", icon: iconChart },
-    { key: "connections", label: "Connections", icon: iconPlug },
+    { key: "connections", label: "Integrations", icon: iconPlug },
     { key: "settings", label: "Settings", icon: iconGear, action: () => setSettingsOpen(true) },
   ];
 
@@ -482,7 +482,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
           .mobile-topbar { display: flex !important; }
           .mobile-overlay { display: block !important; }
           .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); width: min(240px, 80vw) !important; }
-          .app-main-content { margin-top: 48px; }
+          .app-main-content { margin-top: 48px; height: calc(100vh - 48px) !important; min-height: calc(100vh - 48px) !important; }
         }
       `}</style>
         {/* Logo */}
@@ -542,7 +542,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         minHeight: "100vh",
       }}>
         <React.Suspense fallback={suspenseFallback}>
-          <div className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
+          <div className="view-enter" style={{ flex: 1, minHeight: 0, background: "var(--bg-100)" }}>
             {mainContent}
           </div>
         </React.Suspense>
