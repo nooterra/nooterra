@@ -61,10 +61,10 @@ export const WORK_FUNCTIONS = [
 ];
 
 export const STATUS_COLORS = {
-  running: "#5bb98c",
-  paused: "var(--accent)",
-  ready: "var(--text-tertiary)",
-  error: "#c97055",
+  running: "var(--green, #2a9d6e)",
+  paused: "var(--amber, #c08c30)",
+  ready: "var(--text-300, #8a8a84)",
+  error: "var(--red, #c43a3a)",
 };
 
 export const CHARTER_SECTIONS = [

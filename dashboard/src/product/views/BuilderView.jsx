@@ -275,7 +275,7 @@ function buildPixelGrid(word) {
   return grid;
 }
 
-const BLOCK_COLOR = "#faf3eb";
+const BLOCK_COLOR = "var(--bg-100, #faf3eb)";
 
 function TerraformingScreen({ onCancel, mode }) {
   const [msgIndex, setMsgIndex] = useState(0);

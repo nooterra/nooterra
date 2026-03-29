@@ -58,10 +58,10 @@ function PerformanceView() {
   const maxCost = costSorted.length > 0 ? costSorted[0].cost : 1;
 
   const healthColor = (status) => {
-    if (status === "running") return "#5bb98c";
-    if (status === "paused") return "var(--accent)";
-    if (status === "error") return "#c97055";
-    return "var(--text-tertiary)";
+    if (status === "running") return "var(--green, #2a9d6e)";
+    if (status === "paused") return "var(--amber, #c08c30)";
+    if (status === "error") return "var(--red, #c43a3a)";
+    return "var(--text-300, #8a8a84)";
   };
 
   return (

@@ -35,19 +35,19 @@ function InboxView() {
 
   const pendingCount = Array.isArray(items) ? items.length : 0;
   const stats = [
-    { label: "waiting", value: pendingCount, color: "#d97706" },
-    { label: "blocked", value: 0, color: "#dc2626" },
-    { label: "handled", value: 0, color: "var(--green, #5bb98c)" },
-    { label: "hrs saved", value: 0, color: "var(--primary, #6366f1)" },
-    { label: "violations", value: 0, color: "var(--green, #5bb98c)" },
+    { label: "waiting", value: pendingCount, color: "var(--amber, #c08c30)" },
+    { label: "blocked", value: 0, color: "var(--red, #c43a3a)" },
+    { label: "handled", value: 0, color: "var(--green, #2a9d6e)" },
+    { label: "hrs saved", value: 0, color: "var(--accent, #c4613a)" },
+    { label: "violations", value: 0, color: "var(--green, #2a9d6e)" },
   ];
 
-  const roleColors = ["#6366f1", "#d97706", "#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
+  const roleColors = ["var(--accent, #c4613a)", "var(--amber, #c08c30)", "var(--green, #2a9d6e)", "var(--red, #c43a3a)", "var(--text-200, #a3a39d)", "var(--accent, #c4613a)", "var(--amber, #c08c30)"];
   function avatarColor(name) { let h = 0; for (let i = 0; i < (name || "").length; i++) h = (h + (name || "").charCodeAt(i)) % roleColors.length; return roleColors[h]; }
   function getLeftBorderColor(item) {
-    if (item.type === "failure" || item.type === "error") return "#dc2626";
-    if (item.type === "info") return "#3b82f6";
-    return "#d97706";
+    if (item.type === "failure" || item.type === "error") return "var(--red, #c43a3a)";
+    if (item.type === "info") return "var(--accent, #c4613a)";
+    return "var(--amber, #c08c30)";
   }
 
   return (
@@ -191,7 +191,7 @@ function ApprovalsView() {
                   <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>{item.workerName || item.agentName || "Worker"}</span>
                   <span style={{ fontSize: "13px", color: "var(--text-tertiary)", marginLeft: "0.75rem" }}>{item.action || item.summary || "Action"}</span>
                 </div>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: item.approved || item.decision === "approved" ? "#5bb98c" : "#c97055" }}>{item.approved || item.decision === "approved" ? "Approved" : "Denied"}</span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: item.approved || item.decision === "approved" ? "var(--green, #2a9d6e)" : "var(--red, #c43a3a)" }}>{item.approved || item.decision === "approved" ? "Approved" : "Denied"}</span>
               </div>
             </div>
           ))}

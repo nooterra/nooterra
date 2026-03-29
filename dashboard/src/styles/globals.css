@@ -48,6 +48,22 @@ body {
   background: rgba(163, 71, 47, 0.22);
 }
 
+/* ── Global focus-visible ring ── */
+:focus-visible {
+  outline: 2px solid var(--accent, #c4613a);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .site-root {
   min-height: 100vh;
   position: relative;
@@ -757,6 +773,7 @@ body {
   color: var(--ink-900);
   padding: 0.62rem 0.68rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .auth-form input:focus {
@@ -891,6 +908,7 @@ body {
   color: var(--ink-900);
   padding: 0.62rem 0.72rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .docs-search-input:focus {
@@ -1166,6 +1184,7 @@ body {
   color: #eff5fa;
   padding: 0.5rem 0.6rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .operator-config-grid input:focus,
@@ -1477,6 +1496,7 @@ body {
   color: #eff5fa;
   padding: 0.58rem 0.62rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .operator-textarea-wrap input {
@@ -1487,6 +1507,7 @@ body {
   color: #eff5fa;
   padding: 0.58rem 0.62rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .operator-decision-actions {
@@ -1746,6 +1767,7 @@ body {
   color: #eff5fa;
   padding: 0.58rem 0.62rem;
   outline: none;
+  &:focus-visible { outline: 2px solid var(--accent, #c4613a); outline-offset: 2px; }
 }
 
 .operator-triage-grid input:focus,

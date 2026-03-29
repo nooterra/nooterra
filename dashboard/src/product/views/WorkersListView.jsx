@@ -78,13 +78,16 @@ function WorkersListView({ onSelect, onCreate }) {
       {!loading && filteredWorkers.length > 0 && (
         <div>
           {filteredWorkers.map(w => (
-            <div
+            <button
               key={w.id}
               onClick={() => onSelect(w)}
+              aria-label={`View ${w.name} — ${w.status}`}
               style={{
                 display: "flex", alignItems: "center", gap: 12,
                 padding: "14px 0", borderBottom: "1px solid var(--border)",
                 cursor: "pointer", transition: "background 100ms",
+                background: "none", border: "none", width: "100%",
+                textAlign: "left", fontFamily: "inherit",
               }}
               onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover, var(--bg-300))"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
@@ -102,8 +105,8 @@ function WorkersListView({ onSelect, onCreate }) {
               <div style={{ fontSize: "13px", color: "var(--text-tertiary)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                 {w.cost != null ? `$${(typeof w.cost === "number" ? w.cost : 0).toFixed(2)}` : ""}
               </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" style={{ flexShrink: 0, opacity: 0.5 }}><polyline points="9 18 15 12 9 6"/></svg>
-            </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" style={{ flexShrink: 0, opacity: 0.5 }} aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
           ))}
         </div>
       )}
