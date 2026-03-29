@@ -1751,8 +1751,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // --- Worker CRUD + credits + provider routes ---
-  if (pathname.startsWith('/v1/workers') || pathname === '/v1/credits' || pathname.startsWith('/v1/providers')) {
+  // --- Worker CRUD + credits + provider + search + audit + team + approvals routes ---
+  if (pathname.startsWith('/v1/workers') || pathname === '/v1/credits' || pathname.startsWith('/v1/providers')
+      || pathname.startsWith('/v1/approvals') || pathname === '/v1/search' || pathname.startsWith('/v1/audit')
+      || pathname.startsWith('/v1/team')) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const handled = await handleWorkerRoute(req, res, pool, pathname, url.searchParams);
     if (handled) return;

@@ -117,6 +117,23 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     if (!body) return err(res, 400, 'JSON body required'), true;
     if (body.status !== undefined && !VALID_STATUSES.has(body.status)) return err(res, 400, `invalid status: ${body.status}`), true;
 
+    // Save current state as a version before applying updates
+    try {
+      const current = await pool.query(`SELECT * FROM workers WHERE id = $1 AND tenant_id = $2`, [idMatch[1], tid]);
+      if (current.rowCount > 0) {
+        const lastVersion = await pool.query(
+          `SELECT COALESCE(MAX(version), 0) AS max_v FROM worker_versions WHERE worker_id = $1`, [idMatch[1]]
+        );
+        const nextVersion = (lastVersion.rows[0].max_v || 0) + 1;
+        const row = current.rows[0];
+        await pool.query(
+          `INSERT INTO worker_versions (id, worker_id, tenant_id, version, config, created_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
+          [generateId('wver'), idMatch[1], tid, nextVersion, JSON.stringify(row), tid]
+        );
+      }
+    } catch { /* versioning is best-effort, don't block the update */ }
+
     const sets = [], vals = [];
     let pi = 1;
     for (const f of UPDATABLE) {
@@ -601,6 +618,287 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       return json(res, 200, { balance: parseFloat(row.balance_usd), remaining: parseFloat(row.balance_usd), totalSpent: parseFloat(row.total_spent_usd) }), true;
     } catch {
       return json(res, 200, { balance: 0, remaining: 0, totalSpent: 0 }), true;
+    }
+  }
+
+  // GET /v1/workers/:id/versions — list all versions
+  const versionsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/versions$/);
+  if (method === 'GET' && versionsMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const result = await pool.query(
+        `SELECT * FROM worker_versions WHERE worker_id = $1 AND tenant_id = $2 ORDER BY version DESC`,
+        [versionsMatch[1], tid]
+      );
+      return json(res, 200, { versions: result.rows }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to list versions'), true;
+    }
+  }
+
+  // POST /v1/workers/:id/versions/:version/rollback — restore a previous version
+  const rollbackMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/versions\/(\d+)\/rollback$/);
+  if (method === 'POST' && rollbackMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const [, workerId, versionNum] = rollbackMatch;
+    try {
+      const vr = await pool.query(
+        `SELECT config FROM worker_versions WHERE worker_id = $1 AND tenant_id = $2 AND version = $3`,
+        [workerId, tid, parseInt(versionNum)]
+      );
+      if (vr.rowCount === 0) return err(res, 404, 'version not found'), true;
+      const config = typeof vr.rows[0].config === 'string' ? JSON.parse(vr.rows[0].config) : vr.rows[0].config;
+
+      // Save current state as a new version before rollback
+      const current = await pool.query(`SELECT * FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+      if (current.rowCount === 0) return err(res, 404, 'worker not found'), true;
+      const lastVersion = await pool.query(
+        `SELECT COALESCE(MAX(version), 0) AS max_v FROM worker_versions WHERE worker_id = $1`, [workerId]
+      );
+      const nextVersion = (lastVersion.rows[0].max_v || 0) + 1;
+      await pool.query(
+        `INSERT INTO worker_versions (id, worker_id, tenant_id, version, config, created_at, created_by)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
+        [generateId('wver'), workerId, tid, nextVersion, JSON.stringify(current.rows[0]), tid]
+      );
+
+      // Apply the old config
+      const sets = [], vals = [];
+      let pi = 1;
+      for (const f of UPDATABLE) {
+        if (config[f] !== undefined) {
+          sets.push(`${f} = $${pi}`);
+          vals.push(JSON_FIELDS.has(f) ? (typeof config[f] === 'string' ? config[f] : JSON.stringify(config[f])) : config[f]);
+          pi++;
+        }
+      }
+      sets.push(`updated_at = $${pi}`); vals.push(new Date().toISOString()); pi++;
+      vals.push(workerId, tid);
+      const result = await pool.query(
+        `UPDATE workers SET ${sets.join(', ')} WHERE id = $${pi} AND tenant_id = $${pi + 1} RETURNING *`, vals
+      );
+      return json(res, 200, { worker: result.rows[0], rolledBackToVersion: parseInt(versionNum) }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'rollback failed'), true;
+    }
+  }
+
+  // =========================================================================
+  // Full-Text Search
+  // =========================================================================
+
+  // GET /v1/search?q=...&type=workers|executions|approvals
+  if (method === 'GET' && pathname === '/v1/search') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const q = searchParams.get('q');
+    if (!q || !q.trim()) return err(res, 400, 'q parameter is required'), true;
+    const type = searchParams.get('type');
+    const pattern = `%${q.trim()}%`;
+    const results = [];
+
+    try {
+      if (!type || type === 'workers') {
+        const wr = await pool.query(
+          `SELECT * FROM workers WHERE tenant_id = $1 AND (name ILIKE $2 OR description ILIKE $2) LIMIT 20`,
+          [tid, pattern]
+        );
+        for (const row of wr.rows) results.push({ type: 'worker', ...row });
+      }
+      if (!type || type === 'executions') {
+        const er = await pool.query(
+          `SELECT * FROM worker_executions WHERE tenant_id = $1 AND (result ILIKE $2 OR error ILIKE $2) ORDER BY started_at DESC LIMIT 20`,
+          [tid, pattern]
+        );
+        for (const row of er.rows) results.push({ type: 'execution', ...row });
+      }
+      if (!type || type === 'approvals') {
+        const ar = await pool.query(
+          `SELECT * FROM worker_approvals WHERE tenant_id = $1 AND (tool_name ILIKE $2 OR decision ILIKE $2) LIMIT 20`,
+          [tid, pattern]
+        );
+        for (const row of ar.rows) results.push({ type: 'approval', ...row });
+      }
+      return json(res, 200, { results }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'search failed'), true;
+    }
+  }
+
+  // =========================================================================
+  // Audit Log Export
+  // =========================================================================
+
+  // GET /v1/audit/export?format=csv|json&from=ISO&to=ISO
+  if (method === 'GET' && pathname === '/v1/audit/export') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const format = searchParams.get('format') || 'json';
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    if (!from || !to) return err(res, 400, 'from and to date parameters are required'), true;
+
+    try {
+      // Fetch executions with worker name
+      const executions = await pool.query(
+        `SELECT e.id AS execution_id, w.name AS worker_name, e.started_at, e.completed_at,
+                e.status, e.model, e.tokens_in, e.tokens_out, e.cost_usd, e.tool_calls,
+                e.trigger_type
+         FROM worker_executions e
+         LEFT JOIN workers w ON w.id = e.worker_id AND w.tenant_id = e.tenant_id
+         WHERE e.tenant_id = $1 AND e.started_at >= $2 AND e.started_at <= $3
+         ORDER BY e.started_at DESC`,
+        [tid, from, to]
+      );
+
+      // Fetch approvals with worker name
+      const approvals = await pool.query(
+        `SELECT a.id AS approval_id, w.name AS worker_name, a.tool_name, a.decision,
+                a.decided_by, a.decided_at
+         FROM worker_approvals a
+         LEFT JOIN workers w ON w.id = a.worker_id AND w.tenant_id = a.tenant_id
+         WHERE a.tenant_id = $1 AND a.decided_at >= $2 AND a.decided_at <= $3
+         ORDER BY a.decided_at DESC`,
+        [tid, from, to]
+      );
+
+      const rows = [];
+      for (const e of executions.rows) {
+        rows.push({
+          type: 'execution', id: e.execution_id, worker_name: e.worker_name || '',
+          started_at: e.started_at, completed_at: e.completed_at || '',
+          status: e.status, model: e.model || '', tokens_in: e.tokens_in || 0,
+          tokens_out: e.tokens_out || 0, cost_usd: e.cost_usd || 0,
+          tool_calls: e.tool_calls || 0, trigger_type: e.trigger_type || '',
+          decision: '', decided_by: '', tool_name: '',
+        });
+      }
+      for (const a of approvals.rows) {
+        rows.push({
+          type: 'approval', id: a.approval_id, worker_name: a.worker_name || '',
+          started_at: '', completed_at: '', status: '',
+          model: '', tokens_in: 0, tokens_out: 0, cost_usd: 0, tool_calls: 0,
+          trigger_type: '', decision: a.decision, decided_by: a.decided_by || '',
+          tool_name: a.tool_name,
+        });
+      }
+
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      if (format === 'csv') {
+        const headers = ['type', 'id', 'worker_name', 'started_at', 'completed_at', 'status', 'model',
+                         'tokens_in', 'tokens_out', 'cost_usd', 'tool_calls', 'trigger_type',
+                         'tool_name', 'decision', 'decided_by'];
+        const escapeCsv = (val) => {
+          const s = String(val ?? '');
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        };
+        const csvLines = [headers.join(',')];
+        for (const row of rows) {
+          csvLines.push(headers.map(h => escapeCsv(row[h])).join(','));
+        }
+        const csvBody = csvLines.join('\n');
+        res.writeHead(200, {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="nooterra-audit-${dateStr}.csv"`,
+        });
+        res.end(csvBody);
+        return true;
+      }
+
+      // JSON format
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="nooterra-audit-${dateStr}.json"`,
+      });
+      res.end(JSON.stringify({ rows }));
+      return true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'audit export failed'), true;
+    }
+  }
+
+  // =========================================================================
+  // Team Permissions (RBAC CRUD)
+  // =========================================================================
+
+  const VALID_ROLES = new Set(['owner', 'admin', 'member', 'viewer']);
+
+  // GET /v1/team — list team members
+  if (method === 'GET' && pathname === '/v1/team') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const result = await pool.query(
+        `SELECT * FROM team_members WHERE tenant_id = $1 ORDER BY joined_at ASC`, [tid]
+      );
+      return json(res, 200, { members: result.rows, count: result.rowCount }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to list team members'), true;
+    }
+  }
+
+  // POST /v1/team/invite — invite a team member by email
+  if (method === 'POST' && pathname === '/v1/team/invite') {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body) return err(res, 400, 'JSON body required'), true;
+    if (!body.email?.trim()) return err(res, 400, 'email is required'), true;
+    const role = body.role || 'member';
+    if (!VALID_ROLES.has(role)) return err(res, 400, `invalid role: ${role}`), true;
+    if (role === 'owner') return err(res, 400, 'cannot invite as owner'), true;
+    try {
+      const id = generateId('tm');
+      const result = await pool.query(
+        `INSERT INTO team_members (id, tenant_id, email, role, invited_by, joined_at)
+         VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *`,
+        [id, tid, body.email.trim().toLowerCase(), role, tid]
+      );
+      return json(res, 201, { member: result.rows[0] }), true;
+    } catch (e) {
+      if (e?.code === '23505') return err(res, 409, 'member already exists'), true;
+      return err(res, 500, e?.message || 'failed to invite member'), true;
+    }
+  }
+
+  // PUT /v1/team/:memberId/role — change a member's role
+  const teamRoleMatch = pathname.match(/^\/v1\/team\/([^/]+)\/role$/);
+  if (method === 'PUT' && teamRoleMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body) return err(res, 400, 'JSON body required'), true;
+    if (!body.role || !VALID_ROLES.has(body.role)) return err(res, 400, `invalid role: ${body.role}`), true;
+    try {
+      const result = await pool.query(
+        `UPDATE team_members SET role = $1 WHERE id = $2 AND tenant_id = $3 RETURNING *`,
+        [body.role, teamRoleMatch[1], tid]
+      );
+      if (result.rowCount === 0) return err(res, 404, 'team member not found'), true;
+      return json(res, 200, { member: result.rows[0] }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to update role'), true;
+    }
+  }
+
+  // DELETE /v1/team/:memberId — remove a team member
+  const teamDeleteMatch = pathname.match(/^\/v1\/team\/([^/]+)$/);
+  if (method === 'DELETE' && teamDeleteMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const result = await pool.query(
+        `DELETE FROM team_members WHERE id = $1 AND tenant_id = $2 RETURNING *`,
+        [teamDeleteMatch[1], tid]
+      );
+      if (result.rowCount === 0) return err(res, 404, 'team member not found'), true;
+      return json(res, 200, { ok: true, member: result.rows[0] }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to remove member'), true;
     }
   }
 

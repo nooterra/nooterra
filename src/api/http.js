@@ -99,10 +99,24 @@ export async function readRawBody(req, { maxBytes = defaultMaxBodyBytes() } = {}
   return Buffer.concat(chunks).toString("utf8");
 }
 
+import { gzipSync } from "node:zlib";
+
 export function sendJson(res, statusCode, body) {
   const payload = body === undefined ? "" : JSON.stringify(body, null, 2);
   res.statusCode = statusCode;
   res.setHeader("content-type", "application/json; charset=utf-8");
+  // Gzip responses > 1KB when client supports it
+  if (payload.length > 1024 && res.req?.headers?.["accept-encoding"]?.includes("gzip")) {
+    try {
+      const compressed = gzipSync(payload);
+      res.setHeader("content-encoding", "gzip");
+      res.setHeader("content-length", compressed.length);
+      res.end(compressed);
+      return;
+    } catch {
+      // fall through to uncompressed
+    }
+  }
   res.end(payload);
 }
 

@@ -209,7 +209,8 @@ export function createHealthRoutes({
         }
       }
 
-      sendJson(res, 200, signals);
+      const statusCode = signals.dbOk === false ? 503 : 200;
+      sendJson(res, statusCode, signals);
       return true;
     }
 

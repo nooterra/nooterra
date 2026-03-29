@@ -1,18 +1,32 @@
 /**
  * Built-in Tools — zero-dependency tools that work without Composio
  *
- * Provides web search, webpage browsing, and document reading capabilities
- * using only native Node.js fetch. No external packages required.
+ * Provides web search, webpage browsing, document reading, SMS/voice,
+ * and transactional email capabilities using only native Node.js fetch.
+ * No external packages required.
  *
  * Tools:
  *   web_search      — Brave Search API (with DuckDuckGo fallback)
  *   browse_webpage  — Fetch and extract readable text from any URL
  *   read_document   — Read PDF, TXT, CSV, JSON, Markdown from a URL
+ *   send_sms        — Send SMS via Twilio
+ *   make_phone_call — Initiate a TTS phone call via Twilio
+ *   send_email      — Send transactional email via Resend
  */
 
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY;
 
-const BUILTIN_TOOL_NAMES = new Set(['web_search', 'browse_webpage', 'read_document']);
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM = process.env.RESEND_FROM || 'workers@nooterra.ai';
+
+const BUILTIN_TOOL_NAMES = new Set([
+  'web_search', 'browse_webpage', 'read_document',
+  'send_sms', 'make_phone_call', 'send_email',
+]);
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -70,6 +84,54 @@ const TOOL_DEFINITIONS = [
           format: { type: 'string', description: 'Document format hint', enum: ['auto', 'pdf', 'txt', 'csv', 'json', 'md'] },
         },
         required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_sms',
+      description: 'Send an SMS text message via Twilio.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Phone number to send to (E.164 format, e.g. +1234567890)' },
+          body: { type: 'string', description: 'Message text (max 1600 chars)' },
+        },
+        required: ['to', 'body'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'make_phone_call',
+      description: 'Initiate a phone call via Twilio. The call plays a text-to-speech message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Phone number to call (E.164 format)' },
+          message: { type: 'string', description: 'Message to speak (text-to-speech)' },
+          voice: { type: 'string', description: 'Voice to use', enum: ['alice', 'man', 'woman'], default: 'alice' },
+        },
+        required: ['to', 'message'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_email',
+      description: 'Send a transactional email.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string', description: 'Email subject line' },
+          body: { type: 'string', description: 'Email body (plain text or HTML)' },
+          html: { type: 'boolean', description: 'Whether body is HTML', default: false },
+        },
+        required: ['to', 'subject', 'body'],
       },
     },
   },
@@ -372,6 +434,127 @@ function extractPdfText(bytes) {
 }
 
 // ---------------------------------------------------------------------------
+// Twilio Helpers
+// ---------------------------------------------------------------------------
+
+function twilioConfigured() {
+  return TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER;
+}
+
+function twilioAuthHeader() {
+  const creds = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+  return `Basic ${creds}`;
+}
+
+/** Escape special XML characters for TwiML */
+function xmlEscape(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+async function sendSms({ to, body }) {
+  if (!twilioConfigured()) {
+    return { error: 'Twilio not configured' };
+  }
+
+  body = String(body).slice(0, 1600);
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+  const formBody = new URLSearchParams({ To: to, From: TWILIO_PHONE_NUMBER, Body: body });
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': twilioAuthHeader(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: formBody.toString(),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Twilio SMS failed (${resp.status}): ${err}`);
+  }
+
+  const message = await resp.json();
+  return { ok: true, sid: message.sid, to, status: message.status };
+}
+
+async function makePhoneCall({ to, message, voice = 'alice' }) {
+  if (!twilioConfigured()) {
+    return { error: 'Twilio not configured' };
+  }
+
+  const twiml = `<Response><Say voice="${xmlEscape(voice)}">${xmlEscape(message)}</Say></Response>`;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`;
+  const formBody = new URLSearchParams({ To: to, From: TWILIO_PHONE_NUMBER, Twiml: twiml });
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': twilioAuthHeader(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: formBody.toString(),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Twilio Call failed (${resp.status}): ${err}`);
+  }
+
+  const call = await resp.json();
+  return { ok: true, sid: call.sid, to, status: call.status };
+}
+
+// ---------------------------------------------------------------------------
+// Email (Resend)
+// ---------------------------------------------------------------------------
+
+async function sendEmail({ to, subject, body, html = false }) {
+  if (!RESEND_API_KEY) {
+    return { error: 'Email not configured — set RESEND_API_KEY' };
+  }
+
+  const payload = {
+    from: RESEND_FROM,
+    to,
+    subject,
+  };
+
+  if (html) {
+    payload.html = body;
+  } else {
+    payload.text = body;
+  }
+
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Resend email failed (${resp.status}): ${err}`);
+  }
+
+  const data = await resp.json();
+  return { ok: true, id: data.id, to, subject };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -403,6 +586,15 @@ export async function executeBuiltinTool(toolName, args) {
         break;
       case 'read_document':
         result = await readDocument(args);
+        break;
+      case 'send_sms':
+        result = await sendSms(args);
+        break;
+      case 'make_phone_call':
+        result = await makePhoneCall(args);
+        break;
+      case 'send_email':
+        result = await sendEmail(args);
         break;
       default:
         return { success: false, error: `Unknown builtin tool: ${toolName}` };
