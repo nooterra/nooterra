@@ -250,19 +250,33 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    ------------------------------------------------------------------- */
 
 const PARTICLE_COLOR = [196, 97, 58]; // #c4613a rgb
-const PARTICLE_FONT = "900 clamp(48px, 10vw, 120px) 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif";
 
-function getTextTargets(canvas, ctx, text, dpr) {
+function getTextTargets(canvas, ctx, lines, dpr) {
   const w = canvas.width / dpr;
   const h = canvas.height / dpr;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.font = PARTICLE_FONT;
+
+  // Size font to fill ~85% of width for the longest line
+  const longest = lines.reduce((a, b) => a.length > b.length ? a : b, "");
+  let fontSize = 120;
+  ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
+  while (ctx.measureText(longest).width > w * 0.85 && fontSize > 20) {
+    fontSize -= 2;
+    ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
+  }
+
+  const lineHeight = fontSize * 1.1;
+  const totalTextHeight = lines.length * lineHeight;
+  const startY = (h - totalTextHeight) / 2 + fontSize * 0.35;
+
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
+  ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#000";
-  ctx.fillText(text, w / 2, h / 2 - 10);
+  lines.forEach((line, i) => {
+    ctx.fillText(line, w / 2, startY + i * lineHeight);
+  });
   ctx.restore();
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -276,7 +290,7 @@ function getTextTargets(canvas, ctx, text, dpr) {
     }
   }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  return targets;
+  return { targets, fontSize };
 }
 
 function TerraformingScreen({ onCancel, mode }) {
@@ -319,35 +333,39 @@ function TerraformingScreen({ onCancel, mode }) {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
-    const targets = getTextTargets(canvas, ctx, "TERRAFORMING", dpr);
+    // Break into 2 lines on narrow screens
+    const lines = w < 500 ? ["TERRA", "FORMING"] : ["TERRAFORMING"];
+    const { targets, fontSize } = getTextTargets(canvas, ctx, lines, dpr);
 
     // Reduced motion: just draw the text statically
     if (reducedMotion.current) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.font = PARTICLE_FONT;
+      ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      ctx.textBaseline = "alphabetic";
       ctx.fillStyle = `rgb(${PARTICLE_COLOR.join(",")})`;
-      ctx.fillText("TERRAFORMING", w / 2, h / 2 - 10);
+      const lineHeight = fontSize * 1.1;
+      const totalH = lines.length * lineHeight;
+      const startY = (h - totalH) / 2 + fontSize * 0.35;
+      lines.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * lineHeight));
       setShowUI(true);
       return;
     }
 
-    // Create particles at random positions scattered around center
+    // Particles rise from the BOTTOM — like terrain forming from the ground
     const particles = targets.map(t => {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 200 + Math.random() * 400;
+      const spreadX = (Math.random() - 0.5) * w * 0.8;
       return {
-        x: w / 2 + Math.cos(angle) * dist,
-        y: h / 2 + Math.sin(angle) * dist,
+        x: w / 2 + spreadX,
+        y: h + 20 + Math.random() * 100,       // start below the screen
         tx: t.x,
         ty: t.y,
-        vx: (Math.random() - 0.5) * 4,
-        vy: (Math.random() - 0.5) * 4,
-        size: 1.5 + Math.random() * 1.5,
+        vx: (Math.random() - 0.5) * 2,
+        vy: -(2 + Math.random() * 3),            // initial upward velocity
+        size: 1.2 + Math.random() * 1.8,
         alpha: 0,
         settled: false,
-        delay: Math.random() * 600,
+        delay: Math.random() * 800 + (t.y / h) * 400, // lower targets arrive first
       };
     });
     particlesRef.current = particles;
