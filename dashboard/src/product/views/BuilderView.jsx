@@ -638,7 +638,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     return (
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", minHeight: "100%", padding: "2rem",
+        minHeight: "100%", padding: "clamp(3rem, 10vh, 6rem) 2rem 2rem",
         background: "var(--bg-100, #faf9f6)",
       }}>
         <div style={{ maxWidth: 580, width: "100%", textAlign: "center" }}>
