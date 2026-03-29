@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { S, STATUS_COLORS, ALL_MODELS, MODEL_CATEGORIES, timeAgo, humanizeSchedule, workerApiRequest, WORKER_API_BASE } from "../shared.js";
 import { loadRuntimeConfig } from "../api.js";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
 import { WorkerIntegrationsSection } from "./IntegrationsView.jsx";
 
-function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
+function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
   const [worker, setWorker] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(isNewDeploy ? "activity" : "charter");
@@ -17,9 +17,13 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
   const [editCharter, setEditCharter] = useState(null);
   const [savingCharter, setSavingCharter] = useState(false);
 
+  const toast = useCallback((msg, type = "info") => {
+    if (addToast) addToast({ message: msg, type });
+  }, [addToast]);
+
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result?.worker || result); } catch { setWorker(null); } setLoading(false); })(); }, [workerId]);
   useEffect(() => { if (tab === "activity" && workerId) { setLogsLoading(true); (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.executions || result?.items || (Array.isArray(result) ? result : [])); } catch { setLogs([]); } setLogsLoading(false); })(); } }, [tab, workerId]);
-  useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result?.worker || result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.executions || logResult?.items || (Array.isArray(result) ? result : [])); } } catch { /* ignore */ } }, 2000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
+  useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result?.worker || result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.executions || logResult?.items || (Array.isArray(logResult) ? logResult : [])); } } catch { /* ignore */ } }, 2000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
 
   async function handleSaveCharter() {
     if (!editCharter || savingCharter) return;
@@ -33,99 +37,172 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
       setWorker(prev => prev ? { ...prev, charter: JSON.stringify(editCharter) } : prev);
       setEditingCharter(false);
       setError("");
+      toast("Charter saved", "success");
     } catch (err) {
       setError("Failed to save charter: " + (err?.message || "Unknown error"));
+      toast("Failed to save charter", "error");
     }
     setSavingCharter(false);
   }
 
-  async function handleRunNow() { setRunningAction(true); setError(""); try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST" }); const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result); } catch (err) { setError(err?.message || "Failed to run worker."); } setRunningAction(false); }
-  async function handlePauseResume() { if (!worker) return; setRunningAction(true); setError(""); const newStatus = worker.status === "paused" ? "ready" : "paused"; try { await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } }); setWorker(prev => prev ? { ...prev, status: newStatus } : prev); } catch (err) { setError(err?.message || "Failed to update worker."); } setRunningAction(false); }
+  async function handleRunNow(shadow = false) {
+    setRunningAction(true); setError("");
+    try {
+      await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST", body: shadow ? { shadow: true } : undefined });
+      toast(shadow ? "Shadow run queued" : "Worker queued", "success");
+      const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
+      setWorker(result?.worker || result);
+      if (shadow) setTab("activity");
+    } catch (err) {
+      setError(err?.message || "Failed to run worker.");
+      toast(err?.message || "Failed to run", "error");
+    }
+    setRunningAction(false);
+  }
 
-  if (loading) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading...</div></div>);
-  if (!worker) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Worker not found.</div></div>);
+  async function handlePauseResume() {
+    if (!worker) return;
+    setRunningAction(true); setError("");
+    const newStatus = worker.status === "paused" ? "ready" : "paused";
+    try {
+      await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { status: newStatus } });
+      setWorker(prev => prev ? { ...prev, status: newStatus } : prev);
+      toast(newStatus === "paused" ? "Worker paused" : "Worker resumed", "success");
+    } catch (err) {
+      setError(err?.message || "Failed to update worker.");
+      toast("Failed to update status", "error");
+    }
+    setRunningAction(false);
+  }
+
+  async function handleUpdateSettings(field, value) {
+    try {
+      await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "PUT", body: { [field]: value } });
+      setWorker(prev => prev ? { ...prev, [field]: value } : prev);
+      toast("Settings saved", "success");
+    } catch (err) {
+      toast("Failed to save: " + (err?.message || ""), "error");
+    }
+  }
+
+  if (loading) return (
+    <div>
+      <button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+        <div style={{ height: 28, width: 200, borderRadius: 6, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite" }} />
+        <div style={{ height: 16, width: 300, borderRadius: 4, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: "0.15s" }} />
+        <div style={{ height: 40, width: "100%", borderRadius: 10, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: "0.3s" }} />
+      </div>
+    </div>
+  );
+  if (!worker) return (<div><button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button><div style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: 16 }}>Worker not found.</div></div>);
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
+  const stats = typeof worker.stats === "string" ? (() => { try { return JSON.parse(worker.stats); } catch { return null; } })() : worker.stats;
   const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
+      <style>{`
+        @keyframes shimmer { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.7; } }
+        @keyframes activity-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes activity-spin { to { transform: rotate(360deg); } }
+        @keyframes activity-fade-slide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .activity-fade-in { animation: activity-fade-slide 0.3s ease-out; }
+        .tab-content-enter { animation: tabFadeIn 0.2s ease-out; }
+        @keyframes tabFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes typingDot { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+      `}</style>
+
       <button style={S.backLink} onClick={onBack}>{"\u2190"} All workers</button>
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.3rem" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.3rem" }}>
         <h1 style={{ ...S.pageTitle, marginBottom: 0 }}>{worker.name}</h1>
-        <span style={S.statusDot(STATUS_COLORS[worker.status] || STATUS_COLORS.ready)} />
-        <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{worker.status}</span>
+        <span style={{
+          fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em",
+          color: STATUS_COLORS[worker.status] || STATUS_COLORS.ready,
+          padding: "2px 8px", borderRadius: 4,
+          background: `color-mix(in srgb, ${STATUS_COLORS[worker.status] || STATUS_COLORS.ready} 12%, transparent)`,
+        }}>
+          {worker.status}
+        </span>
       </div>
       <p style={S.pageSub}>{worker.description || "No description"}</p>
-      {error && <div style={S.error}>{error}</div>}
+
+      {error && (
+        <div style={{ ...S.error, display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <span>{error}</span>
+          <button onClick={() => setError("")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "14px", opacity: 0.7 }}>&times;</button>
+        </div>
+      )}
 
       {/* Integration setup prompt for new deploys */}
       {isNewDeploy && (
-        <div style={{ padding: "16px 20px", borderRadius: 12, border: "1px solid var(--accent)", background: "var(--accent-subtle, rgba(196,97,58,0.04))", marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>Connect integrations</div>
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: 2 }}>This worker may need access to external services to run effectively.</div>
+        <div style={{ padding: "14px 18px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-surface, var(--bg-400))", marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <div>
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>Connect integrations</div>
+              <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: 1 }}>This worker needs access to external services to take real actions.</div>
+            </div>
           </div>
           <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", flexShrink: 0 }} onClick={() => setTab("integrations")}>Set up</button>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2rem" }}>
-        <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1 }} disabled={runningAction} onClick={handleRunNow}>{runningAction ? "Running..." : "Run now"}</button>
-        <button style={S.btnSecondary} disabled={runningAction} onClick={handlePauseResume}>{worker.status === "paused" ? "Resume" : "Pause"}</button>
-        <button style={{ ...S.btnSecondary, background: "transparent", borderStyle: "dashed" }} disabled={runningAction} onClick={async () => {
-          setRunningAction(true); setError("");
-          try {
-            await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/run`, method: "POST", body: { shadow: true } });
-            const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" });
-            setWorker(result);
-            setTab("activity");
-          } catch (err) { setError(err?.message || "Failed to run shadow."); }
-          setRunningAction(false);
-        }}>Shadow run</button>
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+        <button style={{ ...S.btnPrimary, width: "auto", opacity: runningAction ? 0.5 : 1, transition: "opacity 150ms" }} disabled={runningAction} onClick={() => handleRunNow(false)}>
+          {runningAction ? "Queuing..." : "Run now"}
+        </button>
+        <button style={{ ...S.btnSecondary, transition: "opacity 150ms" }} disabled={runningAction} onClick={handlePauseResume}>
+          {worker.status === "paused" ? "Resume" : "Pause"}
+        </button>
+        <button style={{ ...S.btnSecondary, background: "transparent", borderStyle: "dashed", transition: "opacity 150ms" }} disabled={runningAction} onClick={() => handleRunNow(true)}>
+          Shadow run
+        </button>
       </div>
-      {/* Last run summary */}
-      {(worker.lastRun || worker.lastRunAt) && (
+
+      {/* Stats strip */}
+      {(stats?.totalRuns > 0 || worker.last_run_at || worker.lastRun) && (
         <div style={{
-          display: "flex", flexWrap: "wrap", gap: 12, marginBottom: "1.5rem",
-          padding: "14px 18px", borderRadius: 10,
-          border: "1px solid var(--border)", background: "var(--bg-surface, var(--bg-400))",
+          display: "flex", flexWrap: "wrap", gap: 0, marginBottom: "1.5rem",
+          borderRadius: 10, border: "1px solid var(--border)", overflow: "hidden",
         }}>
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Last run</div>
-            <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-              {timeAgo(worker.lastRun || worker.lastRunAt)}
+          {[
+            { label: "Last run", value: timeAgo(worker.lastRun || worker.last_run_at) || "Never" },
+            stats?.totalRuns != null ? { label: "Runs", value: stats.totalRuns.toLocaleString() } : null,
+            stats?.successfulRuns != null && stats?.totalRuns > 0 ? { label: "Success", value: `${Math.round((stats.successfulRuns / stats.totalRuns) * 100)}%`, color: "var(--green, #2a9d6e)" } : null,
+            worker.cost != null ? { label: "Cost", value: `$${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}` } : null,
+          ].filter(Boolean).map((stat, i) => (
+            <div key={i} style={{ flex: 1, minWidth: 80, padding: "12px 16px", borderLeft: i > 0 ? "1px solid var(--border)" : "none", background: "var(--bg-surface, var(--bg-400))" }}>
+              <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{stat.label}</div>
+              <div style={{ fontSize: "15px", fontWeight: 600, color: stat.color || "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{stat.value}</div>
             </div>
-          </div>
-          {worker.stats?.totalRuns != null && (
-            <div>
-              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total runs</div>
-              <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                {worker.stats.totalRuns}
-              </div>
-            </div>
-          )}
-          {worker.stats?.successfulRuns != null && worker.stats?.totalRuns > 0 && (
-            <div>
-              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Success rate</div>
-              <div style={{ fontSize: "14px", color: "var(--green, #5bb98c)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                {Math.round((worker.stats.successfulRuns / worker.stats.totalRuns) * 100)}%
-              </div>
-            </div>
-          )}
-          {worker.cost != null && (
-            <div>
-              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Cost this period</div>
-              <div style={{ fontSize: "14px", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                ${(typeof worker.cost === "number" ? worker.cost : 0).toFixed(2)}
-              </div>
-            </div>
-          )}
+          ))}
         </div>
       )}
-      <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border)", marginBottom: "2rem" }}>
-        {tabs.map(t => <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "0.6rem 1rem", fontSize: "14px", fontWeight: 600, color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)", background: "none", border: "none", borderBottom: tab === t.key ? "2px solid var(--accent)" : "2px solid transparent", cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>{t.label}</button>)}
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: "2px", borderBottom: "1px solid var(--border)", marginBottom: "1.5rem" }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            padding: "0.6rem 1rem", fontSize: "13px", fontWeight: 600,
+            color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
+            background: "none", border: "none",
+            borderBottom: tab === t.key ? "2px solid var(--accent)" : "2px solid transparent",
+            cursor: "pointer", fontFamily: "inherit", marginBottom: -1,
+            transition: "color 150ms, border-color 150ms",
+          }}>
+            {t.label}
+          </button>
+        ))}
       </div>
+
+      {/* Tab content with entrance animation */}
+      <div key={tab} className="tab-content-enter">
+
       {tab === "charter" && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -135,39 +212,22 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
             {!editingCharter ? (
               <button
                 onClick={() => { setEditCharter(charter ? { ...charter } : { canDo: [], askFirst: [], neverDo: [] }); setEditingCharter(true); }}
-                style={{
-                  fontSize: "12px", fontWeight: 600, color: "var(--accent)",
-                  background: "none", border: "none", cursor: "pointer",
-                  fontFamily: "inherit", padding: "4px 8px",
-                }}
-              >
-                Edit
-              </button>
+                style={{ fontSize: "12px", fontWeight: 600, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "4px 8px" }}
+              >Edit</button>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={handleSaveCharter}
-                  disabled={savingCharter}
-                  style={{
-                    fontSize: "12px", fontWeight: 600, color: "#fff",
-                    background: "var(--green, #5bb98c)", border: "none",
-                    borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
-                    padding: "4px 12px", opacity: savingCharter ? 0.5 : 1,
-                  }}
-                >
+                <button onClick={handleSaveCharter} disabled={savingCharter} style={{
+                  fontSize: "12px", fontWeight: 600, color: "#fff", background: "var(--green, #5bb98c)",
+                  border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+                  padding: "4px 12px", opacity: savingCharter ? 0.5 : 1, transition: "opacity 150ms",
+                }}>
                   {savingCharter ? "Saving..." : "Save"}
                 </button>
-                <button
-                  onClick={() => { setEditingCharter(false); setEditCharter(null); }}
-                  style={{
-                    fontSize: "12px", fontWeight: 500, color: "var(--text-200, var(--text-secondary))",
-                    background: "none", border: "1px solid var(--border)",
-                    borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
-                    padding: "4px 12px",
-                  }}
-                >
-                  Cancel
-                </button>
+                <button onClick={() => { setEditingCharter(false); setEditCharter(null); }} style={{
+                  fontSize: "12px", fontWeight: 500, color: "var(--text-secondary)",
+                  background: "none", border: "1px solid var(--border)", borderRadius: 6,
+                  cursor: "pointer", fontFamily: "inherit", padding: "4px 12px",
+                }}>Cancel</button>
               </div>
             )}
           </div>
@@ -201,6 +261,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
                               setEditCharter(updated);
                             }}
                             style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-300)", fontSize: "14px", padding: "0 2px", opacity: 0.6 }}
+                            aria-label={`Remove rule: ${rule}`}
                           >&times;</button>
                         </div>
                       ))}
@@ -215,46 +276,60 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
               })}
             </div>
           ) : (
-            charter ? <CharterDisplay charter={charter} /> : <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>No charter rules defined.</div>
+            charter ? <CharterDisplay charter={charter} /> : (
+              <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+                <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: 8 }}>No charter rules defined yet.</div>
+                <button onClick={() => { setEditCharter({ canDo: [], askFirst: [], neverDo: [] }); setEditingCharter(true); }} style={{ ...S.btnSecondary, width: "auto", fontSize: "13px", padding: "6px 16px" }}>Add rules</button>
+              </div>
+            )
           )}
         </div>
       )}
+
       {tab === "activity" && (
         <div>
-          <style>{`
-            @keyframes activity-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-            @keyframes activity-spin { to { transform: rotate(360deg); } }
-            @keyframes activity-fade-slide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-            .activity-fade-in { animation: activity-fade-slide 0.3s ease-out; }
-          `}</style>
-
           {/* Running indicator */}
           {worker.status === "running" && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
-              borderRadius: 10, background: "var(--accent-subtle, rgba(196,97,58,0.04))",
+              display: "flex", alignItems: "center", gap: 8, padding: "10px 14px",
+              borderRadius: 8, background: "var(--accent-subtle, rgba(196,97,58,0.04))",
               border: "1px solid var(--accent)", marginBottom: 16,
             }}>
-              <div style={{
-                width: 8, height: 8, borderRadius: "50%", background: "var(--accent)",
-                animation: "activity-pulse 1.5s ease-in-out infinite",
-              }} />
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", animation: "activity-pulse 1.5s ease-in-out infinite" }} />
               <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}>Running...</span>
             </div>
           )}
 
-          {/* Queued state for new deploys */}
           {isNewDeploy && logs.length === 0 && !logsLoading && (
-            <div style={{ padding: "2rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
-              <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your worker is queued and will run shortly.</div>
-              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--accent)", borderRadius: "50%", animation: "activity-spin 1s linear infinite", margin: "1rem auto 0" }} />
+            <div style={{ padding: "2.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+              <div style={{ width: 24, height: 24, border: "2px solid var(--border)", borderTop: "2px solid var(--accent)", borderRadius: "50%", animation: "activity-spin 1s linear infinite", margin: "0 auto 1rem" }} />
+              <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>Queued</div>
+              <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Your worker will run shortly.</div>
             </div>
           )}
 
-          {logsLoading && <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading logs...</div>}
+          {logsLoading && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[1, 2, 3].map(i => (
+                <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 8, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ height: 14, width: 80, borderRadius: 4, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: `${i * 0.1}s`, marginBottom: 6 }} />
+                    <div style={{ height: 12, width: "60%", borderRadius: 4, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.05}s` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {!logsLoading && logs.length === 0 && !isNewDeploy && (
-            <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No activity yet. This worker hasn't run.</div>
+            <div style={{ padding: "2.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 12px", display: "block", opacity: 0.5 }}>
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+              <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: 4 }}>No activity yet</div>
+              <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Run this worker to see its execution log.</div>
+            </div>
           )}
 
           {logs.length > 0 && (
@@ -266,21 +341,88 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy }) {
           )}
         </div>
       )}
+
       {tab === "chat" && (
         <WorkerChat workerId={workerId} workerName={worker.name} model={worker.model} />
       )}
+
       {tab === "integrations" && (
         <div style={{ maxWidth: 480 }}>
           <WorkerIntegrationsSection workerId={workerId} />
         </div>
       )}
+
       {tab === "settings" && (
-        <div style={{ maxWidth: 480 }}>
-          <label style={S.label}>Schedule</label>
-          <div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "1rem" }}>{humanizeSchedule(worker.schedule) || "Manual (on-demand)"}</div>
-          {worker.model && (<><label style={S.label}>Model</label><div style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "2rem" }}>{ALL_MODELS.find(m => m.id === worker.model)?.name || worker.model}</div></>)}
-        </div>
+        <SettingsTab worker={worker} onUpdate={handleUpdateSettings} />
       )}
+
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settings Tab — editable model picker + schedule display
+// ---------------------------------------------------------------------------
+
+function SettingsTab({ worker, onUpdate }) {
+  const [selectedModel, setSelectedModel] = useState(worker.model || "");
+  const [saving, setSaving] = useState(false);
+  const modelInfo = ALL_MODELS.find(m => m.id === selectedModel);
+
+  async function handleModelChange(newModel) {
+    setSelectedModel(newModel);
+    setSaving(true);
+    await onUpdate("model", newModel);
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ ...S.label, marginBottom: 8, display: "block" }}>Model</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {MODEL_CATEGORIES.map(cat => {
+            const models = ALL_MODELS.filter(m => m.category === cat.key);
+            if (models.length === 0) return null;
+            return (
+              <div key={cat.key}>
+                <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", padding: "8px 0 4px" }}>{cat.label}</div>
+                {models.map(m => (
+                  <button key={m.id} onClick={() => handleModelChange(m.id)} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    width: "100%", padding: "8px 12px", borderRadius: 6,
+                    border: m.id === selectedModel ? "1px solid var(--accent)" : "1px solid transparent",
+                    background: m.id === selectedModel ? "var(--accent-subtle, rgba(196,97,58,0.04))" : "transparent",
+                    cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    transition: "background 100ms, border-color 100ms",
+                  }}
+                  onMouseEnter={e => { if (m.id !== selectedModel) e.currentTarget.style.background = "var(--bg-hover, var(--bg-300))"; }}
+                  onMouseLeave={e => { if (m.id !== selectedModel) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <div>
+                      <span style={{ fontSize: "13px", fontWeight: m.id === selectedModel ? 600 : 400, color: "var(--text-primary)" }}>{m.name}</span>
+                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)", marginLeft: 8 }}>{m.provider}</span>
+                    </div>
+                    <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{m.price}/M</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ ...S.label, marginBottom: 4, display: "block" }}>Schedule</label>
+        <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{humanizeSchedule(worker.schedule) || "Manual (on-demand)"}</div>
+        <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>Schedule changes coming soon. Use the builder to set a schedule.</div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ ...S.label, marginBottom: 4, display: "block" }}>Worker ID</label>
+        <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", padding: "6px 10px", background: "var(--bg-300, var(--bg-hover))", borderRadius: 6, userSelect: "all" }}>{worker.id}</div>
+      </div>
     </div>
   );
 }
@@ -295,11 +437,16 @@ function WorkerChat({ workerId, workerName, model }) {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
   const abortRef = useRef(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (!streaming && inputRef.current) inputRef.current.focus();
+  }, [streaming]);
 
   async function handleSend() {
     const text = input.trim();
@@ -307,9 +454,10 @@ function WorkerChat({ workerId, workerName, model }) {
     setInput("");
     setError("");
 
-    const userMsg = { role: "user", content: text };
+    const now = new Date().toISOString();
+    const userMsg = { role: "user", content: text, ts: now };
     const updatedMessages = [...messages, userMsg];
-    setMessages([...updatedMessages, { role: "assistant", content: "" }]);
+    setMessages([...updatedMessages, { role: "assistant", content: "", ts: now }]);
     setStreaming(true);
 
     const controller = new AbortController();
@@ -321,7 +469,7 @@ function WorkerChat({ workerId, workerName, model }) {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
         credentials: "include",
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({ messages: updatedMessages.map(m => ({ role: m.role, content: m.content })) }),
         signal: controller.signal,
       });
 
@@ -350,7 +498,7 @@ function WorkerChat({ workerId, workerName, model }) {
               fullResponse += d;
               setMessages(prev => {
                 const copy = [...prev];
-                copy[copy.length - 1] = { role: "assistant", content: fullResponse };
+                copy[copy.length - 1] = { role: "assistant", content: fullResponse, ts: now };
                 return copy;
               });
             }
@@ -358,11 +506,10 @@ function WorkerChat({ workerId, workerName, model }) {
         }
       }
 
-      // Finalize — make sure the last message has the full content
       setMessages(prev => {
         const copy = [...prev];
         if (copy[copy.length - 1]?.role === "assistant") {
-          copy[copy.length - 1] = { role: "assistant", content: fullResponse || "(No response)" };
+          copy[copy.length - 1] = { role: "assistant", content: fullResponse || "(No response)", ts: new Date().toISOString() };
         }
         return copy;
       });
@@ -377,74 +524,136 @@ function WorkerChat({ workerId, workerName, model }) {
     abortRef.current = null;
   }
 
+  function handleCopy(text) {
+    navigator.clipboard?.writeText(text);
+  }
+
+  const modelName = ALL_MODELS.find(m => m.id === model)?.name || model?.split("/").pop() || "AI";
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "min(60vh, 500px)" }}>
-      {/* Messages */}
+    <div style={{ display: "flex", flexDirection: "column", height: "min(65vh, 560px)" }}>
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: "auto", padding: "12px 0",
-        display: "flex", flexDirection: "column", gap: 12,
+        flex: 1, overflowY: "auto", padding: "8px 0",
+        display: "flex", flexDirection: "column", gap: 16,
       }}>
         {messages.length === 0 && (
-          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-tertiary)", fontSize: "14px" }}>
-            Chat with <strong style={{ color: "var(--text-secondary)" }}>{workerName}</strong> — ask questions, give instructions, or check on their work.
+          <div style={{ padding: "3rem 1rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
+              background: "var(--accent-subtle, rgba(196,97,58,0.06))", border: "1px solid var(--border)",
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>Chat with {workerName}</div>
+              <div style={{ fontSize: "13px", color: "var(--text-tertiary)", maxWidth: 320, lineHeight: 1.5 }}>
+                Ask questions, give instructions, or check on their work. This worker uses its charter and memory to respond.
+              </div>
+            </div>
           </div>
         )}
         {messages.map((msg, i) => (
           <div key={i} style={{
-            display: "flex",
-            justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+            display: "flex", flexDirection: "column",
+            alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+            gap: 4,
           }}>
+            {/* Sender label */}
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", paddingLeft: 4, paddingRight: 4 }}>
+              {msg.role === "user" ? "You" : workerName}
+            </div>
+            {/* Bubble */}
             <div style={{
-              maxWidth: "80%", padding: "10px 14px", borderRadius: 12,
+              maxWidth: "85%", padding: "10px 14px", borderRadius: 12,
               fontSize: "14px", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+              position: "relative",
               ...(msg.role === "user" ? {
-                background: "var(--accent, #c4613a)",
-                color: "#fff",
-                borderBottomRightRadius: 4,
+                background: "var(--accent, #c4613a)", color: "#fff", borderBottomRightRadius: 4,
               } : {
-                background: "var(--bg-300, var(--bg-hover))",
-                color: "var(--text-primary)",
-                borderBottomLeftRadius: 4,
+                background: "var(--bg-300, var(--bg-hover))", color: "var(--text-primary)", borderBottomLeftRadius: 4,
               }),
             }}>
               {msg.content || (streaming && i === messages.length - 1 ? (
-                <span style={{ opacity: 0.5 }}>Thinking...</span>
+                <span style={{ display: "inline-flex", gap: 3, alignItems: "center" }}>
+                  {[0, 1, 2].map(d => (
+                    <span key={d} style={{
+                      width: 5, height: 5, borderRadius: "50%",
+                      background: "var(--text-tertiary)",
+                      animation: `typingDot 1.4s ease-in-out ${d * 0.2}s infinite`,
+                    }} />
+                  ))}
+                </span>
               ) : "")}
+            </div>
+            {/* Timestamp + copy */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4, paddingRight: 4 }}>
+              {msg.ts && (
+                <span style={{ fontSize: "10px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>
+                  {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+              {msg.role === "assistant" && msg.content && !streaming && (
+                <button onClick={() => handleCopy(msg.content)} style={{
+                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                  color: "var(--text-tertiary)", fontSize: "10px", opacity: 0.6,
+                  display: "flex", alignItems: "center", gap: 3,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = "0.6"; }}
+                aria-label="Copy message"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  Copy
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
 
-      {error && <div style={{ ...S.error, marginBottom: 8 }}>{error}</div>}
+      {error && <div style={{ ...S.error, marginBottom: 8, fontSize: "13px" }}>{error}</div>}
 
       {/* Input */}
       <div style={{
         display: "flex", gap: 8, paddingTop: 12,
         borderTop: "1px solid var(--border)",
+        alignItems: "flex-end",
       }}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-          placeholder={`Message ${workerName}...`}
-          disabled={streaming}
-          style={{
-            flex: 1, padding: "10px 14px", fontSize: "14px",
-            fontFamily: "inherit", border: "1px solid var(--border)",
-            borderRadius: 8, background: "var(--bg-400, var(--bg-surface))",
-            color: "var(--text-primary)", outline: "none",
-            opacity: streaming ? 0.6 : 1,
-          }}
-          onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-          onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
-        />
+        <div style={{ flex: 1, position: "relative" }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder={`Message ${workerName}...`}
+            disabled={streaming}
+            style={{
+              width: "100%", padding: "10px 14px", fontSize: "14px",
+              fontFamily: "inherit", border: "1px solid var(--border)",
+              borderRadius: 10, background: "var(--bg-400, var(--bg-surface))",
+              color: "var(--text-primary)", outline: "none", boxSizing: "border-box",
+              transition: "border-color 150ms, opacity 150ms",
+              opacity: streaming ? 0.5 : 1,
+            }}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border)"; }}
+          />
+          {!streaming && (
+            <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: "10px", color: "var(--text-tertiary)", opacity: 0.5, pointerEvents: "none" }}>
+              Enter
+            </span>
+          )}
+        </div>
         <button
           onClick={streaming ? () => abortRef.current?.abort() : handleSend}
           disabled={!streaming && !input.trim()}
           style={{
-            ...S.btnPrimary, width: "auto", padding: "10px 20px",
-            opacity: (!streaming && !input.trim()) ? 0.4 : 1,
-            flexShrink: 0,
+            ...S.btnPrimary, width: "auto", padding: "10px 18px",
+            opacity: (!streaming && !input.trim()) ? 0.3 : 1,
+            flexShrink: 0, transition: "opacity 150ms",
+            ...(streaming ? { background: "var(--red, #c43a3a)" } : {}),
           }}
         >
           {streaming ? "Stop" : "Send"}
@@ -454,7 +663,10 @@ function WorkerChat({ workerId, workerName, model }) {
   );
 }
 
-// Clean SVG icons — no emoji, professional like Claude/Linear/Vercel
+// ---------------------------------------------------------------------------
+// Activity Log
+// ---------------------------------------------------------------------------
+
 const ActivityIcons = {
   play: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   sparkle: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>,
@@ -467,6 +679,7 @@ const ActivityIcons = {
   x: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   refresh: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
   eye: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  brain: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>,
   dot: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill={c}><circle cx="12" cy="12" r="4"/></svg>,
 };
 
@@ -488,6 +701,9 @@ function ActivityLogEntry({ entry, isNew }) {
     shadow: { icon: "eye", color: "var(--text-200, #a3a39d)", label: "Shadow mode" },
     shadow_tool: { icon: "eye", color: "var(--text-200, #a3a39d)", label: "Would execute" },
     shadow_completed: { icon: "check", color: "var(--text-200, #a3a39d)", label: "Shadow complete" },
+    memory: { icon: "brain", color: "var(--accent, #c4613a)", label: "Memory" },
+    cost_cap: { icon: "alert", color: "var(--red, #c43a3a)", label: "Cost cap" },
+    rate_limited: { icon: "pause", color: "var(--amber, #c08c30)", label: "Rate limited" },
   };
 
   const config = typeConfig[entry.type] || { icon: "dot", color: "var(--text-300)", label: entry.type || "Event" };
@@ -500,7 +716,7 @@ function ActivityLogEntry({ entry, isNew }) {
     }}>
       <div style={{
         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-        background: `${config.color}15`,
+        background: `color-mix(in srgb, ${config.color} 10%, transparent)`,
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {IconFn(config.color)}
@@ -508,11 +724,11 @@ function ActivityLogEntry({ entry, isNew }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: "13px", fontWeight: 600, color: config.color }}>{config.label}</span>
-          <span style={{ fontSize: "11px", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>
-            {entry.ts ? new Date(entry.ts).toLocaleTimeString() : entry.time ? timeAgo(entry.time) : ""}
+          <span style={{ fontSize: "11px", color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>
+            {entry.ts ? new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : entry.time ? timeAgo(entry.time) : ""}
           </span>
         </div>
-        <div style={{ fontSize: "13px", color: "var(--text-200)", marginTop: 2, lineHeight: 1.5, wordBreak: "break-word" }}>
+        <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: 2, lineHeight: 1.5, wordBreak: "break-word" }}>
           {entry.detail || entry.summary || ""}
         </div>
       </div>

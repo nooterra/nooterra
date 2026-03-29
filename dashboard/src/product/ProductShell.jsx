@@ -30,7 +30,7 @@ const IntegrationsView = React.lazy(() => import("./views/IntegrationsView.jsx")
 /* -- Eagerly-loaded components (small) ----------------------------- */
 import SettingsModal from "./components/SettingsModal.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
-import ToastNotification from "./components/ToastNotification.jsx";
+import { ToastContainer, useToasts } from "./components/ToastNotification.jsx";
 
 /* ===================================================================
    FocusInput
@@ -268,8 +268,10 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Toast notification system
+  const [toasts, addToast, removeToast] = useToasts();
+
   // Real-time approval feed via SSE
-  const [toasts, setToasts] = useState([]);
   useEffect(() => {
     let es;
     try {
@@ -285,10 +287,12 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
             const newest = data.items[0];
             const workerName = newest.worker_name || newest.workerName || "A worker";
             const action = newest.tool_name || newest.action || "an action";
-            setToasts(prev => [...prev, {
-              id: Date.now(),
+            addToast({
+              title: "Approval needed",
               message: `${workerName} wants to ${action}`,
-            }]);
+              type: "warning",
+              onClick: () => navAndClose("inbox"),
+            });
           }
         } catch { /* ignore parse errors */ }
       });
@@ -429,9 +433,9 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   // --- Determine what content shows (inline, NOT a component — avoids Suspense remount) ---
   const mainContent = view === null ? suspenseFallback : (
-    view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />
+    view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} addToast={addToast} />
     : view === "team" ? <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
-    : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>
+    : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} addToast={addToast} /></div>
     : view === "inbox" || view === "approvals" ? <div style={S.main}><InboxView /></div>
     : view === "activity" || view === "receipts" ? <div style={S.main}><ReceiptsView /></div>
     : view === "performance" ? <div style={S.main}><PerformanceView /></div>
@@ -567,14 +571,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         }}
       />
 
-      {toasts.map(toast => (
-        <ToastNotification
-          key={toast.id}
-          message={toast.message}
-          onClose={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
-          onClick={() => { setToasts(prev => prev.filter(t => t.id !== toast.id)); navAndClose("inbox"); }}
-        />
-      ))}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 }

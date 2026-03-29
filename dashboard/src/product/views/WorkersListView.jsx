@@ -8,7 +8,7 @@ const STATUS_LABELS = {
   error: "Error",
 };
 
-function WorkerCard({ worker, onClick }) {
+function WorkerCard({ worker, onClick, index = 0 }) {
   const charter = (() => { try { return typeof worker.charter === "string" ? JSON.parse(worker.charter) : worker.charter; } catch { return null; } })();
   const stats = typeof worker.stats === "string" ? (() => { try { return JSON.parse(worker.stats); } catch { return null; } })() : worker.stats;
   const statusColor = STATUS_COLORS[worker.status] || STATUS_COLORS.ready;
@@ -27,16 +27,19 @@ function WorkerCard({ worker, onClick }) {
         borderRadius: 12, cursor: "pointer",
         background: "var(--bg-surface, var(--bg-400))",
         textAlign: "left", fontFamily: "inherit",
-        transition: "border-color 150ms, box-shadow 150ms",
+        transition: "border-color 200ms, box-shadow 200ms, transform 200ms",
         overflow: "hidden", width: "100%",
+        animation: `cardEnter 0.3s cubic-bezier(0.16,1,0.3,1) ${index * 0.05}s both`,
       }}
       onMouseEnter={e => {
         e.currentTarget.style.borderColor = "var(--border-strong, var(--accent))";
-        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)";
+        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)";
+        e.currentTarget.style.transform = "translateY(-2px)";
       }}
       onMouseLeave={e => {
         e.currentTarget.style.borderColor = "var(--border)";
         e.currentTarget.style.boxShadow = "none";
+        e.currentTarget.style.transform = "translateY(0)";
       }}
     >
       {/* Header: status bar + name */}
@@ -142,7 +145,12 @@ function WorkersListView({ onSelect, onCreate }) {
 
   return (
     <div>
-      <style>{`@keyframes workerCardPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
+      <style>{`
+        @keyframes workerCardPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes cardEnter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes shimmer { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+        @media (prefers-reduced-motion: reduce) { .worker-card, [style*="cardEnter"] { animation: none !important; } }
+      `}</style>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: 12 }}>
@@ -188,24 +196,58 @@ function WorkersListView({ onSelect, onCreate }) {
       {loading && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
           {[1, 2, 3].map(i => (
-            <div key={i} style={{ height: 160, borderRadius: 12, background: "var(--bg-300, var(--bg-hover))", animation: "skeletonPulse 1.5s ease-in-out infinite", animationDelay: `${i * 0.15}s` }} />
+            <div key={i} style={{ borderRadius: 12, border: "1px solid var(--border)", overflow: "hidden" }}>
+              <div style={{ padding: "14px 16px", display: "flex", gap: 10, alignItems: "center" }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite" }} />
+                <div style={{ height: 16, flex: 1, borderRadius: 4, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+              </div>
+              <div style={{ padding: "0 16px 14px" }}>
+                <div style={{ height: 12, width: "80%", borderRadius: 4, background: "var(--bg-300)", animation: "shimmer 1.5s ease-in-out infinite", animationDelay: `${i * 0.1 + 0.05}s` }} />
+              </div>
+              <div style={{ display: "flex", borderTop: "1px solid var(--border)", background: "var(--bg-300)" }}>
+                {[1, 2, 3].map(j => (
+                  <div key={j} style={{ flex: 1, padding: "10px 16px", borderLeft: j > 1 ? "1px solid var(--border)" : "none" }}>
+                    <div style={{ height: 8, width: 40, borderRadius: 3, background: "var(--bg-hover)", animation: "shimmer 1.5s ease-in-out infinite", marginBottom: 4 }} />
+                    <div style={{ height: 12, width: 50, borderRadius: 3, background: "var(--bg-hover)", animation: "shimmer 1.5s ease-in-out infinite" }} />
+                  </div>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
 
       {/* Empty state */}
       {!loading && workers.length === 0 && (
-        <div style={{ padding: "clamp(2rem, 6vh, 4rem) 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, maxWidth: 480, margin: "0 auto" }}>
-          <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", lineHeight: 1.2 }}>Describe your business. We staff it.</div>
-          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.6 }}>
-            Nooterra builds you a team of AI workers — each with explicit rules about what they can do on their own, what needs your approval, and what's off-limits.
+        <div style={{ padding: "clamp(2.5rem, 8vh, 5rem) 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 16, maxWidth: 480, margin: "0 auto" }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 14, margin: "0 auto 1.25rem",
+            background: "var(--accent-subtle, rgba(196,97,58,0.06))", border: "1px solid var(--border)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
           </div>
-          <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "1.5rem", lineHeight: 1.6 }}>
-            <strong style={{ color: "var(--green, #2a9d6e)" }}>Can do</strong> — worker handles it autonomously<br/>
-            <strong style={{ color: "var(--amber, #c08c30)" }}>Ask first</strong> — pauses and routes to you for approval<br/>
-            <strong style={{ color: "var(--red, #c43a3a)" }}>Never do</strong> — hard-blocked, no exceptions
+          <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", lineHeight: 1.2 }}>Describe your business. We staff it.</div>
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.6 }}>
+            Nooterra builds you a team of AI workers — each with clear rules about what they can do, what needs your OK, and what's off-limits.
           </div>
-          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create your first team</button>
+          <div style={{ display: "inline-flex", flexDirection: "column", gap: 6, textAlign: "left", marginBottom: "1.5rem" }}>
+            {[
+              { color: "var(--green, #2a9d6e)", label: "Can do", desc: "worker handles it autonomously" },
+              { color: "var(--amber, #c08c30)", label: "Ask first", desc: "pauses for your approval" },
+              { color: "var(--red, #c43a3a)", label: "Never do", desc: "hard-blocked, no exceptions" },
+            ].map(r => (
+              <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "13px" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                <strong style={{ color: r.color, minWidth: 60 }}>{r.label}</strong>
+                <span style={{ color: "var(--text-tertiary)" }}>{r.desc}</span>
+              </div>
+            ))}
+          </div>
+          <br />
+          <button style={{ ...S.btnPrimary, width: "auto", padding: "10px 28px" }} onClick={onCreate}>Create your first team</button>
         </div>
       )}
 
@@ -223,8 +265,8 @@ function WorkersListView({ onSelect, onCreate }) {
           gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
           gap: 12,
         }}>
-          {filteredWorkers.map(w => (
-            <WorkerCard key={w.id} worker={w} onClick={() => onSelect(w)} />
+          {filteredWorkers.map((w, i) => (
+            <WorkerCard key={w.id} worker={w} onClick={() => onSelect(w)} index={i} />
           ))}
         </div>
       )}
