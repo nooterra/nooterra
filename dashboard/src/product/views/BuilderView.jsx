@@ -239,20 +239,101 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    TerraDotsInjector
    =================================================================== */
 
-function TerraDotsInjector() {
-  const ref = useRef(null);
+/* ===================================================================
+   TerraformingScreen — ASCII "nooterra" being built character by character
+   =================================================================== */
+
+const TERRA_ASCII = [
+  "                    _                        ",
+  "  _ __   ___   ___ | |_ ___ _ __ _ __ __ _   ",
+  " | '_ \\ / _ \\ / _ \\| __/ _ \\ '__| '__/ _` |  ",
+  " | | | | (_) | (_) | ||  __/ |  | | | (_| |  ",
+  " |_| |_|\\___/ \\___/ \\__\\___|_|  |_|  \\__,_|  ",
+];
+
+function TerraformingScreen({ onCancel, mode }) {
+  const [charCount, setCharCount] = useState(0);
+  const [msgIndex, setMsgIndex] = useState(0);
+  const totalChars = TERRA_ASCII.join("").length;
+
   useEffect(() => {
-    let frame = 0;
-    const dots = ["", ".", "..", "..."];
-    const el = ref.current?.parentElement?.querySelector("[data-terra-dots]");
-    if (!el) return;
     const id = setInterval(() => {
-      frame = (frame + 1) % dots.length;
-      el.textContent = dots[frame];
-    }, 500);
+      setCharCount(prev => {
+        if (prev >= totalChars) return 0; // loop
+        return prev + 2; // 2 chars at a time for speed
+      });
+    }, 30);
     return () => clearInterval(id);
-  }, []);
-  return <span ref={ref} style={{ display: "none" }} />;
+  }, [totalChars]);
+
+  const messages = mode === "worker"
+    ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Preparing your worker..."]
+    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Preparing your team..."];
+
+  useEffect(() => {
+    const id = setInterval(() => setMsgIndex(p => (p + 1) % messages.length), 2500);
+    return () => clearInterval(id);
+  }, [messages.length]);
+
+  // Build the visible portion of ASCII art
+  let remaining = charCount;
+  const lines = TERRA_ASCII.map(line => {
+    if (remaining <= 0) return "";
+    const visible = line.slice(0, remaining);
+    remaining -= line.length;
+    return visible;
+  });
+
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", minHeight: "100%", padding: "2rem",
+      background: "var(--bg-100, #faf9f6)",
+    }}>
+      <div style={{ textAlign: "center", maxWidth: 500 }}>
+        {/* ASCII art */}
+        <pre style={{
+          fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)",
+          fontSize: "clamp(8px, 2.5vw, 14px)",
+          lineHeight: 1.3,
+          color: "var(--accent, #c4613a)",
+          margin: "0 auto 32px",
+          textAlign: "left",
+          display: "inline-block",
+          minHeight: `${TERRA_ASCII.length * 1.3}em`,
+          letterSpacing: "0.02em",
+          whiteSpace: "pre",
+        }}>
+          {lines.map((line, i) => (
+            <span key={i}>
+              {line}
+              {i < lines.length - 1 ? "\n" : ""}
+            </span>
+          ))}
+          <span style={{ opacity: 0.6, animation: "blink 1s step-end infinite" }}>_</span>
+        </pre>
+
+        {/* Status message */}
+        <p style={{
+          fontSize: "14px", color: "var(--text-300)",
+          lineHeight: 1.6, transition: "opacity 300ms",
+          minHeight: "1.6em",
+        }}>
+          {messages[msgIndex]}
+        </p>
+
+        <button
+          onClick={onCancel}
+          style={{
+            marginTop: 24, background: "none", border: "none",
+            color: "var(--text-300)", fontSize: "13px", cursor: "pointer",
+            fontFamily: "inherit", textDecoration: "underline",
+            textUnderlineOffset: "3px",
+          }}
+        >Cancel</button>
+      </div>
+    </div>
+  );
 }
 
 
@@ -424,12 +505,17 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
+    // Worker mode: wrap the prompt to request a single worker, not a team
+    const chatContent = builderMode === "worker"
+      ? `Create a SINGLE worker (not a team) for this task: ${text}\n\nRespond with a [WORKER_DEFINITION] block containing: Name, CanDo, AskFirst, NeverDo, Schedule, Model. Do NOT wrap in [TEAM_PROPOSAL].`
+      : text;
+
     try {
       const res = await fetch("/__nooterra/v1/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-tenant-id": runtime.tenantId },
         credentials: "include",
-        body: JSON.stringify({ messages: [{ role: "user", content: text }] }),
+        body: JSON.stringify({ messages: [{ role: "user", content: chatContent }] }),
         signal: controller.signal,
       });
 
@@ -451,6 +537,30 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         }
       }
 
+      // Worker mode: try single worker definition first
+      if (builderMode === "worker") {
+        const workerDef = parseWorkerDefinition(fullResponse);
+        if (workerDef) {
+          setTeamProposal({
+            teamName: workerDef.name || "New Worker",
+            summary: "",
+            workers: [{
+              role: workerDef.name || "New Worker",
+              title: "",
+              description: description,
+              canDo: workerDef.canDo || [],
+              askFirst: workerDef.askFirst || [],
+              neverDo: workerDef.neverDo || [],
+              schedule: workerDef.schedule || "on_demand",
+              model: workerDef.model || "anthropic/claude-haiku-4.5",
+              integrations: [],
+            }],
+          });
+          setPhase("team");
+          return;
+        }
+      }
+
       // Parse team from AI response
       const aiTeam = parseTeamProposal(fullResponse);
       if (aiTeam && aiTeam.workers.length > 0) {
@@ -459,7 +569,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
         return;
       }
 
-      throw new Error("Could not generate team. Try describing your business in more detail.");
+      throw new Error(builderMode === "worker" ? "Couldn't create that worker. Try being more specific about what it should do." : "Could not generate team. Try describing your business in more detail.");
     } catch (err) {
       setError(err?.name === "AbortError" ? "Lost connection to Nooterra. Retrying..." : (err?.message || "Couldn't build your team. Check your connection and try again."));
       setPhase("input");
@@ -568,67 +678,10 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   }
 
   // =============================================
-  // GENERATING STATE — "Terraforming..."
+  // GENERATING STATE — ASCII "nooterra" build animation
   // =============================================
   if (phase === "generating") {
-    return (
-      <div style={{
-        display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", minHeight: "100%", padding: "2rem",
-        background: "var(--bg-100, #faf9f6)",
-      }}>
-        <div style={{ textAlign: "center", maxWidth: 400 }}>
-          {/* Animated terra orb */}
-          <div style={{
-            width: 64, height: 64, margin: "0 auto 32px",
-            borderRadius: "50%",
-            background: "conic-gradient(from 0deg, var(--product-accent, #1f685c), var(--product-secondary, #8a5b3f), var(--product-accent, #1f685c))",
-            animation: "terraSpin 2s linear infinite",
-            opacity: 0.85,
-            boxShadow: "0 0 40px rgba(31, 104, 92, 0.25)",
-          }} />
-          <h2 style={{
-            fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.03em",
-            color: "var(--text-100, var(--product-ink-strong))",
-            marginBottom: 8,
-            fontFamily: "var(--font-display, 'Fraunces', serif)",
-          }}>
-            Terraforming
-            <span data-terra-dots style={{ display: "inline-block", width: "1.5em", textAlign: "left" }} />
-          </h2>
-          <p style={{
-            fontSize: "14px", color: "var(--text-300, var(--product-ink-soft))",
-            lineHeight: 1.6,
-          }}>
-            Designing your workforce from scratch
-          </p>
-          <button
-            onClick={goBackToPhase1}
-            style={{
-              marginTop: 24, background: "none", border: "none",
-              color: "var(--text-300)", fontSize: "13px", cursor: "pointer",
-              fontFamily: "inherit", textDecoration: "underline",
-              textUnderlineOffset: "3px",
-            }}
-          >Cancel</button>
-        </div>
-        <style>{`
-          @keyframes terraSpin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-          @keyframes terraDots {
-            0% { content: ""; }
-            25% { content: "."; }
-            50% { content: ".."; }
-            75% { content: "..."; }
-            100% { content: ""; }
-          }
-        `}</style>
-        {/* CSS content property doesn't work on non-replaced elements, use JS instead */}
-        <TerraDotsInjector />
-      </div>
-    );
+    return <TerraformingScreen onCancel={goBackToPhase1} mode={builderMode} />;
   }
 
   // =============================================
