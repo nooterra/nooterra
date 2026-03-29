@@ -221,10 +221,10 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
    =================================================================== */
 
 function AppShell({ initialView = "home", userEmail, isFirstTime }) {
+  const needsWorkerCheck = initialView === "home" || initialView === "builder";
   const [view, setView] = useState(() => {
-    // Default to builder (chat) — only go to inbox if user has active workers
-    if (initialView !== "home" && initialView !== "builder") return initialView;
-    return "builder";
+    if (!needsWorkerCheck) return initialView;
+    return null; // don't pick a view until we know if workers exist
   });
   const [selectedWorkerId, setSelectedWorkerId] = useState(null);
   const [isNewDeploy, setIsNewDeploy] = useState(false);
@@ -249,7 +249,21 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   useEffect(() => {
     (async () => { try { const runtime = loadRuntimeConfig(); const result = await fetchApprovalInbox(runtime, { status: "pending" }); const items = result?.items || result || []; const count = Array.isArray(items) ? items.length : 0; setPendingApprovals(count); } catch { /* ignore */ } })();
-    (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
+    (async () => {
+      try {
+        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+        const fetched = result?.items || result || [];
+        setWorkers(fetched);
+        // Decide initial view ONCE after first fetch — no flash
+        if (needsWorkerCheck && view === null) {
+          const hasActive = fetched.some(w => w.status === "running" || w.lastRunAt || w.last_run_at || w.totalRuns > 0 || w.total_runs > 0);
+          setView(hasActive ? "inbox" : "builder");
+        }
+      } catch {
+        setWorkers([]);
+        if (needsWorkerCheck && view === null) setView("builder");
+      }
+    })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
     (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -290,17 +304,6 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     } catch { /* SSE not supported or endpoint unavailable */ }
     return () => { if (es) es.close(); };
   }, []);
-
-  // Auto-redirect to inbox if workers have activity (only on initial load)
-  const hasRedirected = useRef(false);
-  useEffect(() => {
-    if (hasRedirected.current || view !== "builder") return;
-    const hasActiveWorkers = workers.some(w => w.status === "running" || w.lastRunAt || w.last_run_at || w.totalRuns > 0 || w.total_runs > 0);
-    if (hasActiveWorkers) {
-      hasRedirected.current = true;
-      setView("inbox");
-    }
-  }, [workers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function refreshWorkers() {
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.items || result || []); } catch { /* ignore */ } })();
@@ -398,6 +401,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   // --- Determine what content shows ---
   function MainContent() {
+    if (view === null) return suspenseFallback;
     return (
       <React.Suspense fallback={suspenseFallback}>
         {view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />
