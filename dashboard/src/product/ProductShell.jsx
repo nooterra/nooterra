@@ -427,22 +427,17 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     </div>
   );
 
-  // --- Determine what content shows ---
-  function MainContent() {
-    if (view === null) return suspenseFallback;
-    return (
-      <React.Suspense fallback={suspenseFallback}>
-        {view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />
-        : view === "team" ? <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
-        : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>
-        : view === "inbox" || view === "approvals" ? <div style={S.main}><InboxView /></div>
-        : view === "activity" || view === "receipts" ? <div style={S.main}><ReceiptsView /></div>
-        : view === "performance" ? <div style={S.main}><PerformanceView /></div>
-        : view === "connections" || view === "integrations" ? <div style={S.main}><IntegrationsView /></div>
-        : <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>}
-      </React.Suspense>
-    );
-  }
+  // --- Determine what content shows (inline, NOT a component — avoids Suspense remount) ---
+  const mainContent = view === null ? suspenseFallback : (
+    view === "builder" ? <BuilderView onComplete={handleBuilderComplete} onViewWorker={handleViewWorker} userName={userEmail} isFirstTime={isFirstTime && workers.length === 0} />
+    : view === "team" ? <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
+    : view === "workerDetail" && selectedWorkerId ? <div style={S.main}><WorkerDetailView workerId={selectedWorkerId} onBack={() => { setSelectedWorkerId(null); setIsNewDeploy(false); setView("team"); }} isNewDeploy={isNewDeploy} /></div>
+    : view === "inbox" || view === "approvals" ? <div style={S.main}><InboxView /></div>
+    : view === "activity" || view === "receipts" ? <div style={S.main}><ReceiptsView /></div>
+    : view === "performance" ? <div style={S.main}><PerformanceView /></div>
+    : view === "connections" || view === "integrations" ? <div style={S.main}><IntegrationsView /></div>
+    : <div style={S.main}><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></div>
+  );
 
   // Close mobile menu when navigating
   const navAndClose = (dest) => { handleNavigate(dest); setMobileMenuOpen(false); };
@@ -546,9 +541,11 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         background: "var(--bg-100)", height: "100vh", overflow: "auto",
         minHeight: "100vh",
       }}>
-        <div className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
-          <MainContent />
-        </div>
+        <React.Suspense fallback={suspenseFallback}>
+          <div className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
+            {mainContent}
+          </div>
+        </React.Suspense>
       </main>
 
       {settingsOpen && <SettingsModal userEmail={userEmail} userTier={userTier} creditBalance={creditBalance} onClose={() => setSettingsOpen(false)} />}
