@@ -546,7 +546,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         background: "var(--bg-100)", height: "100vh", overflow: "auto",
         minHeight: "100vh",
       }}>
-        <div key={view} className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
+        <div className="view-enter" style={{ flex: 1, minHeight: "100vh", background: "var(--bg-100)" }}>
           <MainContent />
         </div>
       </main>
