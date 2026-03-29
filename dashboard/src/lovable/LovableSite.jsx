@@ -18,7 +18,7 @@ function GitHubIcon(props) {
 
 /* ── Integration logos (SVG) ── */
 function IntegrationLogo({ name }) {
-  const style = { height: 22, opacity: 0.45, flexShrink: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--text-100)" };
+  const style = { height: 22, opacity: 0.6, flexShrink: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--text-100)" };
   const textStyle = { fontSize: "0.9375rem", fontWeight: 600, letterSpacing: "-0.01em", whiteSpace: "nowrap" };
   const logos = {
     OpenAI: <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 9.37a5.88 5.88 0 0 0-.51-4.85 5.96 5.96 0 0 0-6.42-2.86A5.88 5.88 0 0 0 10.93 0a5.96 5.96 0 0 0-5.68 4.11 5.88 5.88 0 0 0-3.93 2.84 5.96 5.96 0 0 0 .73 6.98 5.88 5.88 0 0 0 .51 4.85 5.96 5.96 0 0 0 6.42 2.86A5.88 5.88 0 0 0 13.4 24a5.96 5.96 0 0 0 5.68-4.11 5.88 5.88 0 0 0 3.93-2.84 5.96 5.96 0 0 0-.73-6.98v-.7zM13.4 22.24a4.42 4.42 0 0 1-2.83-1.02l.14-.08 4.7-2.71a.76.76 0 0 0 .39-.67v-6.62l1.99 1.15a.07.07 0 0 1 .04.05v5.49a4.46 4.46 0 0 1-4.43 4.41zm-9.53-4.06a4.42 4.42 0 0 1-.53-2.97l.14.08 4.7 2.71a.76.76 0 0 0 .77 0l5.74-3.31v2.3a.07.07 0 0 1-.03.06l-4.75 2.74a4.46 4.46 0 0 1-6.04-1.61zM2.62 7.88A4.42 4.42 0 0 1 4.94 6l-.02.16v5.43a.76.76 0 0 0 .38.66l5.74 3.31-1.99 1.15a.07.07 0 0 1-.07 0L4.23 14a4.46 4.46 0 0 1-1.61-6.12zm16.36 3.8l-5.74-3.31 1.99-1.15a.07.07 0 0 1 .07 0l4.75 2.74a4.46 4.46 0 0 1-.69 8.05v-5.6a.76.76 0 0 0-.38-.66v-.07zM20.96 9a4.56 4.56 0 0 0-.14-.08l-4.7-2.71a.76.76 0 0 0-.77 0L9.6 9.54v-2.3a.07.07 0 0 1 .03-.06L14.38 4.44A4.46 4.46 0 0 1 20.96 9zM8.5 13.27L6.51 12.12a.07.07 0 0 1-.04-.05V6.58a4.46 4.46 0 0 1 7.26-3.39l-.14.08-4.7 2.71a.76.76 0 0 0-.39.67v6.62zm1.08-2.33l2.56-1.47 2.56 1.47v2.95l-2.56 1.47-2.56-1.47v-2.95z"/></svg>,
@@ -173,7 +173,7 @@ function SiteFooter() {
         </div>
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>&copy; {new Date().getFullYear()} Nooterra</span>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>Apache 2.0</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-300)" }}>Open source</span>
         </div>
       </div>
     </footer>
@@ -293,9 +293,7 @@ function HomePage() {
     <SiteLayout>
       {/* ═══ HERO ═══ */}
       <section style={{ position: "relative", overflow: "hidden" }}>
-        {/* Dot grid background */}
         <div className="dot-grid" style={{ position: "absolute", inset: 0, opacity: 0.5 }} />
-        {/* Gradient fade at bottom */}
         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 120, background: "linear-gradient(to top, var(--bg-100), transparent)", zIndex: 1 }} />
 
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px", paddingTop: "clamp(4rem, 12vh, 10rem)", paddingBottom: "clamp(3rem, 8vh, 6rem)", position: "relative", zIndex: 2 }}>
@@ -307,7 +305,7 @@ function HomePage() {
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                   fontFamily: "var(--font-display, 'Fraunces', serif)",
                 }}>
-                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em" }}>Hire AI.</span>
+                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em", textDecorationSkipInk: "auto" }}>Hire AI.</span>
                 </h1>
               </InView>
               <InView delay={0.1}>
@@ -315,7 +313,7 @@ function HomePage() {
                   marginTop: 28, maxWidth: 460,
                   fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
-                  Describe your business. Get a team of AI workers that handle emails, schedule appointments, and manage your reputation&mdash;while you do the real work.
+                  Describe your business in one sentence. Get a team of AI workers that handle emails, schedule appointments, and manage your reputation&mdash;while you do the real work.
                 </p>
               </InView>
               <InView delay={0.15}>
@@ -332,7 +330,7 @@ function HomePage() {
                   >
                     Start hiring &rarr;
                   </a>
-                  <a href={DOCS_EXTERNAL} style={{
+                  <a href="#how-it-works" style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
                     fontSize: "var(--text-base)", fontWeight: 500,
                     border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
@@ -357,7 +355,7 @@ function HomePage() {
       </section>
 
       {/* ═══ INTEGRATIONS MARQUEE ═══ */}
-      <section>
+      <section aria-label="Supported integrations">
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px" }}>
           <div style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", padding: "18px 0", overflow: "hidden" }}>
           <div className="logo-marquee">
@@ -382,53 +380,7 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ═══ HOW IT WORKS ═══ */}
-      <section>
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
-          <InView>
-            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
-              60 seconds to your first team.
-            </h2>
-            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              No code. No configuration. No AI expertise.
-            </p>
-          </InView>
-
-          <div className="steps-grid">
-            {[
-              {
-                step: "01",
-                title: "Tell us what you do",
-                desc: "\"I run a plumbing company in Denver with 5 techs.\" That's it. We figure out the rest.",
-                mono: 'nooterra.ai \u2192 team proposal appears instantly',
-              },
-              {
-                step: "02",
-                title: "Review your team",
-                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, integrations, and a clear job description. Adjust anything.",
-                mono: "Reception \u00b7 Dispatch \u00b7 Billing \u00b7 Reviews \u00b7 Inventory",
-              },
-              {
-                step: "03",
-                title: "They get better every day",
-                desc: "Workers start careful and earn autonomy. The more you approve, the more they handle. You stay in control\u2014always.",
-                mono: "approval rate \u00b7 tasks completed \u00b7 cost per task \u00b7 violations",
-              },
-            ].map((item, i) => (
-              <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
-                <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-mono)", marginBottom: 16, display: "block" }}>{item.step}</span>
-                <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 10px" }}>{item.title}</h3>
-                <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: "0 0 20px" }}>{item.desc}</p>
-                <code style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-300)", backgroundColor: "var(--bg-200)", padding: "4px 10px", borderRadius: 6, display: "inline-block" }}>
-                  {item.mono}
-                </code>
-              </InView>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══ RULES / CHARTER ═══ */}
+      {/* ═══ RULES / CHARTER — the differentiator, shown early ═══ */}
       <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 48 }} className="rules-layout">
@@ -437,39 +389,41 @@ function HomePage() {
                 Rules they can't break.
               </h2>
               <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 0 }}>
-                Not suggestions. Not guidelines. Hard limits enforced before every action. You set the rules. The system enforces them.
+                Every worker operates under a charter&mdash;hard limits enforced at runtime, before every action. Not prompt instructions. Not guidelines. If it's not in the charter, it doesn't happen.
               </p>
             </InView>
 
             <div className="rules-content" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
-              <div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
                 <div style={{
                   fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.7,
                   borderLeft: "2px solid var(--accent)", paddingLeft: 20,
                 }}>
-                  Every worker operates under a charter — a set of permissions you define before they start.
-                  Not guidelines. Not suggestions. Boundaries enforced at runtime, before every action.
-                  If it's not in the charter, it doesn't happen.
+                  You define what each worker can do autonomously, what needs your approval, and what's permanently off-limits. The system enforces it&mdash;regardless of what the AI model tries to do.
+                </div>
+                {/* Industry examples merged here */}
+                <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", lineHeight: 1.8 }}>
+                  <div style={{ fontWeight: 600, color: "var(--text-200)", marginBottom: 8 }}>Works for any business:</div>
+                  Plumbers, law firms, e-commerce, dental, salons, restaurants, trucking, consulting&mdash;if you run a business, you get a governed team.
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {[
-                  { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", desc: "Actions the worker can perform autonomously. No human needed.", items: ["Read emails", "Draft replies", "Search knowledge base"] },
-                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", desc: "Sensitive actions that pause for your approval before executing.", items: ["Issue refunds", "Send external emails", "Modify account data"] },
-                  { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", desc: "Hard boundaries. These actions are blocked at runtime. Period.", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
+                  { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", items: ["Read emails", "Draft replies", "Search knowledge base"] },
+                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", items: ["Issue refunds", "Send external emails", "Modify account data"] },
+                  { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
                 ].map((rule, i) => (
                   <InView key={rule.label} delay={i * 0.08}>
-                    <div style={{ padding: 28, borderRadius: 14, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color }} />
-                        <span style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-100)", fontFamily: "var(--font-mono)" }}>{rule.label}</span>
+                    <div style={{ padding: "20px 24px", borderRadius: 12, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-100)" }}>{rule.label}</span>
                       </div>
-                      <p style={{ fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--text-200)", margin: "0 0 18px" }}>{rule.desc}</p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {rule.items.map(item => (
-                          <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 8, backgroundColor: rule.bg }}>
+                          <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 6, backgroundColor: rule.bg }}>
                             <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{item}</span>
+                            <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontWeight: 500 }}>{item}</span>
                           </div>
                         ))}
                       </div>
@@ -482,104 +436,40 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ═══ USE CASES ═══ */}
-      <section>
+      {/* ═══ HOW IT WORKS ═══ */}
+      <section id="how-it-works">
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
-            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 16px" }}>
-              Any industry. Any size.
+            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+              60 seconds to your first team.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              Plumbers, law firms, restaurants, e-commerce, trucking, dental, salons&mdash;if you run a business, you get a team.
+              No code. No configuration. No AI expertise required.
             </p>
           </InView>
 
-          <div className="use-cases-grid">
+          <div className="steps-grid">
             {[
               {
-                title: "Home Services",
-                desc: "Reception, dispatch, billing, and reviews. For plumbers, electricians, HVAC, and contractors.",
-                schedule: "4-6 workers \u00b7 Continuous",
-                rules: "Connects: Email, Calendar, Stripe",
+                step: "01",
+                title: "Tell us what you do",
+                desc: "\"I run a plumbing company in Denver with 5 techs.\" One sentence is all it takes. Nooterra designs the team.",
               },
               {
-                title: "Professional Services",
-                desc: "Client intake, scheduling, document prep, and follow-ups. For law firms, accountants, and consultants.",
-                schedule: "5-7 workers \u00b7 Business hours",
-                rules: "Connects: Email, Calendar, Notion",
+                step: "02",
+                title: "Review your team",
+                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, integrations, and a clear charter. Adjust anything before activating.",
               },
               {
-                title: "E-Commerce",
-                desc: "Customer support, order tracking, returns, and review management. For online stores of any size.",
-                schedule: "3-5 workers \u00b7 24/7",
-                rules: "Connects: Email, Stripe, Slack",
+                step: "03",
+                title: "They earn your trust",
+                desc: "Workers start careful. Every sensitive action routes to you for approval. As you approve, they earn autonomy. You stay in control.",
               },
-            ].map((uc, i) => (
-              <InView key={uc.title} delay={i * 0.08}>
-                <div style={{
-                  padding: 28, borderRadius: 14, border: "1px solid var(--border)",
-                  backgroundColor: "var(--bg-400)", transition: "border-color 200ms, box-shadow 200ms",
-                  height: "100%", display: "flex", flexDirection: "column",
-                }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
-                >
-                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 8px" }}>{uc.title}</h3>
-                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.6, margin: "0 0 auto", paddingBottom: 20 }}>{uc.desc}</p>
-                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                    <span style={{ fontSize: "0.6875rem", fontFamily: "var(--font-mono)", color: "var(--text-300)" }}>{uc.schedule}</span>
-                    <span style={{ fontSize: "0.6875rem", fontFamily: "var(--font-mono)", color: "var(--text-300)" }}>{uc.rules}</span>
-                  </div>
-                </div>
-              </InView>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══ SOCIAL PROOF ═══ */}
-      <section>
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(4rem, 8vh, 6rem) 24px", textAlign: "center" }}>
-          <InView>
-            <blockquote style={{
-              fontSize: "var(--text-xl)", fontWeight: 500,
-              fontFamily: "var(--font-display, 'Fraunces', serif)",
-              color: "var(--text-100)", lineHeight: 1.5,
-              letterSpacing: "-0.02em", fontStyle: "italic",
-              maxWidth: 640, margin: "0 auto 20px",
-            }}>
-              "We replaced two full-time hires with a Nooterra team. The charter system means I actually trust it."
-            </blockquote>
-            <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)" }}>
-              — Early access user, home services company
-            </div>
-          </InView>
-        </div>
-      </section>
-
-      {/* ═══ FEATURES STRIP ═══ */}
-      <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
-          <InView>
-            <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: "0 0 48px" }}>
-              The fine print.
-            </h2>
-          </InView>
-
-          <div className="features-grid">
-            {[
-              { title: "Always asks first", desc: "Risky actions pause and ask you. Refunds, schedule changes, anything that matters \u2014 you stay in control." },
-              { title: "Earns your trust", desc: "Every worker starts careful. As you approve more actions, it learns what's safe and handles more on its own." },
-              { title: "Works around the clock", desc: "Your workers don't take breaks, don't call in sick, and don't forget. 24/7, every day." },
-              { title: "Pennies per task", desc: "Most tasks cost less than a penny. See exactly what each worker costs. No surprise bills." },
-              { title: "Connects to your tools", desc: "Gmail, Google Calendar, Slack \u2014 with more integrations coming soon." },
-              { title: "You own everything", desc: "Full audit trail. Export anytime. Cancel and your data is deleted. Open source." },
-            ].map((feat, i) => (
-              <InView key={feat.title} delay={i * 0.05}>
-                <div style={{ padding: "24px 0", borderBottom: "1px solid var(--border)" }}>
-                  <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 6px" }}>{feat.title}</h3>
-                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0, maxWidth: 420 }}>{feat.desc}</p>
-                </div>
+            ].map((item, i) => (
+              <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
+                <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-mono)", marginBottom: 16, display: "block" }}>{item.step}</span>
+                <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 10px" }}>{item.title}</h3>
+                <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
               </InView>
             ))}
           </div>
@@ -616,18 +506,6 @@ function HomePage() {
               >
                 Start hiring &rarr;
               </a>
-              <a href={DOCS_GETTING_STARTED} style={{
-                display: "inline-flex", alignItems: "center", padding: "16px 40px",
-                fontSize: "var(--text-base)", fontWeight: 500,
-                border: "1px solid var(--border-strong)", color: "var(--text-100)", borderRadius: 10,
-                textDecoration: "none", transition: "border-color 150ms, background 150ms",
-              }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--text-300)"; e.currentTarget.style.backgroundColor = "var(--bg-200)"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-strong)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                target="_blank" rel="noopener noreferrer"
-              >
-                See how it works
-              </a>
             </div>
           </InView>
         </div>
@@ -636,6 +514,7 @@ function HomePage() {
         @media (max-width: 768px) {
           .rules-content { grid-template-columns: 1fr !important; }
         }
+        html { scroll-behavior: smooth; }
       `}</style>
     </SiteLayout>
   );
