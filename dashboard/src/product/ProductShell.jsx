@@ -449,9 +449,10 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         height: 48, background: "var(--bg-400)", borderBottom: "1px solid var(--border)",
         alignItems: "center", padding: "0 12px", justifyContent: "space-between",
       }}>
-        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle menu" style={{
           background: "none", border: "none", cursor: "pointer", color: "var(--text-200)",
           padding: 8, display: "flex", alignItems: "center",
+          minWidth: 44, minHeight: 44, justifyContent: "center",
         }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
@@ -478,7 +479,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         @media (max-width: 768px) {
           .mobile-topbar { display: flex !important; }
           .mobile-overlay { display: block !important; }
-          .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+          .app-sidebar { display: ${mobileMenuOpen ? "flex" : "none"} !important; position: fixed !important; top: 0; left: 0; z-index: 200; box-shadow: 4px 0 20px rgba(0,0,0,0.15); width: min(240px, 80vw) !important; }
           .app-main-content { margin-top: 48px; }
         }
       `}</style>

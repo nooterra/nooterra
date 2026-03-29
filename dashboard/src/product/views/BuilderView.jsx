@@ -365,15 +365,15 @@ function TerraformingScreen({ onCancel, mode }) {
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", minHeight: "100%",
-      padding: "2rem 1rem",
-      background: "#c4613a",
+      padding: "clamp(1rem, 4vh, 2rem) clamp(0.5rem, 2vw, 1rem)",
+      background: "var(--accent, #c4613a)",
     }}>
       <div style={{ width: "100%", maxWidth: 880, textAlign: "center" }}>
         {/* Pixel-block TERRAFORMING — SVG scales to any screen, re-keyed to restart animation */}
         <svg
           key={cycle}
           viewBox={`0 0 ${totalCols} ${totalRows}`}
-          style={{ width: "100%", height: "auto", display: "block", margin: "0 auto 36px" }}
+          style={{ width: "100%", maxWidth: 880, minWidth: 200, height: "auto", display: "block", margin: "0 auto clamp(20px, 4vh, 36px)" }}
           aria-label="Terraforming"
           role="img"
         >
@@ -1247,7 +1247,27 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
 
         {/* Error */}
         {error && (
-          <div style={{ marginTop: 16, fontSize: "14px", color: "var(--red, #c97055)", textAlign: "center" }}>{error}</div>
+          <div style={{
+            marginTop: 20, padding: "16px 20px", borderRadius: 10,
+            background: "var(--red-bg, rgba(196,58,58,0.08))",
+            border: "1px solid var(--red, #c43a3a)",
+            textAlign: "left", maxWidth: 520, margin: "20px auto 0",
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--red, #c43a3a)", marginBottom: 6 }}>{error}</div>
+            <div style={{ fontSize: "13px", color: "var(--text-300, #8a8a84)", lineHeight: 1.5 }}>
+              {error.includes("connection") || error.includes("unavailable")
+                ? "The AI service might be temporarily down. Wait a moment and try again."
+                : "Try being more specific. For example: \"I run a dental clinic with 3 hygienists\" or \"Monitor our Stripe dashboard for failed payments.\""}
+            </div>
+            <button
+              onClick={() => setError("")}
+              style={{
+                marginTop: 10, background: "none", border: "none", padding: 0,
+                color: "var(--red, #c43a3a)", fontSize: "13px", cursor: "pointer",
+                fontFamily: "inherit", textDecoration: "underline", textUnderlineOffset: "3px",
+              }}
+            >Dismiss</button>
+          </div>
         )}
 
         {/* Integration warning + Activate button */}

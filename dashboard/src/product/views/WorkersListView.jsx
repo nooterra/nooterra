@@ -64,10 +64,17 @@ function WorkersListView({ onSelect, onCreate }) {
         </div>
       )}
       {!loading && workers.length === 0 && (
-        <div style={{ padding: "3rem 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
-          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>Your first worker is waiting</div>
-          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>Describe what you need and we'll set up a worker for you.</div>
-          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create worker</button>
+        <div style={{ padding: "clamp(2rem, 6vh, 4rem) 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12, maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.75rem", lineHeight: 1.2 }}>Describe your business. We staff it.</div>
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.6 }}>
+            Nooterra builds you a team of AI workers — each with explicit rules about what they can do on their own, what needs your approval, and what's off-limits.
+          </div>
+          <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "1.5rem", lineHeight: 1.6 }}>
+            <strong style={{ color: "var(--green, #2a9d6e)" }}>Can do</strong> — worker handles it autonomously<br/>
+            <strong style={{ color: "var(--amber, #c08c30)" }}>Ask first</strong> — pauses and routes to you for approval<br/>
+            <strong style={{ color: "var(--red, #c43a3a)" }}>Never do</strong> — hard-blocked, no exceptions
+          </div>
+          <button style={{ ...S.btnPrimary, width: "auto" }} onClick={onCreate}>Create your first team</button>
         </div>
       )}
       {!loading && filteredWorkers.length === 0 && searchQuery.trim() && (
