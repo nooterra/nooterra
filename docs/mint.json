@@ -7,45 +7,72 @@
   },
   "favicon": "/images/favicon.svg",
   "colors": {
-    "primary": "#d2b06f",
-    "light": "#e2c994",
-    "dark": "#b89a5a",
+    "primary": "#c4613a",
+    "light": "#d8845f",
+    "dark": "#a84e2e",
     "anchors": {
-      "from": "#d2b06f",
-      "to": "#b89a5a"
+      "from": "#c4613a",
+      "to": "#a84e2e"
     },
     "background": {
-      "dark": "#09090b"
+      "dark": "#0a0f14",
+      "light": "#faf8f5"
     }
   },
   "font": {
     "headings": {
-      "family": "Inter",
-      "weight": 600
+      "family": "DM Sans",
+      "weight": 700
     },
     "body": {
-      "family": "Inter",
+      "family": "DM Sans",
       "weight": 400
     }
   },
+  "modeToggle": {
+    "default": "dark"
+  },
   "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://nooterra.ai/dashboard"
+    },
     {
       "name": "nooterra.ai",
       "url": "https://nooterra.ai"
     }
   ],
   "topbarCtaButton": {
-    "name": "Get started",
-    "url": "/getting-started"
+    "name": "Start free",
+    "url": "https://nooterra.ai/signup"
   },
+  "tabs": [
+    {
+      "name": "Guides",
+      "url": "guides"
+    },
+    {
+      "name": "API Reference",
+      "url": "reference"
+    }
+  ],
   "anchors": [
     {
       "name": "Discord",
       "icon": "discord",
       "url": "https://discord.gg/nooterra"
+    },
+    {
+      "name": "Status",
+      "icon": "signal",
+      "url": "https://nooterra.ai/status"
     }
   ],
   "navigation": [
+    {
+      "group": "",
+      "pages": ["introduction"]
+    },
     {
       "group": "Get Started",
       "pages": [
@@ -64,21 +91,27 @@
       ]
     },
     {
+      "group": "Guides",
+      "pages": [
+        "guides/first-team",
+        "guides/worker-templates",
+        "guides/mcp-setup"
+      ]
+    },
+    {
       "group": "Integrations",
       "pages": [
         "integrations/claude-desktop",
         "integrations/cursor",
-        "integrations/openclaw",
         "integrations/mcp-servers"
       ]
     },
     {
-      "group": "Reference",
+      "group": "API Reference",
       "pages": [
-        "reference/cli",
+        "reference/api",
         "reference/charter-schema",
-        "reference/capability-registry",
-        "reference/api"
+        "reference/cli"
       ]
     },
     {
@@ -88,17 +121,18 @@
         "TRUST",
         "CONFIG"
       ]
-    },
-    {
-      "group": "Contributing",
-      "pages": [
-        "DEVELOPMENT"
-      ]
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/nooterra/nooterra",
     "discord": "https://discord.gg/nooterra",
     "x": "https://twitter.com/nooterra"
+  },
+  "feedback": {
+    "thumbsRating": true
+  },
+  "analytics": {
+    "posthog": {
+      "apiKey": ""
+    }
   }
 }
