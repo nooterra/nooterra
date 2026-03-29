@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   S, ALL_MODELS, MODEL_CATEGORIES, WORKER_TEMPLATES, WORKER_API_BASE,
   workerApiRequest, saveOnboardingState, loadOnboardingState,
@@ -244,266 +244,160 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    =================================================================== */
 
 /* -------------------------------------------------------------------
-   Particle Assembly — TERRAFORMING text built from scattered particles
-   Canvas 2D at 60fps. Particles scatter from random positions and
-   magnetically assemble into text. Once formed, they gently breathe.
+   TerraformingScreen — Typography-driven loading with status progression
+   Clean, purposeful, no tricks. Strong type, real progress, subtle motion.
    ------------------------------------------------------------------- */
 
-const PARTICLE_COLOR = [196, 97, 58]; // #c4613a rgb
-
-function getTextTargets(canvas, ctx, lines, dpr) {
-  const w = canvas.width / dpr;
-  const h = canvas.height / dpr;
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  // Size font to fill ~85% of width for the longest line
-  const longest = lines.reduce((a, b) => a.length > b.length ? a : b, "");
-  let fontSize = 120;
-  ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
-  while (ctx.measureText(longest).width > w * 0.85 && fontSize > 20) {
-    fontSize -= 2;
-    ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
-  }
-
-  const lineHeight = fontSize * 1.1;
-  const totalTextHeight = lines.length * lineHeight;
-  const startY = (h - totalTextHeight) / 2 + fontSize * 0.35;
-
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#000";
-  lines.forEach((line, i) => {
-    ctx.fillText(line, w / 2, startY + i * lineHeight);
-  });
-  ctx.restore();
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const targets = [];
-  const step = Math.max(2, Math.round(3 * dpr));
-  for (let y = 0; y < canvas.height; y += step) {
-    for (let x = 0; x < canvas.width; x += step) {
-      if (imageData.data[(y * canvas.width + x) * 4 + 3] > 128) {
-        targets.push({ x: x / dpr, y: y / dpr });
-      }
-    }
-  }
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  return { targets, fontSize };
-}
-
 function TerraformingScreen({ onCancel, mode }) {
-  const canvasRef = useRef(null);
-  const containerRef = useRef(null);
-  const animRef = useRef(null);
-  const particlesRef = useRef(null);
-  const [showUI, setShowUI] = useState(false);
-  const [msgIndex, setMsgIndex] = useState(0);
-  const reducedMotion = useRef(
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-  );
+  const [step, setStep] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const styleRef = useRef(null);
 
-  const messages = useMemo(() => mode === "worker"
-    ? ["Analyzing your task...", "Designing charter rules...", "Choosing the right model...", "Setting permissions...", "Activating worker..."]
-    : ["Understanding your business...", "Designing worker roles...", "Setting permissions and boundaries...", "Configuring schedules...", "Terraforming your team..."],
+  const steps = useMemo(() => mode === "worker"
+    ? ["Analyzing your task", "Designing charter rules", "Choosing the right model", "Setting permissions", "Activating worker"]
+    : ["Understanding your business", "Designing worker roles", "Setting permissions", "Configuring schedules", "Preparing your team"],
   [mode]);
 
-  // Rotate status messages
+  // Inject keyframes
   useEffect(() => {
-    if (!showUI) return;
-    const id = setInterval(() => setMsgIndex(p => (p + 1) % messages.length), 4000);
-    return () => clearInterval(id);
-  }, [showUI, messages.length]);
-
-  const initParticles = useCallback(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const rect = container.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-
-    // Break into 2 lines on narrow screens
-    const lines = w < 500 ? ["TERRA", "FORMING"] : ["TERRAFORMING"];
-    const { targets, fontSize } = getTextTargets(canvas, ctx, lines, dpr);
-
-    // Reduced motion: just draw the text statically
-    if (reducedMotion.current) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.font = `900 ${fontSize}px 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "alphabetic";
-      ctx.fillStyle = `rgb(${PARTICLE_COLOR.join(",")})`;
-      const lineHeight = fontSize * 1.1;
-      const totalH = lines.length * lineHeight;
-      const startY = (h - totalH) / 2 + fontSize * 0.35;
-      lines.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * lineHeight));
-      setShowUI(true);
-      return;
-    }
-
-    // Particles rise from the BOTTOM — like terrain forming from the ground
-    const particles = targets.map(t => {
-      const spreadX = (Math.random() - 0.5) * w * 0.8;
-      return {
-        x: w / 2 + spreadX,
-        y: h + 20 + Math.random() * 100,       // start below the screen
-        tx: t.x,
-        ty: t.y,
-        vx: (Math.random() - 0.5) * 2,
-        vy: -(2 + Math.random() * 3),            // initial upward velocity
-        size: 1.2 + Math.random() * 1.8,
-        alpha: 0,
-        settled: false,
-        delay: Math.random() * 800 + (t.y / h) * 400, // lower targets arrive first
-      };
-    });
-    particlesRef.current = particles;
-
-    let startTime = null;
-    let uiShown = false;
-
-    function render(timestamp) {
-      if (!startTime) startTime = timestamp;
-      const elapsed = timestamp - startTime;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      let allSettled = true;
-
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        if (elapsed < p.delay) { allSettled = false; continue; }
-
-        // Fade in
-        if (p.alpha < 1) p.alpha = Math.min(1, p.alpha + 0.04);
-
-        if (!p.settled) {
-          // Spring physics toward target
-          const dx = p.tx - p.x;
-          const dy = p.ty - p.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          // Attraction force (spring)
-          const spring = 0.06;
-          const damping = 0.82;
-          p.vx += dx * spring;
-          p.vy += dy * spring;
-          p.vx *= damping;
-          p.vy *= damping;
-          p.x += p.vx;
-          p.y += p.vy;
-
-          if (dist < 0.5 && Math.abs(p.vx) < 0.1 && Math.abs(p.vy) < 0.1) {
-            p.x = p.tx;
-            p.y = p.ty;
-            p.settled = true;
-          } else {
-            allSettled = false;
-          }
-        } else {
-          // Gentle breathing once settled
-          const breathe = Math.sin(timestamp * 0.002 + i * 0.1) * 0.3;
-          p.x = p.tx + breathe;
-          p.y = p.ty + Math.cos(timestamp * 0.0015 + i * 0.07) * 0.2;
-        }
-
-        ctx.globalAlpha = p.alpha;
-        ctx.fillStyle = `rgb(${PARTICLE_COLOR[0]},${PARTICLE_COLOR[1]},${PARTICLE_COLOR[2]})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes terraProgress {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
       }
-      ctx.globalAlpha = 1;
-
-      if (allSettled && !uiShown) {
-        uiShown = true;
-        setShowUI(true);
+      @keyframes terraPulse {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
       }
-
-      animRef.current = requestAnimationFrame(render);
-    }
-
-    animRef.current = requestAnimationFrame(render);
+      @media (prefers-reduced-motion: reduce) {
+        .terra-step { transition: none !important; }
+      }
+    `;
+    document.head.appendChild(style);
+    styleRef.current = style;
+    return () => style.remove();
   }, []);
 
+  // Fade in after mount
   useEffect(() => {
-    initParticles();
+    const t = setTimeout(() => setVisible(true), 100);
+    return () => clearTimeout(t);
+  }, []);
 
-    const onResize = () => {
-      cancelAnimationFrame(animRef.current);
-      setShowUI(false);
-      initParticles();
-    };
-
-    // Debounced resize
-    let resizeTimer;
-    const handleResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(onResize, 300); };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      window.removeEventListener("resize", handleResize);
-      clearTimeout(resizeTimer);
-    };
-  }, [initParticles]);
+  // Advance through steps
+  useEffect(() => {
+    if (step >= steps.length - 1) return;
+    const delay = step === 0 ? 2400 : 2000 + Math.random() * 1500;
+    const t = setTimeout(() => setStep(s => s + 1), delay);
+    return () => clearTimeout(t);
+  }, [step, steps.length]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", minHeight: "100%",
-        position: "relative", overflow: "hidden",
-        background: "var(--bg-100, #faf9f6)",
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        aria-label="Terraforming"
-        role="img"
-        style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-      />
-
-      {/* Status message + cancel — positioned below the text */}
-      <div style={{
-        position: "absolute", bottom: "clamp(2rem, 8vh, 5rem)",
-        left: 0, right: 0, textAlign: "center",
-        opacity: showUI ? 1 : 0,
-        transform: showUI ? "translateY(0)" : "translateY(8px)",
-        transition: "opacity 800ms ease, transform 800ms ease",
-      }}>
-        <p style={{
-          fontSize: "clamp(12px, 2vw, 15px)",
-          color: "var(--text-300, #74746d)",
-          lineHeight: 1.6,
-          minHeight: "1.6em",
-          fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-          letterSpacing: "0.02em",
-          margin: 0,
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", minHeight: "100%",
+      padding: "clamp(2rem, 6vh, 4rem) clamp(1.5rem, 4vw, 3rem)",
+      background: "var(--bg-100, #faf9f6)",
+      opacity: visible ? 1 : 0,
+      transition: "opacity 600ms ease",
+    }}>
+      <div style={{ width: "100%", maxWidth: 520, textAlign: "left" }}>
+        {/* Big word */}
+        <h1 style={{
+          fontSize: "clamp(2.5rem, 8vw, 5rem)",
+          fontWeight: 800,
+          letterSpacing: "-0.04em",
+          lineHeight: 1,
+          color: "var(--text-100, #111110)",
+          fontFamily: "var(--font-display, 'Fraunces', serif)",
+          margin: "0 0 clamp(2rem, 5vh, 4rem)",
         }}>
-          {messages[msgIndex]}
-        </p>
-        <button
-          onClick={onCancel}
-          style={{
-            marginTop: 16, background: "none", border: "none",
-            color: "var(--text-300, #74746d)", fontSize: "13px", cursor: "pointer",
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            textDecoration: "underline", textUnderlineOffset: "3px",
-          }}
-        >Cancel</button>
+          {mode === "worker" ? "Activating." : "Terraforming."}
+        </h1>
+
+        {/* Step list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          {steps.map((label, i) => {
+            const isDone = i < step;
+            const isCurrent = i === step;
+            const isFuture = i > step;
+
+            return (
+              <div
+                key={label}
+                className="terra-step"
+                style={{
+                  padding: "14px 0",
+                  borderBottom: "1px solid var(--border, #e5e3dd)",
+                  display: "flex", alignItems: "center", gap: 12,
+                  opacity: isFuture ? 0.25 : 1,
+                  transition: "opacity 500ms ease",
+                }}
+              >
+                {/* Status indicator */}
+                <div style={{
+                  width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                  backgroundColor: isDone
+                    ? "var(--green, #2a9d6e)"
+                    : isCurrent
+                      ? "var(--accent, #c4613a)"
+                      : "var(--border, #e5e3dd)",
+                  animation: isCurrent ? "terraPulse 1.5s ease-in-out infinite" : "none",
+                  transition: "background-color 400ms ease",
+                }} />
+
+                {/* Label */}
+                <span style={{
+                  fontSize: "clamp(14px, 2.5vw, 16px)",
+                  fontWeight: isCurrent ? 600 : 400,
+                  color: isDone
+                    ? "var(--text-300, #74746d)"
+                    : isCurrent
+                      ? "var(--text-100, #111110)"
+                      : "var(--text-300, #74746d)",
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  transition: "color 400ms ease, font-weight 400ms ease",
+                }}>
+                  {label}
+                </span>
+
+                {/* Checkmark for done */}
+                {isDone && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green, #2a9d6e)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", flexShrink: 0 }} aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Progress line */}
+        <div style={{
+          marginTop: 32, height: 2, borderRadius: 1,
+          background: "var(--border, #e5e3dd)", overflow: "hidden",
+        }}>
+          <div style={{
+            height: "100%", borderRadius: 1,
+            background: "var(--accent, #c4613a)",
+            transformOrigin: "left",
+            animation: `terraProgress ${steps.length * 2.5}s cubic-bezier(0.4, 0, 0.2, 1) forwards`,
+          }} />
+        </div>
+
+        {/* Cancel */}
+        <div style={{ marginTop: 24, textAlign: "center" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              background: "none", border: "none",
+              color: "var(--text-300, #74746d)", fontSize: "13px", cursor: "pointer",
+              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+              textDecoration: "underline", textUnderlineOffset: "3px",
+            }}
+          >Cancel</button>
+        </div>
       </div>
     </div>
   );
