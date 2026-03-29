@@ -248,10 +248,11 @@ function TemplateCharterReview({ template, onDeploy, onCustomize, deploying }) {
    Clean, purposeful, no tricks. Strong type, real progress, subtle motion.
    ------------------------------------------------------------------- */
 
-function TerraformingScreen({ onCancel, mode }) {
+function TerraformingScreen({ onCancel, mode, apiDone, onFinished }) {
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(false);
-  const styleRef = useRef(null);
+  const [exiting, setExiting] = useState(false);
+  const stepCount = 5;
 
   const steps = useMemo(() => mode === "worker"
     ? ["Analyzing your task", "Designing charter rules", "Choosing the right model", "Setting permissions", "Activating worker"]
@@ -262,12 +263,8 @@ function TerraformingScreen({ onCancel, mode }) {
   useEffect(() => {
     const style = document.createElement("style");
     style.textContent = `
-      @keyframes terraProgress {
-        from { transform: scaleX(0); }
-        to { transform: scaleX(1); }
-      }
       @keyframes terraPulse {
-        0%, 100% { opacity: 0.4; }
+        0%, 100% { opacity: 0.35; }
         50% { opacity: 1; }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -275,23 +272,41 @@ function TerraformingScreen({ onCancel, mode }) {
       }
     `;
     document.head.appendChild(style);
-    styleRef.current = style;
     return () => style.remove();
   }, []);
 
-  // Fade in after mount
+  // Smooth fade in
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 100);
+    const t = setTimeout(() => setVisible(true), 50);
     return () => clearTimeout(t);
   }, []);
 
-  // Advance through steps
+  // Advance steps — normal pace while API is working
   useEffect(() => {
-    if (step >= steps.length - 1) return;
-    const delay = step === 0 ? 2400 : 2000 + Math.random() * 1500;
+    if (apiDone) return; // stop auto-advance when API is done
+    if (step >= stepCount - 1) return;
+    const delay = step === 0 ? 2800 : 2200 + Math.random() * 1200;
     const t = setTimeout(() => setStep(s => s + 1), delay);
     return () => clearTimeout(t);
-  }, [step, steps.length]);
+  }, [step, apiDone]);
+
+  // When API is done: fast-forward remaining steps, then exit
+  useEffect(() => {
+    if (!apiDone) return;
+    if (step >= stepCount - 1) {
+      // All steps done — fade out then call onFinished
+      const t = setTimeout(() => {
+        setExiting(true);
+        setTimeout(() => onFinished?.(), 400);
+      }, 600);
+      return () => clearTimeout(t);
+    }
+    // Fast-forward: advance one step every 300ms
+    const t = setTimeout(() => setStep(s => s + 1), 300);
+    return () => clearTimeout(t);
+  }, [apiDone, step, onFinished]);
+
+  const progress = (step + 1) / stepCount;
 
   return (
     <div style={{
@@ -299,25 +314,26 @@ function TerraformingScreen({ onCancel, mode }) {
       justifyContent: "center", minHeight: "100%",
       padding: "clamp(2rem, 6vh, 4rem) clamp(1.5rem, 4vw, 3rem)",
       background: "var(--bg-100, #faf9f6)",
-      opacity: visible ? 1 : 0,
-      transition: "opacity 600ms ease",
+      opacity: visible && !exiting ? 1 : 0,
+      transform: exiting ? "translateY(-12px)" : "translateY(0)",
+      transition: "opacity 500ms ease, transform 500ms ease",
     }}>
-      <div style={{ width: "100%", maxWidth: 520, textAlign: "left" }}>
+      <div style={{ width: "100%", maxWidth: 480, textAlign: "left" }}>
         {/* Big word */}
         <h1 style={{
-          fontSize: "clamp(2.5rem, 8vw, 5rem)",
+          fontSize: "clamp(2.5rem, 8vw, 4.5rem)",
           fontWeight: 800,
           letterSpacing: "-0.04em",
           lineHeight: 1,
           color: "var(--text-100, #111110)",
           fontFamily: "var(--font-display, 'Fraunces', serif)",
-          margin: "0 0 clamp(2rem, 5vh, 4rem)",
+          margin: "0 0 clamp(2.5rem, 6vh, 4rem)",
         }}>
           {mode === "worker" ? "Activating." : "Terraforming."}
         </h1>
 
         {/* Step list */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {steps.map((label, i) => {
             const isDone = i < step;
             const isCurrent = i === step;
@@ -328,66 +344,71 @@ function TerraformingScreen({ onCancel, mode }) {
                 key={label}
                 className="terra-step"
                 style={{
-                  padding: "14px 0",
-                  borderBottom: "1px solid var(--border, #e5e3dd)",
-                  display: "flex", alignItems: "center", gap: 12,
-                  opacity: isFuture ? 0.25 : 1,
-                  transition: "opacity 500ms ease",
+                  padding: "16px 0",
+                  borderBottom: i < stepCount - 1 ? "1px solid var(--border, #e5e3dd)" : "none",
+                  display: "flex", alignItems: "center", gap: 14,
+                  opacity: isFuture ? 0.2 : 1,
+                  transform: isFuture ? "translateX(4px)" : "translateX(0)",
+                  transition: "opacity 400ms ease, transform 400ms ease",
                 }}
               >
                 {/* Status indicator */}
                 <div style={{
-                  width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                  width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
                   backgroundColor: isDone
                     ? "var(--green, #2a9d6e)"
                     : isCurrent
                       ? "var(--accent, #c4613a)"
-                      : "var(--border, #e5e3dd)",
-                  animation: isCurrent ? "terraPulse 1.5s ease-in-out infinite" : "none",
+                      : "var(--bg-300, #eae7e0)",
+                  animation: isCurrent ? "terraPulse 1.8s ease-in-out infinite" : "none",
                   transition: "background-color 400ms ease",
-                }} />
+                }}>
+                  {isDone && (
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {isCurrent && (
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#fff" }} />
+                  )}
+                </div>
 
                 {/* Label */}
                 <span style={{
                   fontSize: "clamp(14px, 2.5vw, 16px)",
                   fontWeight: isCurrent ? 600 : 400,
                   color: isDone
-                    ? "var(--text-300, #74746d)"
+                    ? "var(--green, #2a9d6e)"
                     : isCurrent
                       ? "var(--text-100, #111110)"
                       : "var(--text-300, #74746d)",
                   fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  transition: "color 400ms ease, font-weight 400ms ease",
+                  transition: "color 400ms ease",
+                  flex: 1,
                 }}>
                   {label}
                 </span>
-
-                {/* Checkmark for done */}
-                {isDone && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green, #2a9d6e)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", flexShrink: 0 }} aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
               </div>
             );
           })}
         </div>
 
-        {/* Progress line */}
+        {/* Progress bar */}
         <div style={{
-          marginTop: 32, height: 2, borderRadius: 1,
-          background: "var(--border, #e5e3dd)", overflow: "hidden",
+          marginTop: 28, height: 3, borderRadius: 2,
+          background: "var(--bg-300, #eae7e0)", overflow: "hidden",
         }}>
           <div style={{
-            height: "100%", borderRadius: 1,
+            height: "100%", borderRadius: 2,
             background: "var(--accent, #c4613a)",
-            transformOrigin: "left",
-            animation: `terraProgress ${steps.length * 2.5}s cubic-bezier(0.4, 0, 0.2, 1) forwards`,
+            width: `${progress * 100}%`,
+            transition: "width 600ms cubic-bezier(0.4, 0, 0.2, 1)",
           }} />
         </div>
 
         {/* Cancel */}
-        <div style={{ marginTop: 24, textAlign: "center" }}>
+        <div style={{ marginTop: 20, textAlign: "center" }}>
           <button
             onClick={onCancel}
             style={{
@@ -481,6 +502,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   const [activating, setActivating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
+  const [apiDone, setApiDone] = useState(false);
+  const pendingResultRef = useRef(null);
   const [connectedIntegrations, setConnectedIntegrations] = useState(new Set());
   const [connectingIntegration, setConnectingIntegration] = useState(null);
   const [deploySuccess, setDeploySuccess] = useState(false);
@@ -567,6 +590,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     if (!text) return;
     setPhase("generating");
     setError("");
+    setApiDone(false);
+    pendingResultRef.current = null;
 
     const runtime = loadRuntimeConfig();
     const controller = new AbortController();
@@ -608,7 +633,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       if (builderMode === "worker") {
         const workerDef = parseWorkerDefinition(fullResponse);
         if (workerDef) {
-          setTeamProposal({
+          pendingResultRef.current = {
             teamName: workerDef.name || "New Worker",
             summary: "",
             workers: [{
@@ -622,8 +647,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
               model: workerDef.model || "anthropic/claude-haiku-4.5",
               integrations: [],
             }],
-          });
-          setPhase("team");
+          };
+          setApiDone(true);
           return;
         }
       }
@@ -631,8 +656,8 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       // Parse team from AI response
       const aiTeam = parseTeamProposal(fullResponse);
       if (aiTeam && aiTeam.workers.length > 0) {
-        setTeamProposal(aiTeam);
-        setPhase("team");
+        pendingResultRef.current = aiTeam;
+        setApiDone(true);
         return;
       }
 
@@ -748,7 +773,18 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
   // GENERATING STATE — ASCII "nooterra" build animation
   // =============================================
   if (phase === "generating") {
-    return <TerraformingScreen onCancel={goBackToPhase1} mode={builderMode} />;
+    return <TerraformingScreen
+      onCancel={goBackToPhase1}
+      mode={builderMode}
+      apiDone={apiDone}
+      onFinished={() => {
+        if (pendingResultRef.current) {
+          setTeamProposal(pendingResultRef.current);
+          pendingResultRef.current = null;
+        }
+        setPhase("team");
+      }}
+    />;
   }
 
   // =============================================
