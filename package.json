@@ -220,7 +220,7 @@
     "@coinbase/cdp-sdk": "^1.44.1",
     "@composio/core": "^0.6.7",
     "@playwright/test": "^1.58.2",
-    "@sentry/node": "^10.16.0",
+    "@sentry/node": "^10.46.0",
     "ioredis": "^5.10.1",
     "pg": "^8.19.0",
     "posthog-js": "^1.364.1"
