@@ -14,6 +14,7 @@
  */
 
 import { Composio } from '@composio/core';
+import { getAuthenticatedTenantId } from './auth.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -64,12 +65,11 @@ function getAuthConfigId(toolkit) {
  * No manual auth config setup needed — Composio has built-in OAuth for popular apps.
  */
 export async function handleAuthorize(req, res, toolkit) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const tenantId = url.searchParams.get('tenantId');
+  const tenantId = await getAuthenticatedTenantId(req);
 
   if (!tenantId) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Missing tenantId parameter' }));
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Authentication required' }));
     return;
   }
 
@@ -109,10 +109,10 @@ export async function handleAuthorize(req, res, toolkit) {
  * Returns which toolkits are connected for this tenant.
  */
 export async function handleStatus(req, res) {
-  const tenantId = req.headers['x-tenant-id'];
+  const tenantId = await getAuthenticatedTenantId(req);
   if (!tenantId) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Authentication required' }));
     return;
   }
 
@@ -160,10 +160,10 @@ export async function handleDisconnect(req, res, toolkit) {
   let parsed;
   try { parsed = JSON.parse(body); } catch { parsed = {}; }
 
-  const tenantId = req.headers['x-tenant-id'] || parsed.tenantId;
+  const tenantId = await getAuthenticatedTenantId(req);
   if (!tenantId) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Missing tenantId' }));
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Authentication required' }));
     return;
   }
 

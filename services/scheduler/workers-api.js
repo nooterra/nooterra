@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { validateCharterRules } from './charter-enforcement.js';
 import { presignS3Url } from '../../src/core/s3-presign.js';
+import { getAuthenticatedTenantId } from './auth.js';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -82,7 +83,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/workers — create
   if (method === 'POST' && pathname === '/v1/workers') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body) return err(res, 400, 'JSON body required'), true;
@@ -115,7 +116,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/workers — list
   if (method === 'GET' && pathname === '/v1/workers') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const status = searchParams.get('status');
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '50') || 50, 1), 200);
@@ -136,7 +137,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // GET /v1/workers/:id
   const idMatch = pathname.match(/^\/v1\/workers\/([^/]+)$/);
   if (method === 'GET' && idMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const result = await pool.query(`SELECT * FROM workers WHERE id = $1 AND tenant_id = $2`, [idMatch[1], tid]);
     if (result.rowCount === 0) return err(res, 404, 'worker not found'), true;
@@ -145,7 +146,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // PUT /v1/workers/:id — update
   if (method === 'PUT' && idMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body) return err(res, 400, 'JSON body required'), true;
@@ -190,7 +191,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // DELETE /v1/workers/:id — archive
   if (method === 'DELETE' && idMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const result = await pool.query(
       `UPDATE workers SET status = 'archived', updated_at = $1 WHERE id = $2 AND tenant_id = $3 AND status != 'archived' RETURNING *`,
@@ -203,7 +204,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // POST /v1/workers/:id/run — manual trigger
   const runMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/run$/);
   if (method === 'POST' && runMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const wr = await pool.query(`SELECT id, model, status FROM workers WHERE id = $1 AND tenant_id = $2`, [runMatch[1], tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
@@ -225,7 +226,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // GET /v1/workers/:id/logs — execution history
   const logsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/logs$/);
   if (method === 'GET' && logsMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '50') || 50, 1), 200);
     const offset = Math.max(parseInt(searchParams.get('offset') ?? '0') || 0, 0);
@@ -245,6 +246,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/workers/:id/trigger — webhook trigger
   // POST /v1/workers/:id/trigger/test — manual test trigger
+  // Note: webhook triggers use header auth since webhooks don't have browser sessions
   const trigMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/trigger(\/test)?$/);
   if (method === 'POST' && trigMatch) {
     const tid = getTenantId(req);
@@ -286,7 +288,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return json(res, 202, { ok: true, executionId: execId, execution: result.rows[0] }), true;
   }
 
-  // GET /v1/workers/:id/feed — SSE activity feed
+  // GET /v1/workers/:id/feed — SSE activity feed (uses header auth for SSE compatibility)
   const feedMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/feed$/);
   if (method === 'GET' && feedMatch) {
     const tid = getTenantId(req);
@@ -311,7 +313,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return true;
   }
 
-  // GET /v1/workers/:id/executions/:execId/stream — SSE execution streaming
+  // GET /v1/workers/:id/executions/:execId/stream — SSE execution streaming (uses header auth for SSE compatibility)
   const streamMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/stream$/);
   if (method === 'GET' && streamMatch) {
     const tid = getTenantId(req);
@@ -416,7 +418,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return true;
   }
 
-  // GET /v1/approvals/feed — SSE feed for approval inbox updates
+  // GET /v1/approvals/feed — SSE feed for approval inbox updates (uses header auth for SSE compatibility)
   if (method === 'GET' && pathname === '/v1/approvals/feed') {
     const tenantId = getTenantId(req);
     if (!tenantId) { res.writeHead(401); res.end('Unauthorized'); return true; }
@@ -472,7 +474,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/approvals — list pending approvals
   if (method === 'GET' && pathname === '/v1/approvals') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     try {
       const result = await pool.query(
@@ -491,7 +493,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/approvals/:id/approve — approve an action
   if (method === 'POST' && pathname.match(/^\/v1\/approvals\/[^/]+\/approve$/)) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const approvalId = pathname.split('/')[3];
     try {
@@ -511,7 +513,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/approvals/:id/deny — deny an action
   if (method === 'POST' && pathname.match(/^\/v1\/approvals\/[^/]+\/deny$/)) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const approvalId = pathname.split('/')[3];
     try {
@@ -537,7 +539,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/providers/openai/validate — validate OpenAI API key
   if (method === 'POST' && pathname === '/v1/providers/openai/validate') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body?.apiKey) return err(res, 400, 'apiKey is required'), true;
@@ -559,7 +561,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/providers/anthropic/validate — validate Anthropic API key
   if (method === 'POST' && pathname === '/v1/providers/anthropic/validate') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body?.apiKey) return err(res, 400, 'apiKey is required'), true;
@@ -579,7 +581,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/providers — store a provider API key
   if (method === 'POST' && pathname === '/v1/providers') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body?.provider || !body?.apiKey) return err(res, 400, 'provider and apiKey are required'), true;
@@ -607,7 +609,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/providers — list connected providers (masked keys)
   if (method === 'GET' && pathname === '/v1/providers') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const systemWorkerId = `tenant:${tid}`;
     try {
@@ -629,7 +631,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // DELETE /v1/providers/:provider — remove a provider key
   const providerDeleteMatch = pathname.match(/^\/v1\/providers\/(openai|anthropic)$/);
   if (method === 'DELETE' && providerDeleteMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const provider = providerDeleteMatch[1];
     const systemWorkerId = `tenant:${tid}`;
@@ -647,7 +649,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/credits — credit balance
   if (method === 'GET' && pathname === '/v1/credits') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     try {
       const result = await pool.query(`SELECT balance_usd, total_spent_usd FROM tenant_credits WHERE tenant_id = $1`, [tid]);
@@ -661,7 +663,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // GET /v1/workers/:id/versions — list all versions
   const versionsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/versions$/);
   if (method === 'GET' && versionsMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     try {
       const result = await pool.query(
@@ -677,7 +679,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // POST /v1/workers/:id/versions/:version/rollback — restore a previous version
   const rollbackMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/versions\/(\d+)\/rollback$/);
   if (method === 'POST' && rollbackMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const [, workerId, versionNum] = rollbackMatch;
     try {
@@ -728,7 +730,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/search?q=...&type=workers|executions|approvals
   if (method === 'GET' && pathname === '/v1/search') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const q = searchParams.get('q');
     if (!q || !q.trim()) return err(res, 400, 'q parameter is required'), true;
@@ -770,7 +772,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/audit/export?format=csv|json&from=ISO&to=ISO
   if (method === 'GET' && pathname === '/v1/audit/export') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const format = searchParams.get('format') || 'json';
     const from = searchParams.get('from');
@@ -866,7 +868,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/team — list team members
   if (method === 'GET' && pathname === '/v1/team') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     try {
       const result = await pool.query(
@@ -880,7 +882,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/team/invite — invite a team member by email
   if (method === 'POST' && pathname === '/v1/team/invite') {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body) return err(res, 400, 'JSON body required'), true;
@@ -905,7 +907,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // PUT /v1/team/:memberId/role — change a member's role
   const teamRoleMatch = pathname.match(/^\/v1\/team\/([^/]+)\/role$/);
   if (method === 'PUT' && teamRoleMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const body = await readBody(req);
     if (!body) return err(res, 400, 'JSON body required'), true;
@@ -925,7 +927,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // DELETE /v1/team/:memberId — remove a team member
   const teamDeleteMatch = pathname.match(/^\/v1\/team\/([^/]+)$/);
   if (method === 'DELETE' && teamDeleteMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     try {
       const result = await pool.query(
@@ -952,7 +954,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // POST /v1/workers/:id/files — generate a presigned upload URL
   const filesUploadMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/files$/);
   if (method === 'POST' && filesUploadMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const wid = filesUploadMatch[1];
 
@@ -1003,7 +1005,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // GET /v1/workers/:id/files — list uploaded files for a worker
   if (method === 'GET' && filesUploadMatch) {
-    const tid = getTenantId(req);
+    const tid = await getAuthenticatedTenantId(req);
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const wid = filesUploadMatch[1];
 

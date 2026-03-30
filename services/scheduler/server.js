@@ -1952,6 +1952,28 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/healthz') {
+    try {
+      const dbStart = Date.now();
+      await pool.query('SELECT 1 AS ok');
+      const dbLatencyMs = Date.now() - dbStart;
+
+      const body = JSON.stringify({
+        status: 'healthy',
+        db: { ok: true, latencyMs: dbLatencyMs },
+        uptime: Math.floor(process.uptime()),
+        activeExecutions,
+        runningWorkers: runningWorkers.size,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(body);
+    } catch (err) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'unhealthy', db: { ok: false, error: err.message } }));
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/v1/chat') {
     handleChatRequest(req, res, pool);
     return;

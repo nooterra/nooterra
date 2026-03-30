@@ -136,7 +136,7 @@
     "dev:billing:smoke:prod": "bash scripts/dev/billing-smoke-prod.sh",
     "lint": "npm run -s lint:syntax && npm run -s lint:eslint",
     "lint:syntax": "node scripts/ci/run-syntax-lint.mjs",
-    "lint:eslint": "eslint bin openclaw scripts src services test packages dashboard/src --cache --cache-location .cache/eslint",
+    "lint:eslint": "eslint bin scripts src services test packages dashboard/src --cache --cache-location .cache/eslint",
     "lint:ci": "npm run -s lint && npm run -s test:ci:branding-copy-hygiene && npm run -s test:ci:secret-hygiene",
     "test": "bash scripts/test/run.sh",
     "test:e2e": "npx playwright test",
