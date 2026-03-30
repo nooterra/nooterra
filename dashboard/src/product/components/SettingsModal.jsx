@@ -63,6 +63,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   const [copiedAccountId, setCopiedAccountId] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const [showCreditPicker, setShowCreditPicker] = useState(false);
+  const [billingHistory, setBillingHistory] = useState([]);
   const runtime = loadRuntimeConfig();
 
   useEffect(() => {
@@ -71,6 +72,16 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
   }, []);
 
   useEffect(() => { function handleKey(e) { if (e.key === "Escape") onClose(); } document.addEventListener("keydown", handleKey); return () => document.removeEventListener("keydown", handleKey); }, [onClose]);
+
+  useEffect(() => {
+    if (tab !== "billing") return;
+    (async () => {
+      try {
+        const res = await workerApiRequest({ pathname: '/v1/credits/transactions', method: 'GET' });
+        setBillingHistory(Array.isArray(res) ? res.slice(0, 10) : res?.transactions?.slice(0, 10) || []);
+      } catch {}
+    })();
+  }, [tab]);
 
   async function handleSave() {
     setSaveState("saving");
@@ -191,7 +202,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   function SaveButton({ label = "Save" }) {
     const isSaved = saveState === "saved"; const isSaving = saveState === "saving"; const isError = saveState === "error";
-    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.6 : 1, background: isSaved ? "var(--green)" : isError ? "var(--red)" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Failed -- try again" : label}</button>;
+    return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.7 : 1, background: isSaved ? "var(--green, #2f6d56)" : isError ? "var(--red, #a15347)" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)", cursor: isSaving ? "default" : "pointer" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Try again" : label}</button>;
   }
 
   const currentTier = userTier || "free";
@@ -262,6 +273,29 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                       </div>
                       <ToggleSwitch on={ch.enabled} onToggle={ch.onToggle} />
                     </div>
+                    {ch.key === "email" && notifEmailEnabled && (
+                      <div style={{ padding: "8px 0 16px" }}>
+                        <FocusInput type="email" value={notifEmailAddress} onChange={e => setNotifEmailAddress(e.target.value)} placeholder="you@company.com" style={{ marginBottom: 0 }} />
+                      </div>
+                    )}
+                    {ch.key === "slack" && notifSlackEnabled && (
+                      <div style={{ padding: "8px 0 16px" }}>
+                        <FocusInput value={notifSlackWebhook} onChange={e => setNotifSlackWebhook(e.target.value)} placeholder="https://hooks.slack.com/services/..." style={{ marginBottom: 8 }} />
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button type="button" style={{ ...S.btnSecondary, width: "auto", padding: "4px 12px", fontSize: "12px", opacity: notifSlackTesting ? 0.6 : 1 }} disabled={notifSlackTesting || !notifSlackWebhook.trim()} onClick={handleSlackTest}>{notifSlackTesting ? "Testing..." : "Test"}</button>
+                          {notifSlackTestResult && (
+                            <div style={{
+                              fontSize: "12px", fontWeight: 500,
+                              color: notifSlackTestResult === "success"
+                                ? "var(--product-good, #2f6d56)"
+                                : "var(--product-bad, #a15347)",
+                            }}>
+                              {notifSlackTestResult === "success" ? "Test sent successfully" : "Test failed \u2014 check your webhook URL"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {ch.key === "sms" && notifSmsEnabled && (
                       <div style={{ padding: "8px 0 16px" }}>
                         <FocusInput value={notifSmsPhone} onChange={e => setNotifSmsPhone(e.target.value)} placeholder="+1 555 123 4567" style={{ marginBottom: 0 }} />
@@ -351,6 +385,28 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                     <button key={c.amount} style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px" }} onClick={() => handleBillingCheckout({ type: "credits", amount: c.amount })}>Add {c.label}</button>
                   ))}
                 </div>
+                {billingHistory.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--product-ink-soft)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      Recent transactions
+                    </div>
+                    {billingHistory.map((tx, i) => (
+                      <div key={tx.id || i} style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        padding: "6px 0", borderBottom: i < billingHistory.length - 1 ? "1px solid var(--product-line)" : "none",
+                        fontSize: "13px",
+                      }}>
+                        <span style={{ color: "var(--product-ink)" }}>{tx.description || tx.type || "Transaction"}</span>
+                        <span style={{
+                          fontFamily: "'IBM Plex Mono', monospace", fontWeight: 500, fontSize: "12px",
+                          color: tx.amount_usd > 0 ? "var(--product-good)" : "var(--product-ink-strong)",
+                        }}>
+                          {tx.amount_usd > 0 ? "+" : ""}{typeof tx.amount_usd === 'number' ? `$${Math.abs(tx.amount_usd).toFixed(4)}` : tx.amount_usd}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {currentTier !== "free" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }}>Cancel plan</button></>)}
               </div>)}
             </>)}

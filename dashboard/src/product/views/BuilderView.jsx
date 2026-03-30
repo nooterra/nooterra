@@ -578,6 +578,33 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
     })();
   }, []);
 
+  // Auto-save description draft to localStorage
+  const BUILDER_DRAFT_KEY = "nooterra_builder_draft";
+  const [hasDraft, setHasDraft] = useState(false);
+
+  useEffect(() => {
+    if (description.trim() && phase === "input") {
+      localStorage.setItem(BUILDER_DRAFT_KEY, description);
+    }
+  }, [description, phase]);
+
+  // Check for existing draft on mount
+  useEffect(() => {
+    const draft = localStorage.getItem(BUILDER_DRAFT_KEY);
+    if (draft && draft.trim() && !description.trim() && phase === "input") {
+      setHasDraft(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function restoreDraft() {
+    const draft = localStorage.getItem(BUILDER_DRAFT_KEY);
+    if (draft) { setDescription(draft); setHasDraft(false); }
+  }
+  function clearDraft() {
+    localStorage.removeItem(BUILDER_DRAFT_KEY);
+    setHasDraft(false);
+  }
+
   // Persist team proposal to sessionStorage so it survives app switches / reloads
   const TEAM_SESSION_KEY = "nooterra_team_draft";
 
@@ -800,6 +827,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
       }
       saveOnboardingState({ buyer: loadOnboardingState()?.buyer || null, sessionExpected: true, completed: true });
       try { sessionStorage.removeItem(TEAM_SESSION_KEY); } catch {}
+      localStorage.removeItem(BUILDER_DRAFT_KEY);
       for (const w of teamProposal.workers) {
         track("worker.created", { model: w.model, name: w.role });
       }
@@ -889,6 +917,20 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
           <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
             {builderMode === "team" ? "Describe your business. We'll do the rest." : "Describe what this worker should do."}
           </p>
+
+          {hasDraft && !description.trim() && (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 14px", borderRadius: 8, marginBottom: 12,
+              background: "var(--product-accent-soft, rgba(31,104,92,0.08))", fontSize: "13px",
+            }}>
+              <span>You have an unsaved worker draft</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={restoreDraft} style={{ ...S.btnSecondary, padding: "4px 12px", fontSize: "12px" }}>Restore</button>
+                <button onClick={clearDraft} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--product-ink-soft, #707b8d)", fontSize: "12px" }}>Discard</button>
+              </div>
+            </div>
+          )}
 
           <textarea
             ref={textareaRef}

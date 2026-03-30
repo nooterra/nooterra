@@ -120,6 +120,12 @@ function WorkersListView({ onSelect, onCreate }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState(null);
+  const [sortBy, setSortBy] = useState("recent");
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(interval);
+  }, []);
   const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
   const fetchingRef = useRef(false);
   async function loadWorkers() {
@@ -242,18 +248,40 @@ function WorkersListView({ onSelect, onCreate }) {
         </div>
       )}
 
-      {/* Worker cards grid */}
-      {!loading && filteredWorkers.length > 0 && (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-          gap: 12,
-        }}>
-          {filteredWorkers.map((w, i) => (
-            <WorkerCard key={w.id} worker={w} onClick={() => onSelect(w)} index={i} />
-          ))}
-        </div>
-      )}
+      {/* Sort + Worker cards grid */}
+      {!loading && filteredWorkers.length > 0 && (() => {
+        const sorted = [...filteredWorkers].sort((a, b) => {
+          if (sortBy === "name") return (a.name || "").localeCompare(b.name || "");
+          if (sortBy === "status") return (a.status || "").localeCompare(b.status || "");
+          if (sortBy === "runs") return ((typeof b.stats === "object" ? b.stats : {})?.totalRuns || b.total_runs || 0) - ((typeof a.stats === "object" ? a.stats : {})?.totalRuns || a.total_runs || 0);
+          // "recent" — sort by last run or creation
+          return new Date(b.last_run_at || b.created_at || 0) - new Date(a.last_run_at || a.created_at || 0);
+        });
+        return (<>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: "12px", color: "var(--product-ink-soft, var(--text-300))" }}>Sort by</span>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
+              fontSize: "12px", padding: "4px 8px", borderRadius: 6,
+              border: "1px solid var(--product-line, var(--border))", background: "var(--product-panel, var(--bg-400))",
+              color: "var(--product-ink-strong, var(--text-100))", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              <option value="recent">Most recent</option>
+              <option value="name">Name A-Z</option>
+              <option value="status">Status</option>
+              <option value="runs">Most runs</option>
+            </select>
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gap: 12,
+          }}>
+            {sorted.map((w, i) => (
+              <WorkerCard key={w.id} worker={w} onClick={() => onSelect(w)} index={i} />
+            ))}
+          </div>
+        </>);
+      })()}
     </div>
   );
 }

@@ -43,6 +43,10 @@ export function IntegrationConnectModal({ integration, onClose, onSave }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!value.trim()) { setError("This field is required."); return; }
+    if ((integration.id === 'slack' || integration.key === 'slack') && value && !value.startsWith('https://hooks.slack.com/')) {
+      setError('Slack webhook URLs must start with https://hooks.slack.com/');
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -214,6 +218,8 @@ function IntegrationsView() {
   async function handleDisconnect(serviceKey) {
     const entry = isConnected(serviceKey);
     if (!entry) return;
+    const integration = AVAILABLE_INTEGRATIONS.find(a => a.key === serviceKey);
+    if (!window.confirm(`Disconnect ${integration?.name || serviceKey}? Your workers will lose access to this service.`)) return;
     setDisconnecting(serviceKey);
     try {
       await workerApiRequest({ pathname: `/v1/integrations/${encodeURIComponent(entry.id)}`, method: "DELETE" });

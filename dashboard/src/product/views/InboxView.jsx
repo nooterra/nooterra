@@ -6,8 +6,10 @@ function InboxView() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState(null);
+  const [decidingAction, setDecidingAction] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);
   const [error, setError] = useState(null);
+  const [filter, setFilter] = useState("pending");
   const fetchingRef = useRef(false);
 
   useEffect(() => { loadInbox(); const interval = setInterval(loadInbox, 10000); return () => clearInterval(interval); }, []);
@@ -32,6 +34,7 @@ function InboxView() {
 
   async function handleDecide(requestId, decision) {
     setDeciding(requestId);
+    setDecidingAction(decision);
     setError(null);
     try {
       const action = decision === "approved" ? "approve" : "deny";
@@ -87,9 +90,24 @@ function InboxView() {
         ))}
       </div>
 
+      {/* Filter tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+        {["pending", "all"].map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: "5px 14px", fontSize: "12px", fontWeight: filter === f ? 600 : 400,
+            color: filter === f ? "var(--product-accent, var(--accent))" : "var(--product-ink-soft, var(--text-300))",
+            background: filter === f ? "var(--product-accent-soft, rgba(31,104,92,0.08))" : "transparent",
+            border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+            textTransform: "capitalize",
+          }}>{f}</button>
+        ))}
+      </div>
+
       {loading ? (
         <div style={{ fontSize: 14, color: "var(--text-200, var(--text-secondary))" }}>Loading...</div>
-      ) : pendingCount === 0 ? (
+      ) : (() => {
+        const visibleItems = filter === "pending" ? items.filter(i => i.status === "pending" || !i.status) : items;
+        return visibleItems.length === 0 ? (
         /* Empty state */
         <div style={{ padding: "4rem 2rem", textAlign: "center" }}>
           <div style={{ width: 56, height: 56, borderRadius: "50%", background: "var(--green, #5bb98c)", margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -103,7 +121,7 @@ function InboxView() {
       ) : (
         /* Decision cards */
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {items.map(item => {
+          {visibleItems.map(item => {
             const id = item.requestId || item.id;
             const workerName = item.workerName || item.agentName || "Worker";
             const avatarBg = avatarColor(workerName);
@@ -145,12 +163,12 @@ function InboxView() {
                           style={{ padding: "8px 20px", background: "var(--green, #5bb98c)", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
                           disabled={deciding === id}
                           onClick={() => handleDecide(id, "approved")}
-                        >Approve</button>
+                        >{deciding === id && decidingAction === "approved" ? "Approving..." : "Approve"}</button>
                         <button
                           style={{ padding: "8px 20px", background: "transparent", color: "var(--text-200, var(--text-secondary))", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, cursor: "pointer", opacity: deciding === id ? 0.6 : 1 }}
                           disabled={deciding === id}
                           onClick={() => handleDecide(id, "denied")}
-                        >Deny</button>
+                        >{deciding === id && decidingAction === "denied" ? "Denying..." : "Deny"}</button>
                       </>)}
                     </div>
                   </div>
@@ -159,7 +177,8 @@ function InboxView() {
             );
           })}
         </div>
-      )}
+      );
+      })()}
     </div>
   );
 }

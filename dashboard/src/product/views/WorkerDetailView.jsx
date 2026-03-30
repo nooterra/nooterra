@@ -235,7 +235,13 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
       {/* Tabs */}
       <div role="tablist" style={{ display: "flex", gap: "2px", borderBottom: "1px solid var(--border)", marginBottom: "1.5rem" }}>
         {tabs.map(t => (
-          <button key={t.key} role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key} onClick={() => setTab(t.key)} style={{
+          <button key={t.key} role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key} onClick={() => {
+            if (editingCharter && t.key !== "charter") {
+              if (!window.confirm("You have unsaved charter changes. Discard?")) return;
+              setEditingCharter(false);
+            }
+            setTab(t.key);
+          }} style={{
             padding: "0.6rem 1rem", fontSize: "13px", fontWeight: 600,
             color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
             background: "none", border: "none",
@@ -389,7 +395,12 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
       )}
 
       {tab === "chat" && (
-        <WorkerChat workerId={workerId} workerName={worker.name} model={worker.model} />
+        <div>
+          <div style={{ fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))", marginBottom: 8 }}>
+            Chatting via <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 500 }}>{worker.model || "default model"}</span>
+          </div>
+          <WorkerChat workerId={workerId} workerName={worker.name} model={worker.model} />
+        </div>
       )}
 
       {tab === "files" && (

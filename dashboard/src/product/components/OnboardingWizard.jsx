@@ -131,7 +131,7 @@ function WelcomeStep({ workspaceName, setWorkspaceName, onNext }) {
   );
 }
 
-function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack, creating, error }) {
+function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack, onSkip, creating, error }) {
   return (
     <div>
       <h1 style={W.heading}>Create your first worker</h1>
@@ -162,6 +162,13 @@ function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack
           </div>
         ))}
       </div>
+      <button onClick={onSkip} style={{
+        background: "none", border: "none", cursor: "pointer",
+        color: "var(--product-ink-soft, #707b8d)", fontSize: "13px",
+        textDecoration: "underline", padding: "8px 0", marginTop: "0.5rem",
+      }}>
+        I'll create a worker later
+      </button>
       <div style={W.footer}>
         <button style={W.btnSecondary} onClick={onBack}>Back</button>
         <div style={{ display: "flex", gap: 10 }}>
@@ -325,6 +332,7 @@ function OnboardingWizard({ onComplete }) {
             setSelectedTemplate={setSelectedTemplate}
             onNext={handleCreateWorker}
             onBack={() => setStep(0)}
+            onSkip={() => setStep(2)}
             creating={creating}
             error={createError}
           />

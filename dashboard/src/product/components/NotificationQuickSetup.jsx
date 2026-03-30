@@ -74,6 +74,10 @@ export default function NotificationQuickSetup({ workerId, addToast }) {
   }
 
   async function handleSave() {
+    if (emailEnabled && emailAddress && !emailAddress.includes('@')) {
+      if (addToast) addToast({ message: 'Please enter a valid email address', type: 'error' });
+      return;
+    }
     setSaving(true);
     try {
       await workerApiRequest({

@@ -377,9 +377,10 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
         {item.badge > 0 && (
           <span style={{
             fontSize: "11px", fontWeight: 700, color: "#fff",
-            background: "var(--accent)", borderRadius: 10,
-            padding: "1px 6px", minWidth: 18, textAlign: "center",
-          }}>{item.badge}</span>
+            background: "var(--product-bad, #a15347)", borderRadius: 9,
+            padding: "0 5px", minWidth: 18, height: 18, display: "inline-flex",
+            alignItems: "center", justifyContent: "center",
+          }}>{item.badge > 99 ? "99+" : item.badge}</span>
         )}
       </button>
     );
@@ -514,6 +515,22 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
           <SectionLabel>Manage</SectionLabel>
           {manageNav.map(item => <NavItem key={item.key} item={item} />)}
         </div>
+
+        {/* Credit balance */}
+        {creditBalance != null && (
+          <div style={{
+            padding: "8px 14px", margin: "0 8px 8px",
+            borderRadius: 8, background: "var(--product-accent-soft, rgba(31,104,92,0.08))",
+            fontSize: "12px", color: "var(--product-ink, #4a5568)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            cursor: "pointer",
+          }} onClick={() => setSettingsOpen(true)} title="Manage billing">
+            <span style={{ fontWeight: 500 }}>Credits</span>
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: "var(--product-ink-strong, #172133)", fontSize: "13px" }}>
+              ${(creditBalance / 100).toFixed(2)}
+            </span>
+          </div>
+        )}
 
         {/* Bottom: user */}
         <div style={{ borderTop: "1px solid var(--border)", padding: "12px" }}>
