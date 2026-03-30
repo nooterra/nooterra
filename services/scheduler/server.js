@@ -1896,6 +1896,18 @@ const server = http.createServer(async (req, res) => {
 async function ensureTables() {
   log('info', 'Ensuring database tables exist...');
 
+  // Check if tables already exist from migrations (034_workers_and_executions.sql).
+  // Migration-created tables use different names/schemas (worker_executions, not executions;
+  // tenant_credits.balance_usd, not balance). If migrations have run, skip bootstrap.
+  const migrationCheck = await pool.query(
+    `SELECT to_regclass('worker_executions') AS has_migration_tables`
+  );
+  if (migrationCheck.rows[0]?.has_migration_tables) {
+    log('info', 'Database tables already exist (from migrations), skipping bootstrap');
+    return;
+  }
+
+  // Bootstrap tables for fresh databases without migrations
   await pool.query(`
     CREATE TABLE IF NOT EXISTS workers (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -1905,7 +1917,7 @@ async function ensureTables() {
       charter TEXT DEFAULT '{}',
       knowledge TEXT DEFAULT '',
       schedule TEXT DEFAULT 'on_demand',
-      model TEXT DEFAULT 'openai/gpt-5.4-mini',
+      model TEXT DEFAULT 'openai/gpt-4.1-mini',
       provider_mode TEXT NOT NULL DEFAULT 'platform',
       byok_provider TEXT,
       status TEXT DEFAULT 'ready',
@@ -1916,23 +1928,42 @@ async function ensureTables() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS executions (
+    CREATE TABLE IF NOT EXISTS worker_executions (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
       tenant_id TEXT NOT NULL,
-      status TEXT DEFAULT 'running',
+      trigger_type TEXT DEFAULT 'manual',
+      status TEXT DEFAULT 'queued',
+      model TEXT,
       started_at TIMESTAMPTZ DEFAULT NOW(),
       completed_at TIMESTAMPTZ,
-      cost NUMERIC(12,6) DEFAULT 0,
+      tokens_in INTEGER DEFAULT 0,
+      tokens_out INTEGER DEFAULT 0,
+      cost_usd NUMERIC(12,6) DEFAULT 0,
+      rounds INTEGER DEFAULT 0,
+      tool_calls INTEGER DEFAULT 0,
       result TEXT DEFAULT '',
       error TEXT,
-      activity JSONB DEFAULT '[]'
+      activity JSONB DEFAULT '[]',
+      receipt JSONB,
+      metadata JSONB DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS tenant_credits (
       tenant_id TEXT PRIMARY KEY,
-      balance NUMERIC(12,6) DEFAULT 0,
+      balance_usd NUMERIC(12,6) DEFAULT 10.00,
+      total_spent_usd NUMERIC(12,6) DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_transactions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      amount_usd NUMERIC(12,6) NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT,
+      execution_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS worker_approvals (
@@ -1942,42 +1973,37 @@ async function ensureTables() {
       execution_id TEXT,
       tool_name TEXT,
       tool_args JSONB,
-      rule TEXT,
+      action TEXT,
+      matched_rule TEXT,
+      action_hash TEXT,
       status TEXT DEFAULT 'pending',
       decided_by TEXT,
       decided_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS integrations (
+    CREATE TABLE IF NOT EXISTS tenant_integrations (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       tenant_id TEXT NOT NULL,
       service TEXT NOT NULL,
       status TEXT DEFAULT 'connected',
+      credentials_encrypted TEXT,
       config JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(tenant_id, service)
     );
 
-    CREATE TABLE IF NOT EXISTS tool_results (
-      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      execution_id TEXT REFERENCES executions(id) ON DELETE CASCADE,
-      tool_name TEXT NOT NULL,
-      input JSONB,
-      output JSONB,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
     CREATE INDEX IF NOT EXISTS idx_workers_tenant ON workers(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(schedule, status);
-    CREATE INDEX IF NOT EXISTS idx_executions_worker ON executions(worker_id);
-    CREATE INDEX IF NOT EXISTS idx_executions_tenant ON executions(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(status) WHERE schedule IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_executions_worker ON worker_executions(worker_id);
+    CREATE INDEX IF NOT EXISTS idx_executions_tenant ON worker_executions(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_executions_status ON worker_executions(status);
     CREATE INDEX IF NOT EXISTS idx_approvals_tenant_status ON worker_approvals(tenant_id, status);
     CREATE INDEX IF NOT EXISTS idx_approvals_worker ON worker_approvals(worker_id);
-    CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON integrations(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON tenant_integrations(tenant_id);
   `);
 
-  log('info', 'Database tables verified');
+  log('info', 'Database tables created (bootstrap mode)');
 }
 
 // ---------------------------------------------------------------------------
@@ -1993,8 +2019,7 @@ async function start() {
     process.exit(1);
   }
   if (!process.env.OPENROUTER_API_KEY) {
-    log('error', 'FATAL: OPENROUTER_API_KEY not set');
-    process.exit(1);
+    log('warn', 'OPENROUTER_API_KEY not set — only BYOK workers will function');
   }
 
   // Verify database connection
