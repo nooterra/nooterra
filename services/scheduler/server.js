@@ -749,9 +749,32 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
     }
 
+    // Load BYOK API key from tenant's stored providers (if applicable)
+    if ((worker.provider_mode === 'openai' || worker.provider_mode === 'anthropic' || worker.provider_mode === 'byok') && !worker.byok_api_key) {
+      try {
+        const providerKey = worker.byok_provider || worker.provider_mode;
+        const keyResult = await pool.query(
+          `SELECT value FROM worker_memory WHERE worker_id = $1 AND scope = 'tenant' AND key = $2`,
+          [`tenant:${worker.tenant_id}`, `provider_${providerKey}_key`]
+        );
+        if (keyResult.rowCount > 0) {
+          worker.byok_api_key = keyResult.rows[0].value;
+          worker.provider_mode = 'byok';
+          if (!worker.byok_provider) worker.byok_provider = providerKey;
+          addActivity('provider', `Using BYOK ${providerKey} key`);
+        } else {
+          addActivity('provider_warn', `BYOK ${providerKey} key not found — falling back to OpenRouter`);
+          worker.provider_mode = 'platform';
+        }
+      } catch (err) {
+        log('warn', `Failed to load BYOK key for worker ${worker.id}: ${err.message}`);
+        worker.provider_mode = 'platform';
+      }
+    }
+
     const messages = buildMessages(charter, knowledge, worker, workerMemory);
 
-    addActivity('llm_call', `Calling ${worker.model}`);
+    addActivity('llm_call', `Calling ${worker.model}${worker.provider_mode === 'byok' ? ' (BYOK ' + (worker.byok_provider || '') + ')' : ''}`);
 
     // Build tools: merge charter-defined tools with connected integration tools and builtins
     let tools = charter.tools && Array.isArray(charter.tools) ? [...charter.tools] : [];
@@ -1751,6 +1774,24 @@ async function handleWorkerChat(req, res, workerId) {
     }
   } catch { /* fail open */ }
 
+  // Load BYOK API key for chat (same logic as execution)
+  if ((worker.provider_mode === 'openai' || worker.provider_mode === 'anthropic' || worker.provider_mode === 'byok') && !worker.byok_api_key) {
+    try {
+      const providerKey = worker.byok_provider || worker.provider_mode;
+      const keyResult = await pool.query(
+        `SELECT value FROM worker_memory WHERE worker_id = $1 AND scope = 'tenant' AND key = $2`,
+        ['__tenant__', `provider_${providerKey}_key`]
+      );
+      if (keyResult.rowCount > 0) {
+        worker.byok_api_key = keyResult.rows[0].value;
+        worker.provider_mode = 'byok';
+        if (!worker.byok_provider) worker.byok_provider = providerKey;
+      } else {
+        worker.provider_mode = 'platform'; // fallback
+      }
+    } catch { worker.provider_mode = 'platform'; }
+  }
+
   // Build system prompt from worker's charter + memory (same as execution)
   const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : (worker.charter || {});
   const knowledge = typeof worker.knowledge === 'string' ? JSON.parse(worker.knowledge) : (worker.knowledge || []);
@@ -1776,55 +1817,89 @@ async function handleWorkerChat(req, res, workerId) {
   log('info', `Worker chat ${chatId}: tenant=${tenantId} worker=${worker.name} model=${worker.model}`);
 
   try {
-    // Streaming uses OpenRouter directly (BYOK providers don't support streaming yet)
-    const stream = chatCompletion({
-      model: worker.model,
-      messages: fullMessages,
-      maxTokens: charter.maxTokens || 4096,
-      temperature: charter.temperature ?? 0.4,
-      stream: true,
-    });
+    const isBYOK = worker.provider_mode === 'byok' || worker.provider_mode === 'openai' || worker.provider_mode === 'anthropic';
+    const useStreaming = !isBYOK && process.env.OPENROUTER_API_KEY;
 
-    for await (const event of stream) {
-      if (event.type === 'token') {
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: event.content }, index: 0 }] })}\n\n`);
-      } else if (event.type === 'done') {
-        res.write('data: [DONE]\n\n');
+    if (useStreaming) {
+      // Streaming via OpenRouter
+      const stream = await chatCompletion({
+        model: worker.model,
+        messages: fullMessages,
+        maxTokens: charter.maxTokens || 4096,
+        temperature: charter.temperature ?? 0.4,
+        stream: true,
+      });
 
-        // Deduct credits
-        const { usage } = event;
-        if (usage?.cost > 0) {
-          try {
-            const client = await pool.connect();
+      for await (const event of stream) {
+        if (event.type === 'token') {
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: event.content }, index: 0 }] })}\n\n`);
+        } else if (event.type === 'done') {
+          res.write('data: [DONE]\n\n');
+          const { usage } = event;
+          if (usage?.cost > 0) {
             try {
-              await client.query('BEGIN');
-              await client.query(
-                `UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1`,
-                [tenantId, usage.cost]
-              );
-              await client.query(
-                `INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, created_at) VALUES ($1, $2, $3, 'worker_chat', $4, now())`,
-                [chatId, tenantId, -usage.cost, `Chat with ${worker.name}: ${usage.promptTokens}in/${usage.completionTokens}out $${usage.cost.toFixed(6)}`]
-              );
-              await client.query('COMMIT');
-            } catch { await client.query('ROLLBACK'); } finally { client.release(); }
-          } catch (err) {
-            log('warn', `Failed to deduct chat credits: ${err.message}`);
+              const client = await pool.connect();
+              try {
+                await client.query('BEGIN');
+                await client.query('UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1', [tenantId, usage.cost]);
+                await client.query(`INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, created_at) VALUES ($1, $2, $3, 'worker_chat', $4, now())`,
+                  [chatId, tenantId, -usage.cost, `Chat with ${worker.name}: ${usage.promptTokens}in/${usage.completionTokens}out $${usage.cost.toFixed(6)}`]);
+                await client.query('COMMIT');
+              } catch { await client.query('ROLLBACK'); } finally { client.release(); }
+            } catch (err) { log('warn', `Failed to deduct chat credits: ${err.message}`); }
           }
-        }
-
-        // Extract memory from response
-        if (event.response) {
-          const memoryEntries = parseMemoryEntries(event.response);
-          for (const entry of memoryEntries) {
-            const key = entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
-            if (!key) continue;
-            await saveWorkerMemory(worker.id, tenantId, key, entry.content, entry.scope);
+          if (event.response) {
+            const memoryEntries = parseMemoryEntries(event.response);
+            for (const entry of memoryEntries) {
+              const key = entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+              if (!key) continue;
+              await saveWorkerMemory(worker.id, tenantId, key, entry.content, entry.scope);
+            }
           }
+          log('info', `Worker chat ${chatId} done: ${usage?.totalTokens || 0} tokens, $${(usage?.cost || 0).toFixed(6)}`);
         }
-
-        log('info', `Worker chat ${chatId} done: ${usage?.totalTokens || 0} tokens, $${(usage?.cost || 0).toFixed(6)}`);
       }
+    } else {
+      // Non-streaming fallback (BYOK or no OpenRouter key)
+      // Uses chatCompletionForWorker which routes to the correct provider
+      const result = await chatCompletionForWorker(worker, {
+        model: worker.model,
+        messages: fullMessages,
+        maxTokens: charter.maxTokens || 4096,
+        temperature: charter.temperature ?? 0.4,
+      });
+
+      // Send the full response as a single SSE event
+      if (result.response) {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: result.response }, index: 0 }] })}\n\n`);
+      }
+      res.write('data: [DONE]\n\n');
+
+      // Deduct credits
+      const { usage } = result;
+      if (usage?.cost > 0) {
+        try {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await client.query('UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1', [tenantId, usage.cost]);
+            await client.query(`INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, created_at) VALUES ($1, $2, $3, 'worker_chat', $4, now())`,
+              [chatId, tenantId, -usage.cost, `Chat with ${worker.name}: ${usage.promptTokens}in/${usage.completionTokens}out $${usage.cost.toFixed(6)}`]);
+            await client.query('COMMIT');
+          } catch { await client.query('ROLLBACK'); } finally { client.release(); }
+        } catch (err) { log('warn', `Failed to deduct chat credits: ${err.message}`); }
+      }
+
+      // Extract memory
+      if (result.response) {
+        const memoryEntries = parseMemoryEntries(result.response);
+        for (const entry of memoryEntries) {
+          const key = entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+          if (!key) continue;
+          await saveWorkerMemory(worker.id, tenantId, key, entry.content, entry.scope);
+        }
+      }
+      log('info', `Worker chat ${chatId} done (non-stream): ${usage?.totalTokens || 0} tokens, $${(usage?.cost || 0).toFixed(6)}`);
     }
   } catch (err) {
     log('error', `Worker chat error: ${err.message}`);
