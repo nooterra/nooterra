@@ -8,17 +8,25 @@ function PerformanceView() {
   const [loading, setLoading] = useState(true);
   const [selectedExecution, setSelectedExecution] = useState(null);
   const [traceLoading, setTraceLoading] = useState(false);
+  const fetchingRef = useRef(false);
+
+  async function loadWorkers() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    try {
+      const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
+      setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
+    } catch {
+      setWorkers([]);
+    }
+    setLoading(false);
+    fetchingRef.current = false;
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-        setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
-      } catch {
-        setWorkers([]);
-      }
-      setLoading(false);
-    })();
+    loadWorkers();
+    const interval = setInterval(loadWorkers, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const [liveStream, setLiveStream] = useState(false);
@@ -131,9 +139,10 @@ function PerformanceView() {
     <div>
       <h1 style={S.pageTitle}>Performance</h1>
       <p style={S.pageSub}>Track your team's output, cost, and health.</p>
-      <div style={{ padding: "3rem 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
-        <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>No data yet</div>
-        <div style={{ fontSize: "14px", color: "var(--text-secondary)", maxWidth: 360, margin: "0 auto" }}>Deploy your first team to see performance metrics here.</div>
+      <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary, #999)' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📊</div>
+        <div style={{ fontSize: '0.95rem', fontWeight: 500 }}>No execution data yet</div>
+        <div style={{ fontSize: '0.85rem', marginTop: '0.25rem', opacity: 0.7 }}>Run a worker to see performance metrics</div>
       </div>
     </div>
   );

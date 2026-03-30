@@ -20,6 +20,7 @@ export function ToggleSwitch({ on, onToggle, "aria-label": ariaLabel }) {
 
 /* -- Shared UI components --------------------------------------------- */
 import { FocusInput, CloseIcon } from "./shared.jsx";
+import FocusTrap from "./FocusTrap.jsx";
 
 /* ===================================================================
    ThemePreview
@@ -198,7 +199,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-content" style={{ width: "100%", maxWidth: 720, maxHeight: "85vh", background: "var(--bg-surface)", borderRadius: 16, boxShadow: "var(--shadow-lg)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <FocusTrap><div className="modal-content" style={{ width: "100%", maxWidth: 720, maxHeight: "85vh", background: "var(--bg-surface)", borderRadius: 16, boxShadow: "var(--shadow-lg)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
           <h2 id="settings-modal-title" style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Settings</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 150ms" }}
@@ -355,7 +356,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
             </>)}
           </div>
         </div>
-      </div>
+      </div></FocusTrap>
     </div>
   );
 }

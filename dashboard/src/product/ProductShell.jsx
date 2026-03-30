@@ -204,9 +204,22 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
 
   useEffect(() => {
     function handleGlobalKey(e) {
+      // Don't trigger in input fields
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+
+      // Cmd/Ctrl+K — toggle command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setCmdPaletteOpen(prev => !prev);
+        return;
+      }
+
+      // Quick navigation (no modifier keys except shift)
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === '1') { handleNavigate('team'); return; }
+        if (e.key === '2') { handleNavigate('inbox'); return; }
+        if (e.key === '3') { handleNavigate('performance'); return; }
+        if (e.key === 'N' && e.shiftKey) { handleNavigate('builder'); return; }
       }
     }
     document.addEventListener("keydown", handleGlobalKey);

@@ -210,8 +210,31 @@ if (autotickIntervalMs && cfg.store.mode === "pg" && cfg.store.databaseUrl) {
       }
     });
     listenClient.on("error", (err) => {
-      logger.warn("listen_client.error", { err: err?.message });
+      logger.warn("listen_notify.error", { err: err?.message });
       // Don't crash — the fallback interval poll will cover us
+    });
+    listenClient.on("end", () => {
+      logger.warn("listen_notify.disconnected", { msg: "Reconnecting in 5s..." });
+      setTimeout(async () => {
+        try {
+          const pg2 = await import("pg");
+          listenClient = new pg2.default.Client({ connectionString: cfg.store.databaseUrl });
+          await listenClient.connect();
+          await listenClient.query("LISTEN outbox_ready");
+          listenClient.on("notification", (msg) => {
+            if (!autotickStopped && !autotickInFlight) {
+              runAutotickOnce();
+            }
+          });
+          listenClient.on("error", (err2) => {
+            logger.warn("listen_notify.error", { err: err2?.message });
+          });
+          logger.info("listen_notify.reconnected");
+        } catch (reconnectErr) {
+          logger.error("listen_notify.reconnect_failed", { err: reconnectErr?.message });
+          // Fall back to polling — it's already running
+        }
+      }, 5000);
     });
     logger.info("outbox.listen_notify_enabled", {
       channel: "outbox_ready",

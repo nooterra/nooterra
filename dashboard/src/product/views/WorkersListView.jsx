@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { S, STATUS_COLORS, timeAgo, humanizeSchedule, getGreeting, workerApiRequest } from "../shared.js";
 
 const STATUS_LABELS = {
@@ -121,7 +121,15 @@ function WorkersListView({ onSelect, onCreate }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState(null);
   const userName = typeof localStorage !== "undefined" ? localStorage.getItem("nooterra_user_name") : null;
-  useEffect(() => { (async () => { try { setError(null); const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch (err) { console.error("Failed to load workers:", err); setError("Failed to load workers. Please try again."); setWorkers([]); } setLoading(false); })(); }, []);
+  const fetchingRef = useRef(false);
+  async function loadWorkers() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    try { setError(null); const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" }); setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : [])); } catch (err) { console.error("Failed to load workers:", err); setError("Failed to load workers. Please try again."); setWorkers([]); }
+    setLoading(false);
+    fetchingRef.current = false;
+  }
+  useEffect(() => { loadWorkers(); const interval = setInterval(loadWorkers, 30000); return () => clearInterval(interval); }, []);
 
   const filteredWorkers = searchQuery.trim()
     ? workers.filter(w => {
@@ -219,35 +227,11 @@ function WorkersListView({ onSelect, onCreate }) {
 
       {/* Empty state */}
       {!loading && workers.length === 0 && (
-        <div style={{ padding: "clamp(2.5rem, 8vh, 5rem) 1.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 16, maxWidth: 480, margin: "0 auto" }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 14, margin: "0 auto 1.25rem",
-            background: "var(--accent-subtle, rgba(196,97,58,0.06))", border: "1px solid var(--border)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-          </div>
-          <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem", lineHeight: 1.2 }}>Describe your business. We staff it.</div>
-          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.6 }}>
-            Nooterra builds you a team of AI workers — each with clear rules about what they can do, what needs your OK, and what's off-limits.
-          </div>
-          <div style={{ display: "inline-flex", flexDirection: "column", gap: 6, textAlign: "left", marginBottom: "1.5rem" }}>
-            {[
-              { color: "var(--green, #2a9d6e)", label: "Can do", desc: "worker handles it autonomously" },
-              { color: "var(--amber, #c08c30)", label: "Ask first", desc: "pauses for your approval" },
-              { color: "var(--red, #c43a3a)", label: "Never do", desc: "hard-blocked, no exceptions" },
-            ].map(r => (
-              <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "13px" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
-                <strong style={{ color: r.color, minWidth: 60 }}>{r.label}</strong>
-                <span style={{ color: "var(--text-tertiary)" }}>{r.desc}</span>
-              </div>
-            ))}
-          </div>
-          <br />
-          <button style={{ ...S.btnPrimary, width: "auto", padding: "10px 28px" }} onClick={onCreate}>Create your first team</button>
+        <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary, #999)' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🤖</div>
+          <div style={{ fontSize: '0.95rem', fontWeight: 500 }}>No workers yet</div>
+          <div style={{ fontSize: '0.85rem', marginTop: '0.25rem', opacity: 0.7 }}>Create your first AI worker to get started</div>
+          <button style={{ ...S.btnPrimary, width: "auto", padding: "10px 28px", marginTop: "1.25rem" }} onClick={onCreate}>Create your first team</button>
         </div>
       )}
 

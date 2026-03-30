@@ -3,10 +3,10 @@ import React, { useState, useEffect, useRef } from "react";
 /* ── Event type metadata ─────────────────────────────────────────── */
 const EVENT_META = {
   start:             { label: "Started",          color: "var(--product-good, #2f6d56)",    bg: "var(--product-good-bg, rgba(47,109,86,0.12))" },
-  system_prompt:     { label: "System prompt",    color: "#5b8def",                          bg: "rgba(91,141,239,0.12)" },
-  llm_response:      { label: "LLM response",     color: "#5b8def",                          bg: "rgba(91,141,239,0.12)" },
-  tool_call:         { label: "Tool call",         color: "#9b6dd7",                          bg: "rgba(155,109,215,0.12)" },
-  tool_result:       { label: "Tool result",       color: "#9b6dd7",                          bg: "rgba(155,109,215,0.12)" },
+  system_prompt:     { label: "System prompt",    color: "var(--product-accent, #5b8def)",    bg: "var(--product-accent-soft, rgba(91,141,239,0.12))" },
+  llm_response:      { label: "LLM response",     color: "var(--product-accent, #5b8def)",    bg: "var(--product-accent-soft, rgba(91,141,239,0.12))" },
+  tool_call:         { label: "Tool call",         color: "var(--product-secondary, #9b6dd7)", bg: "var(--product-secondary-soft, rgba(155,109,215,0.12))" },
+  tool_result:       { label: "Tool result",       color: "var(--product-secondary, #9b6dd7)", bg: "var(--product-secondary-soft, rgba(155,109,215,0.12))" },
   approval_required: { label: "Approval required", color: "var(--product-warn, #8a612f)",    bg: "var(--product-warn-bg, rgba(138,97,47,0.13))" },
   approval_granted:  { label: "Approval granted",  color: "var(--product-warn, #8a612f)",    bg: "var(--product-warn-bg, rgba(138,97,47,0.13))" },
   charter_blocked:   { label: "Charter blocked",   color: "var(--product-bad, #a15347)",     bg: "var(--product-bad-bg, rgba(161,83,71,0.12))" },

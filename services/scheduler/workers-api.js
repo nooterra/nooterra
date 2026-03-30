@@ -49,10 +49,35 @@ const VALID_STATUSES = new Set(['ready', 'running', 'paused', 'error', 'archived
 const UPDATABLE = new Set(['name', 'description', 'charter', 'schedule', 'model', 'status', 'knowledge', 'triggers', 'provider_mode', 'byok_provider', 'chain']);
 const JSON_FIELDS = new Set(['charter', 'schedule', 'knowledge', 'triggers', 'chain']);
 
+// Simple per-tenant rate limiter for workers API
+const apiRateLimits = new Map(); // key -> { count, resetAt }
+const API_RATE_LIMIT_PER_MINUTE = 60;
+
+function checkApiRateLimit(key) {
+  if (!key) return true;
+  const now = Date.now();
+  let entry = apiRateLimits.get(key);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + 60000 };
+    apiRateLimits.set(key, entry);
+  }
+  if (entry.count >= API_RATE_LIMIT_PER_MINUTE) return false;
+  entry.count++;
+  return true;
+}
+
 /**
  * Handle a /v1/workers* request. Returns true if handled, false if not matched.
  */
 export async function handleWorkerRoute(req, res, pool, pathname, searchParams) {
+  // Rate limit by tenant or IP
+  const rateLimitKey = getTenantId(req) || req.socket?.remoteAddress || 'unknown';
+  if (!checkApiRateLimit(rateLimitKey)) {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+    res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
+    return true;
+  }
+
   const method = req.method;
 
   // POST /v1/workers — create

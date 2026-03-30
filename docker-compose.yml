@@ -14,9 +14,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: proxy
-      POSTGRES_PASSWORD: proxy
-      POSTGRES_DB: proxy
+      POSTGRES_USER: ${POSTGRES_USER:-proxy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-proxy}
+      POSTGRES_DB: ${POSTGRES_DB:-proxy}
     ports:
       - "${PROXY_PG_PORT:-5432}:5432"
     volumes:
@@ -40,22 +40,22 @@ services:
     environment:
       NODE_ENV: development
       STORE: pg
-      DATABASE_URL: postgres://proxy:proxy@postgres:5432/proxy
+      DATABASE_URL: postgres://${POSTGRES_USER:-proxy}:${POSTGRES_PASSWORD:-proxy}@postgres:5432/${POSTGRES_DB:-proxy}
       PROXY_PG_SCHEMA: ${PROXY_PG_SCHEMA:-public}
       REDIS_URL: redis://redis:6379
       PROXY_AUTOTICK: "1"
       PROXY_AUTOTICK_INTERVAL_MS: "250"
       PROXY_AUTOTICK_MAX_MESSAGES: "100"
       # Local bootstrap ops token for dev compose.
-      PROXY_OPS_TOKENS: "tok_ops:ops_read,ops_write,finance_read,finance_write,audit_read"
+      PROXY_OPS_TOKENS: "${PROXY_OPS_TOKENS:-tok_ops:ops_read,ops_write,finance_read,finance_write,audit_read}"
       PROXY_ALLOW_INLINE_SECRETS: "1"
       PROXY_EVIDENCE_STORE: "s3"
       PROXY_EVIDENCE_S3_ENDPOINT: "http://minio:9000"
       PROXY_EVIDENCE_S3_REGION: "us-east-1"
       PROXY_EVIDENCE_S3_BUCKET: "proxy-evidence"
       PROXY_EVIDENCE_S3_FORCE_PATH_STYLE: "1"
-      PROXY_EVIDENCE_S3_ACCESS_KEY_ID: "proxy"
-      PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY: "proxysecret"
+      PROXY_EVIDENCE_S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-proxy}"
+      PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-proxysecret}"
       PROXY_EXPORT_DESTINATIONS: >
         {"tenant_default":[{"destinationId":"receiver_v1","kind":"webhook","url":"http://receiver:4000/deliveries/nooterra","secret":"receiversecret"},{"destinationId":"finance_sink_v1","kind":"webhook","url":"http://finance-sink:4100/deliveries/nooterra","secret":"financesinksecret","artifactTypes":["JournalCsv.v1","FinancePackBundle.v1"]}]}
     ports:
@@ -70,7 +70,7 @@ services:
     command: ["src/api/maintenance.js"]
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgres://proxy:proxy@postgres:5432/proxy
+      DATABASE_URL: postgres://${POSTGRES_USER:-proxy}:${POSTGRES_PASSWORD:-proxy}@postgres:5432/${POSTGRES_DB:-proxy}
       PROXY_PG_SCHEMA: ${PROXY_PG_SCHEMA:-public}
       PROXY_MAINTENANCE_INTERVAL_SECONDS: "300"
 
@@ -90,14 +90,14 @@ services:
       RECEIVER_DESTINATION_ID: "receiver_v1"
       RECEIVER_ACK_URL: "http://api:3000/exports/ack"
       RECEIVER_ALLOW_INLINE_SECRETS: "1"
-      RECEIVER_HMAC_SECRET: "receiversecret"
+      RECEIVER_HMAC_SECRET: "${RECEIVER_HMAC_SECRET:-receiversecret}"
       RECEIVER_S3_ENDPOINT: "http://minio:9000"
       RECEIVER_S3_REGION: "us-east-1"
       RECEIVER_S3_BUCKET: "proxy-artifacts"
       RECEIVER_S3_PREFIX: "nooterra/"
       RECEIVER_S3_FORCE_PATH_STYLE: "1"
-      RECEIVER_S3_ACCESS_KEY_ID: "proxy"
-      RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret"
+      RECEIVER_S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-proxy}"
+      RECEIVER_S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-proxysecret}"
       RECEIVER_DEDUPE_DB_PATH: "/data/receiver-dedupe.jsonl"
     ports:
       - "${PROXY_RECEIVER_PORT:-4000}:4000"
@@ -120,14 +120,14 @@ services:
       FINANCE_SINK_DESTINATION_ID: "finance_sink_v1"
       FINANCE_SINK_ACK_URL: "http://api:3000/exports/ack"
       FINANCE_SINK_ALLOW_INLINE_SECRETS: "1"
-      FINANCE_SINK_HMAC_SECRET: "financesinksecret"
+      FINANCE_SINK_HMAC_SECRET: "${FINANCE_SINK_HMAC_SECRET:-financesinksecret}"
       FINANCE_SINK_S3_ENDPOINT: "http://minio:9000"
       FINANCE_SINK_S3_REGION: "us-east-1"
       FINANCE_SINK_S3_BUCKET: "proxy-finance"
       FINANCE_SINK_S3_PREFIX: "finance/"
       FINANCE_SINK_S3_FORCE_PATH_STYLE: "1"
-      FINANCE_SINK_S3_ACCESS_KEY_ID: "proxy"
-      FINANCE_SINK_S3_SECRET_ACCESS_KEY: "proxysecret"
+      FINANCE_SINK_S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-proxy}"
+      FINANCE_SINK_S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-proxysecret}"
       FINANCE_SINK_DEDUPE_DB_PATH: "/data/finance-sink-dedupe.jsonl"
     ports:
       - "${PROXY_FINANCE_SINK_PORT:-4100}:4100"
@@ -137,8 +137,8 @@ services:
   minio:
     image: minio/minio:latest
     environment:
-      MINIO_ROOT_USER: proxy
-      MINIO_ROOT_PASSWORD: proxysecret
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-proxy}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-proxysecret}
     command: server /data --console-address ":9001"
     ports:
       - "${PROXY_MINIO_PORT:-9000}:9000"
@@ -159,7 +159,7 @@ services:
       - |
         # MinIO can be "started" before it is ready to accept connections.
         # Retry quietly until the alias can be initialized.
-        until mc alias set local http://minio:9000 proxy proxysecret >/dev/null 2>&1; do sleep 1; done
+        until mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-proxy} ${S3_SECRET_ACCESS_KEY:-proxysecret} >/dev/null 2>&1; do sleep 1; done
         mc mb -p local/proxy-evidence || true
         mc mb -p local/proxy-artifacts || true
         mc mb -p local/proxy-finance || true

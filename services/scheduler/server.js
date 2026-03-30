@@ -1361,6 +1361,42 @@ async function pollQueuedExecutions() {
 async function pollCycle() {
   if (shuttingDown) return;
 
+  // Cleanup stale executions — mark 'running' executions older than 10 min as failed
+  try {
+    const staleResult = await pool.query(`
+      UPDATE worker_executions
+      SET status = 'failed',
+          completed_at = now(),
+          error = 'Execution timed out (stale cleanup)'
+      WHERE status = 'running'
+        AND started_at < now() - interval '10 minutes'
+      RETURNING id
+    `);
+    if (staleResult.rowCount > 0) {
+      log('info', `Cleaned up ${staleResult.rowCount} stale execution(s)`);
+    }
+  } catch (cleanupErr) {
+    log('warn', `Stale execution cleanup failed: ${cleanupErr.message}`);
+  }
+
+  // Cleanup stale approval requests — timeout after 24 hours
+  try {
+    const staleApprovals = await pool.query(`
+      UPDATE worker_executions
+      SET status = 'failed',
+          completed_at = now(),
+          error = 'Approval timeout (24h)'
+      WHERE status = 'awaiting_approval'
+        AND started_at < now() - interval '24 hours'
+      RETURNING id
+    `);
+    if (staleApprovals.rowCount > 0) {
+      log('info', `Timed out ${staleApprovals.rowCount} unapproved execution(s)`);
+    }
+  } catch (approvalErr) {
+    log('warn', `Approval timeout cleanup failed: ${approvalErr.message}`);
+  }
+
   try {
     // Check available slots
     const available = MAX_CONCURRENT - activeExecutions;
@@ -2030,6 +2066,18 @@ async function shutdown(signal) {
 
   if (activeExecutions > 0) {
     log('warn', `Forcing shutdown with ${activeExecutions} active execution(s)`);
+  }
+
+  // Wait for in-flight executions tracked by Set (max 30s)
+  if (runningExecutions.size > 0) {
+    log('info', `Waiting for ${runningExecutions.size} in-flight execution(s) to complete...`);
+    const drainDeadline = Date.now() + 30000;
+    while (runningExecutions.size > 0 && Date.now() < drainDeadline) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (runningExecutions.size > 0) {
+      log('warn', `Force-stopping with ${runningExecutions.size} execution(s) still running`);
+    }
   }
 
   // Close HTTP server

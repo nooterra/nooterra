@@ -1,0 +1,29 @@
+{{- if gt (int (.Values.api).replicaCount | default 1) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nooterra.fullname" . }}-api
+  labels:
+    {{- include "nooterra.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "nooterra.name" . }}
+      app.kubernetes.io/component: api
+{{- end }}
+---
+{{- if gt (int (.Values.receiver).replicaCount | default 1) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nooterra.fullname" . }}-receiver
+  labels:
+    {{- include "nooterra.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "nooterra.name" . }}
+      app.kubernetes.io/component: receiver
+{{- end }}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { S, timeAgo, workerApiRequest } from "../shared.js";
 import { track } from "../analytics.js";
 
@@ -8,10 +8,13 @@ function InboxView() {
   const [deciding, setDeciding] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);
   const [error, setError] = useState(null);
+  const fetchingRef = useRef(false);
 
-  useEffect(() => { loadInbox(); }, []);
+  useEffect(() => { loadInbox(); const interval = setInterval(loadInbox, 10000); return () => clearInterval(interval); }, []);
 
   async function loadInbox() {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -24,6 +27,7 @@ function InboxView() {
     }
     setLastChecked(new Date());
     setLoading(false);
+    fetchingRef.current = false;
   }
 
   async function handleDecide(requestId, decision) {

@@ -324,12 +324,10 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
           )}
 
           {!logsLoading && logs.length === 0 && !isNewDeploy && (
-            <div style={{ padding: "2.5rem", textAlign: "center", border: "1px dashed var(--border)", borderRadius: 12 }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 12px", display: "block", opacity: 0.5 }}>
-                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-              </svg>
-              <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: 4 }}>No activity yet</div>
-              <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Run this worker to see its execution log.</div>
+            <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-secondary, #999)' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📝</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 500 }}>No activity yet</div>
+              <div style={{ fontSize: '0.85rem', marginTop: '0.25rem', opacity: 0.7 }}>This worker hasn't run yet</div>
             </div>
           )}
 

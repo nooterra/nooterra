@@ -4,6 +4,7 @@ import { loadRuntimeConfig } from "../api.js";
 import { ToggleSwitch } from "../components/SettingsModal.jsx";
 
 import { FocusInput } from "../components/shared.jsx";
+import FocusTrap from "../components/FocusTrap.jsx";
 
 /* ===================================================================
    AI_PROVIDERS
@@ -58,7 +59,7 @@ export function IntegrationConnectModal({ integration, onClose, onSave }) {
   return (
     <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
-      <div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
+      <FocusTrap><div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
         <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Connect {integration.name}</h2>
         <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{integration.description}</p>
         {error && <div style={S.error}>{error}</div>}
@@ -74,7 +75,7 @@ export function IntegrationConnectModal({ integration, onClose, onSave }) {
             <button type="submit" style={{ ...S.btnPrimary, width: "auto", opacity: saving ? 0.5 : 1 }} disabled={saving}>{saving ? "Saving..." : "Connect"}</button>
           </div>
         </form>
-      </div>
+      </div></FocusTrap>
     </div>
   );
 }
@@ -115,7 +116,7 @@ function ProviderConnectModal({ provider, onClose, onSave }) {
   return (
     <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
-      <div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
+      <FocusTrap><div className="popover-animate" style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420, boxShadow: "var(--shadow-lg)" }}>
         <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>Connect {provider.name}</h2>
         <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>{provider.description}</p>
         {error && <div style={S.error}>{error}</div>}
@@ -127,7 +128,7 @@ function ProviderConnectModal({ provider, onClose, onSave }) {
             <button type="submit" style={{ ...S.btnPrimary, width: "auto", opacity: (saving || validating) ? 0.5 : 1 }} disabled={saving || validating}>{btnLabel}</button>
           </div>
         </form>
-      </div>
+      </div></FocusTrap>
     </div>
   );
 }
