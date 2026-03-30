@@ -25,7 +25,7 @@ import { chatCompletionForWorker } from './providers/index.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
-import { getBuiltinTools, isBuiltinTool, executeBuiltinTool } from './builtin-tools.js';
+import { getBuiltinTools, isBuiltinTool, executeBuiltinTool, setPool as setBuiltinToolsPool } from './builtin-tools.js';
 import { handleWorkerRoute } from './workers-api.js';
 import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBillingStatus } from './billing.js';
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
@@ -40,6 +40,7 @@ import {
   createApprovalRecord,
 } from './charter-enforcement.js';
 import { pollApprovedActions } from './approval-resume.js';
+import { startReportScheduler } from './scheduled-reports.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -107,6 +108,9 @@ const pool = new Pool({
 pool.on('error', (err) => {
   log('error', `Unexpected pool error: ${err.message}`);
 });
+
+// Give builtin-tools access to the pool for worker delegation
+setBuiltinToolsPool(pool);
 
 // Initialize ChatGPT provider with Postgres for token persistence
 initChatGPTProvider(pool);
@@ -768,7 +772,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             if (isShadowMode) {
               toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
             } else if (isBuiltinTool(tc.name)) {
-              toolResult = await executeBuiltinTool(tc.name, args);
+              toolResult = await executeBuiltinTool(tc.name, args, { execution_id: executionId });
             } else {
               toolResult = await executeTool(worker.tenant_id, tc.name, args);
             }
@@ -1931,6 +1935,9 @@ async function start() {
   // Start poll loop
   pollTimer = setInterval(pollCycle, POLL_INTERVAL_MS);
   log('info', `Poll loop started (every ${POLL_INTERVAL_MS}ms, max ${MAX_CONCURRENT} concurrent)`);
+
+  // Start daily report scheduler
+  startReportScheduler(pool);
 
   // Run first cycle immediately
   pollCycle();

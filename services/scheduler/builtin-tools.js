@@ -26,6 +26,7 @@ const RESEND_FROM = process.env.RESEND_FROM || 'workers@nooterra.ai';
 const BUILTIN_TOOL_NAMES = new Set([
   'web_search', 'browse_webpage', 'read_document',
   'send_sms', 'make_phone_call', 'send_email',
+  'delegate_to_worker',
 ]);
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -132,6 +133,23 @@ const TOOL_DEFINITIONS = [
           html: { type: 'boolean', description: 'Whether body is HTML', default: false },
         },
         required: ['to', 'subject', 'body'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delegate_to_worker',
+      description: 'Delegate a subtask to another worker. Creates a new execution for the target worker and optionally waits for the result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          worker_id: { type: 'string', description: 'ID of the target worker to delegate to' },
+          task: { type: 'string', description: 'Description of the task to delegate' },
+          context: { type: 'string', description: 'Additional context or data to pass to the target worker' },
+          wait_for_result: { type: 'boolean', description: 'Whether to wait for the target worker to complete (max 5 min). If false, returns immediately with the execution ID.', default: false },
+        },
+        required: ['worker_id', 'task'],
       },
     },
   },
@@ -555,6 +573,104 @@ async function sendEmail({ to, subject, body, html = false }) {
 }
 
 // ---------------------------------------------------------------------------
+// Worker Delegation
+// ---------------------------------------------------------------------------
+
+/**
+ * Pool reference set by the scheduler at startup so delegation can create
+ * executions without a circular import.
+ */
+let _pool = null;
+
+/** Call once from the scheduler to give builtin-tools access to the DB pool. */
+export function setPool(pool) {
+  _pool = pool;
+}
+
+function delegationGenerateId(prefix = 'exec') {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${ts}_${rand}`;
+}
+
+const DELEGATION_POLL_MS = 2000;
+const DELEGATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+async function delegateToWorker({ worker_id, task, context, wait_for_result = false }, _meta) {
+  if (!_pool) {
+    return { error: 'Delegation not available — database pool not configured' };
+  }
+
+  // Look up the target worker
+  const wr = await _pool.query(
+    `SELECT id, tenant_id, model, status FROM workers WHERE id = $1`,
+    [worker_id]
+  );
+  if (wr.rowCount === 0) {
+    return { error: `Target worker not found: ${worker_id}` };
+  }
+  const target = wr.rows[0];
+  if (target.status === 'archived' || target.status === 'paused') {
+    return { error: `Target worker is ${target.status} and cannot accept delegations` };
+  }
+
+  // Build initial activity with delegation context
+  const initialActivity = [
+    { ts: new Date().toISOString(), type: 'delegation', detail: `Delegated task: ${task}` },
+  ];
+  if (context) {
+    initialActivity.push({ ts: new Date().toISOString(), type: 'delegation_context', detail: context.slice(0, 10000) });
+  }
+
+  // Create execution for the target worker
+  const execId = delegationGenerateId('exec');
+  const parentExecId = _meta?.execution_id || null;
+  await _pool.query(
+    `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity, metadata)
+     VALUES ($1, $2, $3, 'delegation', 'queued', $4, $5, $6::jsonb, $7::jsonb)`,
+    [
+      execId, worker_id, target.tenant_id, target.model,
+      new Date().toISOString(), JSON.stringify(initialActivity),
+      JSON.stringify({ parent_execution_id: parentExecId, delegated_task: task }),
+    ]
+  );
+
+  log('info', `Delegation created: exec ${execId} for worker ${worker_id} (parent: ${parentExecId})`);
+
+  if (!wait_for_result) {
+    return { ok: true, execution_id: execId, worker_id, status: 'queued', message: 'Delegation created. The target worker will execute asynchronously.' };
+  }
+
+  // Poll until the execution completes or times out
+  const deadline = Date.now() + DELEGATION_TIMEOUT_MS;
+  const TERMINAL = new Set(['completed', 'failed', 'shadow_completed', 'charter_blocked', 'budget_exceeded', 'auto_paused', 'error']);
+
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, DELEGATION_POLL_MS));
+    const check = await _pool.query(
+      `SELECT status, result, error FROM worker_executions WHERE id = $1`,
+      [execId]
+    );
+    if (check.rowCount === 0) {
+      return { error: 'Delegated execution disappeared' };
+    }
+    const row = check.rows[0];
+    if (TERMINAL.has(row.status)) {
+      return {
+        ok: row.status === 'completed' || row.status === 'shadow_completed',
+        execution_id: execId,
+        worker_id,
+        status: row.status,
+        result: row.result?.slice(0, 15000) || null,
+        error: row.error || null,
+      };
+    }
+  }
+
+  return { ok: false, execution_id: execId, worker_id, status: 'timeout', message: 'Delegation timed out after 5 minutes' };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -572,9 +688,10 @@ export function isBuiltinTool(name) {
  * Execute a builtin tool by name.
  * @param {string} toolName
  * @param {object} args
+ * @param {object} [meta] - Optional metadata (e.g. execution_id for delegation tracing)
  * @returns {Promise<{success: boolean, result?: any, error?: string}>}
  */
-export async function executeBuiltinTool(toolName, args) {
+export async function executeBuiltinTool(toolName, args, meta) {
   try {
     let result;
     switch (toolName) {
@@ -596,6 +713,9 @@ export async function executeBuiltinTool(toolName, args) {
       case 'send_email':
         result = await sendEmail(args);
         break;
+      case 'delegate_to_worker':
+        result = await delegateToWorker(args, meta);
+        break;
       default:
         return { success: false, error: `Unknown builtin tool: ${toolName}` };
     }
@@ -608,4 +728,4 @@ export async function executeBuiltinTool(toolName, args) {
   }
 }
 
-export default { getBuiltinTools, isBuiltinTool, executeBuiltinTool };
+export default { getBuiltinTools, isBuiltinTool, executeBuiltinTool, setPool };

@@ -4,6 +4,7 @@ import { loadRuntimeConfig } from "../api.js";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
 import { WorkerIntegrationsSection } from "./IntegrationsView.jsx";
+import FileUploadZone from "../components/FileUploadZone.jsx";
 
 function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
   const [worker, setWorker] = useState(null);
@@ -99,7 +100,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
   const stats = typeof worker.stats === "string" ? (() => { try { return JSON.parse(worker.stats); } catch { return null; } })() : worker.stats;
-  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "files", label: "Files" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
@@ -344,6 +345,12 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
       {tab === "chat" && (
         <WorkerChat workerId={workerId} workerName={worker.name} model={worker.model} />
+      )}
+
+      {tab === "files" && (
+        <div style={{ maxWidth: 520 }}>
+          <FileUploadZone workerId={workerId} addToast={addToast} />
+        </div>
       )}
 
       {tab === "integrations" && (

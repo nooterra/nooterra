@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 import { validateCharterRules } from './charter-enforcement.js';
+import { presignS3Url } from '../../src/core/s3-presign.js';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -899,6 +900,109 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       return json(res, 200, { ok: true, member: result.rows[0] }), true;
     } catch (e) {
       return err(res, 500, e?.message || 'failed to remove member'), true;
+    }
+  }
+
+  // =========================================================================
+  // Worker File Uploads (S3 presigned URLs)
+  // =========================================================================
+
+  const S3_ENDPOINT = process.env.WORKER_S3_ENDPOINT || process.env.PROXY_EVIDENCE_S3_ENDPOINT || '';
+  const S3_REGION = process.env.WORKER_S3_REGION || process.env.PROXY_EVIDENCE_S3_REGION || 'us-east-1';
+  const S3_BUCKET = process.env.WORKER_S3_BUCKET || process.env.PROXY_EVIDENCE_S3_BUCKET || '';
+  const S3_ACCESS_KEY_ID = process.env.WORKER_S3_ACCESS_KEY_ID || process.env.PROXY_EVIDENCE_S3_ACCESS_KEY_ID || '';
+  const S3_SECRET_ACCESS_KEY = process.env.WORKER_S3_SECRET_ACCESS_KEY || process.env.PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY || '';
+
+  // POST /v1/workers/:id/files — generate a presigned upload URL
+  const filesUploadMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/files$/);
+  if (method === 'POST' && filesUploadMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const wid = filesUploadMatch[1];
+
+    // Verify worker belongs to tenant
+    const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [wid, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+
+    const body = await readBody(req);
+    if (!body?.filename) return err(res, 400, 'filename is required'), true;
+
+    const ALLOWED_EXTENSIONS = new Set(['pdf', 'csv', 'json', 'txt', 'md', 'png', 'jpg', 'jpeg', 'gif', 'webp']);
+    const ext = (body.filename.split('.').pop() || '').toLowerCase();
+    if (!ALLOWED_EXTENSIONS.has(ext)) return err(res, 400, `Unsupported file type: .${ext}`), true;
+
+    const contentType = body.content_type || 'application/octet-stream';
+
+    if (!S3_ENDPOINT || !S3_ACCESS_KEY_ID || !S3_SECRET_ACCESS_KEY || !S3_BUCKET) {
+      return err(res, 503, 'File storage not configured — S3 credentials missing'), true;
+    }
+
+    const fileId = generateId('file');
+    const s3Key = `workers/${tid}/${wid}/${fileId}.${ext}`;
+
+    try {
+      const uploadUrl = presignS3Url({
+        endpoint: S3_ENDPOINT,
+        region: S3_REGION,
+        bucket: S3_BUCKET,
+        key: s3Key,
+        method: 'PUT',
+        accessKeyId: S3_ACCESS_KEY_ID,
+        secretAccessKey: S3_SECRET_ACCESS_KEY,
+        expiresInSeconds: 3600,
+      });
+
+      // Store file metadata
+      await pool.query(
+        `INSERT INTO worker_files (id, worker_id, tenant_id, filename, s3_key, content_type, size_bytes, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [fileId, wid, tid, body.filename, s3Key, contentType, body.size || 0]
+      );
+
+      return json(res, 200, { upload_url: uploadUrl, file_id: fileId, s3_key: s3Key }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to generate upload URL'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/files — list uploaded files for a worker
+  if (method === 'GET' && filesUploadMatch) {
+    const tid = getTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const wid = filesUploadMatch[1];
+
+    try {
+      const result = await pool.query(
+        `SELECT id, filename, content_type, size_bytes, created_at FROM worker_files
+         WHERE worker_id = $1 AND tenant_id = $2
+         ORDER BY created_at DESC LIMIT 100`,
+        [wid, tid]
+      );
+
+      // Generate download URLs for each file
+      const files = result.rows.map(f => {
+        let download_url = null;
+        if (S3_ENDPOINT && S3_ACCESS_KEY_ID && S3_SECRET_ACCESS_KEY && S3_BUCKET) {
+          try {
+            const s3Key = `workers/${tid}/${wid}/${f.id}.${(f.filename.split('.').pop() || '').toLowerCase()}`;
+            download_url = presignS3Url({
+              endpoint: S3_ENDPOINT,
+              region: S3_REGION,
+              bucket: S3_BUCKET,
+              key: s3Key,
+              method: 'GET',
+              accessKeyId: S3_ACCESS_KEY_ID,
+              secretAccessKey: S3_SECRET_ACCESS_KEY,
+              expiresInSeconds: 3600,
+            });
+          } catch { /* ignore presign errors */ }
+        }
+        return { ...f, download_url };
+      });
+
+      return json(res, 200, { files, count: result.rowCount }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to list files'), true;
     }
   }
 
