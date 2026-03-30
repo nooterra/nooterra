@@ -101,6 +101,39 @@ const TOOL_TIMEOUT_MS = 15000;
 const MAX_TOOL_RESULT_SIZE = 50000;
 
 // ---------------------------------------------------------------------------
+// Spam Throttle — per-worker execution rate tracking
+// ---------------------------------------------------------------------------
+
+const workerExecHistory = new Map(); // workerId -> { timestamps: number[], throttledUntil: number }
+
+function isWorkerThrottled(workerId) {
+  const now = Date.now();
+  const entry = workerExecHistory.get(workerId);
+  if (!entry) return false;
+
+  // Currently throttled?
+  if (entry.throttledUntil && now < entry.throttledUntil) return true;
+
+  // Clean old timestamps (keep last 10 min)
+  entry.timestamps = entry.timestamps.filter(ts => now - ts < 600000);
+
+  // More than 20 executions in 10 minutes = throttle for 5 minutes
+  if (entry.timestamps.length >= 20) {
+    entry.throttledUntil = now + 300000; // 5 min cooldown
+    return true;
+  }
+
+  return false;
+}
+
+function recordWorkerExec(workerId) {
+  if (!workerExecHistory.has(workerId)) {
+    workerExecHistory.set(workerId, { timestamps: [], throttledUntil: 0 });
+  }
+  workerExecHistory.get(workerId).timestamps.push(Date.now());
+}
+
+// ---------------------------------------------------------------------------
 // Postgres Connection
 // ---------------------------------------------------------------------------
 
@@ -436,6 +469,69 @@ function buildMessages(charter, knowledge, worker, memory) {
 }
 
 /**
+ * Smart polling gate — cheap check for new activity before running full LLM.
+ * Returns true if the worker should proceed, false if nothing new detected.
+ * Only applies to cron/interval triggers (manual/webhook always proceed).
+ */
+async function shouldWorkerRun(worker, triggerType, addActivity) {
+  // Manual, webhook, delegation, and approval triggers always run
+  if (triggerType !== 'cron' && triggerType !== 'interval') return true;
+
+  const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
+
+  // If charter explicitly says "always run", skip the gate
+  if (charter?.alwaysRun === true) return true;
+
+  // Check if this worker uses integration tools (Gmail, Slack, etc.)
+  // If no integrations, it's a standalone worker — always run
+  try {
+    const integrationsResult = await pool.query(
+      `SELECT service FROM tenant_integrations WHERE tenant_id = $1 AND status = 'connected'`,
+      [worker.tenant_id]
+    );
+    if (integrationsResult.rowCount === 0) return true; // no integrations, always run
+  } catch {
+    return true; // can't check, fail open
+  }
+
+  // Check last run's result — if last run had zero tool calls, increase backoff
+  try {
+    const lastExecResult = await pool.query(
+      `SELECT tool_calls, result, completed_at FROM worker_executions
+       WHERE worker_id = $1 AND status IN ('completed', 'shadow_completed')
+       ORDER BY completed_at DESC LIMIT 3`,
+      [worker.id]
+    );
+
+    const recentRuns = lastExecResult.rows;
+    if (recentRuns.length === 0) return true; // never run before, proceed
+
+    // Count how many recent runs had zero tool calls (nothing to do)
+    const idleRuns = recentRuns.filter(r => (parseInt(r.tool_calls) || 0) === 0).length;
+
+    if (idleRuns >= 3) {
+      // Last 3 runs were all idle — apply adaptive backoff
+      // Skip this run with 75% probability (effectively 4x slower polling)
+      if (Math.random() < 0.75) {
+        addActivity('smart_skip', 'Skipped: last 3 runs found nothing to do (adaptive frequency)');
+        return false;
+      }
+    } else if (idleRuns >= 2) {
+      // Last 2 idle — skip 50%
+      if (Math.random() < 0.50) {
+        addActivity('smart_skip', 'Skipped: last 2 runs were idle (adaptive frequency)');
+        return false;
+      }
+    }
+  } catch (err) {
+    // Can't check history, proceed anyway
+    return true;
+  }
+
+  return true;
+}
+
+/**
  * Execute a single worker and record results.
  */
 async function executeWorker(worker, executionId, triggerType, resumeContext = null) {
@@ -470,7 +566,63 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     ? `Execution resumed after approval (tools: ${resumeContext.approvedToolCalls.map(t => t.name).join(', ')})`
     : `Execution started via ${triggerType}`);
 
+  // Smart polling gate — skip if nothing new for scheduled workers
+  if (!isResume) {
+    const shouldRun = await shouldWorkerRun(worker, triggerType, addActivity);
+    if (!shouldRun) {
+      await updateExecution(executionId, {
+        status: 'skipped',
+        completedAt: new Date(),
+        error: null,
+        activity,
+      });
+      return;
+    }
+  }
+
   try {
+    // Per-worker daily run cap — prevents any single worker from dominating the budget
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const dailyResult = await pool.query(
+        `SELECT COUNT(*) as cnt FROM worker_executions WHERE worker_id = $1 AND started_at >= $2`,
+        [worker.id, todayStart]
+      );
+      const dailyCount = parseInt(dailyResult.rows[0]?.cnt || 0);
+
+      // Default: 200 runs/day per worker. Can be overridden in charter.
+      const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
+      const maxDailyRuns = charter?.maxDailyRuns || parseInt(process.env.MAX_DAILY_RUNS_PER_WORKER || '200', 10);
+
+      if (dailyCount >= maxDailyRuns) {
+        addActivity('rate_limited', `Daily run limit reached (${dailyCount}/${maxDailyRuns}). Resets at midnight UTC.`);
+        await updateExecution(executionId, {
+          status: 'rate_limited',
+          completedAt: new Date(),
+          error: `Worker daily run limit (${maxDailyRuns}) reached. Resets at midnight UTC.`,
+          activity,
+        });
+        return;
+      }
+    } catch (err) {
+      log('warn', `Daily run cap check failed for worker ${worker.id}: ${err.message}`);
+    }
+
+    // Spam throttle — prevent rapid-fire execution abuse
+    if (isWorkerThrottled(worker.id)) {
+      addActivity('rate_limited', 'Worker throttled: too many executions in short window (anti-spam)');
+      await updateExecution(executionId, {
+        status: 'rate_limited',
+        completedAt: new Date(),
+        error: 'Too many executions in a short period. Cooling down for 5 minutes.',
+        activity,
+      });
+      return;
+    }
+    recordWorkerExec(worker.id);
+
     // Check monthly execution limit for tenant's plan
     try {
       const tierResult = await pool.query('SELECT tier FROM tenant_credits WHERE tenant_id = $1', [worker.tenant_id]);
@@ -1309,7 +1461,35 @@ async function pollCronWorkers() {
     }
   }
 
-  return dueWorkers;
+  // Budget-aware filtering — when credits are low, reduce scheduled execution frequency
+  const budgetFilteredWorkers = [];
+  for (const entry of dueWorkers) {
+    try {
+      const balResult = await pool.query(
+        'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
+        [entry.worker.tenant_id]
+      );
+      const balance = parseFloat(balResult.rows[0]?.balance_usd ?? 0);
+
+      // If balance below $0.25, skip all scheduled runs (only manual triggers)
+      if (balance < 0.25) {
+        log('info', `Very low balance ($${balance.toFixed(2)}) — pausing scheduled runs for ${entry.worker.name}`);
+        continue;
+      }
+
+      // If balance below $1, only run every other scheduled cycle (50% reduction)
+      if (balance < 1.0 && Math.random() < 0.5) {
+        log('info', `Low balance ($${balance.toFixed(2)}) — skipping scheduled run for ${entry.worker.name}`);
+        continue;
+      }
+
+      budgetFilteredWorkers.push(entry);
+    } catch {
+      budgetFilteredWorkers.push(entry); // fail open
+    }
+  }
+
+  return budgetFilteredWorkers;
 }
 
 /**

@@ -33,6 +33,7 @@ const BUILTIN_TOOL_NAMES = new Set([
   'delegate_to_worker',
   'check_balance', 'make_payment', 'request_payment', 'store_file',
   'run_code', 'generate_image', 'wait_for_event',
+  'check_processed', 'mark_processed',
 ]);
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -263,6 +264,35 @@ const TOOL_DEFINITIONS = [
           reason: { type: 'string', description: 'Why the worker is waiting (logged for visibility)' },
         },
         required: ['seconds'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_processed',
+      description: 'Check if an item (email ID, message ID, etc.) has already been processed. Use this before processing to avoid duplicates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          item_id: { type: 'string', description: 'Unique identifier of the item (e.g., email ID, message ID)' },
+        },
+        required: ['item_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_processed',
+      description: 'Mark an item as processed so it won\'t be handled again on the next run.',
+      parameters: {
+        type: 'object',
+        properties: {
+          item_id: { type: 'string', description: 'Unique identifier of the item' },
+          summary: { type: 'string', description: 'Brief summary of what was done (optional)' },
+        },
+        required: ['item_id'],
       },
     },
   },
@@ -1140,6 +1170,52 @@ export async function executeBuiltinTool(toolName, args, meta) {
         }
         break;
       }
+      case 'check_processed': {
+        if (!_pool) return { success: false, error: 'Database not available' };
+        const workerId = meta?.worker_id;
+        if (!workerId || !args.item_id) return { success: false, error: 'worker_id and item_id required' };
+
+        const cpResult = await _pool.query(
+          `SELECT value FROM worker_memory WHERE worker_id = $1 AND key = $2 AND scope = 'processed'`,
+          [workerId, `processed:${args.item_id}`]
+        );
+
+        result = {
+          already_processed: cpResult.rowCount > 0,
+          processed_at: cpResult.rows[0]?.value ? JSON.parse(cpResult.rows[0].value).processed_at : null,
+          summary: cpResult.rows[0]?.value ? JSON.parse(cpResult.rows[0].value).summary : null,
+        };
+        break;
+      }
+
+      case 'mark_processed': {
+        if (!_pool) return { success: false, error: 'Database not available' };
+        const mpWorkerId = meta?.worker_id;
+        if (!mpWorkerId || !args.item_id) return { success: false, error: 'worker_id and item_id required' };
+
+        const value = JSON.stringify({
+          processed_at: new Date().toISOString(),
+          summary: args.summary || null,
+          execution_id: meta?.execution_id,
+        });
+
+        await _pool.query(
+          `INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 'processed', now())
+           ON CONFLICT (worker_id, key) DO UPDATE SET value = $5, updated_at = now()`,
+          [
+            `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+            mpWorkerId,
+            meta?.tenant_id || null,
+            `processed:${args.item_id}`,
+            value,
+          ]
+        );
+
+        result = { marked: true, item_id: args.item_id };
+        break;
+      }
+
       default:
         return { success: false, error: `Unknown builtin tool: ${toolName}` };
     }
