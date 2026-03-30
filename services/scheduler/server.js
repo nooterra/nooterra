@@ -670,7 +670,17 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1',
       [worker.tenant_id]
     );
-    const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? 0);
+    if (creditResult.rowCount === 0) {
+      // New tenant — seed with free trial credits ($2.00)
+      await pool.query(
+        `INSERT INTO tenant_credits (tenant_id, balance_usd, total_spent_usd, updated_at)
+         VALUES ($1, 2.00, 0, now())
+         ON CONFLICT (tenant_id) DO NOTHING`,
+        [worker.tenant_id]
+      );
+      log('info', `Seeded $2.00 free trial credits for tenant ${worker.tenant_id}`);
+    }
+    const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? (creditResult.rowCount === 0 ? 2.00 : 0));
     if (balance < MIN_BALANCE_THRESHOLD) {
       addActivity('error', 'Insufficient credits');
       await updateExecution(executionId, {
@@ -1725,11 +1735,19 @@ async function handleWorkerChat(req, res, workerId) {
     const creditResult = await pool.query(
       'SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1', [tenantId]
     );
-    const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? 0);
-    if (balance < MIN_BALANCE_THRESHOLD) {
-      res.writeHead(402, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Insufficient credits' }));
-      return;
+    if (creditResult.rowCount === 0) {
+      await pool.query(
+        `INSERT INTO tenant_credits (tenant_id, balance_usd, total_spent_usd, updated_at) VALUES ($1, 2.00, 0, now()) ON CONFLICT (tenant_id) DO NOTHING`,
+        [tenantId]
+      );
+      // Continue — they now have credits
+    } else {
+      const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? 0);
+      if (balance < MIN_BALANCE_THRESHOLD) {
+        res.writeHead(402, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Insufficient credits' }));
+        return;
+      }
     }
   } catch { /* fail open */ }
 

@@ -212,6 +212,76 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
         </button>
       </div>
 
+      {/* Capability toggles — like Claude's search icon */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, marginBottom: "1rem",
+        flexWrap: "wrap",
+      }}>
+        <span style={{ fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))", marginRight: 4 }}>Tools:</span>
+        {[
+          { key: "web_search", icon: "\uD83D\uDD0D", label: "Web Search", desc: "Search the internet" },
+          { key: "browse_webpage", icon: "\uD83C\uDF10", label: "Browse", desc: "Read web pages" },
+          { key: "send_email", icon: "\u2709\uFE0F", label: "Email", desc: "Send emails" },
+          { key: "check_balance", icon: "\uD83D\uDCB0", label: "Wallet", desc: "Check & spend credits" },
+          { key: "run_code", icon: "\u26A1", label: "Code", desc: "Run calculations" },
+          { key: "generate_image", icon: "\uD83C\uDFA8", label: "Images", desc: "Generate images" },
+          { key: "store_file", icon: "\uD83D\uDCC1", label: "Files", desc: "Save files" },
+        ].map(tool => {
+          const charterObj = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return {}; } })() : (worker.charter || {});
+          const enabledTools = charterObj.enabledTools || [];
+          const isEnabled = enabledTools.length > 0
+            ? enabledTools.includes(tool.key)
+            : ["web_search", "browse_webpage", "check_balance", "send_email"].includes(tool.key);
+
+          return (
+            <button
+              key={tool.key}
+              title={`${tool.label}: ${tool.desc}${isEnabled ? " (enabled)" : " (disabled)"}`}
+              onClick={async () => {
+                const newCharter = { ...charterObj };
+                const current = newCharter.enabledTools || ["web_search", "browse_webpage", "check_balance", "send_email"];
+                if (current.includes(tool.key)) {
+                  newCharter.enabledTools = current.filter(t => t !== tool.key);
+                } else {
+                  newCharter.enabledTools = [...current, tool.key];
+                }
+                try {
+                  await workerApiRequest({
+                    pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
+                    method: "PUT",
+                    body: { charter: JSON.stringify(newCharter) },
+                  });
+                  setWorker(prev => prev ? { ...prev, charter: JSON.stringify(newCharter) } : prev);
+                  toast(isEnabled ? `${tool.label} disabled` : `${tool.label} enabled`, "success");
+                } catch (err) {
+                  toast("Failed to update tools", "error");
+                }
+              }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "4px 10px", borderRadius: 20,
+                fontSize: "12px", fontWeight: 500,
+                border: isEnabled
+                  ? "1.5px solid var(--product-accent, #1f685c)"
+                  : "1px solid var(--product-line, var(--border))",
+                background: isEnabled
+                  ? "var(--product-accent-soft, rgba(31,104,92,0.08))"
+                  : "transparent",
+                color: isEnabled
+                  ? "var(--product-accent, #1f685c)"
+                  : "var(--product-ink-soft, var(--text-tertiary))",
+                cursor: "pointer",
+                transition: "all 150ms",
+                opacity: isEnabled ? 1 : 0.6,
+              }}
+            >
+              <span>{tool.icon}</span>
+              <span>{tool.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Stats strip */}
       {(stats?.totalRuns > 0 || worker.last_run_at || worker.lastRun) && (
         <div style={{
@@ -386,8 +456,12 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
           {logs.length > 0 && (
             <div>
-              {logs.map((entry, i) => (
-                <ActivityLogEntry key={entry.id || entry.ts || i} entry={entry} isNew={isNewDeploy && i >= logs.length - 3} />
+              {logs.filter((entry, i, arr) => {
+                if (i === 0) return true;
+                const prev = arr[i - 1];
+                return !(entry.type === prev.type && (entry.detail || "") === (prev.detail || "") && (entry.summary || "") === (prev.summary || ""));
+              }).map((entry, i, filtered) => (
+                <ActivityLogEntry key={entry.id || entry.ts || i} entry={entry} isNew={isNewDeploy && i >= filtered.length - 3} />
               ))}
             </div>
           )}
@@ -722,7 +796,15 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 function SettingsTab({ worker, onUpdate }) {
   const [selectedModel, setSelectedModel] = useState(worker.model || "");
   const [saving, setSaving] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const modelInfo = ALL_MODELS.find(m => m.id === selectedModel);
+
+  useEffect(() => {
+    if (!modelDropdownOpen) return;
+    const handler = (e) => { if (!e.target.closest('[data-model-dropdown]')) setModelDropdownOpen(false); };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [modelDropdownOpen]);
 
   // Schedule state
   const [scheduleMode, setScheduleMode] = useState("manual");
@@ -796,35 +878,62 @@ function SettingsTab({ worker, onUpdate }) {
     <div style={{ maxWidth: 520 }}>
       <div style={{ marginBottom: 24 }}>
         <label style={{ ...S.label, marginBottom: 8, display: "block" }}>Model</label>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {MODEL_CATEGORIES.map(cat => {
-            const models = ALL_MODELS.filter(m => m.category === cat.key);
-            if (models.length === 0) return null;
-            return (
-              <div key={cat.key}>
-                <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", padding: "8px 0 4px" }}>{cat.label}</div>
-                {models.map(m => (
-                  <button key={m.id} onClick={() => handleModelChange(m.id)} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    width: "100%", padding: "8px 12px", borderRadius: 6,
-                    border: m.id === selectedModel ? "1px solid var(--accent)" : "1px solid transparent",
-                    background: m.id === selectedModel ? "var(--accent-subtle, rgba(196,97,58,0.04))" : "transparent",
-                    cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                    transition: "background 100ms, border-color 100ms",
-                  }}
-                  onMouseEnter={e => { if (m.id !== selectedModel) e.currentTarget.style.background = "var(--bg-hover, var(--bg-300))"; }}
-                  onMouseLeave={e => { if (m.id !== selectedModel) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <div>
-                      <span style={{ fontSize: "13px", fontWeight: m.id === selectedModel ? 600 : 400, color: "var(--text-primary)" }}>{m.name}</span>
-                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)", marginLeft: 8 }}>{m.provider}</span>
-                    </div>
-                    <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{m.price}/M</span>
-                  </button>
-                ))}
-              </div>
-            );
-          })}
+        <div data-model-dropdown style={{ position: "relative" }}>
+          <button
+            onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+            style={{
+              width: "100%", padding: "10px 14px", fontSize: "14px",
+              border: "1px solid var(--product-line, var(--border))",
+              borderRadius: 8, background: "var(--product-panel, var(--bg-surface))",
+              color: "var(--product-ink-strong, var(--text-primary))",
+              textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}
+          >
+            <span>{modelInfo?.name || selectedModel || "Select model"}</span>
+            <span style={{ fontSize: "10px", opacity: 0.5 }}>&#9660;</span>
+          </button>
+          {modelDropdownOpen && (
+            <div style={{
+              position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+              marginTop: 4, maxHeight: 300, overflowY: "auto",
+              background: "var(--product-panel-strong, var(--bg-surface))",
+              border: "1px solid var(--product-line, var(--border))",
+              borderRadius: 10, boxShadow: "var(--product-shadow-soft)",
+              padding: 4,
+            }}>
+              {MODEL_CATEGORIES.map(cat => {
+                const models = ALL_MODELS.filter(m => m.category === cat.key);
+                if (models.length === 0) return null;
+                return (
+                  <div key={cat.key}>
+                    <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", padding: "8px 12px 4px" }}>{cat.label}</div>
+                    {models.map(m => (
+                      <button key={m.id} onClick={() => { handleModelChange(m.id); setModelDropdownOpen(false); }}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          width: "100%", padding: "8px 12px",
+                          fontSize: "13px", fontFamily: "inherit",
+                          border: "none", background: m.id === selectedModel ? "var(--product-accent-soft, var(--accent-subtle, rgba(196,97,58,0.08)))" : "transparent",
+                          color: m.id === selectedModel ? "var(--product-accent, var(--accent))" : "var(--product-ink, var(--text-primary))",
+                          textAlign: "left", cursor: "pointer", borderRadius: 6,
+                          fontWeight: m.id === selectedModel ? 600 : 400,
+                        }}
+                        onMouseEnter={e => e.target.style.background = "var(--product-accent-soft, var(--accent-subtle, rgba(196,97,58,0.06)))"}
+                        onMouseLeave={e => { if (m.id !== selectedModel) e.target.style.background = "transparent"; }}
+                      >
+                        <div>
+                          <span>{m.name}</span>
+                          <span style={{ fontSize: "11px", color: "var(--text-tertiary)", marginLeft: 8 }}>{m.provider}</span>
+                        </div>
+                        <span style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{m.price}/M</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1636,7 +1745,7 @@ function ActivityLogEntry({ entry, isNew }) {
           </span>
         </div>
         <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: 2, lineHeight: 1.5, wordBreak: "break-word" }}>
-          {entry.detail || entry.summary || ""}
+          {entry.detail || entry.summary || (typeConfig[entry.type] ? "" : "No details available")}
         </div>
       </div>
     </div>

@@ -183,14 +183,23 @@ export default function App() {
   const [oauthCloseFailed, setOauthCloseFailed] = useState(false);
   useEffect(() => {
     if (!isOAuthCallback) return;
+    // Try to close popup (works if opened via window.open from same origin)
     try { window.opener && window.opener.focus(); } catch(e) {}
-    const timer = setTimeout(() => {
+
+    const closeTimer = setTimeout(() => {
       try { window.close(); } catch(e) {}
-      // window.close() is silently ignored when the browser didn't open this tab via JS.
-      // If we're still here after a beat, show a redirect fallback.
-      setTimeout(() => setOauthCloseFailed(true), 400);
-    }, 1500);
-    return () => clearTimeout(timer);
+    }, 800);
+
+    // Auto-redirect fallback after 2s — don't leave user stranded
+    const redirectTimer = setTimeout(() => {
+      setOauthCloseFailed(true);
+      // Auto-redirect after showing the link briefly
+      setTimeout(() => {
+        window.location.href = '/integrations';
+      }, 1500);
+    }, 2000);
+
+    return () => { clearTimeout(closeTimer); clearTimeout(redirectTimer); };
   }, [isOAuthCallback]);
 
   if (isOAuthCallback) {
@@ -202,7 +211,10 @@ export default function App() {
           </div>
           <div style={{ fontSize: "16px", fontWeight: 600, color: "#1a1a1a", marginBottom: 8 }}>Connected!</div>
           {oauthCloseFailed ? (
-            <a href="/integrations" style={{ fontSize: "13px", color: "#5bb98c", textDecoration: "underline" }}>Return to Integrations</a>
+            <div>
+              <div style={{ fontSize: "13px", color: "#888", marginBottom: 8 }}>Redirecting to integrations...</div>
+              <a href="/integrations" style={{ fontSize: "13px", color: "#5bb98c", textDecoration: "underline" }}>Click here if not redirected</a>
+            </div>
           ) : (
             <div style={{ fontSize: "13px", color: "#888" }}>This window will close automatically.</div>
           )}
