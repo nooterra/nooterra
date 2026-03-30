@@ -70,6 +70,7 @@
     "setup:circle": "node scripts/setup/circle-bootstrap.mjs",
     "setup:openclaw": "node scripts/setup/openclaw-onboard.mjs",
     "start:prod": "NODE_ENV=production node src/api/server.js",
+    "start:scheduler": "NODE_ENV=production node services/scheduler/server.js",
     "start:maintenance": "NODE_ENV=production node src/api/maintenance.js",
     "start:receiver": "NODE_ENV=production node services/receiver/src/server.js",
     "start:finance-sink": "NODE_ENV=production node services/finance-sink/src/server.js",
