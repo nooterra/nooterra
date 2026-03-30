@@ -260,8 +260,45 @@ async function sendSlackTestNotification(webhookUrl) {
 // ---------------------------------------------------------------------------
 
 async function sendEmailNotification({ email, event, worker, execution }) {
-  // TODO: Wire to email provider (Resend, SES, Postmark)
-  return { ok: false, error: 'Email delivery not yet configured' };
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || 'Nooterra <workers@nooterra.ai>';
+  if (!apiKey || !email) {
+    return { ok: false, error: 'Resend not configured or no email address' };
+  }
+
+  const subjects = {
+    'approval.required': `🔔 ${worker.name} needs your approval`,
+    'execution.completed': `✅ ${worker.name} completed`,
+    'execution.failed': `❌ ${worker.name} failed`,
+    'budget.low': `⚠️ Credits running low`,
+  };
+
+  const bodies = {
+    'approval.required': `<h2>${worker.name} needs approval</h2><p>Action: <strong>${execution?.action || 'perform an action'}</strong></p><p>${execution?.details || ''}</p><p><a href="${DASHBOARD_BASE_URL}/dashboard" style="background:#5b8def;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in Dashboard</a></p>`,
+    'execution.completed': `<h2>${worker.name} completed</h2><p>Cost: $${(execution?.costUsd || 0).toFixed(4)}</p><p>${execution?.result ? '<pre>' + String(execution.result).slice(0, 500) + '</pre>' : ''}</p>`,
+    'execution.failed': `<h2>${worker.name} failed</h2><p>Error: <strong>${execution?.error || 'Unknown'}</strong></p><p><a href="${DASHBOARD_BASE_URL}/dashboard">View details</a></p>`,
+    'budget.low': `<h2>Credits running low</h2><p>Current balance: <strong>$${(execution?.balance || 0).toFixed(2)}</strong></p><p><a href="${DASHBOARD_BASE_URL}/dashboard" style="background:#5b8def;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Top Up</a></p>`,
+  };
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        from,
+        to: [email],
+        subject: subjects[event] || `Nooterra: ${event}`,
+        html: bodies[event] || `<p>Event: ${event}</p><p>Worker: ${worker.name}</p>`,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      return { ok: false, error: `Resend ${res.status}: ${errBody.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `Email send failed: ${err.message}` };
+  }
 }
 
 // ---------------------------------------------------------------------------

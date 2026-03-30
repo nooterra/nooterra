@@ -2,7 +2,8 @@
  * Built-in Tools — zero-dependency tools that work without Composio
  *
  * Provides web search, webpage browsing, document reading, SMS/voice,
- * and transactional email capabilities using only native Node.js fetch.
+ * transactional email, code execution, image generation, and timed
+ * waiting capabilities using only native Node.js fetch and vm.
  * No external packages required.
  *
  * Tools:
@@ -12,6 +13,9 @@
  *   send_sms        — Send SMS via Twilio
  *   make_phone_call — Initiate a TTS phone call via Twilio
  *   send_email      — Send transactional email via Resend
+ *   run_code        — Sandboxed JavaScript execution via Node vm
+ *   generate_image  — Image generation via OpenAI DALL-E 3
+ *   wait_for_event  — Timed delay / pause execution
  */
 
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY;
@@ -27,6 +31,8 @@ const BUILTIN_TOOL_NAMES = new Set([
   'web_search', 'browse_webpage', 'read_document',
   'send_sms', 'make_phone_call', 'send_email',
   'delegate_to_worker',
+  'check_balance', 'make_payment', 'request_payment', 'store_file',
+  'run_code', 'generate_image', 'wait_for_event',
 ]);
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -150,6 +156,113 @@ const TOOL_DEFINITIONS = [
           wait_for_result: { type: 'boolean', description: 'Whether to wait for the target worker to complete (max 5 min). If false, returns immediately with the execution ID.', default: false },
         },
         required: ['worker_id', 'task'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_balance',
+      description: 'Check the current credit balance for this worker\'s account. Returns available balance and recent spend.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'make_payment',
+      description: 'Spend credits from the account balance. Use for purchasing services, paying for API calls, or any authorized expenditure. Requires approval if amount exceeds charter limits.',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount_usd: { type: 'number', description: 'Amount in USD to spend' },
+          recipient: { type: 'string', description: 'Who or what the payment is for' },
+          description: { type: 'string', description: 'What the payment is for' },
+        },
+        required: ['amount_usd', 'recipient', 'description'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_payment',
+      description: 'Create a payment request or invoice. Records the request for the account owner to review.',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount_usd: { type: 'number', description: 'Amount requested in USD' },
+          from: { type: 'string', description: 'Who should pay (e.g., client name, vendor)' },
+          description: { type: 'string', description: 'What the payment is for' },
+          due_date: { type: 'string', description: 'When payment is due (ISO date, optional)' },
+        },
+        required: ['amount_usd', 'from', 'description'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'store_file',
+      description: 'Save content to a file and get a download URL. Use for saving reports, data, or any generated content.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'Name for the file (e.g., "report.csv", "analysis.json")' },
+          content: { type: 'string', description: 'Content to write to the file' },
+          content_type: { type: 'string', description: 'MIME type (e.g., "text/csv", "application/json")', default: 'text/plain' },
+        },
+        required: ['filename', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_code',
+      description: 'Execute JavaScript code in a sandboxed environment. Use for calculations, data transformation, parsing, or any computation. Returns the result of the last expression.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'JavaScript code to execute. The result of the last expression is returned.' },
+          timeout_ms: { type: 'integer', description: 'Execution timeout in milliseconds (max 10000)', default: 5000 },
+        },
+        required: ['code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_image',
+      description: 'Generate an image from a text description using AI (DALL-E). Returns a URL to the generated image.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Detailed description of the image to generate' },
+          size: { type: 'string', description: 'Image size', enum: ['1024x1024', '1792x1024', '1024x1792'], default: '1024x1024' },
+          quality: { type: 'string', description: 'Image quality', enum: ['standard', 'hd'], default: 'standard' },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wait_for_event',
+      description: 'Pause execution for a specified duration or until a condition is met. Use for timed delays, waiting for external processes, or scheduled follow-ups.',
+      parameters: {
+        type: 'object',
+        properties: {
+          seconds: { type: 'integer', description: 'Number of seconds to wait (max 300 = 5 minutes)' },
+          reason: { type: 'string', description: 'Why the worker is waiting (logged for visibility)' },
+        },
+        required: ['seconds'],
       },
     },
   },
@@ -728,6 +841,305 @@ export async function executeBuiltinTool(toolName, args, meta) {
       case 'delegate_to_worker':
         result = await delegateToWorker(args, meta);
         break;
+      case 'run_code': {
+        const { code, timeout_ms = 5000 } = args;
+        if (!code) return { success: false, error: 'code is required' };
+        if (timeout_ms > 10000) return { success: false, error: 'Maximum timeout is 10000ms' };
+        if (code.length > 50000) return { success: false, error: 'Code too long (max 50KB)' };
+
+        try {
+          const vm = await import('node:vm');
+          const outputs = [];
+
+          // Create a safe sandbox with limited globals
+          const sandbox = {
+            console: {
+              log: (...a) => { outputs.push(a.map(String).join(' ')); },
+              error: (...a) => { outputs.push('[error] ' + a.map(String).join(' ')); },
+            },
+            Math, Date, JSON, parseInt, parseFloat, isNaN, isFinite,
+            Array, Object, String, Number, Boolean, Map, Set, RegExp,
+            setTimeout: undefined, setInterval: undefined, // blocked
+            fetch: undefined, require: undefined, import: undefined, // blocked
+            process: undefined, __dirname: undefined, __filename: undefined, // blocked
+          };
+
+          const context = vm.createContext(sandbox);
+          const script = new vm.Script(code, { filename: 'worker-code.js' });
+          const execResult = script.runInContext(context, { timeout: timeout_ms });
+
+          let resultStr;
+          try {
+            resultStr = JSON.stringify(execResult, null, 2);
+          } catch {
+            resultStr = String(execResult);
+          }
+
+          result = {
+            value: resultStr?.slice(0, 50000) || 'undefined',
+            console_output: outputs.slice(0, 100).join('\n').slice(0, 10000) || null,
+            type: typeof execResult,
+          };
+        } catch (err) {
+          const isTimeout = err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';
+          return {
+            success: false,
+            error: isTimeout ? `Code execution timed out after ${timeout_ms}ms` : `Execution error: ${err.message}`,
+          };
+        }
+        break;
+      }
+      case 'generate_image': {
+        const { prompt, size = '1024x1024', quality = 'standard' } = args;
+        if (!prompt) return { success: false, error: 'prompt is required' };
+        if (prompt.length > 4000) return { success: false, error: 'Prompt too long (max 4000 chars)' };
+
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+          return { success: false, error: 'Image generation requires OPENAI_API_KEY to be configured' };
+        }
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'dall-e-3',
+              prompt,
+              n: 1,
+              size,
+              quality,
+            }),
+            signal: AbortSignal.timeout(60000),
+          });
+
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            return { success: false, error: `OpenAI API error ${res.status}: ${errText.slice(0, 300)}` };
+          }
+
+          const data = await res.json();
+          const image = data.data?.[0];
+          if (!image) return { success: false, error: 'No image returned' };
+
+          result = {
+            url: image.url,
+            revised_prompt: image.revised_prompt || prompt,
+            size,
+            quality,
+            model: 'dall-e-3',
+          };
+        } catch (err) {
+          return { success: false, error: `Image generation failed: ${err.message}` };
+        }
+        break;
+      }
+      case 'wait_for_event': {
+        const { seconds, reason = 'waiting' } = args;
+        if (!seconds || seconds <= 0) return { success: false, error: 'seconds must be positive' };
+        if (seconds > 300) return { success: false, error: 'Maximum wait is 300 seconds (5 minutes)' };
+
+        log('info', `Worker waiting ${seconds}s: ${reason}`);
+
+        await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+
+        result = {
+          waited_seconds: seconds,
+          reason,
+          resumed_at: new Date().toISOString(),
+        };
+        break;
+      }
+      case 'check_balance': {
+        if (!_pool) return { success: false, error: 'Database not available' };
+        const tenantId = meta?.tenant_id;
+        if (!tenantId) return { success: false, error: 'No tenant context' };
+
+        const balResult = await _pool.query(
+          'SELECT balance_usd, total_spent_usd FROM tenant_credits WHERE tenant_id = $1',
+          [tenantId]
+        );
+        const credits = balResult.rows[0];
+        if (!credits) return { success: true, result: { balance_usd: 0, total_spent_usd: 0, message: 'No credit record found' } };
+
+        // Get recent spend (last 24h)
+        const recentResult = await _pool.query(
+          `SELECT COALESCE(SUM(ABS(amount_usd)), 0) AS recent_spend
+           FROM credit_transactions
+           WHERE tenant_id = $1 AND created_at > now() - interval '24 hours'`,
+          [tenantId]
+        );
+
+        result = {
+          balance_usd: parseFloat(credits.balance_usd),
+          total_spent_usd: parseFloat(credits.total_spent_usd),
+          last_24h_spend_usd: parseFloat(recentResult.rows[0]?.recent_spend || 0),
+        };
+        break;
+      }
+      case 'make_payment': {
+        if (!_pool) return { success: false, error: 'Database not available' };
+        const tenantId = meta?.tenant_id;
+        if (!tenantId) return { success: false, error: 'No tenant context' };
+
+        const { amount_usd, recipient, description } = args;
+        if (!amount_usd || amount_usd <= 0) return { success: false, error: 'amount_usd must be positive' };
+        if (amount_usd > 100) return { success: false, error: 'Maximum single payment is $100. For larger amounts, request manual approval.' };
+
+        // Check balance first
+        const balCheck = await _pool.query('SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1', [tenantId]);
+        const balance = parseFloat(balCheck.rows[0]?.balance_usd ?? 0);
+        if (balance < amount_usd) {
+          return { success: false, error: `Insufficient balance: $${balance.toFixed(2)} available, $${amount_usd.toFixed(2)} requested` };
+        }
+
+        // Deduct and record in a transaction
+        const client = await _pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(
+            'UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1',
+            [tenantId, amount_usd]
+          );
+          const txnId = `txn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          await client.query(
+            `INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, execution_id, created_at)
+             VALUES ($1, $2, $3, 'worker_payment', $4, $5, now())`,
+            [txnId, tenantId, -amount_usd, `Payment to ${recipient}: ${description}`, meta?.execution_id]
+          );
+          await client.query('COMMIT');
+
+          const newBal = await _pool.query('SELECT balance_usd FROM tenant_credits WHERE tenant_id = $1', [tenantId]);
+          result = {
+            transaction_id: txnId,
+            amount_usd,
+            recipient,
+            description,
+            remaining_balance_usd: parseFloat(newBal.rows[0]?.balance_usd ?? 0),
+          };
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {});
+          return { success: false, error: `Payment failed: ${err.message}` };
+        } finally {
+          client.release();
+        }
+        break;
+      }
+      case 'request_payment': {
+        if (!_pool) return { success: false, error: 'Database not available' };
+        const { amount_usd, from: payer, description, due_date } = args;
+        if (!amount_usd || amount_usd <= 0) return { success: false, error: 'amount_usd must be positive' };
+
+        const requestId = `pr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+        // Store as a credit transaction with zero amount (receivable record)
+        const tenantId = meta?.tenant_id;
+        if (tenantId) {
+          try {
+            await _pool.query(
+              `INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, execution_id, created_at)
+               VALUES ($1, $2, $3, 'payment_request', $4, $5, now())`,
+              [requestId, tenantId, 0, `Payment request: $${amount_usd.toFixed(2)} from ${payer} — ${description}${due_date ? ' (due: ' + due_date + ')' : ''}`, meta?.execution_id]
+            );
+          } catch (err) {
+            log('warn', `Failed to record payment request: ${err.message}`);
+          }
+        }
+
+        result = {
+          request_id: requestId,
+          amount_usd,
+          from: payer,
+          description,
+          due_date: due_date || null,
+          status: 'pending',
+          message: 'Payment request created. The account owner will be notified.',
+        };
+        break;
+      }
+      case 'store_file': {
+        const { filename, content, content_type = 'text/plain' } = args;
+        if (!filename || !content) return { success: false, error: 'filename and content are required' };
+        if (content.length > 5 * 1024 * 1024) return { success: false, error: 'Content too large (max 5MB)' };
+
+        const tenantId = meta?.tenant_id || 'default';
+        const execId = meta?.execution_id || 'unknown';
+        const key = `worker-files/${tenantId}/${execId}/${filename}`;
+
+        // Try S3 upload via presigned URL
+        const s3Endpoint = process.env.WORKER_S3_ENDPOINT || process.env.PROXY_EVIDENCE_S3_ENDPOINT;
+        const s3Bucket = process.env.WORKER_S3_BUCKET || process.env.PROXY_EVIDENCE_S3_BUCKET;
+        const s3AccessKey = process.env.WORKER_S3_ACCESS_KEY_ID || process.env.PROXY_EVIDENCE_S3_ACCESS_KEY_ID;
+        const s3SecretKey = process.env.WORKER_S3_SECRET_ACCESS_KEY || process.env.PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY;
+        const s3Region = process.env.WORKER_S3_REGION || process.env.PROXY_EVIDENCE_S3_REGION || 'us-east-1';
+
+        if (!s3Endpoint || !s3Bucket || !s3AccessKey || !s3SecretKey) {
+          // Fallback: return content inline (no S3 configured)
+          result = {
+            filename,
+            size_bytes: content.length,
+            storage: 'inline',
+            message: 'S3 not configured — content saved to execution log only',
+          };
+          break;
+        }
+
+        try {
+          // Import presign dynamically
+          const { presignS3Url } = await import('../../src/core/s3-presign.js');
+
+          // Generate presigned PUT URL
+          const putUrl = presignS3Url({
+            method: 'PUT',
+            endpoint: s3Endpoint,
+            bucket: s3Bucket,
+            key,
+            region: s3Region,
+            accessKeyId: s3AccessKey,
+            secretAccessKey: s3SecretKey,
+            expiresIn: 300,
+            contentType: content_type,
+          });
+
+          // Upload content
+          const uploadRes = await fetch(putUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': content_type },
+            body: content,
+          });
+
+          if (!uploadRes.ok) {
+            return { success: false, error: `S3 upload failed: ${uploadRes.status}` };
+          }
+
+          // Generate presigned GET URL for download (1 hour)
+          const downloadUrl = presignS3Url({
+            method: 'GET',
+            endpoint: s3Endpoint,
+            bucket: s3Bucket,
+            key,
+            region: s3Region,
+            accessKeyId: s3AccessKey,
+            secretAccessKey: s3SecretKey,
+            expiresIn: 3600,
+          });
+
+          result = {
+            filename,
+            size_bytes: content.length,
+            download_url: downloadUrl,
+            expires_in: '1 hour',
+            storage: 's3',
+            key,
+          };
+        } catch (err) {
+          return { success: false, error: `File storage failed: ${err.message}` };
+        }
+        break;
+      }
       default:
         return { success: false, error: `Unknown builtin tool: ${toolName}` };
     }

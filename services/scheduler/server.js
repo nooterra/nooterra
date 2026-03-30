@@ -775,7 +775,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
               toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
             } else {
               const toolPromise = isBuiltinTool(tc.name)
-                ? executeBuiltinTool(tc.name, args, { execution_id: executionId, worker_id: worker.id })
+                ? executeBuiltinTool(tc.name, args, { execution_id: executionId, worker_id: worker.id, tenant_id: worker.tenant_id })
                 : executeTool(worker.tenant_id, tc.name, args);
 
               toolResult = await Promise.race([
