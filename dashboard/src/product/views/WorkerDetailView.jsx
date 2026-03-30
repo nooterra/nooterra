@@ -142,7 +142,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
   const stats = typeof worker.stats === "string" ? (() => { try { return JSON.parse(worker.stats); } catch { return null; } })() : worker.stats;
-  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "files", label: "Files" }, { key: "integrations", label: "Integrations" }, { key: "budget", label: "Budget" }, { key: "settings", label: "Settings" }];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "files", label: "Files" }, { key: "knowledge", label: "Knowledge" }, { key: "integrations", label: "Integrations" }, { key: "budget", label: "Budget" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
@@ -407,6 +407,10 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
         <div style={{ maxWidth: 520 }}>
           <FileUploadZone workerId={workerId} addToast={addToast} />
         </div>
+      )}
+
+      {tab === "knowledge" && (
+        <KnowledgeTab workerId={workerId} worker={worker} setWorker={setWorker} toast={toast} />
       )}
 
       {tab === "integrations" && (
@@ -720,6 +724,43 @@ function SettingsTab({ worker, onUpdate }) {
   const [saving, setSaving] = useState(false);
   const modelInfo = ALL_MODELS.find(m => m.id === selectedModel);
 
+  // Schedule state
+  const [scheduleMode, setScheduleMode] = useState("manual");
+  const [intervalValue, setIntervalValue] = useState(30);
+  const [intervalUnit, setIntervalUnit] = useState("m");
+  const [cronValue, setCronValue] = useState("");
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  useEffect(() => {
+    if (!worker?.schedule) { setScheduleMode("manual"); return; }
+    const raw = worker.schedule;
+    const sched = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+    if (!sched || sched === 'on_demand') { setScheduleMode("manual"); return; }
+    if (sched.type === 'cron') { setScheduleMode("cron"); setCronValue(sched.value || ""); return; }
+    if (sched.type === 'interval') {
+      setScheduleMode("interval");
+      const match = (sched.value || "").match(/^(\d+)(m|h|d)$/);
+      if (match) { setIntervalValue(parseInt(match[1])); setIntervalUnit(match[2]); }
+      return;
+    }
+    setScheduleMode("manual");
+  }, [worker?.schedule]);
+
+  function handleSaveSchedule() {
+    setScheduleSaving(true);
+    let value = null;
+    if (scheduleMode === "interval") value = { type: "interval", value: `${intervalValue}${intervalUnit}` };
+    else if (scheduleMode === "cron") value = { type: "cron", value: cronValue };
+    onUpdate('schedule', value ? JSON.stringify(value) : 'null').then(() => setScheduleSaving(false)).catch(() => setScheduleSaving(false));
+  }
+
+  const unitLabels = { m: "minutes", h: "hours", d: "days" };
+  const schedulePreview = scheduleMode === "interval"
+    ? `Runs every ${intervalValue} ${unitLabels[intervalUnit]}`
+    : scheduleMode === "cron" && cronValue
+      ? humanizeSchedule(cronValue)
+      : null;
+
   // Chain config
   const workerChain = typeof worker.chain === "string" ? (() => { try { return JSON.parse(worker.chain); } catch { return null; } })() : worker.chain;
   const [chainTarget, setChainTarget] = useState(workerChain?.onComplete || "");
@@ -788,9 +829,115 @@ function SettingsTab({ worker, onUpdate }) {
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <label style={{ ...S.label, marginBottom: 4, display: "block" }}>Schedule</label>
-        <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{humanizeSchedule(worker.schedule) || "Manual (on-demand)"}</div>
-        <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 2 }}>Schedule changes coming soon. Use the builder to set a schedule.</div>
+        <label style={{ ...S.label, marginBottom: 8, display: "block" }}>Schedule</label>
+
+        {/* Segmented control */}
+        <div style={{
+          display: "inline-flex", padding: 2, borderRadius: 8,
+          background: "var(--bg-300, var(--bg-hover))",
+          marginBottom: 14,
+        }}>
+          {[
+            { key: "manual", label: "Manual" },
+            { key: "interval", label: "Interval" },
+            { key: "cron", label: "Cron" },
+          ].map(opt => (
+            <button key={opt.key} onClick={() => setScheduleMode(opt.key)} style={{
+              padding: "6px 14px", fontSize: "13px", fontWeight: 600,
+              fontFamily: "inherit", border: "none", cursor: "pointer",
+              borderRadius: 6,
+              background: scheduleMode === opt.key ? "var(--bg-100, #fff)" : "transparent",
+              color: scheduleMode === opt.key ? "var(--text-primary)" : "var(--text-tertiary)",
+              boxShadow: scheduleMode === opt.key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+              transition: "background 150ms, color 150ms, box-shadow 150ms",
+            }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {scheduleMode === "manual" && (
+          <div style={{ fontSize: "13px", color: "var(--product-ink-soft, var(--text-tertiary))", fontStyle: "italic" }}>
+            This worker only runs when triggered manually or via webhook.
+          </div>
+        )}
+
+        {scheduleMode === "interval" && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <input
+                type="number" min="1" max="60"
+                value={intervalValue}
+                onChange={e => setIntervalValue(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                style={{
+                  width: 72, padding: "8px 12px", fontSize: "14px",
+                  border: "1px solid var(--product-line, var(--border))", borderRadius: 6,
+                  background: "var(--bg-surface, var(--bg-400))",
+                  color: "var(--product-ink-strong, var(--text-primary))",
+                  fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+                }}
+              />
+              <select
+                value={intervalUnit}
+                onChange={e => setIntervalUnit(e.target.value)}
+                style={{
+                  padding: "8px 12px", fontSize: "14px",
+                  border: "1px solid var(--product-line, var(--border))", borderRadius: 6,
+                  background: "var(--bg-surface, var(--bg-400))",
+                  color: "var(--product-ink-strong, var(--text-primary))",
+                  fontFamily: "inherit", cursor: "pointer", appearance: "auto",
+                }}
+              >
+                <option value="m">minutes</option>
+                <option value="h">hours</option>
+                <option value="d">days</option>
+              </select>
+            </div>
+            {schedulePreview && (
+              <div style={{ fontSize: "13px", color: "var(--product-ink-soft, var(--text-tertiary))", fontStyle: "italic" }}>
+                {schedulePreview}
+              </div>
+            )}
+          </div>
+        )}
+
+        {scheduleMode === "cron" && (
+          <div>
+            <input
+              type="text"
+              value={cronValue}
+              onChange={e => setCronValue(e.target.value)}
+              placeholder="*/5 * * * *"
+              style={{
+                width: "100%", maxWidth: 320, padding: "8px 12px", fontSize: "14px",
+                fontFamily: "'IBM Plex Mono', var(--font-mono, monospace)",
+                border: "1px solid var(--product-line, var(--border))", borderRadius: 6,
+                background: "var(--bg-surface, var(--bg-400))",
+                color: "var(--product-ink-strong, var(--text-primary))",
+                outline: "none", boxSizing: "border-box", marginBottom: 6,
+              }}
+            />
+            <div style={{ fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))", marginBottom: 4 }}>
+              e.g. */5 * * * * = every 5 minutes, 0 9 * * 1-5 = weekdays at 9 AM
+            </div>
+            {cronValue && (
+              <div style={{ fontSize: "13px", color: "var(--product-ink-soft, var(--text-tertiary))", fontStyle: "italic" }}>
+                {humanizeSchedule(cronValue)}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          onClick={handleSaveSchedule}
+          disabled={scheduleSaving}
+          style={{
+            ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px",
+            marginTop: 12, opacity: scheduleSaving ? 0.5 : 1, transition: "opacity 150ms",
+          }}
+        >
+          {scheduleSaving ? "Saving..." : "Save schedule"}
+        </button>
       </div>
 
       {/* Execution Chain */}
@@ -863,6 +1010,318 @@ function SettingsTab({ worker, onUpdate }) {
         <label style={{ ...S.label, marginBottom: 4, display: "block" }}>Worker ID</label>
         <div style={{ fontSize: "13px", color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", padding: "6px 10px", background: "var(--bg-300, var(--bg-hover))", borderRadius: 6, userSelect: "all" }}>{worker.id}</div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Tab — manage worker knowledge base entries
+// ---------------------------------------------------------------------------
+
+function KnowledgeTab({ workerId, worker, setWorker, toast }) {
+  const [entries, setEntries] = useState(() => {
+    try { return JSON.parse(worker.knowledge || '[]'); } catch { return []; }
+  });
+  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Sync entries when worker.knowledge changes externally
+  useEffect(() => {
+    try { setEntries(JSON.parse(worker.knowledge || '[]')); } catch { /* keep current */ }
+  }, [worker.knowledge]);
+
+  async function persistEntries(updated) {
+    setSaving(true);
+    try {
+      await workerApiRequest({
+        pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
+        method: "PUT",
+        body: { knowledge: JSON.stringify(updated) },
+      });
+      setEntries(updated);
+      setWorker(prev => prev ? { ...prev, knowledge: JSON.stringify(updated) } : prev);
+      toast("Knowledge saved", "success");
+    } catch (err) {
+      toast("Failed to save knowledge: " + (err?.message || ""), "error");
+    }
+    setSaving(false);
+  }
+
+  function handleAdd() {
+    if (!newTitle.trim() || !newContent.trim()) return;
+    if (entries.length >= 20) { toast("Maximum 20 knowledge entries", "error"); return; }
+    if (newContent.length > 50000) { toast("Content exceeds 50,000 character limit", "error"); return; }
+    const updated = [{ title: newTitle.trim(), content: newContent.trim() }, ...entries];
+    persistEntries(updated);
+    setNewTitle("");
+    setNewContent("");
+    setAdding(false);
+  }
+
+  function handleDelete(idx) {
+    if (!window.confirm(`Delete "${entries[idx]?.title}"? This cannot be undone.`)) return;
+    const updated = entries.filter((_, i) => i !== idx);
+    persistEntries(updated);
+    if (expandedIdx === idx) setExpandedIdx(null);
+    else if (expandedIdx !== null && expandedIdx > idx) setExpandedIdx(expandedIdx - 1);
+  }
+
+  function handleEntryUpdate(idx, field, value) {
+    const updated = entries.map((e, i) => i === idx ? { ...e, [field]: value } : e);
+    setEntries(updated);
+  }
+
+  function handleEntrySave(idx) {
+    if (entries[idx].content.length > 50000) { toast("Content exceeds 50,000 character limit", "error"); return; }
+    persistEntries(entries);
+    setExpandedIdx(null);
+  }
+
+  const fmtChars = (n) => n.toLocaleString();
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Knowledge Base
+        </div>
+        {!adding && entries.length > 0 && (
+          <button
+            onClick={() => setAdding(true)}
+            style={{
+              fontSize: "13px", fontWeight: 600, padding: "6px 14px", borderRadius: 6,
+              border: "none", cursor: "pointer", fontFamily: "inherit",
+              background: "var(--product-accent, var(--accent))", color: "#fff",
+              transition: "opacity 150ms",
+            }}
+          >
+            Add knowledge
+          </button>
+        )}
+      </div>
+
+      {/* Add form */}
+      {adding && (
+        <div style={{
+          padding: 16, borderRadius: 10, marginBottom: 16,
+          border: "1px solid var(--product-line, var(--border))",
+          background: "var(--bg-surface, var(--bg-400))",
+        }}>
+          <input
+            type="text"
+            value={newTitle}
+            onChange={e => setNewTitle(e.target.value)}
+            placeholder="e.g. Company FAQ, Product Pricing, Return Policy"
+            style={{
+              width: "100%", padding: "10px 12px", fontSize: "14px",
+              fontFamily: "'Public Sans', var(--font-sans, sans-serif)", fontWeight: 600,
+              border: "1px solid var(--product-line, var(--border))", borderRadius: 8,
+              background: "var(--bg-100, #fff)", color: "var(--product-ink-strong, var(--text-primary))",
+              outline: "none", boxSizing: "border-box", marginBottom: 10,
+            }}
+          />
+          <textarea
+            value={newContent}
+            onChange={e => setNewContent(e.target.value)}
+            placeholder="Workers use this knowledge to answer questions accurately. Add company info, product details, pricing, policies, or any context your worker needs."
+            rows={12}
+            style={{
+              width: "100%", padding: 12, fontSize: "13px",
+              fontFamily: "'IBM Plex Mono', var(--font-mono, monospace)",
+              border: "1px solid var(--product-line, var(--border))", borderRadius: 8,
+              background: "var(--bg-100, #fff)", color: "var(--product-ink, var(--text-primary))",
+              outline: "none", boxSizing: "border-box", resize: "vertical", minHeight: 180,
+              lineHeight: 1.6,
+            }}
+          />
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8,
+          }}>
+            <div style={{
+              fontSize: "12px", textAlign: "right",
+              color: newContent.length > 40000 ? "var(--product-warn, var(--amber, #c08c30))" : "var(--product-ink-soft, var(--text-tertiary))",
+            }}>
+              {fmtChars(newContent.length)} / 50,000 characters
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={() => { setAdding(false); setNewTitle(""); setNewContent(""); }}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: "13px", fontWeight: 500, color: "var(--text-tertiary)",
+                  fontFamily: "inherit", padding: "6px 8px",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={saving || !newTitle.trim() || !newContent.trim()}
+                style={{
+                  fontSize: "13px", fontWeight: 600, padding: "6px 16px", borderRadius: 6,
+                  border: "none", cursor: "pointer", fontFamily: "inherit",
+                  background: "var(--product-accent, var(--accent))", color: "#fff",
+                  opacity: (saving || !newTitle.trim() || !newContent.trim()) ? 0.5 : 1,
+                  transition: "opacity 150ms",
+                }}
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {entries.length === 0 && !adding && (
+        <div style={{
+          padding: "3rem 1.5rem", textAlign: "center",
+          border: "1px dashed var(--product-line, var(--border))", borderRadius: 12,
+        }}>
+          <div style={{ fontSize: "2rem", marginBottom: 8 }}>{"\uD83D\uDCDA"}</div>
+          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginBottom: 6 }}>
+            No knowledge added yet
+          </div>
+          <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: 16, lineHeight: 1.5, maxWidth: 360, margin: "0 auto 16px" }}>
+            Workers perform better with context about your business.
+            Add company info, product details, FAQs, or policies.
+          </div>
+          <button
+            onClick={() => setAdding(true)}
+            style={{
+              ...S.btnSecondary, width: "auto", fontSize: "13px", padding: "8px 18px",
+            }}
+          >
+            + Add your first knowledge entry
+          </button>
+        </div>
+      )}
+
+      {/* Entries list */}
+      {entries.length > 0 && (
+        <div>
+          {entries.map((entry, idx) => {
+            const isExpanded = expandedIdx === idx;
+            return (
+              <div key={idx} style={{
+                borderBottom: idx < entries.length - 1 ? "1px solid var(--product-line, var(--border))" : "none",
+              }}>
+                {/* Collapsed row */}
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "12px 0", gap: 12,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{
+                      fontSize: "14px", fontWeight: 600,
+                      fontFamily: "'Public Sans', var(--font-sans, sans-serif)",
+                      color: "var(--product-ink-strong, var(--text-primary))",
+                    }}>
+                      {entry.title}
+                    </span>
+                    <span style={{
+                      fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                      marginLeft: 10,
+                    }}>
+                      {fmtChars(entry.content?.length || 0)} chars
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {/* Edit/pencil */}
+                    <button
+                      onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer", padding: "4px 6px",
+                        color: "var(--product-ink-soft, var(--text-tertiary))",
+                        transition: "color 150ms",
+                      }}
+                      aria-label={isExpanded ? "Collapse" : "Edit"}
+                      title={isExpanded ? "Collapse" : "Edit"}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                        <path d="m15 5 4 4" />
+                      </svg>
+                    </button>
+                    {/* Delete/X */}
+                    <button
+                      onClick={() => handleDelete(idx)}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer", padding: "4px 6px",
+                        color: "var(--product-ink-soft, var(--text-tertiary))",
+                        transition: "color 150ms",
+                      }}
+                      aria-label="Delete"
+                      title="Delete"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded editing area */}
+                {isExpanded && (
+                  <div style={{ paddingBottom: 16 }}>
+                    <input
+                      type="text"
+                      value={entry.title}
+                      onChange={e => handleEntryUpdate(idx, "title", e.target.value)}
+                      style={{
+                        width: "100%", padding: "8px 12px", fontSize: "14px",
+                        fontFamily: "'Public Sans', var(--font-sans, sans-serif)", fontWeight: 600,
+                        border: "1px solid var(--product-line, var(--border))", borderRadius: 8,
+                        background: "var(--bg-100, #fff)", color: "var(--product-ink-strong, var(--text-primary))",
+                        outline: "none", boxSizing: "border-box", marginBottom: 8,
+                      }}
+                    />
+                    <textarea
+                      value={entry.content}
+                      onChange={e => handleEntryUpdate(idx, "content", e.target.value)}
+                      rows={6}
+                      style={{
+                        width: "100%", padding: 12, fontSize: "13px",
+                        fontFamily: "'IBM Plex Mono', var(--font-mono, monospace)",
+                        border: "1px solid var(--product-line, var(--border))", borderRadius: 8,
+                        background: "var(--bg-100, #fff)", color: "var(--product-ink, var(--text-primary))",
+                        outline: "none", boxSizing: "border-box", resize: "vertical", minHeight: 120,
+                        lineHeight: 1.6,
+                      }}
+                    />
+                    <div style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8,
+                    }}>
+                      <div style={{
+                        fontSize: "12px",
+                        color: (entry.content?.length || 0) > 40000 ? "var(--product-warn, var(--amber, #c08c30))" : "var(--product-ink-soft, var(--text-tertiary))",
+                      }}>
+                        {fmtChars(entry.content?.length || 0)} / 50,000 characters
+                      </div>
+                      <button
+                        onClick={() => handleEntrySave(idx)}
+                        disabled={saving}
+                        style={{
+                          fontSize: "13px", fontWeight: 600, padding: "6px 16px", borderRadius: 6,
+                          border: "none", cursor: "pointer", fontFamily: "inherit",
+                          background: "var(--product-accent, var(--accent))", color: "#fff",
+                          opacity: saving ? 0.5 : 1, transition: "opacity 150ms",
+                        }}
+                      >
+                        {saving ? "Saving..." : "Save changes"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
