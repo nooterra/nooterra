@@ -595,10 +595,21 @@ function delegationGenerateId(prefix = 'exec') {
 
 const DELEGATION_POLL_MS = 2000;
 const DELEGATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_DELEGATION_DEPTH = 5;
 
 async function delegateToWorker({ worker_id, task, context, wait_for_result = false }, _meta) {
   if (!_pool) {
     return { error: 'Delegation not available — database pool not configured' };
+  }
+
+  // Check delegation depth to prevent infinite loops
+  if (_meta?.delegation_depth >= MAX_DELEGATION_DEPTH) {
+    return { error: `Delegation depth limit exceeded (max ${MAX_DELEGATION_DEPTH}). Cannot delegate further.` };
+  }
+
+  // Prevent self-delegation
+  if (_meta?.worker_id === worker_id) {
+    return { error: 'A worker cannot delegate to itself' };
   }
 
   // Look up the target worker
@@ -625,13 +636,14 @@ async function delegateToWorker({ worker_id, task, context, wait_for_result = fa
   // Create execution for the target worker
   const execId = delegationGenerateId('exec');
   const parentExecId = _meta?.execution_id || null;
+  const currentDepth = (_meta?.delegation_depth || 0) + 1;
   await _pool.query(
     `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity, metadata)
      VALUES ($1, $2, $3, 'delegation', 'queued', $4, $5, $6::jsonb, $7::jsonb)`,
     [
       execId, worker_id, target.tenant_id, target.model,
       new Date().toISOString(), JSON.stringify(initialActivity),
-      JSON.stringify({ parent_execution_id: parentExecId, delegated_task: task }),
+      JSON.stringify({ parent_execution_id: parentExecId, delegated_task: task, delegation_depth: currentDepth }),
     ]
   );
 

@@ -94,6 +94,12 @@ function canTenantCall(tenantId) {
 // Per-execution cost ceiling — kill any run that exceeds this
 const EXECUTION_COST_CAP = parseFloat(process.env.EXECUTION_COST_CAP || '0.50');
 
+// Per-tool execution timeout
+const TOOL_TIMEOUT_MS = 15000;
+
+// Max tool result size before truncation (bytes)
+const MAX_TOOL_RESULT_SIZE = 50000;
+
 // ---------------------------------------------------------------------------
 // Postgres Connection
 // ---------------------------------------------------------------------------
@@ -666,7 +672,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         const blockReasons = blockedTools.map(b => `${b.toolCall.name}: ${b.validation.reason}`);
         log('warn', `Charter blocked tool calls for worker ${worker.name}: ${blockReasons.join('; ')}`);
 
-        await updateExecution(executionId, {
+        await finalizeExecution(executionId, {
           status: 'charter_blocked',
           completedAt: new Date(),
           error: `Charter enforcement blocked tool calls: ${blockReasons.join('; ')}`,
@@ -677,9 +683,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           costUsd: totalCost,
           rounds,
           toolCalls: toolCallCount,
-        });
-
-        await deductCredits(worker.tenant_id, totalCost, executionId);
+        }, worker.tenant_id, totalCost);
         return;
       }
 
@@ -714,7 +718,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           return;
         }
 
-        await updateExecution(executionId, {
+        await finalizeExecution(executionId, {
           status: 'awaiting_approval',
           completedAt: new Date(),
           error: `Paused: ${approvalCount} tool call(s) require approval`,
@@ -726,9 +730,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           rounds,
           toolCalls: toolCallCount,
           result: result.response?.slice(0, 50000),
-        });
-
-        await deductCredits(worker.tenant_id, totalCost, executionId);
+        }, worker.tenant_id, totalCost);
 
         // Notify tenant that approval is needed
         try {
@@ -771,10 +773,15 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             let toolResult;
             if (isShadowMode) {
               toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
-            } else if (isBuiltinTool(tc.name)) {
-              toolResult = await executeBuiltinTool(tc.name, args, { execution_id: executionId });
             } else {
-              toolResult = await executeTool(worker.tenant_id, tc.name, args);
+              const toolPromise = isBuiltinTool(tc.name)
+                ? executeBuiltinTool(tc.name, args, { execution_id: executionId, worker_id: worker.id })
+                : executeTool(worker.tenant_id, tc.name, args);
+
+              toolResult = await Promise.race([
+                toolPromise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${tc.name} timed out after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS))
+              ]);
             }
             return { tc, toolResult, args };
           });
@@ -790,9 +797,13 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             continue;
           }
           const { tc, toolResult } = settled.value;
-          const resultStr = toolResult.success
-            ? JSON.stringify(toolResult.result)
-            : `Error: ${toolResult.error}`;
+          let resultStr;
+          if (toolResult.success) {
+            const raw = typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result);
+            resultStr = raw.length > MAX_TOOL_RESULT_SIZE ? raw.slice(0, MAX_TOOL_RESULT_SIZE) + '...[truncated]' : raw;
+          } else {
+            resultStr = `Error: ${toolResult.error}`;
+          }
 
           toolResults.push({
             role: 'tool',
@@ -812,6 +823,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         currentMessages.push(...toolResults);
         rounds++;
 
+        // Checkpoint: persist current state after each round
+        try {
+          await pool.query(
+            `UPDATE worker_executions SET activity = $2::jsonb, rounds = $3, tokens_in = $4, tokens_out = $5, cost_usd = $6 WHERE id = $1`,
+            [executionId, JSON.stringify(activity), rounds, totalPromptTokens, totalCompletionTokens, totalCost]
+          );
+        } catch (cpErr) {
+          log('warn', `Checkpoint failed for ${executionId}: ${cpErr.message}`);
+        }
+
         // Cost cap check — kill execution if it's getting too expensive
         if (totalCost >= EXECUTION_COST_CAP) {
           addActivity('cost_cap', `Execution cost $${totalCost.toFixed(4)} exceeded cap $${EXECUTION_COST_CAP.toFixed(2)}, stopping`);
@@ -823,7 +844,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         if (Date.now() >= executionDeadline) {
           addActivity('error', 'Execution timeout exceeded (5 min)');
           log('warn', `Execution ${executionId} hit 5-minute deadline`);
-          await updateExecution(executionId, {
+          await finalizeExecution(executionId, {
             status: 'failed',
             completedAt: new Date(),
             error: 'Execution timeout exceeded',
@@ -835,8 +856,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             rounds,
             toolCalls: toolCallCount,
             result: finalResponse?.slice(0, 50000),
-          });
-          await deductCredits(worker.tenant_id, totalCost, executionId);
+          }, worker.tenant_id, totalCost);
           return;
         }
 
@@ -934,7 +954,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
 
       await autoPauseWorker(pool, worker.id, executionId, anomalyResult.reasons);
 
-      await updateExecution(executionId, {
+      await finalizeExecution(executionId, {
         status: 'auto_paused',
         completedAt: new Date(),
         model: worker.model,
@@ -953,14 +973,12 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           cost: totalCost,
           duration: executionMs,
         },
-      });
-
-      await deductCredits(worker.tenant_id, totalCost, executionId);
+      }, worker.tenant_id, totalCost);
       return;
     }
 
-    // Update execution record
-    await updateExecution(executionId, {
+    // Update execution record + deduct credits atomically
+    await finalizeExecution(executionId, {
       status: isShadowMode ? 'shadow_completed' : 'completed',
       completedAt: new Date(),
       model: worker.model,
@@ -978,10 +996,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         cost: totalCost,
         duration: Date.now() - startedAt.getTime(),
       },
-    });
-
-    // Deduct credits
-    await deductCredits(worker.tenant_id, totalCost, executionId);
+    }, worker.tenant_id, totalCost);
 
     // Extract and save memory entries from LLM response
     // REMEMBER: saves to this worker only
@@ -1187,6 +1202,48 @@ async function deductCredits(tenantId, costUsd, executionId) {
   }
 }
 
+/**
+ * Atomically update execution record AND deduct credits in a single transaction.
+ * Use this for all final status updates that also need credit deduction.
+ */
+async function finalizeExecution(executionId, data, tenantId, costUsd) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update execution
+    const sets = ['completed_at = $2', 'status = $3'];
+    const values = [executionId, data.completedAt, data.status];
+    let idx = 4;
+    if (data.model != null) { sets.push(`model = $${idx}`); values.push(data.model); idx++; }
+    if (data.tokensIn != null) { sets.push(`tokens_in = $${idx}`); values.push(data.tokensIn); idx++; }
+    if (data.tokensOut != null) { sets.push(`tokens_out = $${idx}`); values.push(data.tokensOut); idx++; }
+    if (data.costUsd != null) { sets.push(`cost_usd = $${idx}`); values.push(data.costUsd); idx++; }
+    if (data.rounds != null) { sets.push(`rounds = $${idx}`); values.push(data.rounds); idx++; }
+    if (data.toolCalls != null) { sets.push(`tool_calls = $${idx}`); values.push(data.toolCalls); idx++; }
+    if (data.result != null) { sets.push(`result = $${idx}`); values.push(data.result); idx++; }
+    if (data.activity != null) { sets.push(`activity = $${idx}::jsonb`); values.push(JSON.stringify(data.activity)); idx++; }
+    if (data.error != null) { sets.push(`error = $${idx}`); values.push(data.error); idx++; }
+    if (data.receipt != null) { sets.push(`receipt = $${idx}::jsonb`); values.push(JSON.stringify(data.receipt)); idx++; }
+
+    await client.query(`UPDATE worker_executions SET ${sets.join(', ')} WHERE id = $1`, values);
+
+    // Deduct credits if applicable
+    if (costUsd > 0) {
+      await client.query(`UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1`, [tenantId, costUsd]);
+      await client.query(`INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, execution_id, created_at) VALUES ($1, $2, $3, 'execution_charge', $4, $5, now())`,
+        [generateId('txn'), tenantId, -costUsd, `Worker execution charge: $${costUsd.toFixed(6)}`, executionId]);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    log('error', `Failed to finalize execution ${executionId}: ${err.message}`);
+  } finally {
+    client.release();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Scheduler Poll Loop
 // ---------------------------------------------------------------------------
@@ -1194,6 +1251,7 @@ async function deductCredits(tenantId, costUsd, executionId) {
 let pollTimer = null;
 let shuttingDown = false;
 const runningExecutions = new Set();
+const runningWorkers = new Set();
 
 /**
  * Find and execute workers that are due based on cron schedules.
@@ -1315,6 +1373,7 @@ async function pollCycle() {
     for (const row of queued) {
       if (tasks.length >= available) break;
       if (runningExecutions.has(row.execution_id)) continue;
+      if (runningWorkers.has(row.worker_id)) continue; // skip — worker already executing
 
       // Claim the execution by setting status to 'running'
       const claimed = await pool.query(
@@ -1342,6 +1401,7 @@ async function pollCycle() {
       const cronDue = await pollCronWorkers();
       for (const { worker } of cronDue) {
         if (tasks.length >= available) break;
+        if (runningWorkers.has(worker.id)) continue; // skip — worker already executing
 
         // Create an execution record
         const execId = generateId('exec');
@@ -1374,7 +1434,9 @@ async function pollCycle() {
 
     // Dispatch all tasks concurrently
     for (const task of tasks) {
+      if (runningWorkers.has(task.worker.id)) continue; // skip — worker already executing
       runningExecutions.add(task.executionId);
+      runningWorkers.add(task.worker.id);
       activeExecutions++;
 
       executeWorker(task.worker, task.executionId, task.triggerType)
@@ -1382,6 +1444,7 @@ async function pollCycle() {
         .finally(() => {
           activeExecutions--;
           runningExecutions.delete(task.executionId);
+          runningWorkers.delete(task.worker.id);
         });
     }
 

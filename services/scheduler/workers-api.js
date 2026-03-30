@@ -22,9 +22,17 @@ function getTenantId(req) {
   return null;
 }
 
+const MAX_BODY_SIZE = 1024 * 1024; // 1MB
+
 async function readBody(req) {
   let body = '';
-  for await (const chunk of req) body += chunk;
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > MAX_BODY_SIZE) {
+      req.destroy();
+      return null;
+    }
+  }
   try { return JSON.parse(body); } catch { return null; }
 }
 
@@ -228,8 +236,11 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const triggers = typeof worker.triggers === 'string' ? JSON.parse(worker.triggers) : (worker.triggers || {});
     const webhookSecret = triggers.webhookSecret || (Array.isArray(triggers) ? null : triggers?.webhookSecret);
     if (webhookSecret && !isTest) {
-      const providedSecret = req.headers['x-webhook-secret'];
-      if (!providedSecret || providedSecret !== webhookSecret) {
+      const providedSecret = req.headers['x-webhook-secret'] || '';
+      const expected = webhookSecret || '';
+      const secretMatch = providedSecret.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(expected));
+      if (!secretMatch) {
         return err(res, 403, 'invalid or missing webhook secret'), true;
       }
     }

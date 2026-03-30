@@ -66,36 +66,44 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
     return { resumed: false, error: "worker not found" };
   }
 
-  // 4. Mark execution as running again
-  await pool.query(
-    `UPDATE worker_executions SET status = 'running' WHERE id = $1`,
+  // 4. Atomically claim the execution to prevent double-resume
+  const claimed = await pool.query(
+    `UPDATE worker_executions SET status = 'running' WHERE id = $1 AND status = 'awaiting_approval' RETURNING id`,
     [execution.id]
   );
+  if (claimed.rowCount === 0) {
+    return { resumed: false, error: 'execution already resumed by another process' };
+  }
 
-  // 5. Add the approved tool call to the execution context
-  const approvedToolCall = {
-    name: approval.tool_name,
-    args: typeof approval.tool_args === "string"
-      ? JSON.parse(approval.tool_args)
-      : approval.tool_args ?? {}
-  };
+  // 5. Load ALL approved tool calls for this execution (not just the one being resumed)
+  const allApproved = await pool.query(
+    `SELECT id, tool_name, tool_args FROM worker_approvals
+     WHERE execution_id = $1 AND tenant_id = $2 AND status = 'approved'
+     ORDER BY created_at ASC`,
+    [execution.id, approval.tenant_id]
+  );
 
-  logFn("info", `Resuming execution ${execution.id} after approval of ${approval.tool_name}`);
+  const approvedToolCalls = allApproved.rows.map(row => ({
+    name: row.tool_name,
+    args: typeof row.tool_args === 'string' ? JSON.parse(row.tool_args) : row.tool_args ?? {}
+  }));
 
-  // 6. Re-run the worker execution with the approved context
+  logFn("info", `Resuming execution ${execution.id} after approval of ${approvedToolCalls.length} tool(s)`);
+
+  // 6. Mark ALL these approvals as 'resumed' atomically before execution
+  await pool.query(
+    `UPDATE worker_approvals SET status = 'resumed' WHERE execution_id = $1 AND tenant_id = $2 AND status = 'approved'`,
+    [execution.id, approval.tenant_id]
+  );
+
+  // 7. Re-run the worker execution with the approved context
   // The executeWorker function will see the execution already exists
   // and pick up where it left off with the approved tool calls
   try {
     await executeWorker(worker, execution.id, "approval_resume", {
-      approvedToolCalls: [approvedToolCall],
+      approvedToolCalls,
       approvalId: approval.id
     });
-
-    // 7. Mark approval as 'resumed' to prevent double-processing
-    await pool.query(
-      `UPDATE worker_approvals SET status = 'resumed' WHERE id = $1`,
-      [approvalId]
-    );
 
     return { resumed: true, executionId: execution.id };
   } catch (err) {

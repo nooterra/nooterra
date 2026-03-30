@@ -94,7 +94,11 @@ export async function createPgPool({ databaseUrl, schema = "public" } = {}) {
   const pool = new Pool({
     connectionString: databaseUrl,
     // Configure search_path at session startup to avoid async query overlap on connect.
-    options: `-c search_path=${searchPath}`
+    options: `-c search_path=${searchPath}`,
+    max: parseInt(process.env.PG_POOL_MAX || '20', 10),
+    idleTimeoutMillis: parseInt(process.env.PG_IDLE_TIMEOUT_MS || '30000', 10),
+    connectionTimeoutMillis: parseInt(process.env.PG_CONNECT_TIMEOUT_MS || '5000', 10),
+    statement_timeout: parseInt(process.env.PG_STATEMENT_TIMEOUT_MS || '30000', 10),
   });
 
   if (schema !== "public") {

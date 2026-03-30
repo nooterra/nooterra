@@ -55,6 +55,16 @@ import { createTasksRepository } from "./repositories/tasks.js";
 import { createMarketplaceRepository } from "./repositories/marketplace.js";
 import { createFinanceRepository } from "./repositories/finance.js";
 
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash;
+}
+
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
   return value.trim();
@@ -1141,6 +1151,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       updatedAt
     };
 
+    await client.query('SELECT pg_advisory_xact_lock($1)', [hashCode(tenantId + agentId)]);
+
     await client.query(
       `
         INSERT INTO agent_wallets (
@@ -1297,6 +1309,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       createdAt,
       updatedAt
     };
+
+    await client.query('SELECT pg_advisory_xact_lock($1)', [hashCode(tenantId + normalizedRunId)]);
 
     await client.query(
       `

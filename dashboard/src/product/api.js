@@ -294,11 +294,14 @@ function createRequestContractError({ response, code, message, details = null } 
   return error;
 }
 
-async function fetchWithRetry(url, options, { maxRetries = 2, baseDelayMs = 500 } = {}) {
+async function fetchWithRetry(url, options, { maxRetries = 2, baseDelayMs = 500, timeoutMs = 30000 } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
       // Only retry on 502, 503, 504 (server errors that may be transient)
       if (response.status >= 502 && response.status <= 504 && attempt < maxRetries) {
         await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
@@ -306,7 +309,11 @@ async function fetchWithRetry(url, options, { maxRetries = 2, baseDelayMs = 500 
       }
       return response;
     } catch (err) {
+      clearTimeout(timeoutId);
       lastError = err;
+      if (err.name === 'AbortError') {
+        lastError = new Error(`Request timed out after ${timeoutMs}ms`);
+      }
       // Retry on network errors (fetch throws on network failure)
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
