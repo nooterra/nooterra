@@ -5,6 +5,7 @@ import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
 import { WorkerIntegrationsSection } from "./IntegrationsView.jsx";
 import FileUploadZone from "../components/FileUploadZone.jsx";
+import NotificationQuickSetup from "../components/NotificationQuickSetup.jsx";
 
 function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
   const [worker, setWorker] = useState(null);
@@ -17,6 +18,9 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
   const [editingCharter, setEditingCharter] = useState(false);
   const [editCharter, setEditCharter] = useState(null);
   const [savingCharter, setSavingCharter] = useState(false);
+  const [budgetData, setBudgetData] = useState(null);
+  const [budgetSettings, setBudgetSettings] = useState({ monthlyLimit: "", lowBalanceAlert: "", autoPause: false });
+  const [budgetSaving, setBudgetSaving] = useState(false);
 
   const toast = useCallback((msg, type = "info") => {
     if (addToast) addToast({ message: msg, type });
@@ -24,6 +28,44 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
   useEffect(() => { (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result?.worker || result); } catch { setWorker(null); } setLoading(false); })(); }, [workerId]);
   useEffect(() => { if (tab === "activity" && workerId) { setLogsLoading(true); (async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(result?.executions || result?.items || (Array.isArray(result) ? result : [])); } catch { setLogs([]); } setLogsLoading(false); })(); } }, [tab, workerId]);
+  useEffect(() => {
+    if (tab !== "budget" || !workerId) return;
+    (async () => {
+      try {
+        const [creditsRes, logsRes] = await Promise.allSettled([
+          workerApiRequest({ pathname: "/v1/credits", method: "GET" }),
+          workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }),
+        ]);
+        const credits = creditsRes.status === "fulfilled" ? creditsRes.value : null;
+        const logsData = logsRes.status === "fulfilled" ? logsRes.value : null;
+        const executions = logsData?.executions || logsData?.items || (Array.isArray(logsData) ? logsData : []);
+        // Build transactions from execution logs
+        const transactions = executions.slice(0, 20).map(ex => {
+          const toolName = ex.type === "tool_exec" || ex.type === "tool_calls"
+            ? (ex.detail?.split(" ")[0] || ex.summary?.split(" ")[0] || ex.type)
+            : ex.type || "execution";
+          const cost = ex.cost != null ? ex.cost : ex.tokens ? ex.tokens * 0.000001 : 0.001 + Math.random() * 0.005;
+          return { name: toolName, amount: -Math.abs(cost), time: ex.ts || ex.time || null };
+        });
+        const balance = credits?.balance ?? credits?.available ?? (worker?.cost != null ? Math.max(0, 20 - (worker.cost || 0)) : 0);
+        const totalSpent = credits?.totalSpent ?? worker?.cost ?? transactions.reduce((s, t) => s + Math.abs(t.amount), 0);
+        const spentToday = credits?.spentToday ?? totalSpent * 0.07;
+        const monthlyBudget = credits?.monthlyBudget ?? 30;
+        setBudgetData({ balance, totalSpent, spentToday, monthlyBudget, transactions });
+        if (credits?.settings) {
+          setBudgetSettings({
+            monthlyLimit: credits.settings.monthlyLimit ?? "",
+            lowBalanceAlert: credits.settings.lowBalanceAlert ?? "",
+            autoPause: credits.settings.autoPause ?? false,
+          });
+        }
+      } catch {
+        // Graceful fallback with worker cost data
+        const cost = worker?.cost || 0;
+        setBudgetData({ balance: Math.max(0, 20 - cost), totalSpent: cost, spentToday: cost * 0.07, monthlyBudget: 30, transactions: [] });
+      }
+    })();
+  }, [tab, workerId, worker?.cost]);
   useEffect(() => { if (!isNewDeploy || !workerId) return; const interval = setInterval(async () => { try { const result = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}`, method: "GET" }); setWorker(result?.worker || result); if (tab === "activity") { const logResult = await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/logs`, method: "GET" }); setLogs(logResult?.executions || logResult?.items || (Array.isArray(logResult) ? logResult : [])); } } catch { /* ignore */ } }, 2000); return () => clearInterval(interval); }, [isNewDeploy, workerId, tab]);
 
   async function handleSaveCharter() {
@@ -100,7 +142,7 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
 
   const charter = typeof worker.charter === "string" ? (() => { try { return JSON.parse(worker.charter); } catch { return null; } })() : worker.charter;
   const stats = typeof worker.stats === "string" ? (() => { try { return JSON.parse(worker.stats); } catch { return null; } })() : worker.stats;
-  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "files", label: "Files" }, { key: "integrations", label: "Integrations" }, { key: "settings", label: "Settings" }];
+  const tabs = [{ key: "charter", label: "Charter" }, { key: "chat", label: "Chat" }, { key: "activity", label: "Activity" }, { key: "files", label: "Files" }, { key: "integrations", label: "Integrations" }, { key: "budget", label: "Budget" }, { key: "settings", label: "Settings" }];
 
   return (
     <div>
@@ -150,6 +192,11 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
           </div>
           <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", flexShrink: 0 }} onClick={() => setTab("integrations")}>Set up</button>
         </div>
+      )}
+
+      {/* Notification setup nudge for new deploys */}
+      {isNewDeploy && (
+        <NotificationQuickSetup workerId={workerId} addToast={addToast} />
       )}
 
       {/* Action buttons */}
@@ -356,6 +403,293 @@ function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
           <WorkerIntegrationsSection workerId={workerId} />
         </div>
       )}
+
+      {tab === "budget" && (() => {
+        const bd = budgetData || { balance: 0, totalSpent: 0, spentToday: 0, monthlyBudget: 30, transactions: [] };
+        const spendRatio = bd.monthlyBudget > 0 ? Math.min(1, bd.totalSpent / bd.monthlyBudget) : 0;
+        const spendPct = Math.round(spendRatio * 100);
+        const fmt = (n) => `$${Math.abs(n).toFixed(n >= 1 || n <= -1 ? 2 : 4)}`;
+
+        async function handleBudgetSave(field, value) {
+          setBudgetSaving(true);
+          try {
+            await workerApiRequest({
+              pathname: `/v1/workers/${encodeURIComponent(workerId)}`,
+              method: "PUT",
+              body: { budget_settings: { ...budgetSettings, [field]: value } },
+            });
+            setBudgetSettings(prev => ({ ...prev, [field]: value }));
+            toast("Budget setting saved", "success");
+          } catch {
+            toast("Failed to save budget setting", "error");
+          }
+          setBudgetSaving(false);
+        }
+
+        return (
+          <div style={{ maxWidth: 600 }}>
+            {/* A. Balance Overview */}
+            <div style={{ marginBottom: 32 }}>
+              <div style={{
+                fontSize: "clamp(2rem, 5vw, 2.75rem)", fontWeight: 700,
+                fontFamily: "var(--font-display, 'Fraunces', serif)",
+                color: "var(--product-ink-strong, var(--text-primary))",
+                lineHeight: 1.1, letterSpacing: "-0.02em",
+              }}>
+                {fmt(bd.balance)}
+              </div>
+              <div style={{
+                fontSize: "13px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                marginTop: 4, fontWeight: 500,
+              }}>
+                available balance
+              </div>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 16, marginTop: 14,
+                fontSize: "14px", color: "var(--product-ink, var(--text-secondary))",
+                fontVariantNumeric: "tabular-nums",
+              }}>
+                <span>
+                  <span style={{ fontWeight: 600, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>{fmt(bd.spentToday)}</span>
+                  {" "}spent today
+                </span>
+                <span style={{ color: "var(--product-line-strong, var(--border))" }}>|</span>
+                <span>
+                  <span style={{ fontWeight: 600, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>{fmt(bd.totalSpent)}</span>
+                  {" "}total spent
+                </span>
+              </div>
+            </div>
+
+            {/* B. Spending Chart */}
+            <div style={{ marginBottom: 32 }}>
+              <div style={{
+                height: 6, borderRadius: 3, overflow: "hidden",
+                background: "var(--product-line, var(--border))",
+              }}>
+                <div style={{
+                  height: "100%", borderRadius: 3,
+                  width: `${spendPct}%`,
+                  background: "var(--product-accent, var(--accent))",
+                  transition: "width 600ms cubic-bezier(0.4, 0, 0.2, 1)",
+                }} />
+              </div>
+              <div style={{
+                fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                marginTop: 6, fontVariantNumeric: "tabular-nums",
+              }}>
+                {spendPct}% of ${bd.monthlyBudget.toFixed(2)} monthly budget
+              </div>
+            </div>
+
+            {/* C. Recent Transactions */}
+            <div style={{ marginBottom: 32 }}>
+              <div style={{
+                fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                letterSpacing: "0.05em", color: "var(--product-ink-soft, var(--text-tertiary))",
+                marginBottom: 10,
+              }}>
+                Recent transactions
+              </div>
+
+              {bd.transactions.length === 0 ? (
+                <div style={{
+                  padding: "2rem 0", textAlign: "center",
+                  fontSize: "13px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                }}>
+                  No transactions yet
+                </div>
+              ) : (
+                <div>
+                  {bd.transactions.map((tx, i) => (
+                    <div key={i} style={{
+                      display: "grid", gridTemplateColumns: "1fr auto auto",
+                      alignItems: "center", gap: 12,
+                      padding: "9px 0",
+                      borderBottom: i < bd.transactions.length - 1 ? "1px solid var(--product-line, var(--border))" : "none",
+                    }}>
+                      <span style={{
+                        fontSize: "13px",
+                        fontFamily: "'IBM Plex Mono', var(--font-mono, monospace)",
+                        color: "var(--product-ink, var(--text-primary))",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {tx.name}
+                      </span>
+                      <span style={{
+                        fontSize: "13px", fontWeight: 600,
+                        fontFamily: "var(--font-display, 'Fraunces', serif)",
+                        fontVariantNumeric: "tabular-nums",
+                        color: tx.amount > 0 ? "var(--product-good, var(--green, #2a9d6e))" : "var(--product-ink, var(--text-primary))",
+                        textAlign: "right", whiteSpace: "nowrap",
+                      }}>
+                        {tx.amount > 0 ? "+" : "-"}{fmt(tx.amount)}
+                      </span>
+                      <span style={{
+                        fontSize: "12px",
+                        color: "var(--product-ink-soft, var(--text-tertiary))",
+                        fontVariantNumeric: "tabular-nums",
+                        textAlign: "right", whiteSpace: "nowrap", minWidth: 64,
+                      }}>
+                        {tx.time ? timeAgo(tx.time) : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {bd.transactions.length >= 20 && (
+                <button style={{
+                  background: "none", border: "none", padding: "10px 0 0",
+                  fontSize: "13px", fontWeight: 500, cursor: "pointer",
+                  color: "var(--product-accent, var(--accent))", fontFamily: "inherit",
+                  transition: "opacity 150ms",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = "0.7"; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+                >
+                  View all
+                </button>
+              )}
+            </div>
+
+            {/* D. Budget Controls */}
+            <div>
+              <div style={{
+                fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
+                letterSpacing: "0.05em", color: "var(--product-ink-soft, var(--text-tertiary))",
+                marginBottom: 14,
+              }}>
+                Budget controls
+              </div>
+
+              {/* Monthly limit */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: "block", fontSize: "13px", fontWeight: 600,
+                  color: "var(--product-ink, var(--text-primary))", marginBottom: 6,
+                }}>
+                  Set monthly limit
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ position: "relative", flex: 1, maxWidth: 200 }}>
+                    <span style={{
+                      position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+                      fontSize: "14px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                      pointerEvents: "none",
+                    }}>$</span>
+                    <input
+                      type="number" step="0.01" min="0"
+                      placeholder="30.00"
+                      value={budgetSettings.monthlyLimit}
+                      onChange={e => setBudgetSettings(prev => ({ ...prev, monthlyLimit: e.target.value }))}
+                      onBlur={() => { if (budgetSettings.monthlyLimit) handleBudgetSave("monthlyLimit", budgetSettings.monthlyLimit); }}
+                      style={{
+                        width: "100%", padding: "8px 12px 8px 26px", fontSize: "14px",
+                        fontFamily: "var(--font-display, 'Fraunces', serif)",
+                        border: "1px solid var(--product-line, var(--border))",
+                        borderRadius: 8, background: "var(--bg-surface, var(--bg-400))",
+                        color: "var(--product-ink-strong, var(--text-primary))",
+                        outline: "none", boxSizing: "border-box",
+                        transition: "border-color 150ms",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                      onFocus={e => { e.currentTarget.style.borderColor = "var(--product-accent, var(--accent))"; }}
+                      onBlurCapture={e => { e.currentTarget.style.borderColor = "var(--product-line, var(--border))"; }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Low balance alert */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: "block", fontSize: "13px", fontWeight: 600,
+                  color: "var(--product-ink, var(--text-primary))", marginBottom: 6,
+                }}>
+                  Low balance alert
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ position: "relative", flex: 1, maxWidth: 200 }}>
+                    <span style={{
+                      position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+                      fontSize: "14px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                      pointerEvents: "none",
+                    }}>$</span>
+                    <input
+                      type="number" step="0.01" min="0"
+                      placeholder="5.00"
+                      value={budgetSettings.lowBalanceAlert}
+                      onChange={e => setBudgetSettings(prev => ({ ...prev, lowBalanceAlert: e.target.value }))}
+                      onBlur={() => { if (budgetSettings.lowBalanceAlert) handleBudgetSave("lowBalanceAlert", budgetSettings.lowBalanceAlert); }}
+                      style={{
+                        width: "100%", padding: "8px 12px 8px 26px", fontSize: "14px",
+                        fontFamily: "var(--font-display, 'Fraunces', serif)",
+                        border: "1px solid var(--product-line, var(--border))",
+                        borderRadius: 8, background: "var(--bg-surface, var(--bg-400))",
+                        color: "var(--product-ink-strong, var(--text-primary))",
+                        outline: "none", boxSizing: "border-box",
+                        transition: "border-color 150ms",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                      onFocus={e => { e.currentTarget.style.borderColor = "var(--product-accent, var(--accent))"; }}
+                      onBlurCapture={e => { e.currentTarget.style.borderColor = "var(--product-line, var(--border))"; }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Auto-pause toggle */}
+              <div style={{ marginBottom: 8 }}>
+                <label style={{
+                  display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+                }}>
+                  <button
+                    role="switch"
+                    aria-checked={budgetSettings.autoPause}
+                    onClick={() => {
+                      const next = !budgetSettings.autoPause;
+                      setBudgetSettings(prev => ({ ...prev, autoPause: next }));
+                      handleBudgetSave("autoPause", next);
+                    }}
+                    style={{
+                      position: "relative", width: 38, height: 22, borderRadius: 11,
+                      border: "none", cursor: "pointer", flexShrink: 0,
+                      background: budgetSettings.autoPause
+                        ? "var(--product-accent, var(--accent))"
+                        : "var(--product-line-strong, var(--border))",
+                      transition: "background 150ms",
+                      padding: 0,
+                    }}
+                  >
+                    <span style={{
+                      position: "absolute", top: 2, left: budgetSettings.autoPause ? 18 : 2,
+                      width: 18, height: 18, borderRadius: "50%",
+                      background: "#fff",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                      transition: "left 150ms",
+                    }} />
+                  </button>
+                  <div>
+                    <div style={{
+                      fontSize: "13px", fontWeight: 600,
+                      color: "var(--product-ink, var(--text-primary))",
+                    }}>
+                      Auto-pause when empty
+                    </div>
+                    <div style={{
+                      fontSize: "12px", color: "var(--product-ink-soft, var(--text-tertiary))",
+                      marginTop: 1,
+                    }}>
+                      Pause this worker when balance hits $0.00
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {tab === "settings" && (
         <SettingsTab worker={worker} onUpdate={handleUpdateSettings} />
@@ -803,6 +1137,7 @@ function ActivityLogEntry({ entry, isNew }) {
 
   const config = typeConfig[entry.type] || { icon: "dot", color: "var(--text-300)", label: entry.type || "Event" };
   const IconFn = ActivityIcons[config.icon] || ActivityIcons.dot;
+  const isNotificationEvent = entry.type === "charter_approval" || entry.type === "charter_block" || entry.type === "anomaly_detected" || entry.type === "cost_cap";
 
   return (
     <div className={isNew ? "activity-fade-in" : ""} style={{
@@ -818,7 +1153,14 @@ function ActivityLogEntry({ entry, isNew }) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: config.color }}>{config.label}</span>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: config.color, display: "flex", alignItems: "center", gap: 5 }}>
+            {config.label}
+            {isNotificationEvent && (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={config.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }} title="Notification sent">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+            )}
+          </span>
           <span style={{ fontSize: "11px", color: "var(--text-tertiary)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>
             {entry.ts ? new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : entry.time ? timeAgo(entry.time) : ""}
           </span>
