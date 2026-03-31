@@ -224,7 +224,7 @@
     "@sentry/node": "^10.16.0",
     "ioredis": "^5.10.1",
     "pg": "^8.19.0",
-    "posthog-js": "^1.364.1"
+    "posthog-js": "^1.364.2"
   },
   "devDependencies": {
     "ajv": "^8.18.0",
