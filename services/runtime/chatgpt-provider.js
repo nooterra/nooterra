@@ -13,6 +13,8 @@
  * After that, env vars don't matter — Postgres is the source of truth.
  */
 
+import { encryptCredential, decryptCredential } from './crypto-utils.js';
+
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -68,8 +70,8 @@ async function loadTokensFromDB() {
     if (rows.length === 0) return null;
     const row = rows[0];
     return {
-      accessToken: row.access_token,
-      refreshToken: row.refresh_token,
+      accessToken: decryptCredential(row.access_token),
+      refreshToken: decryptCredential(row.refresh_token),
       accountId: row.account_id || null,
     };
   } catch {
@@ -80,6 +82,8 @@ async function loadTokensFromDB() {
 async function saveTokensToDB(tokens) {
   if (!dbPool) return;
   try {
+    const encAccess = encryptCredential(tokens.accessToken);
+    const encRefresh = encryptCredential(tokens.refreshToken);
     await dbPool.query(`
       INSERT INTO chatgpt_tokens (id, access_token, refresh_token, account_id, updated_at)
       VALUES ('default', $1, $2, $3, now())
@@ -88,7 +92,7 @@ async function saveTokensToDB(tokens) {
         refresh_token = $2,
         account_id = COALESCE($3, chatgpt_tokens.account_id),
         updated_at = now()
-    `, [tokens.accessToken, tokens.refreshToken, tokens.accountId]);
+    `, [encAccess, encRefresh, tokens.accountId]);
   } catch (err) {
     log('error', `Failed to save tokens to DB: ${err.message}`);
   }

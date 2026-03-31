@@ -15,6 +15,30 @@
  * Can also be polled as a fallback if LISTEN/NOTIFY is not available.
  */
 
+function getApprovalResumeTimeoutMs() {
+  const parsed = Number.parseInt(process.env.APPROVAL_RESUME_TIMEOUT_MS || '300000', 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 300000;
+}
+
+function createResumeTimeoutError(timeoutMs) {
+  const err = new Error(`Approval resume timed out after ${timeoutMs}ms`);
+  err.code = 'APPROVAL_RESUME_TIMEOUT';
+  return err;
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(createResumeTimeoutError(timeoutMs)), timeoutMs);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    }),
+    timeoutPromise,
+  ]);
+}
+
 /**
  * Resume a worker execution that was paused awaiting approval.
  *
@@ -27,10 +51,11 @@
  */
 export async function resumeAfterApproval({ pool, approvalId, executeWorker, log }) {
   const logFn = log ?? (() => {});
+  const resumeTimeoutMs = getApprovalResumeTimeoutMs();
 
   // 1. Load the approval record
   const approvalResult = await pool.query(
-    `SELECT id, worker_id, tenant_id, execution_id, tool_name, tool_args, rule, status
+    `SELECT id, worker_id, tenant_id, execution_id, tool_name, tool_args, matched_rule, status, decision
      FROM worker_approvals WHERE id = $1`,
     [approvalId]
   );
@@ -38,18 +63,24 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
   if (!approval) {
     return { resumed: false, error: "approval not found" };
   }
-  if (approval.status !== "approved") {
-    return { resumed: false, error: `approval status is '${approval.status}', not 'approved'` };
+  const approvalDecision = approval.decision || approval.status;
+  if (approvalDecision !== "approved") {
+    return { resumed: false, error: `approval decision is '${approvalDecision}', not 'approved'` };
   }
 
-  // 2. Find the paused execution
-  const execResult = await pool.query(
-    `SELECT id, worker_id, tenant_id, status, activity
-     FROM worker_executions
-     WHERE worker_id = $1 AND tenant_id = $2 AND status = 'awaiting_approval'
-     ORDER BY started_at DESC LIMIT 1`,
-    [approval.worker_id, approval.tenant_id]
-  );
+  // 2. Find the paused execution — match on execution_id if available, fall back to latest
+  const execQuery = approval.execution_id
+    ? `SELECT id, worker_id, tenant_id, status, activity, result, receipt
+       FROM worker_executions
+       WHERE id = $1 AND worker_id = $2 AND tenant_id = $3 AND status = 'awaiting_approval'`
+    : `SELECT id, worker_id, tenant_id, status, activity, result, receipt
+       FROM worker_executions
+       WHERE worker_id = $1 AND tenant_id = $2 AND status = 'awaiting_approval'
+       ORDER BY started_at DESC LIMIT 1`;
+  const execParams = approval.execution_id
+    ? [approval.execution_id, approval.worker_id, approval.tenant_id]
+    : [approval.worker_id, approval.tenant_id];
+  const execResult = await pool.query(execQuery, execParams);
   const execution = execResult.rows[0];
   if (!execution) {
     logFn("warn", `No awaiting_approval execution found for worker ${approval.worker_id}`);
@@ -77,37 +108,61 @@ export async function resumeAfterApproval({ pool, approvalId, executeWorker, log
 
   // 5. Load ALL approved tool calls for this execution (not just the one being resumed)
   const allApproved = await pool.query(
-    `SELECT id, tool_name, tool_args FROM worker_approvals
-     WHERE execution_id = $1 AND tenant_id = $2 AND status = 'approved'
+    `SELECT id, tool_name, tool_args, matched_rule FROM worker_approvals
+     WHERE execution_id = $1 AND tenant_id = $2 AND COALESCE(decision, status) = 'approved'
      ORDER BY created_at ASC`,
     [execution.id, approval.tenant_id]
   );
 
   const approvedToolCalls = allApproved.rows.map(row => ({
     name: row.tool_name,
-    args: typeof row.tool_args === 'string' ? JSON.parse(row.tool_args) : row.tool_args ?? {}
+    args: typeof row.tool_args === 'string' ? JSON.parse(row.tool_args) : row.tool_args ?? {},
+    matchedRule: row.matched_rule || null,
   }));
 
   logFn("info", `Resuming execution ${execution.id} after approval of ${approvedToolCalls.length} tool(s)`);
 
-  // 6. Mark ALL these approvals as 'resumed' atomically before execution
-  await pool.query(
-    `UPDATE worker_approvals SET status = 'resumed' WHERE execution_id = $1 AND tenant_id = $2 AND status = 'approved'`,
-    [execution.id, approval.tenant_id]
-  );
+  let priorAssistantResponse = execution.result || "";
+  if (!priorAssistantResponse && execution.receipt) {
+    try {
+      const receipt = typeof execution.receipt === "string" ? JSON.parse(execution.receipt) : execution.receipt;
+      priorAssistantResponse = receipt?.response || "";
+    } catch {
+      priorAssistantResponse = "";
+    }
+  }
 
-  // 7. Re-run the worker execution with the approved context
-  // The executeWorker function will see the execution already exists
-  // and pick up where it left off with the approved tool calls
+  // 6. Re-run the worker execution with the approved context.
+  // Mark approvals as 'resumed' AFTER execution succeeds so they
+  // can be retried if the execution crashes.
   try {
-    await executeWorker(worker, execution.id, "approval_resume", {
-      approvedToolCalls,
-      approvalId: approval.id
-    });
+    await withTimeout(
+      executeWorker(worker, execution.id, "approval_resume", {
+        approvedToolCalls,
+        approvalId: approval.id,
+        priorAssistantResponse,
+        executionDeadlineMs: Date.now() + resumeTimeoutMs,
+      }),
+      resumeTimeoutMs,
+    );
+
+    // Execution succeeded — mark approvals consumed
+    await pool.query(
+      `UPDATE worker_approvals
+       SET status = 'resumed'
+       WHERE execution_id = $1 AND tenant_id = $2 AND COALESCE(decision, status) = 'approved'`,
+      [execution.id, approval.tenant_id]
+    );
 
     return { resumed: true, executionId: execution.id };
   } catch (err) {
     logFn("error", `Failed to resume execution ${execution.id}: ${err?.message}`);
+    // Approvals stay 'approved' so they can be retried
+    // Revert execution status so it can be resumed again
+    await pool.query(
+      `UPDATE worker_executions SET status = 'awaiting_approval' WHERE id = $1 AND status = 'running'`,
+      [execution.id]
+    ).catch(() => {});
     return { resumed: false, executionId: execution.id, error: err?.message };
   }
 }
@@ -130,7 +185,7 @@ export async function pollApprovedActions({ pool, executeWorker, log }) {
     `SELECT wa.id AS approval_id, wa.worker_id, wa.tenant_id
      FROM worker_approvals wa
      JOIN worker_executions we ON we.worker_id = wa.worker_id AND we.tenant_id = wa.tenant_id
-     WHERE wa.status = 'approved'
+     WHERE COALESCE(wa.decision, wa.status) = 'approved'
        AND wa.decided_at > NOW() - INTERVAL '1 hour'
        AND we.status = 'awaiting_approval'
      ORDER BY wa.decided_at ASC
@@ -170,7 +225,7 @@ export async function handleApprovalDecision({ pool, approvalId, decision, decid
   // 1. Update the approval record
   const result = await pool.query(
     `UPDATE worker_approvals
-     SET status = $1, decided_by = $2, decided_at = NOW()
+     SET status = $1, decision = $1, decided_by = $2, decided_at = NOW()
      WHERE id = $3 AND status = 'pending'
      RETURNING id, worker_id, tenant_id, tool_name`,
     [decision, decidedBy, approvalId]

@@ -151,7 +151,7 @@ Write ONLY the bullet points, no intro or outro. Use plain text, not markdown.`;
 /**
  * Send the report email for a tenant.
  */
-async function sendReportEmail(tenantEmail, tenantName, summary, metrics, reportDate) {
+async function sendReportEmail(tenantId, tenantEmail, tenantName, summary, metrics, reportDate) {
   const subject = `Nooterra Daily Report - ${reportDate}`;
   const body = `Daily Report for ${tenantName || 'your workspace'} (${reportDate})
 
@@ -167,6 +167,9 @@ This is an automated report from Nooterra. Manage your preferences in the dashbo
     to: tenantEmail,
     subject,
     body,
+  }, {
+    tenant_id: tenantId,
+    side_effect_idempotency_key: `scheduled-report:${tenantId}:${reportDate}`,
   });
 
   return result;
@@ -248,7 +251,7 @@ export async function runDailyReports(pool) {
       const email = tenant.contact_email;
       if (email) {
         try {
-          const emailResult = await sendReportEmail(email, tenant.name, summary, metrics, today);
+          const emailResult = await sendReportEmail(tenant.id, email, tenant.name, summary, metrics, today);
           if (emailResult?.success) {
             await pool.query(
               `UPDATE scheduled_reports SET sent_at = NOW() WHERE tenant_id = $1 AND report_date = $2`,

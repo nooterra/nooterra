@@ -5,6 +5,21 @@
  * Detects prompt injection attempts and anomalous execution patterns.
  */
 
+import crypto from 'node:crypto';
+import { classifyWithPredicates } from './world-model-predicates.js';
+
+function logCharterEnforcementDbError(operation, err, context = {}) {
+  const payload = {
+    ts: new Date().toISOString(),
+    level: 'error',
+    component: 'charter-enforcement',
+    operation,
+    message: err?.message || String(err),
+    context,
+  };
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
+}
+
 // ---------------------------------------------------------------------------
 // Prompt Injection Detection
 // ---------------------------------------------------------------------------
@@ -309,9 +324,71 @@ export function requiresApproval(charter, action) {
  * @param {object} toolArgs - Arguments passed to the tool
  * @returns {{ allowed: boolean, reason?: string, rule?: string, ruleType?: string, requiresApproval?: boolean, matchedRule?: string }}
  */
-export function validateToolCall(charter, toolName, toolArgs) {
+export function validateToolCall(charter, toolName, toolArgs, worldModel = null, policyOverrides = null) {
   if (!charter) {
     return { allowed: false, reason: 'No charter provided' };
+  }
+
+  if (Array.isArray(policyOverrides?.blockedToolNames) && policyOverrides.blockedToolNames.includes(toolName)) {
+    const blockedReason = policyOverrides?.blockedToolReasons?.[toolName]
+      || policyOverrides.reason
+      || `Tool call blocked by temporary policy override: "${toolName}"`;
+    return {
+      allowed: false,
+      reason: blockedReason,
+      rule: blockedReason,
+      ruleType: 'neverDo',
+    };
+  }
+
+  if (policyOverrides?.forceApprovalForAllTools) {
+    const matchedRule = policyOverrides.matchedRule || 'Webhook anomaly approval re-entry';
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: policyOverrides.reason || `Tool call requires approval due to temporary policy override: "${matchedRule}"`,
+      rule: matchedRule,
+      ruleType: 'askFirst',
+      matchedRule,
+    };
+  }
+
+  if (Array.isArray(policyOverrides?.forceApprovalToolNames) && policyOverrides.forceApprovalToolNames.includes(toolName)) {
+    const matchedRule = policyOverrides?.forceApprovalToolReasons?.[toolName]
+      || policyOverrides.matchedRule
+      || `Temporary approval override for ${toolName}`;
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: policyOverrides?.forceApprovalToolReasons?.[toolName]
+        || policyOverrides.reason
+        || `Tool call requires approval due to temporary policy override: "${matchedRule}"`,
+      rule: matchedRule,
+      ruleType: 'askFirst',
+      matchedRule,
+    };
+  }
+
+  const predicateResult = classifyWithPredicates(toolName, toolArgs, worldModel || charter.worldModel || null);
+  if (predicateResult?.verdict === 'neverDo') {
+    return {
+      allowed: false,
+      reason: `Tool call blocked by world-model invariant: "${predicateResult.rule}"`,
+      rule: predicateResult.rule,
+      ruleType: 'neverDo',
+      invariantViolations: predicateResult.invariantViolations || [],
+    };
+  }
+  if (predicateResult?.verdict === 'askFirst') {
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: `Tool call requires approval by world-model invariant: "${predicateResult.rule}"`,
+      rule: predicateResult.rule,
+      ruleType: 'askFirst',
+      matchedRule: predicateResult.rule,
+      invariantViolations: predicateResult.invariantViolations || [],
+    };
   }
 
   // Build a description of the action from tool name + args
@@ -469,17 +546,22 @@ export function detectAnomalies({
  * @returns {Promise<number>} Average cost in USD
  */
 export async function getAvgExecutionCost(pool, workerId, lookback = 20) {
-  const result = await pool.query(`
-    SELECT AVG(cost_usd) AS avg_cost
-    FROM (
-      SELECT cost_usd FROM worker_executions
-      WHERE worker_id = $1 AND status = 'completed' AND cost_usd > 0
-      ORDER BY completed_at DESC
-      LIMIT $2
-    ) recent
-  `, [workerId, lookback]);
+  try {
+    const result = await pool.query(`
+      SELECT AVG(cost_usd) AS avg_cost
+      FROM (
+        SELECT cost_usd FROM worker_executions
+        WHERE worker_id = $1 AND status = 'completed' AND cost_usd > 0
+        ORDER BY completed_at DESC
+        LIMIT $2
+      ) recent
+    `, [workerId, lookback]);
 
-  return parseFloat(result.rows[0]?.avg_cost ?? 0);
+    return parseFloat(result.rows[0]?.avg_cost ?? 0);
+  } catch (err) {
+    logCharterEnforcementDbError('getAvgExecutionCost', err, { workerId, lookback });
+    return 0;
+  }
 }
 
 /**
@@ -491,25 +573,47 @@ export async function getAvgExecutionCost(pool, workerId, lookback = 20) {
  * @param {string[]} reasons - Anomaly reasons
  */
 export async function autoPauseWorker(pool, workerId, executionId, reasons) {
-  await pool.query(`
-    UPDATE workers SET
-      status = 'paused',
-      stats = jsonb_set(
-        COALESCE(stats, '{}'::jsonb),
-        '{autoPausedAt}',
-        to_jsonb($2::text)
-      ),
-      updated_at = now()
-    WHERE id = $1
-  `, [workerId, new Date().toISOString()]);
+  const pauseSummary = {
+    workerPaused: false,
+    executionMarked: false,
+    errors: [],
+  };
+  const pausedAt = new Date().toISOString();
 
-  // Store pause reason in execution activity
-  await pool.query(`
-    UPDATE worker_executions SET
-      status = 'auto_paused',
-      error = $2
-    WHERE id = $1
-  `, [executionId, `Auto-paused: ${reasons.join('; ')}`]);
+  try {
+    await pool.query(`
+      UPDATE workers SET
+        status = 'paused',
+        stats = jsonb_set(
+          COALESCE(stats, '{}'::jsonb),
+          '{autoPausedAt}',
+          to_jsonb($2::text)
+        ),
+        updated_at = now()
+      WHERE id = $1
+    `, [workerId, pausedAt]);
+    pauseSummary.workerPaused = true;
+  } catch (err) {
+    pauseSummary.errors.push(`worker_update:${err?.message || String(err)}`);
+    logCharterEnforcementDbError('autoPauseWorker.updateWorker', err, { workerId, executionId });
+  }
+
+  if (executionId) {
+    try {
+      await pool.query(`
+        UPDATE worker_executions SET
+          status = 'auto_paused',
+          error = $2
+        WHERE id = $1
+      `, [executionId, `Auto-paused: ${reasons.join('; ')}`]);
+      pauseSummary.executionMarked = true;
+    } catch (err) {
+      pauseSummary.errors.push(`execution_update:${err?.message || String(err)}`);
+      logCharterEnforcementDbError('autoPauseWorker.updateExecution', err, { workerId, executionId });
+    }
+  }
+
+  return pauseSummary;
 }
 
 /**
@@ -520,18 +624,50 @@ export async function autoPauseWorker(pool, workerId, executionId, reasons) {
  * @param {string} params.workerId - Worker ID
  * @param {string} params.tenantId - Tenant ID
  * @param {string} params.executionId - Execution ID
+ * @param {string} [params.toolName] - The approved tool name
+ * @param {object} [params.toolArgs] - The approved tool arguments
  * @param {string} params.action - The action requiring approval
  * @param {string} params.matchedRule - The askFirst rule that matched
  * @returns {Promise<string>} Approval record ID
  */
-export async function createApprovalRecord(pool, { workerId, tenantId, executionId, action, matchedRule }) {
+export async function createApprovalRecord(pool, { workerId, tenantId, executionId, toolName = null, toolArgs = null, action, matchedRule }) {
   const id = `apr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const normalizedToolName = toolName ? String(toolName) : String(action || 'unknown');
+  const normalizedToolArgs = toolArgs && typeof toolArgs === 'object' ? toolArgs : {};
+  const normalizedAction = action || `Tool call: ${normalizedToolName}`;
+  const actionHash = crypto.createHash('sha256')
+    .update(JSON.stringify({ toolName: normalizedToolName, toolArgs: normalizedToolArgs, action: normalizedAction }))
+    .digest('hex');
 
-  await pool.query(`
-    INSERT INTO worker_approvals (id, tenant_id, worker_id, execution_id, tool_name, tool_args, rule, status)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-    ON CONFLICT DO NOTHING
-  `, [id, tenantId, workerId, executionId, action || 'unknown', JSON.stringify({ matchedRule }), matchedRule || null]);
+  try {
+    const result = await pool.query(`
+      INSERT INTO worker_approvals (
+        id, tenant_id, worker_id, execution_id, tool_name, tool_args,
+        action, matched_rule, action_hash, status, decision
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NULL)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `, [
+      id,
+      tenantId,
+      workerId,
+      executionId,
+      normalizedToolName,
+      normalizedToolArgs,
+      normalizedAction,
+      matchedRule || null,
+      actionHash,
+    ]);
 
-  return id;
+    return result.rowCount > 0 ? (result.rows[0]?.id || id) : null;
+  } catch (err) {
+    logCharterEnforcementDbError('createApprovalRecord', err, {
+      workerId,
+      tenantId,
+      executionId,
+      toolName: normalizedToolName,
+    });
+    return null;
+  }
 }
