@@ -6,9 +6,36 @@
  */
 
 import crypto from 'node:crypto';
-import { validateCharterRules } from './charter-enforcement.js';
-import { presignS3Url } from '../../src/core/s3-presign.js';
+import { encryptCredential, decryptCredential } from './crypto-utils.js';
+import { autoPauseWorker, validateCharterRules } from './charter-enforcement.js';
+import { analyzePromotionCandidates, buildLearningAnalytics, summarizeExecutionOutcomes } from './trust-learning.js';
+import { WORKER_EXECUTION_TERMINAL_STATUSES } from './state-machine.js';
+import { presignS3Url } from './lib/s3-presign.js';
 import { getAuthenticatedTenantId } from './auth.js';
+import { querySignalsForWorker } from './learning-signals.js';
+import {
+  getTenantWorkerRuntimePolicy,
+  getWorkerRuntimePolicy,
+  getWorkerRuntimePolicyForTool,
+  putTenantWorkerRuntimePolicy,
+  putWorkerRuntimePolicy,
+  resolveWorkerRuntimePolicy,
+  resolveTenantWorkerRuntimePolicy,
+} from './runtime-policy-store.js';
+import { resolveApprovalEnforcementDecision } from './runtime-enforcement.js';
+import {
+  buildWorkerWebhookDeadLetterCode,
+  computeWorkerWebhookDedupeKey,
+  normalizeWorkerWebhookConfig,
+  normalizeWorkerWebhookEvent,
+  parseWorkerWebhookPayload,
+  readWorkerWebhookRequest,
+  resolveWebhookEnforcementDecision,
+  sanitizeWorkerWebhookHeaders,
+  summarizeWebhookAnomalies,
+  verifyWorkerWebhookRequest,
+  WorkerWebhookIngressError,
+} from './webhook-ingress.js';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -65,6 +92,1273 @@ function checkApiRateLimit(key) {
   if (entry.count >= API_RATE_LIMIT_PER_MINUTE) return false;
   entry.count++;
   return true;
+}
+
+function parseJsonField(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+}
+
+function parseReceipt(receipt) {
+  return parseJsonField(receipt, {});
+}
+
+function parseActivity(activity) {
+  const parsed = parseJsonField(activity, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function groupRowsByWorker(rows = [], workerKey = 'worker_id') {
+  const grouped = new Map();
+  for (const row of rows) {
+    const workerId = row?.[workerKey];
+    if (!workerId) continue;
+    if (!grouped.has(workerId)) grouped.set(workerId, []);
+    grouped.get(workerId).push(row);
+  }
+  return grouped;
+}
+
+export function summarizeSideEffects(sideEffects = []) {
+  const summary = {
+    total: sideEffects.length,
+    succeeded: 0,
+    failed: 0,
+    pending: 0,
+    replayedOperations: 0,
+    replayCount: 0,
+    byTool: {},
+    latestFailureAt: null,
+    latestReplayAt: null,
+  };
+
+  for (const effect of sideEffects) {
+    const status = String(effect?.status || 'unknown');
+    const toolName = String(effect?.tool_name || 'unknown');
+    const replayCount = Number(effect?.replay_count || 0);
+
+    if (!summary.byTool[toolName]) {
+      summary.byTool[toolName] = {
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        pending: 0,
+        replayedOperations: 0,
+        replayCount: 0,
+      };
+    }
+    const toolSummary = summary.byTool[toolName];
+    toolSummary.total += 1;
+
+    if (status === 'succeeded') {
+      summary.succeeded += 1;
+      toolSummary.succeeded += 1;
+    } else if (status === 'failed') {
+      summary.failed += 1;
+      toolSummary.failed += 1;
+      const updatedAt = effect?.updated_at || effect?.created_at || null;
+      if (updatedAt && (!summary.latestFailureAt || Date.parse(updatedAt) > Date.parse(summary.latestFailureAt))) {
+        summary.latestFailureAt = updatedAt;
+      }
+    } else {
+      summary.pending += 1;
+      toolSummary.pending += 1;
+    }
+
+    if (replayCount > 0) {
+      summary.replayedOperations += 1;
+      summary.replayCount += replayCount;
+      toolSummary.replayedOperations += 1;
+      toolSummary.replayCount += replayCount;
+      const replayedAt = effect?.last_replayed_at || effect?.updated_at || effect?.created_at || null;
+      if (replayedAt && (!summary.latestReplayAt || Date.parse(replayedAt) > Date.parse(summary.latestReplayAt))) {
+        summary.latestReplayAt = replayedAt;
+      }
+    }
+  }
+
+  return summary;
+}
+
+function summarizeWebhookIngress(webhookIngress = []) {
+  const summary = {
+    total: webhookIngress.length,
+    accepted: 0,
+    deadLetters: 0,
+    processed: 0,
+    replayedDeliveries: 0,
+    replayCount: 0,
+    byProvider: {},
+    latestDeadLetterAt: null,
+    latestReplayAt: null,
+  };
+
+  for (const ingress of webhookIngress) {
+    const provider = String(ingress?.provider || 'generic');
+    const status = String(ingress?.status || 'accepted');
+    const replayCount = Number(ingress?.replay_count || 0);
+    const wasProcessed = Boolean(ingress?.execution_id || ingress?.processed_at);
+
+    if (!summary.byProvider[provider]) {
+      summary.byProvider[provider] = {
+        total: 0,
+        accepted: 0,
+        deadLetters: 0,
+        processed: 0,
+        replayedDeliveries: 0,
+        replayCount: 0,
+      };
+    }
+    const providerSummary = summary.byProvider[provider];
+    providerSummary.total += 1;
+
+    if (status === 'dead_letter') {
+      summary.deadLetters += 1;
+      providerSummary.deadLetters += 1;
+      const updatedAt = ingress?.updated_at || ingress?.created_at || null;
+      if (updatedAt && (!summary.latestDeadLetterAt || Date.parse(updatedAt) > Date.parse(summary.latestDeadLetterAt))) {
+        summary.latestDeadLetterAt = updatedAt;
+      }
+    } else {
+      summary.accepted += 1;
+      providerSummary.accepted += 1;
+    }
+
+    if (wasProcessed) {
+      summary.processed += 1;
+      providerSummary.processed += 1;
+    }
+
+    if (replayCount > 0) {
+      summary.replayedDeliveries += 1;
+      summary.replayCount += replayCount;
+      providerSummary.replayedDeliveries += 1;
+      providerSummary.replayCount += replayCount;
+      const replayedAt = ingress?.last_replayed_at || ingress?.updated_at || ingress?.created_at || null;
+      if (replayedAt && (!summary.latestReplayAt || Date.parse(replayedAt) > Date.parse(summary.latestReplayAt))) {
+        summary.latestReplayAt = replayedAt;
+      }
+    }
+  }
+
+  return summary;
+}
+
+function mergeApprovalAnomalyDecisions(decisions = []) {
+  const anomalies = [];
+  const blockedToolNames = [];
+  const blockedToolReasons = {};
+  let forceApprovalForAllTools = false;
+  let matchedRule = null;
+  let reason = null;
+  const autoPauseReasons = [];
+
+  for (const decision of decisions) {
+    if (!decision || typeof decision !== 'object') continue;
+    if (Array.isArray(decision.anomalies)) anomalies.push(...decision.anomalies);
+    if (Array.isArray(decision.blockedToolNames)) blockedToolNames.push(...decision.blockedToolNames);
+    if (decision.blockedToolReasons && typeof decision.blockedToolReasons === 'object') {
+      Object.assign(blockedToolReasons, decision.blockedToolReasons);
+    }
+    if (decision.forceApprovalForAllTools) forceApprovalForAllTools = true;
+    if (!matchedRule && decision.matchedRule) matchedRule = decision.matchedRule;
+    if (!reason && decision.reason) reason = decision.reason;
+    if (Array.isArray(decision.autoPauseReasons)) autoPauseReasons.push(...decision.autoPauseReasons);
+  }
+
+  const action = autoPauseReasons.length > 0
+    ? 'auto_pause'
+    : (forceApprovalForAllTools || blockedToolNames.length > 0 ? 'restrict' : 'allow');
+
+  return {
+    action,
+    blockedToolNames: [...new Set(blockedToolNames.filter(Boolean))],
+    blockedToolReasons,
+    forceApprovalForAllTools,
+    matchedRule,
+    reason,
+    anomalies,
+    autoPauseReasons: [...new Set(autoPauseReasons.filter(Boolean))],
+  };
+}
+
+function resolveApprovalOverviewDecision(approvals = [], workerRuntimePolicy = null) {
+  const decisions = [];
+  const approvalsByTool = new Map();
+
+  for (const approval of approvals) {
+    const toolName = String(approval?.tool_name || approval?.toolName || '').trim();
+    if (toolName) {
+      if (!approvalsByTool.has(toolName)) approvalsByTool.set(toolName, []);
+      approvalsByTool.get(toolName).push(approval);
+    }
+  }
+
+  if (approvals.length > 0) {
+    const decision = resolveApprovalEnforcementDecision(approvals, {
+      policy: workerRuntimePolicy?.effective?.approvals || {},
+    });
+    if (Array.isArray(decision.anomalies)) {
+      decision.anomalies = decision.anomalies.map((anomaly) => ({
+        policyScope: workerRuntimePolicy?.sources?.approvals || 'default',
+        ...anomaly,
+      }));
+    }
+    decisions.push(decision);
+  }
+
+  for (const [toolName, rows] of approvalsByTool.entries()) {
+    if (!workerRuntimePolicy?.effectiveTools?.[toolName]) continue;
+    const scopedPolicy = getWorkerRuntimePolicyForTool(workerRuntimePolicy, toolName);
+    const decision = resolveApprovalEnforcementDecision(rows, {
+      policy: scopedPolicy.approvals,
+    });
+    if (Array.isArray(decision.anomalies)) {
+      decision.anomalies = decision.anomalies.map((anomaly) => ({
+        policyScope: scopedPolicy.sources?.approvals || 'default',
+        ...anomaly,
+      }));
+    }
+    decisions.push(decision);
+  }
+
+  return mergeApprovalAnomalyDecisions(decisions);
+}
+
+export function buildTenantLearningOverview({
+  workers = [],
+  executions = [],
+  approvals = [],
+  signals = [],
+  sideEffects = [],
+  webhookIngress = [],
+  workerPolicies = [],
+  runtimePolicy = null,
+  lookbackDays = 30,
+} = {}) {
+  const effectiveTenantRuntimePolicy = resolveTenantWorkerRuntimePolicy(runtimePolicy || {});
+  const executionsByWorker = groupRowsByWorker(executions);
+  const approvalsByWorker = groupRowsByWorker(approvals);
+  const signalsByWorker = groupRowsByWorker(signals);
+  const sideEffectsByWorker = groupRowsByWorker(sideEffects);
+  const webhookIngressByWorker = groupRowsByWorker(webhookIngress);
+  const workerPoliciesByWorker = groupRowsByWorker(workerPolicies, 'worker_id');
+
+  const workersOverview = [];
+  const topPromotionCandidates = [];
+  const topUnstableRules = [];
+  const recentVerifierFailures = [];
+  const recentSideEffectFailures = [];
+  const recentSideEffectReplays = [];
+  const recentWebhookDeadLetters = [];
+  const recentWebhookReplays = [];
+  const recentWebhookAnomalies = [];
+  const recentApprovalAnomalies = [];
+
+  for (const worker of workers) {
+    const workerId = worker.id;
+    const charter = parseJsonField(worker.charter, {});
+    const workerExecutions = executionsByWorker.get(workerId) || [];
+    const workerApprovals = approvalsByWorker.get(workerId) || [];
+    const workerSignals = signalsByWorker.get(workerId) || [];
+    const workerSideEffects = sideEffectsByWorker.get(workerId) || [];
+    const workerWebhookIngress = webhookIngressByWorker.get(workerId) || [];
+    const workerPolicyRow = (workerPoliciesByWorker.get(workerId) || [])[0] || null;
+    const effectiveRuntimePolicy = resolveWorkerRuntimePolicy({
+      tenantOverrides: runtimePolicy || {},
+      workerOverrides: workerPolicyRow?.policy || {},
+    });
+    const analytics = buildLearningAnalytics({
+      charter,
+      executions: workerExecutions,
+      approvals: workerApprovals,
+      signals: workerSignals,
+      lookbackDays,
+    });
+    const sideEffectSummary = summarizeSideEffects(workerSideEffects);
+    const webhookIngressSummary = summarizeWebhookIngress(workerWebhookIngress);
+    const webhookAnomalies = summarizeWebhookAnomalies(
+      workerWebhookIngress,
+      effectiveRuntimePolicy?.effective?.webhooks?.thresholds || effectiveTenantRuntimePolicy?.webhooks?.thresholds || {}
+    );
+    const approvalDecision = resolveApprovalOverviewDecision(workerApprovals, effectiveRuntimePolicy);
+    const approvalAnomalies = Array.isArray(approvalDecision?.anomalies)
+      ? approvalDecision.anomalies.map((anomaly) => ({
+        kind: anomaly?.kind || anomaly?.type || null,
+        ...anomaly,
+      }))
+      : [];
+
+    const verifierFailures = workerExecutions
+      .map((execution) => {
+        const receipt = parseReceipt(execution?.receipt);
+        const report = receipt?.verificationReport || {};
+        const assertions = Array.isArray(report?.assertions) ? report.assertions : [];
+        const failedAssertions = assertions.filter((assertion) => assertion && assertion.passed === false);
+        if (report?.businessOutcome !== 'failed' && failedAssertions.length === 0) {
+          return null;
+        }
+        return {
+          workerId,
+          workerName: worker.name,
+          executionId: execution.id || receipt.executionId || null,
+          startedAt: execution.started_at || null,
+          status: execution.status || null,
+          businessOutcome: report?.businessOutcome || receipt?.businessOutcome || null,
+          failedAssertions: failedAssertions.map((assertion) => ({
+            type: assertion.type,
+            evidence: assertion.evidence || null,
+            actualValue: assertion.actualValue ?? null,
+          })),
+        };
+      })
+      .filter(Boolean);
+
+    const interruptedExecutions = workerExecutions
+      .map((execution) => {
+        const receipt = parseReceipt(execution?.receipt);
+        const interruption = receipt?.interruption || null;
+        if (!interruption) return null;
+        return {
+          workerId,
+          workerName: worker.name,
+          executionId: execution.id || receipt.executionId || null,
+          startedAt: execution.started_at || null,
+          status: execution.status || null,
+          code: typeof interruption === 'object' ? interruption.code || 'interrupted' : interruption,
+          detail: typeof interruption === 'object' ? interruption.detail || null : null,
+        };
+      })
+      .filter(Boolean);
+
+    const pendingApprovals = workerApprovals.filter((approval) => String(approval?.status || '') === 'pending').length;
+    const lastRunAt = workerExecutions[0]?.started_at || null;
+
+    workersOverview.push({
+      workerId,
+      workerName: worker.name,
+      lookbackDays,
+      executionSummary: analytics.executionSummary,
+      executionStatusCounts: analytics.executionStatusCounts,
+      pendingApprovals,
+      promotionCandidates: analytics.promotionCandidates,
+      unstableRules: analytics.unstableRules,
+      sideEffects: sideEffectSummary,
+      webhookIngress: webhookIngressSummary,
+      webhookAnomalies,
+      approvalAnomalies,
+      runtimePolicy: {
+        workerOverride: Boolean(workerPolicyRow?.policy && Object.keys(workerPolicyRow.policy || {}).length > 0),
+        workerPolicyUpdatedAt: workerPolicyRow?.updated_at || null,
+      },
+      verifierFailures: verifierFailures.length,
+      interruptedExecutions: interruptedExecutions.length,
+      lastRunAt,
+      latestExecutionId: workerExecutions[0]?.id || null,
+      riskScore:
+        pendingApprovals
+        + analytics.unstableRules.length
+        + verifierFailures.length
+        + sideEffectSummary.failed
+        + sideEffectSummary.replayedOperations
+        + webhookIngressSummary.deadLetters
+        + webhookIngressSummary.replayedDeliveries
+        + webhookAnomalies.length
+        + approvalAnomalies.length,
+    });
+
+    for (const candidate of analytics.promotionCandidates) {
+      topPromotionCandidates.push({
+        workerId,
+        workerName: worker.name,
+        ...candidate,
+      });
+    }
+    for (const unstableRule of analytics.unstableRules) {
+      topUnstableRules.push({
+        workerId,
+        workerName: worker.name,
+        ...unstableRule,
+      });
+    }
+    recentVerifierFailures.push(...verifierFailures);
+
+    for (const effect of workerSideEffects) {
+      if (effect?.status === 'failed') {
+        recentSideEffectFailures.push({
+          workerId,
+          workerName: worker.name,
+          sideEffectId: effect.id || null,
+          executionId: effect.execution_id || null,
+          idempotencyKey: effect.idempotency_key || null,
+          toolName: effect.tool_name,
+          target: effect.target || null,
+          error: effect.error_text || null,
+          status: effect.status || null,
+          updatedAt: effect.updated_at || effect.created_at || null,
+          replayCount: Number(effect.replay_count || 0),
+        });
+      }
+      if (Number(effect?.replay_count || 0) > 0) {
+        recentSideEffectReplays.push({
+          workerId,
+          workerName: worker.name,
+          sideEffectId: effect.id || null,
+          executionId: effect.execution_id || null,
+          idempotencyKey: effect.idempotency_key || null,
+          toolName: effect.tool_name,
+          target: effect.target || null,
+          status: effect.status || null,
+          providerRef: effect.provider_ref || null,
+          replayCount: Number(effect.replay_count || 0),
+          lastReplayedAt: effect.last_replayed_at || effect.updated_at || effect.created_at || null,
+        });
+      }
+    }
+
+    for (const ingress of workerWebhookIngress) {
+      if (ingress?.status === 'dead_letter') {
+        recentWebhookDeadLetters.push({
+          workerId,
+          workerName: worker.name,
+          ingressId: ingress.id || null,
+          executionId: ingress.execution_id || null,
+          provider: ingress.provider || 'generic',
+          dedupeKey: ingress.dedupe_key || null,
+          requestPath: ingress.request_path || null,
+          signatureScheme: ingress.signature_scheme || null,
+          signatureStatus: ingress.signature_status || null,
+          signatureError: ingress.signature_error || null,
+          deadLetterReason: ingress.dead_letter_reason || null,
+          replayCount: Number(ingress.replay_count || 0),
+          updatedAt: ingress.updated_at || ingress.created_at || null,
+        });
+      }
+      if (Number(ingress?.replay_count || 0) > 0) {
+        recentWebhookReplays.push({
+          workerId,
+          workerName: worker.name,
+          ingressId: ingress.id || null,
+          executionId: ingress.execution_id || null,
+          provider: ingress.provider || 'generic',
+          dedupeKey: ingress.dedupe_key || null,
+          requestPath: ingress.request_path || null,
+          status: ingress.status || null,
+          replayCount: Number(ingress.replay_count || 0),
+          lastReplayedAt: ingress.last_replayed_at || ingress.updated_at || ingress.created_at || null,
+        });
+      }
+    }
+
+    for (const anomaly of webhookAnomalies) {
+      recentWebhookAnomalies.push({
+        workerId,
+        workerName: worker.name,
+        ...anomaly,
+      });
+    }
+    for (const anomaly of approvalAnomalies) {
+      recentApprovalAnomalies.push({
+        workerId,
+        workerName: worker.name,
+        ...anomaly,
+      });
+    }
+  }
+
+  const tenantSideEffects = summarizeSideEffects(sideEffects);
+  const tenantWebhookIngress = summarizeWebhookIngress(webhookIngress);
+
+  workersOverview.sort((left, right) =>
+    right.riskScore - left.riskScore
+    || right.pendingApprovals - left.pendingApprovals
+    || left.workerName.localeCompare(right.workerName)
+  );
+
+  topPromotionCandidates.sort((left, right) => right.confidence - left.confidence || left.action.localeCompare(right.action));
+  topUnstableRules.sort((left, right) =>
+    right.denied - left.denied
+    || right.failedSignals - left.failedSignals
+    || left.rule.localeCompare(right.rule)
+  );
+  recentVerifierFailures.sort((left, right) => Date.parse(right.startedAt || '') - Date.parse(left.startedAt || ''));
+  recentSideEffectFailures.sort((left, right) => Date.parse(right.updatedAt || '') - Date.parse(left.updatedAt || ''));
+  recentSideEffectReplays.sort((left, right) => Date.parse(right.lastReplayedAt || '') - Date.parse(left.lastReplayedAt || ''));
+  recentWebhookDeadLetters.sort((left, right) => Date.parse(right.updatedAt || '') - Date.parse(left.updatedAt || ''));
+  recentWebhookReplays.sort((left, right) => Date.parse(right.lastReplayedAt || '') - Date.parse(left.lastReplayedAt || ''));
+  recentWebhookAnomalies.sort((left, right) =>
+    Date.parse(right.latestAt || '') - Date.parse(left.latestAt || '')
+    || right.count - left.count
+    || left.workerName.localeCompare(right.workerName)
+  );
+  recentApprovalAnomalies.sort((left, right) =>
+    Date.parse(right.latestAt || '') - Date.parse(left.latestAt || '')
+    || right.count - left.count
+    || left.workerName.localeCompare(right.workerName)
+  );
+
+  return {
+    lookbackDays,
+    summary: {
+      workersEvaluated: workersOverview.length,
+      totalRecentRuns: workersOverview.reduce((sum, worker) => sum + Number(worker.executionSummary?.totalRecentRuns || 0), 0),
+      pendingApprovals: workersOverview.reduce((sum, worker) => sum + Number(worker.pendingApprovals || 0), 0),
+      promotionCandidates: topPromotionCandidates.length,
+      unstableRules: topUnstableRules.length,
+      verifierFailures: recentVerifierFailures.length,
+      interruptedExecutions: workersOverview.reduce((sum, worker) => sum + Number(worker.interruptedExecutions || 0), 0),
+      sideEffects: tenantSideEffects,
+      webhookIngress: tenantWebhookIngress,
+      webhookAnomalies: recentWebhookAnomalies.length,
+      approvalAnomalies: recentApprovalAnomalies.length,
+    },
+    workers: workersOverview,
+    topPromotionCandidates: topPromotionCandidates.slice(0, 20),
+    topUnstableRules: topUnstableRules.slice(0, 20),
+    recentVerifierFailures: recentVerifierFailures.slice(0, 20),
+    recentSideEffectFailures: recentSideEffectFailures.slice(0, 20),
+    recentSideEffectReplays: recentSideEffectReplays.slice(0, 20),
+    recentWebhookDeadLetters: recentWebhookDeadLetters.slice(0, 20),
+    recentWebhookReplays: recentWebhookReplays.slice(0, 20),
+    recentWebhookAnomalies: recentWebhookAnomalies.slice(0, 20),
+    recentApprovalAnomalies: recentApprovalAnomalies.slice(0, 20),
+  };
+}
+
+function normalizeLookbackDays(value, fallback = 30) {
+  const parsed = parseInt(String(value ?? fallback), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), 365);
+}
+
+function normalizeListLimit(value, fallback = 20, max = 200) {
+  const parsed = parseInt(String(value ?? fallback), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+async function fetchTenantLearningOverview(pool, tenantId, lookbackDays = 30) {
+  const normalizedLookbackDays = normalizeLookbackDays(lookbackDays);
+  const cutoffIso = new Date(Date.now() - normalizedLookbackDays * 24 * 60 * 60 * 1000).toISOString();
+  const [runtimePolicyRecord, workersResult, executionsResult, approvalsResult, signalsResult, sideEffectsResult, webhookIngressResult, workerPoliciesResult] = await Promise.all([
+    getTenantWorkerRuntimePolicy(pool, tenantId, { fresh: true }),
+    pool.query(
+      `SELECT id, name, charter
+         FROM workers
+        WHERE tenant_id = $1 AND status != 'archived'
+        ORDER BY name ASC
+        LIMIT 500`,
+      [tenantId]
+    ),
+    pool.query(
+      `SELECT id, worker_id, status, started_at, completed_at, receipt
+         FROM worker_executions
+        WHERE tenant_id = $1
+          AND started_at >= $2
+        ORDER BY started_at DESC
+        LIMIT 5000`,
+      [tenantId, cutoffIso]
+    ),
+    pool.query(
+      `SELECT worker_id, tool_name, matched_rule, status, decision, decided_at, created_at
+         FROM worker_approvals
+        WHERE tenant_id = $1
+          AND created_at >= $2
+        ORDER BY created_at DESC
+        LIMIT 5000`,
+      [tenantId, cutoffIso]
+    ),
+    pool.query(
+      `SELECT worker_id, tool_name, args_hash, charter_verdict, approval_decision, matched_rule,
+              tool_success, interruption_code, execution_outcome, created_at
+         FROM learning_signals
+        WHERE tenant_id = $1
+          AND created_at >= $2
+        ORDER BY created_at DESC
+        LIMIT 5000`,
+      [tenantId, cutoffIso]
+    ),
+    pool.query(
+      `SELECT id, worker_id, execution_id, tool_name, idempotency_key, status, target, amount_usd,
+              provider_ref, error_text, replay_count, last_replayed_at, created_at, updated_at
+         FROM worker_tool_side_effects
+        WHERE tenant_id = $1
+          AND created_at >= $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 5000`,
+      [tenantId, cutoffIso]
+    ).catch(() => ({ rows: [] })),
+    pool.query(
+      `SELECT id, worker_id, execution_id, provider, dedupe_key, request_path, content_type,
+              signature_scheme, signature_status, signature_error, status, replay_count,
+              last_replayed_at, dead_letter_reason, processed_at, created_at, updated_at
+         FROM worker_webhook_ingress
+        WHERE tenant_id = $1
+          AND created_at >= $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 5000`,
+      [tenantId, cutoffIso]
+    ).catch(() => ({ rows: [] })),
+    pool.query(
+      `SELECT worker_id, policy, updated_at, updated_by
+         FROM worker_runtime_policy_overrides
+        WHERE tenant_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 5000`,
+      [tenantId]
+    ).catch(() => ({ rows: [] })),
+  ]);
+
+  return buildTenantLearningOverview({
+    workers: workersResult.rows,
+    executions: executionsResult.rows,
+    approvals: approvalsResult.rows,
+    signals: signalsResult.rows,
+    sideEffects: sideEffectsResult.rows,
+    webhookIngress: webhookIngressResult.rows,
+    workerPolicies: workerPoliciesResult.rows,
+    runtimePolicy: runtimePolicyRecord.overrides,
+    lookbackDays: normalizedLookbackDays,
+  });
+}
+
+function normalizeApprovalRecord(record = {}) {
+  return {
+    id: record.id || null,
+    executionId: record.execution_id || null,
+    toolName: record.tool_name || null,
+    action: record.action || null,
+    matchedRule: record.matched_rule || null,
+    actionHash: record.action_hash || null,
+    status: record.status || null,
+    decision: record.decision || null,
+    decidedBy: record.decided_by || null,
+    decidedAt: record.decided_at || null,
+    createdAt: record.created_at || null,
+    toolArgs: parseJsonField(record.tool_args, null),
+  };
+}
+
+function normalizeSideEffectRecord(record = {}, { includePayloads = false } = {}) {
+  const normalized = {
+    id: record.id || null,
+    executionId: record.execution_id || null,
+    toolName: record.tool_name || null,
+    idempotencyKey: record.idempotency_key || null,
+    status: record.status || null,
+    target: record.target || null,
+    amountUsd: record.amount_usd == null ? null : Number(record.amount_usd),
+    providerRef: record.provider_ref || null,
+    error: record.error_text || null,
+    replayCount: Number(record.replay_count || 0),
+    lastReplayedAt: record.last_replayed_at || null,
+    createdAt: record.created_at || null,
+    updatedAt: record.updated_at || null,
+  };
+  if (includePayloads) {
+    normalized.requestJson = parseJsonField(record.request_json, null);
+    normalized.responseJson = parseJsonField(record.response_json, null);
+  }
+  return normalized;
+}
+
+function normalizeWebhookIngressRecord(record = {}, { includeEvidence = false } = {}) {
+  const normalized = {
+    id: record.id || null,
+    executionId: record.execution_id || null,
+    provider: record.provider || 'generic',
+    dedupeKey: record.dedupe_key || null,
+    requestPath: record.request_path || null,
+    contentType: record.content_type || null,
+    signatureScheme: record.signature_scheme || null,
+    signatureStatus: record.signature_status || null,
+    signatureError: record.signature_error || null,
+    status: record.status || null,
+    replayCount: Number(record.replay_count || 0),
+    lastReplayedAt: record.last_replayed_at || null,
+    deadLetterReason: record.dead_letter_reason || null,
+    createdAt: record.created_at || null,
+    updatedAt: record.updated_at || null,
+    processedAt: record.processed_at || null,
+  };
+
+  if (includeEvidence) {
+    normalized.headers = parseJsonField(record.headers_json, {});
+    normalized.payload = parseJsonField(record.payload_json, null);
+    normalized.rawBody = record.raw_body || '';
+    normalized.normalizedEvent = normalizeWorkerWebhookEvent({
+      payload: normalized.payload,
+      headers: normalized.headers,
+      contentType: normalized.contentType,
+      config: { webhook: { provider: normalized.provider } },
+    });
+    normalized.channel = normalized.normalizedEvent?.channel || null;
+    normalized.eventType = normalized.normalizedEvent?.eventType || null;
+    normalized.eventId = normalized.normalizedEvent?.id || null;
+  }
+
+  return normalized;
+}
+
+function normalizeExecutionDrilldown(worker, execution, approvals = [], sideEffects = []) {
+  const receipt = parseReceipt(execution?.receipt);
+  const tokensIn = Number(execution?.tokens_in || 0);
+  const tokensOut = Number(execution?.tokens_out || 0);
+  const cost = Number(execution?.cost_usd || 0);
+
+  return {
+    id: execution?.id || null,
+    workerId: worker?.id || execution?.worker_id || null,
+    workerName: worker?.name || null,
+    triggerType: execution?.trigger_type || null,
+    status: execution?.status || null,
+    model: execution?.model || null,
+    startedAt: execution?.started_at || null,
+    completedAt: execution?.completed_at || null,
+    tokensIn,
+    tokensOut,
+    tokens: tokensIn + tokensOut,
+    totalTokens: tokensIn + tokensOut,
+    cost,
+    rounds: Number(execution?.rounds || 0),
+    toolCalls: Number(execution?.tool_calls || 0),
+    result: execution?.result || '',
+    error: execution?.error || null,
+    activity: parseActivity(execution?.activity),
+    receipt,
+    verificationReport: receipt?.verificationReport || null,
+    interruption: receipt?.interruption || null,
+    metadata: parseJsonField(execution?.metadata, {}),
+    approvals,
+    sideEffects,
+  };
+}
+
+async function fetchWorkerIdentity(pool, workerId, tenantId) {
+  const result = await pool.query(
+    'SELECT id, name FROM workers WHERE id = $1 AND tenant_id = $2',
+    [workerId, tenantId]
+  );
+  return result.rows[0] || null;
+}
+
+async function fetchExecutionRow(pool, { workerId, tenantId, executionId = null }) {
+  if (executionId) {
+    const result = await pool.query(
+      `SELECT id, worker_id, trigger_type, status, model, started_at, completed_at,
+              tokens_in, tokens_out, cost_usd, rounds, tool_calls, result, error, activity, receipt, metadata
+         FROM worker_executions
+        WHERE id = $1 AND worker_id = $2 AND tenant_id = $3`,
+      [executionId, workerId, tenantId]
+    );
+    return result.rows[0] || null;
+  }
+
+  const result = await pool.query(
+    `SELECT id, worker_id, trigger_type, status, model, started_at, completed_at,
+            tokens_in, tokens_out, cost_usd, rounds, tool_calls, result, error, activity, receipt, metadata
+       FROM worker_executions
+      WHERE worker_id = $1 AND tenant_id = $2
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    [workerId, tenantId]
+  );
+  return result.rows[0] || null;
+}
+
+async function fetchExecutionApprovals(pool, { workerId, tenantId, executionId }) {
+  const result = await pool.query(
+    `SELECT id, execution_id, tool_name, action, matched_rule, action_hash, status, decision,
+            decided_by, decided_at, created_at, tool_args
+       FROM worker_approvals
+      WHERE worker_id = $1 AND tenant_id = $2 AND execution_id = $3
+      ORDER BY created_at ASC, decided_at ASC NULLS LAST`,
+    [workerId, tenantId, executionId]
+  );
+  return result.rows.map((row) => normalizeApprovalRecord(row));
+}
+
+async function fetchExecutionSideEffects(pool, { workerId, tenantId, executionId, includePayloads = false }) {
+  const selectPayloads = includePayloads ? ', request_json, response_json' : '';
+  const result = await pool.query(
+    `SELECT id, execution_id, tool_name, idempotency_key, status, target, amount_usd,
+            provider_ref, error_text, replay_count, last_replayed_at, created_at, updated_at${selectPayloads}
+       FROM worker_tool_side_effects
+      WHERE worker_id = $1 AND tenant_id = $2 AND execution_id = $3
+      ORDER BY updated_at DESC, created_at DESC`,
+    [workerId, tenantId, executionId]
+  );
+  return result.rows.map((row) => normalizeSideEffectRecord(row, { includePayloads }));
+}
+
+async function loadExecutionDrilldown(pool, { workerId, tenantId, executionId = null }) {
+  const worker = await fetchWorkerIdentity(pool, workerId, tenantId);
+  if (!worker) return null;
+
+  const execution = await fetchExecutionRow(pool, { workerId, tenantId, executionId });
+  if (!execution) return { worker, execution: null, approvals: [], sideEffects: [] };
+
+  const [approvals, sideEffects] = await Promise.all([
+    fetchExecutionApprovals(pool, { workerId, tenantId, executionId: execution.id }),
+    fetchExecutionSideEffects(pool, { workerId, tenantId, executionId: execution.id, includePayloads: true }).catch(() => []),
+  ]);
+
+  return {
+    worker,
+    execution: normalizeExecutionDrilldown(worker, execution, approvals, sideEffects),
+    approvals,
+    sideEffects,
+  };
+}
+
+async function fetchWorkerSideEffects(pool, {
+  workerId,
+  tenantId,
+  toolName = null,
+  status = null,
+  idempotencyKey = null,
+  executionId = null,
+  replayedOnly = false,
+  limit = 20,
+} = {}) {
+  const conditions = ['worker_id = $1', 'tenant_id = $2'];
+  const params = [workerId, tenantId];
+  let nextIndex = params.length + 1;
+
+  if (toolName) {
+    conditions.push(`tool_name = $${nextIndex}`);
+    params.push(toolName);
+    nextIndex += 1;
+  }
+  if (status) {
+    conditions.push(`status = $${nextIndex}`);
+    params.push(status);
+    nextIndex += 1;
+  }
+  if (idempotencyKey) {
+    conditions.push(`idempotency_key = $${nextIndex}`);
+    params.push(idempotencyKey);
+    nextIndex += 1;
+  }
+  if (executionId) {
+    conditions.push(`execution_id = $${nextIndex}`);
+    params.push(executionId);
+    nextIndex += 1;
+  }
+  if (replayedOnly) {
+    conditions.push('COALESCE(replay_count, 0) > 0');
+  }
+
+  const normalizedLimit = normalizeListLimit(limit);
+  params.push(normalizedLimit);
+
+  const result = await pool.query(
+    `SELECT id, execution_id, tool_name, idempotency_key, status, target, amount_usd,
+            provider_ref, error_text, replay_count, last_replayed_at, created_at, updated_at
+       FROM worker_tool_side_effects
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => normalizeSideEffectRecord(row));
+}
+
+async function fetchWorkerSideEffectDetail(pool, { workerId, tenantId, sideEffectId }) {
+  const result = await pool.query(
+    `SELECT id, execution_id, tool_name, idempotency_key, status, target, amount_usd,
+            provider_ref, error_text, replay_count, last_replayed_at, request_json, response_json,
+            created_at, updated_at
+       FROM worker_tool_side_effects
+      WHERE id = $1 AND worker_id = $2 AND tenant_id = $3`,
+    [sideEffectId, workerId, tenantId]
+  );
+  return result.rowCount > 0 ? normalizeSideEffectRecord(result.rows[0], { includePayloads: true }) : null;
+}
+
+async function fetchWorkerWebhookIngress(pool, {
+  workerId,
+  tenantId,
+  status = null,
+  provider = null,
+  executionId = null,
+  limit = 20,
+} = {}) {
+  const conditions = ['worker_id = $1', 'tenant_id = $2'];
+  const params = [workerId, tenantId];
+  let nextIndex = params.length + 1;
+
+  if (status) {
+    conditions.push(`status = $${nextIndex}`);
+    params.push(status);
+    nextIndex += 1;
+  }
+  if (provider) {
+    conditions.push(`provider = $${nextIndex}`);
+    params.push(provider);
+    nextIndex += 1;
+  }
+  if (executionId) {
+    conditions.push(`execution_id = $${nextIndex}`);
+    params.push(executionId);
+    nextIndex += 1;
+  }
+
+  const normalizedLimit = normalizeListLimit(limit);
+  params.push(normalizedLimit);
+  const result = await pool.query(
+    `SELECT id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+            signature_status, signature_error, status, replay_count, last_replayed_at,
+            dead_letter_reason, created_at, updated_at, processed_at
+       FROM worker_webhook_ingress
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT $${params.length}`,
+    params
+  ).catch(() => ({ rows: [] }));
+
+  return result.rows.map((row) => normalizeWebhookIngressRecord(row));
+}
+
+async function fetchRecentWebhookIngressForPolicy(pool, {
+  workerId,
+  tenantId,
+  provider,
+  lookbackHours = 24,
+  limit = 200,
+} = {}) {
+  const lookbackMs = Math.max(Number(lookbackHours || 24), 1) * 60 * 60 * 1000;
+  const cutoffIso = new Date(Date.now() - lookbackMs).toISOString();
+  const normalizedLimit = normalizeListLimit(limit, 200, 500);
+  const result = await pool.query(
+    `SELECT id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+            signature_status, signature_error, status, replay_count, last_replayed_at,
+            dead_letter_reason, processed_at, created_at, updated_at
+       FROM worker_webhook_ingress
+      WHERE worker_id = $1
+        AND tenant_id = $2
+        AND provider = $3
+        AND created_at >= $4
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT $5`,
+    [workerId, tenantId, provider || 'generic', cutoffIso, normalizedLimit]
+  ).catch(() => ({ rows: [] }));
+
+  return result.rows;
+}
+
+async function fetchWorkerWebhookIngressDetail(pool, { workerId, tenantId, ingressId }) {
+  const result = await pool.query(
+    `SELECT id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+            signature_status, signature_error, status, replay_count, last_replayed_at,
+            dead_letter_reason, headers_json, payload_json, raw_body, created_at, updated_at, processed_at
+       FROM worker_webhook_ingress
+      WHERE id = $1 AND worker_id = $2 AND tenant_id = $3`,
+    [ingressId, workerId, tenantId]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0], { includeEvidence: true }) : null;
+}
+
+async function lookupWorkerWebhookIngress(pool, { workerId, tenantId, dedupeKey }) {
+  const result = await pool.query(
+    `SELECT id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+            signature_status, signature_error, status, replay_count, last_replayed_at,
+            dead_letter_reason, created_at, updated_at, processed_at
+       FROM worker_webhook_ingress
+      WHERE worker_id = $1 AND tenant_id = $2 AND dedupe_key = $3`,
+    [workerId, tenantId, dedupeKey]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0]) : null;
+}
+
+async function incrementWorkerWebhookReplay(pool, { workerId, tenantId, dedupeKey }) {
+  const result = await pool.query(
+    `UPDATE worker_webhook_ingress
+        SET replay_count = COALESCE(replay_count, 0) + 1,
+            last_replayed_at = NOW(),
+            updated_at = NOW()
+      WHERE worker_id = $1 AND tenant_id = $2 AND dedupe_key = $3
+      RETURNING id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+                signature_status, signature_error, status, replay_count, last_replayed_at,
+                dead_letter_reason, created_at, updated_at, processed_at`,
+    [workerId, tenantId, dedupeKey]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0]) : null;
+}
+
+async function insertWorkerWebhookIngress(pool, {
+  id,
+  workerId,
+  tenantId,
+  provider,
+  dedupeKey,
+  requestPath,
+  contentType,
+  signatureScheme,
+  signatureStatus,
+  signatureError = null,
+  status,
+  headersJson,
+  payloadJson,
+  rawBody,
+  deadLetterReason = null,
+} = {}) {
+  const result = await pool.query(
+    `INSERT INTO worker_webhook_ingress (
+       id, tenant_id, worker_id, provider, dedupe_key, request_path, content_type,
+       signature_scheme, signature_status, signature_error, status, headers_json,
+       payload_json, raw_body, dead_letter_reason, created_at, updated_at
+     )
+     VALUES (
+       $1, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11, $12::jsonb,
+       $13::jsonb, $14, $15, NOW(), NOW()
+     )
+     ON CONFLICT (tenant_id, worker_id, dedupe_key) DO NOTHING
+     RETURNING id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+               signature_status, signature_error, status, replay_count, last_replayed_at,
+               dead_letter_reason, created_at, updated_at, processed_at`,
+    [
+      id,
+      tenantId,
+      workerId,
+      provider || 'generic',
+      dedupeKey,
+      requestPath,
+      contentType || null,
+      signatureScheme || null,
+      signatureStatus || 'not_required',
+      signatureError,
+      status,
+      JSON.stringify(headersJson || {}),
+      payloadJson == null ? null : JSON.stringify(payloadJson),
+      rawBody || '',
+      deadLetterReason,
+    ]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0]) : null;
+}
+
+async function attachExecutionToWorkerWebhookIngress(pool, { workerId, tenantId, dedupeKey, executionId }) {
+  const result = await pool.query(
+    `UPDATE worker_webhook_ingress
+        SET execution_id = $4,
+            processed_at = NOW(),
+            updated_at = NOW()
+      WHERE worker_id = $1 AND tenant_id = $2 AND dedupe_key = $3
+      RETURNING id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+                signature_status, signature_error, status, replay_count, last_replayed_at,
+                dead_letter_reason, created_at, updated_at, processed_at`,
+    [workerId, tenantId, dedupeKey, executionId]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0]) : null;
+}
+
+async function markWorkerWebhookDeadLetter(pool, {
+  workerId,
+  tenantId,
+  dedupeKey,
+  signatureError = null,
+  deadLetterReason = null,
+} = {}) {
+  const result = await pool.query(
+    `UPDATE worker_webhook_ingress
+        SET status = 'dead_letter',
+            signature_error = COALESCE($4, signature_error),
+            dead_letter_reason = COALESCE($5, dead_letter_reason),
+            updated_at = NOW()
+      WHERE worker_id = $1 AND tenant_id = $2 AND dedupe_key = $3
+      RETURNING id, execution_id, provider, dedupe_key, request_path, content_type, signature_scheme,
+                signature_status, signature_error, status, replay_count, last_replayed_at,
+                dead_letter_reason, created_at, updated_at, processed_at`,
+    [workerId, tenantId, dedupeKey, signatureError, deadLetterReason]
+  ).catch(() => ({ rowCount: 0, rows: [] }));
+  return result.rowCount > 0 ? normalizeWebhookIngressRecord(result.rows[0]) : null;
+}
+
+export function buildPendingRiskQueue(overview, { limit = 20 } = {}) {
+  const normalizedLimit = normalizeListLimit(limit);
+  const workers = Array.isArray(overview?.workers) ? overview.workers : [];
+  const items = workers
+    .filter((worker) =>
+      Number(worker?.riskScore || 0) > 0
+      || Number(worker?.pendingApprovals || 0) > 0
+      || Number(worker?.verifierFailures || 0) > 0
+      || Number(worker?.interruptedExecutions || 0) > 0
+      || Number(worker?.sideEffects?.failed || 0) > 0
+      || Number(worker?.sideEffects?.replayedOperations || 0) > 0
+      || Number(worker?.webhookIngress?.deadLetters || 0) > 0
+      || Number(worker?.webhookIngress?.replayedDeliveries || 0) > 0
+      || (Array.isArray(worker?.webhookAnomalies) && worker.webhookAnomalies.length > 0)
+      || (Array.isArray(worker?.approvalAnomalies) && worker.approvalAnomalies.length > 0)
+      || (Array.isArray(worker?.unstableRules) && worker.unstableRules.length > 0)
+    )
+    .map((worker) => {
+      const reasons = [];
+      if (worker.pendingApprovals > 0) reasons.push(`${worker.pendingApprovals} pending approval(s)`);
+      if (worker.verifierFailures > 0) reasons.push(`${worker.verifierFailures} verifier failure(s)`);
+      if (worker.interruptedExecutions > 0) reasons.push(`${worker.interruptedExecutions} interrupted execution(s)`);
+      if (worker.sideEffects?.failed > 0) reasons.push(`${worker.sideEffects.failed} failed side effect(s)`);
+      if (worker.sideEffects?.replayedOperations > 0) reasons.push(`${worker.sideEffects.replayedOperations} replayed side effect(s)`);
+      if (worker.webhookIngress?.deadLetters > 0) reasons.push(`${worker.webhookIngress.deadLetters} dead-lettered webhook(s)`);
+      if (worker.webhookIngress?.replayedDeliveries > 0) reasons.push(`${worker.webhookIngress.replayedDeliveries} replayed webhook delivery(s)`);
+      if (Array.isArray(worker.webhookAnomalies) && worker.webhookAnomalies.length > 0) reasons.push(`${worker.webhookAnomalies.length} webhook anomaly alert(s)`);
+      if (Array.isArray(worker.approvalAnomalies) && worker.approvalAnomalies.length > 0) reasons.push(`${worker.approvalAnomalies.length} approval anomaly alert(s)`);
+      if (Array.isArray(worker.unstableRules) && worker.unstableRules.length > 0) {
+        reasons.push(`${worker.unstableRules.length} unstable charter rule(s)`);
+      }
+      return {
+        workerId: worker.workerId,
+        workerName: worker.workerName,
+        riskScore: worker.riskScore,
+        pendingApprovals: worker.pendingApprovals,
+        verifierFailures: worker.verifierFailures,
+        interruptedExecutions: worker.interruptedExecutions,
+        unstableRules: Array.isArray(worker.unstableRules) ? worker.unstableRules.length : 0,
+        failedSideEffects: Number(worker.sideEffects?.failed || 0),
+        replayedSideEffects: Number(worker.sideEffects?.replayedOperations || 0),
+        deadLetteredWebhooks: Number(worker.webhookIngress?.deadLetters || 0),
+        replayedWebhooks: Number(worker.webhookIngress?.replayedDeliveries || 0),
+        webhookAnomalies: Array.isArray(worker.webhookAnomalies) ? worker.webhookAnomalies.length : 0,
+        approvalAnomalies: Array.isArray(worker.approvalAnomalies) ? worker.approvalAnomalies.length : 0,
+        lastRunAt: worker.lastRunAt || null,
+        latestExecutionId: worker.latestExecutionId || null,
+        reasons,
+      };
+    })
+    .sort((left, right) =>
+      right.riskScore - left.riskScore
+      || right.pendingApprovals - left.pendingApprovals
+      || right.verifierFailures - left.verifierFailures
+      || left.workerName.localeCompare(right.workerName)
+    );
+
+  return {
+    items: items.slice(0, normalizedLimit),
+    count: items.length,
+  };
+}
+
+// =========================================================================
+// Team Generation — Industry Templates & Role Definitions (inlined)
+// =========================================================================
+
+const TEAM_INDUSTRY_TEMPLATES = {
+  dental:       { roles: ['receptionist', 'scheduler', 'follow_up', 'reviews', 'billing', 'customer_support'] },
+  medical:      { roles: ['receptionist', 'scheduler', 'follow_up', 'billing', 'customer_support', 'reviews'] },
+  legal:        { roles: ['receptionist', 'scheduler', 'follow_up', 'billing', 'customer_support', 'reviews'] },
+  restaurant:   { roles: ['receptionist', 'reviews', 'customer_support', 'scheduler', 'follow_up', 'billing'] },
+  salon:        { roles: ['receptionist', 'scheduler', 'reviews', 'follow_up', 'customer_support', 'billing'] },
+  fitness:      { roles: ['receptionist', 'scheduler', 'follow_up', 'reviews', 'billing', 'customer_support'] },
+  realestate:   { roles: ['follow_up', 'scheduler', 'customer_support', 'reviews', 'receptionist', 'billing'] },
+  ecommerce:    { roles: ['customer_support', 'reviews', 'follow_up', 'billing', 'receptionist', 'scheduler'] },
+  consulting:   { roles: ['scheduler', 'follow_up', 'billing', 'receptionist', 'reviews', 'customer_support'] },
+  general:      { roles: ['receptionist', 'scheduler', 'follow_up', 'reviews', 'billing', 'customer_support'] },
+};
+
+const TEAM_ROLE_DEFINITIONS = {
+  receptionist: {
+    nameTemplate: '{business} Receptionist',
+    purpose: 'Greet customers, answer common questions, and route inquiries for {business}',
+    canDo: ['answer FAQs', 'greet visitors', 'route messages to staff', 'collect contact info'],
+    askFirst: ['schedule appointments on behalf of staff', 'share pricing details'],
+    neverDo: ['provide medical/legal advice', 'process payments', 'access private records'],
+    capabilities: ['chat'],
+    schedule: { type: 'always_on' },
+    taskType: 'communication',
+  },
+  scheduler: {
+    nameTemplate: '{business} Scheduler',
+    purpose: 'Manage appointment booking and calendar coordination for {business}',
+    canDo: ['check availability', 'book appointments', 'send confirmations', 'reschedule appointments'],
+    askFirst: ['cancel appointments', 'double-book time slots'],
+    neverDo: ['access patient/client records', 'modify pricing', 'override staff schedules'],
+    capabilities: ['calendar', 'chat'],
+    schedule: { type: 'always_on' },
+    taskType: 'scheduling',
+  },
+  follow_up: {
+    nameTemplate: '{business} Follow-Up',
+    purpose: 'Send follow-up messages and reminders to customers of {business}',
+    canDo: ['send appointment reminders', 'follow up after visits', 'request feedback', 'send thank-you messages'],
+    askFirst: ['offer discounts or promotions', 'contact customers more than twice'],
+    neverDo: ['spam customers', 'share customer info externally', 'make medical/legal claims'],
+    capabilities: ['email', 'chat'],
+    schedule: { type: 'cron', value: '0 9 * * *' },
+    taskType: 'outreach',
+  },
+  reviews: {
+    nameTemplate: '{business} Review Manager',
+    purpose: 'Monitor and respond to online reviews for {business}',
+    canDo: ['request reviews from happy customers', 'draft review responses', 'flag negative reviews', 'track review trends'],
+    askFirst: ['publish responses to negative reviews', 'offer compensation for bad experiences'],
+    neverDo: ['write fake reviews', 'threaten reviewers', 'disclose private information'],
+    capabilities: ['web', 'chat'],
+    schedule: { type: 'cron', value: '0 10 * * *' },
+    taskType: 'monitoring',
+  },
+  billing: {
+    nameTemplate: '{business} Billing Assistant',
+    purpose: 'Handle billing inquiries and invoice management for {business}',
+    canDo: ['answer billing questions', 'send invoice reminders', 'explain charges', 'track payment status'],
+    askFirst: ['issue refunds', 'adjust invoice amounts', 'set up payment plans'],
+    neverDo: ['process payments directly', 'access full credit card numbers', 'waive fees without approval'],
+    capabilities: ['chat', 'email'],
+    schedule: { type: 'cron', value: '0 8 * * 1' },
+    taskType: 'finance',
+  },
+  customer_support: {
+    nameTemplate: '{business} Support Agent',
+    purpose: 'Provide frontline customer support and issue resolution for {business}',
+    canDo: ['answer product/service questions', 'troubleshoot common issues', 'escalate complex problems', 'log support tickets'],
+    askFirst: ['issue refunds or credits', 'make exceptions to policies'],
+    neverDo: ['make promises outside policy', 'share internal documents', 'access admin systems'],
+    capabilities: ['chat', 'email'],
+    schedule: { type: 'always_on' },
+    taskType: 'support',
+  },
+};
+
+const INDUSTRY_KEYWORDS = {
+  dental:     ['dental', 'dentist', 'orthodont', 'teeth', 'oral'],
+  medical:    ['medical', 'clinic', 'doctor', 'health', 'hospital', 'physician', 'therapy', 'chiropr'],
+  legal:      ['legal', 'law', 'attorney', 'lawyer', 'paralegal'],
+  restaurant: ['restaurant', 'cafe', 'diner', 'food', 'catering', 'bistro', 'bar', 'grill'],
+  salon:      ['salon', 'barber', 'spa', 'beauty', 'hair', 'nail', 'skincare'],
+  fitness:    ['fitness', 'gym', 'yoga', 'pilates', 'crossfit', 'training', 'martial arts'],
+  realestate: ['real estate', 'realtor', 'property', 'brokerage', 'housing'],
+  ecommerce:  ['ecommerce', 'e-commerce', 'online store', 'shop', 'retail', 'marketplace'],
+  consulting: ['consulting', 'advisory', 'consultant', 'agency', 'firm'],
+};
+
+function detectIndustryFromDescription(desc) {
+  if (typeof desc !== 'string' || !desc.trim()) return 'general';
+  const lower = desc.toLowerCase();
+  for (const [industry, keywords] of Object.entries(INDUSTRY_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) return industry;
+    }
+  }
+  return 'general';
+}
+
+function extractBusinessName(desc) {
+  if (typeof desc !== 'string' || !desc.trim()) return 'My Business';
+  // Try to find a proper noun-like phrase (consecutive capitalized words)
+  const match = desc.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/);
+  if (match && match[1].length > 2) return match[1];
+  // Fallback: first few meaningful words
+  const words = desc.trim().split(/\s+/).slice(0, 3).join(' ');
+  return words || 'My Business';
 }
 
 /**
@@ -132,6 +1426,207 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
     const result = await pool.query(q, p);
     return json(res, 200, { workers: result.rows, count: result.rowCount }), true;
+  }
+
+  // GET /v1/workers/runtime-policy — effective tenant worker runtime enforcement policy
+  if (method === 'GET' && pathname === '/v1/workers/runtime-policy') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      return json(res, 200, await getTenantWorkerRuntimePolicy(pool, tid, { fresh: true })), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to load worker runtime policy'), true;
+    }
+  }
+
+  // PUT /v1/workers/runtime-policy — replace tenant worker runtime enforcement overrides
+  if (method === 'PUT' && pathname === '/v1/workers/runtime-policy') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+      return err(res, 400, 'invalid JSON body'), true;
+    }
+    try {
+      const updatedBy = typeof req.headers['x-user-email'] === 'string' && req.headers['x-user-email'].trim()
+        ? req.headers['x-user-email'].trim()
+        : null;
+      return json(res, 200, await putTenantWorkerRuntimePolicy(pool, tid, body, { updatedBy })), true;
+    } catch (e) {
+      return err(res, 400, e?.message || 'invalid worker runtime policy'), true;
+    }
+  }
+
+  const workerRuntimePolicyMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/runtime-policy$/);
+  if (workerRuntimePolicyMatch && method === 'GET') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = workerRuntimePolicyMatch[1];
+    const workerResult = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (workerResult.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    try {
+      return json(res, 200, await getWorkerRuntimePolicy(pool, tid, workerId, { fresh: true })), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to load worker runtime policy'), true;
+    }
+  }
+
+  if (workerRuntimePolicyMatch && method === 'PUT') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = workerRuntimePolicyMatch[1];
+    const workerResult = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (workerResult.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const body = await readBody(req);
+    if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+      return err(res, 400, 'invalid JSON body'), true;
+    }
+    try {
+      const updatedBy = typeof req.headers['x-user-email'] === 'string' && req.headers['x-user-email'].trim()
+        ? req.headers['x-user-email'].trim()
+        : null;
+      return json(res, 200, await putWorkerRuntimePolicy(pool, tid, workerId, body, { updatedBy })), true;
+    } catch (e) {
+      return err(res, 400, e?.message || 'invalid worker runtime policy'), true;
+    }
+  }
+
+  // GET /v1/workers/learning/overview — tenant-wide explainability and risk summary
+  if (method === 'GET' && pathname === '/v1/workers/learning/overview') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      return json(res, 200, await fetchTenantLearningOverview(pool, tid, lookbackDays)), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to build tenant learning overview'), true;
+    }
+  }
+
+  // GET /v1/workers/verification/failures — recent verifier failures across the tenant
+  if (method === 'GET' && pathname === '/v1/workers/verification/failures') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        failures: overview.recentVerifierFailures.slice(0, limit),
+        count: overview.recentVerifierFailures.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query verifier failures'), true;
+    }
+  }
+
+  // GET /v1/workers/side-effects/replays — recent replayed outbound side effects
+  if (method === 'GET' && pathname === '/v1/workers/side-effects/replays') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        replays: overview.recentSideEffectReplays.slice(0, limit),
+        count: overview.recentSideEffectReplays.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query replayed side effects'), true;
+    }
+  }
+
+  // GET /v1/workers/webhooks/dead-letters — recent dead-lettered inbound webhook deliveries
+  if (method === 'GET' && pathname === '/v1/workers/webhooks/dead-letters') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        deadLetters: overview.recentWebhookDeadLetters.slice(0, limit),
+        count: overview.recentWebhookDeadLetters.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query dead-lettered webhooks'), true;
+    }
+  }
+
+  // GET /v1/workers/webhooks/replays — recent replayed inbound webhook deliveries
+  if (method === 'GET' && pathname === '/v1/workers/webhooks/replays') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        replays: overview.recentWebhookReplays.slice(0, limit),
+        count: overview.recentWebhookReplays.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query replayed webhooks'), true;
+    }
+  }
+
+  // GET /v1/workers/webhooks/anomalies — recent inbound webhook anomaly alerts
+  if (method === 'GET' && pathname === '/v1/workers/webhooks/anomalies') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        anomalies: overview.recentWebhookAnomalies.slice(0, limit),
+        count: overview.recentWebhookAnomalies.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query webhook anomalies'), true;
+    }
+  }
+
+  // GET /v1/workers/approvals/anomalies — recent approval anomaly alerts
+  if (method === 'GET' && pathname === '/v1/workers/approvals/anomalies') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      return json(res, 200, {
+        lookbackDays,
+        anomalies: overview.recentApprovalAnomalies.slice(0, limit),
+        count: overview.recentApprovalAnomalies.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query approval anomalies'), true;
+    }
+  }
+
+  // GET /v1/workers/risk/queue — operator queue of workers that need attention
+  if (method === 'GET' && pathname === '/v1/workers/risk/queue') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const lookbackDays = normalizeLookbackDays(searchParams.get('days') || '30');
+      const limit = normalizeListLimit(searchParams.get('limit') || '20');
+      const overview = await fetchTenantLearningOverview(pool, tid, lookbackDays);
+      const queue = buildPendingRiskQueue(overview, { limit });
+      return json(res, 200, {
+        lookbackDays,
+        ...queue,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to build pending risk queue'), true;
+    }
   }
 
   // GET /v1/workers/:id
@@ -244,6 +1739,175 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return json(res, 200, { executions: result.rows, count: result.rowCount }), true;
   }
 
+  // GET /v1/workers/:id/executions/latest — latest execution drilldown
+  const latestExecutionMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/latest$/);
+  if (method === 'GET' && latestExecutionMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const detail = await loadExecutionDrilldown(pool, { workerId: latestExecutionMatch[1], tenantId: tid });
+      if (!detail?.worker) return err(res, 404, 'worker not found'), true;
+      if (!detail.execution) return err(res, 404, 'execution not found'), true;
+      return json(res, 200, detail.execution), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch latest execution'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/executions/:execId/verification — execution verification drilldown
+  const verificationDetailMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/verification$/);
+  if (method === 'GET' && verificationDetailMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, executionId] = verificationDetailMatch;
+      const detail = await loadExecutionDrilldown(pool, { workerId, tenantId: tid, executionId });
+      if (!detail?.worker) return err(res, 404, 'worker not found'), true;
+      if (!detail.execution) return err(res, 404, 'execution not found'), true;
+      return json(res, 200, detail.execution), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch execution verification detail'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/executions/:execId/approvals — approval timeline for one execution
+  const approvalsTimelineMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/approvals$/);
+  if (method === 'GET' && approvalsTimelineMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, executionId] = approvalsTimelineMatch;
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const approvals = await fetchExecutionApprovals(pool, { workerId, tenantId: tid, executionId });
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        executionId,
+        approvals,
+        count: approvals.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch execution approvals'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/executions/:execId — execution drilldown
+  const executionDetailMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)$/);
+  if (method === 'GET' && executionDetailMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, executionId] = executionDetailMatch;
+      const detail = await loadExecutionDrilldown(pool, { workerId, tenantId: tid, executionId });
+      if (!detail?.worker) return err(res, 404, 'worker not found'), true;
+      if (!detail.execution) return err(res, 404, 'execution not found'), true;
+      return json(res, 200, detail.execution), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch execution detail'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/side-effects — worker side-effect journal list
+  const workerSideEffectsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/side-effects$/);
+  if (method === 'GET' && workerSideEffectsMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const workerId = workerSideEffectsMatch[1];
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const sideEffects = await fetchWorkerSideEffects(pool, {
+        workerId,
+        tenantId: tid,
+        toolName: searchParams.get('tool'),
+        status: searchParams.get('status'),
+        idempotencyKey: searchParams.get('idempotencyKey'),
+        executionId: searchParams.get('executionId'),
+        replayedOnly: searchParams.get('replayed') === 'true',
+        limit: searchParams.get('limit') || '20',
+      });
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        sideEffects,
+        count: sideEffects.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch worker side effects'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/side-effects/:sideEffectId — side-effect journal detail
+  const workerSideEffectDetailMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/side-effects\/([^/]+)$/);
+  if (method === 'GET' && workerSideEffectDetailMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, sideEffectId] = workerSideEffectDetailMatch;
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const sideEffect = await fetchWorkerSideEffectDetail(pool, { workerId, tenantId: tid, sideEffectId });
+      if (!sideEffect) return err(res, 404, 'side effect not found'), true;
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        sideEffect,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch side effect detail'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/webhooks — inbound webhook ingress journal
+  const workerWebhookListMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/webhooks$/);
+  if (method === 'GET' && workerWebhookListMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const workerId = workerWebhookListMatch[1];
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const ingress = await fetchWorkerWebhookIngress(pool, {
+        workerId,
+        tenantId: tid,
+        status: searchParams.get('status'),
+        provider: searchParams.get('provider'),
+        executionId: searchParams.get('executionId'),
+        limit: searchParams.get('limit') || '20',
+      });
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        ingress,
+        count: ingress.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch webhook ingress'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/webhooks/:ingressId — inbound webhook ingress detail
+  const workerWebhookDetailMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/webhooks\/([^/]+)$/);
+  if (method === 'GET' && workerWebhookDetailMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, ingressId] = workerWebhookDetailMatch;
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const ingress = await fetchWorkerWebhookIngressDetail(pool, { workerId, tenantId: tid, ingressId });
+      if (!ingress) return err(res, 404, 'webhook ingress not found'), true;
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        ingress,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch webhook ingress detail'), true;
+    }
+  }
+
   // POST /v1/workers/:id/trigger — webhook trigger
   // POST /v1/workers/:id/trigger/test — manual test trigger
   // Note: webhook triggers use header auth since webhooks don't have browser sessions
@@ -255,37 +1919,515 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const wr = await pool.query(`SELECT id, model, status, triggers FROM workers WHERE id = $1 AND tenant_id = $2`, [trigMatch[1], tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
     const worker = wr.rows[0];
-    if (worker.status !== 'ready' && worker.status !== 'running') {
-      return err(res, 409, `cannot trigger worker in '${worker.status}' status`), true;
-    }
-
-    // Validate webhook secret if configured
+    const workerRuntimePolicyRecord = await getWorkerRuntimePolicy(pool, tid, worker.id, { fresh: true });
     const triggers = typeof worker.triggers === 'string' ? JSON.parse(worker.triggers) : (worker.triggers || {});
-    const webhookSecret = triggers.webhookSecret || (Array.isArray(triggers) ? null : triggers?.webhookSecret);
-    if (webhookSecret && !isTest) {
-      const providedSecret = req.headers['x-webhook-secret'] || '';
-      const expected = webhookSecret || '';
-      const secretMatch = providedSecret.length === expected.length &&
-        crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(expected));
-      if (!secretMatch) {
-        return err(res, 403, 'invalid or missing webhook secret'), true;
+    const webhookConfig = normalizeWorkerWebhookConfig(triggers);
+    let rawBody = '';
+    let contentType = '';
+    let parsedPayload = null;
+    let payload = null;
+    let normalizedWebhookEvent = null;
+    let verification = {
+      provider: webhookConfig.provider,
+      scheme: webhookConfig.sharedSecret && !isTest ? 'shared_secret' : 'none',
+      status: webhookConfig.sharedSecret && !isTest ? 'verified' : 'not_required',
+    };
+
+    try {
+      const incoming = await readWorkerWebhookRequest(req);
+      rawBody = incoming.rawBody;
+      contentType = incoming.contentType;
+      parsedPayload = parseWorkerWebhookPayload(rawBody, contentType);
+      payload =
+        parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload) && Object.prototype.hasOwnProperty.call(parsedPayload, 'payload')
+          ? parsedPayload.payload
+          : parsedPayload;
+      normalizedWebhookEvent = normalizeWorkerWebhookEvent({
+        payload: parsedPayload,
+        headers: req.headers,
+        contentType,
+        config: triggers,
+      });
+      verification = verifyWorkerWebhookRequest({
+        rawBody,
+        payload: parsedPayload,
+        headers: req.headers,
+        config: triggers,
+        req,
+        isTest,
+      });
+    } catch (e) {
+      if (e instanceof WorkerWebhookIngressError && e.statusCode === 413) {
+        return err(res, e.statusCode, e.message), true;
       }
+      const dedupeKey = computeWorkerWebhookDedupeKey({
+        rawBody,
+        payload: parsedPayload,
+        headers: req.headers,
+        config: triggers,
+      });
+      const existing = await lookupWorkerWebhookIngress(pool, { workerId: worker.id, tenantId: tid, dedupeKey });
+      if (existing) {
+        const replay = await incrementWorkerWebhookReplay(pool, { workerId: worker.id, tenantId: tid, dedupeKey }) || existing;
+        return json(res, 409, {
+          error: 'duplicate webhook event previously dead-lettered',
+          duplicate: true,
+          ingress: replay,
+        }), true;
+      }
+
+      const rejectedIngress = await insertWorkerWebhookIngress(pool, {
+        id: generateId('whi'),
+        workerId: worker.id,
+        tenantId: tid,
+        provider: webhookConfig.provider,
+        dedupeKey,
+        requestPath: req.url || pathname,
+        contentType,
+        signatureScheme: verification.scheme || null,
+        signatureStatus: 'rejected',
+        signatureError: e?.message || 'webhook rejected',
+        status: 'dead_letter',
+        headersJson: sanitizeWorkerWebhookHeaders(req.headers),
+        payloadJson: parsedPayload,
+        rawBody,
+        deadLetterReason: buildWorkerWebhookDeadLetterCode(e?.message || 'ingress_rejected'),
+      });
+      const recentPolicyRows = await fetchRecentWebhookIngressForPolicy(pool, {
+        workerId: worker.id,
+        tenantId: tid,
+        provider: webhookConfig.provider,
+      });
+      const enforcement = resolveWebhookEnforcementDecision(recentPolicyRows, {
+        policy: workerRuntimePolicyRecord?.effective?.webhooks || {},
+      });
+      if (enforcement.action === 'auto_pause') {
+        await autoPauseWorker(pool, worker.id, null, enforcement.anomalies.map((anomaly) => anomaly.reason));
+        worker.status = 'paused';
+        return json(res, enforcement.statusCode, {
+          error: enforcement.reason,
+          ingress: rejectedIngress,
+          enforcement,
+        }), true;
+      }
+      return err(res, e?.statusCode || 400, e?.message || 'invalid webhook payload'), true;
     }
 
-    const body = await readBody(req);
-    const payload = body?.payload || null;
+    const dedupeKey = computeWorkerWebhookDedupeKey({
+      rawBody,
+      payload: parsedPayload,
+      headers: req.headers,
+      config: triggers,
+    });
+    const existing = await lookupWorkerWebhookIngress(pool, { workerId: worker.id, tenantId: tid, dedupeKey });
+    if (existing) {
+      const replay = await incrementWorkerWebhookReplay(pool, { workerId: worker.id, tenantId: tid, dedupeKey }) || existing;
+      if (replay.executionId) {
+        return json(res, 200, {
+          ok: true,
+          duplicate: true,
+          executionId: replay.executionId,
+          ingress: replay,
+        }), true;
+      }
+      return json(res, 409, {
+        error: 'duplicate webhook event previously dead-lettered',
+        duplicate: true,
+        ingress: replay,
+      }), true;
+    }
+
+    const policyProvider = verification.provider || webhookConfig.provider;
+    const recentPolicyRows = await fetchRecentWebhookIngressForPolicy(pool, {
+      workerId: worker.id,
+      tenantId: tid,
+      provider: policyProvider,
+    });
+    const enforcement = resolveWebhookEnforcementDecision(recentPolicyRows, {
+      policy: workerRuntimePolicyRecord?.effective?.webhooks || {},
+    });
+    let forceApprovalReentry = enforcement.forceApprovalReentry === true;
+
+    if (enforcement.action === 'auto_pause' || enforcement.action === 'cooldown') {
+      const blockedIngress = await insertWorkerWebhookIngress(pool, {
+        id: generateId('whi'),
+        workerId: worker.id,
+        tenantId: tid,
+        provider: policyProvider,
+        dedupeKey,
+        requestPath: req.url || pathname,
+        contentType,
+        signatureScheme: verification.scheme || null,
+        signatureStatus: verification.status || 'verified',
+        status: 'dead_letter',
+        headersJson: sanitizeWorkerWebhookHeaders(req.headers),
+        payloadJson: parsedPayload,
+        rawBody,
+        deadLetterReason: enforcement.code,
+      });
+      if (enforcement.action === 'auto_pause') {
+        await autoPauseWorker(pool, worker.id, null, enforcement.anomalies.map((anomaly) => anomaly.reason));
+        worker.status = 'paused';
+      }
+      return json(res, enforcement.statusCode, {
+        error: enforcement.reason,
+        ingress: blockedIngress,
+        enforcement,
+      }), true;
+    }
+
+    if (worker.status !== 'ready' && worker.status !== 'running') {
+      const ingress = await insertWorkerWebhookIngress(pool, {
+        id: generateId('whi'),
+        workerId: worker.id,
+        tenantId: tid,
+        provider: verification.provider || webhookConfig.provider,
+        dedupeKey,
+        requestPath: req.url || pathname,
+        contentType,
+        signatureScheme: verification.scheme || null,
+        signatureStatus: verification.status || 'verified',
+        status: 'dead_letter',
+        headersJson: sanitizeWorkerWebhookHeaders(req.headers),
+        payloadJson: parsedPayload,
+        rawBody,
+        deadLetterReason: 'worker_unavailable',
+      });
+      return json(res, 409, {
+        error: `cannot trigger worker in '${worker.status}' status`,
+        ingress,
+      }), true;
+    }
+
+    const ingress = await insertWorkerWebhookIngress(pool, {
+      id: generateId('whi'),
+      workerId: worker.id,
+      tenantId: tid,
+      provider: verification.provider || webhookConfig.provider,
+      dedupeKey,
+      requestPath: req.url || pathname,
+      contentType,
+      signatureScheme: verification.scheme || null,
+      signatureStatus: verification.status || 'verified',
+      status: 'accepted',
+      headersJson: sanitizeWorkerWebhookHeaders(req.headers),
+      payloadJson: parsedPayload,
+      rawBody,
+    });
+    if (!ingress) {
+      const raced = await lookupWorkerWebhookIngress(pool, { workerId: worker.id, tenantId: tid, dedupeKey });
+      const replay = raced ? (await incrementWorkerWebhookReplay(pool, { workerId: worker.id, tenantId: tid, dedupeKey }) || raced) : null;
+      if (replay?.executionId) {
+        return json(res, 200, { ok: true, duplicate: true, executionId: replay.executionId, ingress: replay }), true;
+      }
+      return json(res, 409, {
+        error: 'duplicate webhook event previously dead-lettered',
+        duplicate: true,
+        ingress: replay,
+      }), true;
+    }
+
     const triggerType = isTest ? 'manual_test' : 'webhook';
 
     const execId = generateId('exec');
-    const initialActivity = payload
-      ? [{ ts: new Date().toISOString(), type: 'webhook_payload', detail: JSON.stringify(payload).slice(0, 10000) }]
-      : [];
-    const result = await pool.query(
-      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity)
-       VALUES ($1,$2,$3,$4,'queued',$5,$6,$7::jsonb) RETURNING *`,
-      [execId, trigMatch[1], tid, triggerType, worker.model, new Date().toISOString(), JSON.stringify(initialActivity)]
-    );
-    return json(res, 202, { ok: true, executionId: execId, execution: result.rows[0] }), true;
+    const now = new Date().toISOString();
+    const initialActivity = [
+      {
+        timestamp: now,
+        ts: now,
+        type: 'webhook_ingress',
+        message: `${verification.provider || webhookConfig.provider} webhook received`,
+        data: {
+          ingressId: ingress.id,
+          dedupeKey,
+          signatureScheme: verification.scheme || null,
+          signatureStatus: verification.status || 'verified',
+        },
+      },
+    ];
+    if (payload != null) {
+      initialActivity.push({
+        timestamp: now,
+        ts: now,
+        type: 'webhook_payload',
+        detail: JSON.stringify(payload).slice(0, 10000),
+      });
+    }
+    if (normalizedWebhookEvent) {
+      initialActivity.push({
+        timestamp: now,
+        ts: now,
+        type: 'webhook_normalized',
+        data: {
+          provider: normalizedWebhookEvent.provider,
+          channel: normalizedWebhookEvent.channel || null,
+          eventType: normalizedWebhookEvent.eventType || null,
+          eventId: normalizedWebhookEvent.id || null,
+          from: normalizedWebhookEvent.from?.address || null,
+          to: Array.isArray(normalizedWebhookEvent.to)
+            ? normalizedWebhookEvent.to.map((entry) => entry?.address || entry?.normalized || null).filter(Boolean)
+            : [],
+          subject: normalizedWebhookEvent.subject || null,
+        },
+      });
+    }
+    if (forceApprovalReentry) {
+      initialActivity.push({
+        timestamp: now,
+        ts: now,
+        type: 'webhook_policy',
+        message: enforcement.reason || 'Webhook anomaly policy requires approval re-entry',
+        data: {
+          code: enforcement.code,
+          cooldownUntil: enforcement.cooldownUntil || null,
+          anomalies: enforcement.anomalies,
+          policyContext: {
+            version: workerRuntimePolicyRecord.version,
+            tenantUpdatedAt: workerRuntimePolicyRecord.scopes?.tenant?.updatedAt || null,
+            workerUpdatedAt: workerRuntimePolicyRecord.scopes?.worker?.updatedAt || null,
+          },
+        },
+      });
+    }
+
+    try {
+      const result = await pool.query(
+        `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity, metadata)
+         VALUES ($1,$2,$3,$4,'queued',$5,$6,$7::jsonb,$8::jsonb) RETURNING *`,
+        [
+          execId,
+          trigMatch[1],
+          tid,
+          triggerType,
+          worker.model,
+          now,
+          JSON.stringify(initialActivity),
+          JSON.stringify({
+            webhookIngressId: ingress.id,
+            webhookDedupeKey: dedupeKey,
+            webhookProvider: verification.provider || webhookConfig.provider,
+            webhookEvent: normalizedWebhookEvent,
+            forceApprovalReentry,
+            webhookPolicyCode: enforcement.code,
+            webhookPolicyReason: enforcement.reason,
+            webhookPolicyAnomalies: enforcement.anomalies,
+            webhookPolicyContext: {
+              version: workerRuntimePolicyRecord.version,
+              tenantUpdatedAt: workerRuntimePolicyRecord.scopes?.tenant?.updatedAt || null,
+              workerUpdatedAt: workerRuntimePolicyRecord.scopes?.worker?.updatedAt || null,
+            },
+          }),
+        ]
+      );
+      await attachExecutionToWorkerWebhookIngress(pool, { workerId: worker.id, tenantId: tid, dedupeKey, executionId: execId });
+      return json(res, 202, {
+        ok: true,
+        executionId: execId,
+        ingressId: ingress.id,
+        execution: result.rows[0],
+      }), true;
+    } catch (e) {
+      await markWorkerWebhookDeadLetter(pool, {
+        workerId: worker.id,
+        tenantId: tid,
+        dedupeKey,
+        signatureError: e?.message || 'failed to enqueue webhook execution',
+        deadLetterReason: 'enqueue_failed',
+      });
+      return err(res, 500, e?.message || 'failed to enqueue webhook execution'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/trust — trust progression for a worker
+  const trustMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/trust$/);
+  if (method === 'GET' && trustMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = trustMatch[1];
+
+    try {
+      // Get worker
+      const workerResult = await pool.query(
+        'SELECT * FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]
+      );
+      if (workerResult.rowCount === 0) return err(res, 404, 'worker not found'), true;
+      const worker = workerResult.rows[0];
+
+      // Get recent executions
+      const execResult = await pool.query(
+        `SELECT status, cost_usd, tool_calls, rounds, started_at, completed_at, receipt
+         FROM worker_executions
+         WHERE worker_id = $1 AND tenant_id = $2
+         ORDER BY started_at DESC LIMIT 100`,
+        [workerId, tid]
+      );
+      const executions = execResult.rows;
+
+      // Get pending approvals count
+      const approvalResult = await pool.query(
+        `SELECT COUNT(*) as pending FROM worker_approvals
+         WHERE worker_id = $1 AND tenant_id = $2 AND status = 'pending'`,
+        [workerId, tid]
+      );
+      const approvalHistoryResult = await pool.query(
+        `SELECT matched_rule, action, status, decision, decided_at, created_at
+         FROM worker_approvals
+         WHERE worker_id = $1 AND tenant_id = $2
+         ORDER BY created_at DESC
+         LIMIT 500`,
+        [workerId, tid]
+      );
+
+      // Compute trust metrics using shared classification from trust-learning.js
+      const allTime = summarizeExecutionOutcomes(executions, 36500); // ~100 years = all time
+      const totalRuns = allTime.terminalRecentRuns;
+      const successRuns = allTime.successfulRecentRuns;
+      const failedRuns = allTime.failedRecentRuns;
+      const successRate = allTime.recentSuccessRate;
+
+      // 7-day window
+      const recent7d = summarizeExecutionOutcomes(executions, 7);
+      const recentRate = recent7d.recentSuccessRate;
+
+      // Compute trust level based on run history
+      // OBSERVING: < 10 runs or < 50% success
+      // SUPERVISED: 10-25 runs and >= 70% success
+      // TRUSTED: 25-50 runs and >= 85% success
+      // AUTONOMOUS: 50+ runs and >= 95% success
+      let trustLevel = 'observing';
+      let trustScore = 0;
+
+      if (totalRuns >= 50 && successRate >= 95) {
+        trustLevel = 'autonomous';
+        trustScore = Math.min(100, 80 + Math.round(successRate * 0.2));
+      } else if (totalRuns >= 25 && successRate >= 85) {
+        trustLevel = 'trusted';
+        trustScore = Math.min(80, 50 + Math.round(successRate * 0.3));
+      } else if (totalRuns >= 10 && successRate >= 70) {
+        trustLevel = 'supervised';
+        trustScore = Math.min(50, 20 + Math.round(successRate * 0.3));
+      } else {
+        trustLevel = 'observing';
+        trustScore = totalRuns > 0 ? Math.min(20, Math.round(totalRuns * 2)) : 0;
+      }
+
+      // Parse charter for promotion candidates
+      let promotionCandidates = [];
+      try {
+        const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
+        promotionCandidates = analyzePromotionCandidates({
+          charter,
+          executions,
+          approvals: approvalHistoryResult.rows,
+          lookbackDays: 30,
+          minApprovedActions: 5,
+          minRecentSuccessRate: 90,
+        });
+      } catch { /* ignore parse errors */ }
+
+      const nextLevel = trustLevel === 'observing' ? 'supervised'
+        : trustLevel === 'supervised' ? 'trusted'
+        : trustLevel === 'trusted' ? 'autonomous'
+        : null;
+
+      const runsNeeded = trustLevel === 'observing' ? Math.max(0, 10 - totalRuns)
+        : trustLevel === 'supervised' ? Math.max(0, 25 - totalRuns)
+        : trustLevel === 'trusted' ? Math.max(0, 50 - totalRuns)
+        : 0;
+
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        trustLevel,
+        trustScore,
+        nextLevel,
+        runsUntilNextLevel: runsNeeded,
+        successRateRequired: nextLevel === 'supervised' ? 70 : nextLevel === 'trusted' ? 85 : nextLevel === 'autonomous' ? 95 : null,
+        stats: {
+          totalRuns,
+          successRuns,
+          failedRuns,
+          successRate,
+          recentWindow: {
+            days: 7,
+            runs: recent7d.totalRecentRuns,
+            successRate: recentRate
+          }
+        },
+        pendingApprovals: parseInt(approvalResult.rows[0]?.pending || '0'),
+        promotionCandidates,
+        lastRunAt: executions[0]?.started_at || null
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'trust computation failed'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/signals — learning signal history
+  const signalsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/signals$/);
+  if (method === 'GET' && signalsMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = signalsMatch[1];
+    try {
+      const lookbackDays = parseInt(searchParams.get('days') || '30', 10);
+      const signals = await querySignalsForWorker(pool, workerId, tid, { lookbackDays });
+      return json(res, 200, { signals, count: signals.length }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to query signals'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/learning — explainable learning analytics
+  const learningMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/learning$/);
+  if (method === 'GET' && learningMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = learningMatch[1];
+    try {
+      const lookbackDays = parseInt(searchParams.get('days') || '30', 10);
+      const workerResult = await pool.query(
+        'SELECT id, name, charter FROM workers WHERE id = $1 AND tenant_id = $2',
+        [workerId, tid]
+      );
+      if (workerResult.rowCount === 0) return err(res, 404, 'worker not found'), true;
+
+      const [executionsResult, approvalsResult] = await Promise.all([
+        pool.query(
+          `SELECT status, started_at, completed_at, receipt
+           FROM worker_executions
+           WHERE worker_id = $1 AND tenant_id = $2
+           ORDER BY started_at DESC LIMIT 500`,
+          [workerId, tid]
+        ),
+        pool.query(
+          `SELECT matched_rule, status, decision, decided_at, created_at
+           FROM worker_approvals
+           WHERE worker_id = $1 AND tenant_id = $2
+           ORDER BY created_at DESC LIMIT 500`,
+          [workerId, tid]
+        ),
+      ]);
+
+      const signals = await querySignalsForWorker(pool, workerId, tid, { lookbackDays, limit: 2000 });
+      const worker = workerResult.rows[0];
+      const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : (worker.charter || {});
+      const analytics = buildLearningAnalytics({
+        charter,
+        executions: executionsResult.rows,
+        approvals: approvalsResult.rows,
+        signals,
+        lookbackDays,
+      });
+
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        ...analytics,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to build learning analytics'), true;
+    }
   }
 
   // GET /v1/workers/:id/feed — SSE activity feed (uses header auth for SSE compatibility)
@@ -344,7 +2486,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
 
     // If already completed, send final event and close
-    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'shadow_completed', 'charter_blocked', 'budget_exceeded', 'auto_paused', 'error']);
+    const TERMINAL_STATUSES = new Set(WORKER_EXECUTION_TERMINAL_STATUSES);
     if (TERMINAL_STATUSES.has(exec.status)) {
       res.write(`data: ${JSON.stringify({ type: 'complete', status: exec.status, result: exec.result?.slice(0, 10000) || null })}\n\n`);
       res.end();
@@ -498,7 +2640,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const approvalId = pathname.split('/')[3];
     try {
       const result = await pool.query(
-        `UPDATE worker_approvals SET status = 'approved', decided_by = $1, decided_at = NOW()
+        `UPDATE worker_approvals SET status = 'approved', decision = 'approved', decided_by = $1, decided_at = NOW()
          WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
          RETURNING id, worker_id, tool_name`,
         [tid, approvalId, tid]
@@ -518,7 +2660,7 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const approvalId = pathname.split('/')[3];
     try {
       const result = await pool.query(
-        `UPDATE worker_approvals SET status = 'denied', decided_by = $1, decided_at = NOW()
+        `UPDATE worker_approvals SET status = 'denied', decision = 'denied', decided_by = $1, decided_at = NOW()
          WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
          RETURNING id, worker_id, tool_name`,
         [tid, approvalId, tid]
@@ -596,10 +2738,11 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
         `DELETE FROM worker_memory WHERE worker_id = $1 AND key = $2`,
         [systemWorkerId, memKey]
       );
+      const encApiKey = encryptCredential(body.apiKey);
       await pool.query(
         `INSERT INTO worker_memory (id, worker_id, tenant_id, scope, key, value, updated_at)
          VALUES ($1, $2, $3, 'tenant', $4, $5, NOW())`,
-        [generateId('mem'), systemWorkerId, tid, memKey, body.apiKey]
+        [generateId('mem'), systemWorkerId, tid, memKey, encApiKey]
       );
       return json(res, 200, { ok: true, provider: body.provider }), true;
     } catch (e) {
@@ -619,7 +2762,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       );
       const providers = result.rows.map(row => {
         const provider = row.key.replace('provider_', '').replace('_key', '');
-        const masked = row.value ? '****' + row.value.slice(-4) : '';
+        const plainKey = decryptCredential(row.value);
+        const masked = plainKey ? '****' + plainKey.slice(-4) : '';
         return { provider, connected: true, maskedKey: masked };
       });
       return json(res, 200, { providers }), true;
@@ -755,7 +2899,10 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       }
       if (!type || type === 'approvals') {
         const ar = await pool.query(
-          `SELECT * FROM worker_approvals WHERE tenant_id = $1 AND (tool_name ILIKE $2 OR decision ILIKE $2) LIMIT 20`,
+          `SELECT * FROM worker_approvals
+           WHERE tenant_id = $1
+             AND (tool_name ILIKE $2 OR COALESCE(decision, status) ILIKE $2 OR COALESCE(matched_rule, '') ILIKE $2)
+           LIMIT 20`,
           [tid, pattern]
         );
         for (const row of ar.rows) results.push({ type: 'approval', ...row });
@@ -1044,5 +3191,90 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
   }
 
+  // =========================================================================
+  // Team Generation
+  // =========================================================================
+
+  // POST /v1/teams/generate — auto-generate a team of workers from a business description
+  if (method === 'POST' && pathname === '/v1/teams/generate') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body) return err(res, 400, 'JSON body required'), true;
+    if (typeof body.businessDescription !== 'string' || !body.businessDescription.trim()) return err(res, 400, 'businessDescription must be a non-empty string'), true;
+
+    try {
+      const description = body.businessDescription.trim();
+      const options = body.options || {};
+      const maxWorkers = Math.min(options.maxWorkers || 5, 10);
+
+      // Detect industry from keywords
+      const industry = detectIndustryFromDescription(description);
+      let roles = TEAM_INDUSTRY_TEMPLATES[industry]?.roles || TEAM_INDUSTRY_TEMPLATES.general.roles;
+
+      // Apply include/exclude filters
+      if (options.includeRoles?.length) {
+        roles = options.includeRoles.filter(r => TEAM_ROLE_DEFINITIONS[r]);
+      }
+      if (options.excludeRoles?.length) {
+        const excludeSet = new Set(options.excludeRoles);
+        roles = roles.filter(r => !excludeSet.has(r));
+      }
+
+      const selectedRoles = roles.slice(0, maxWorkers);
+
+      // Extract business name
+      const businessName = options.businessName || extractBusinessName(description);
+
+      // Create workers
+      const workers = [];
+      const now = new Date().toISOString();
+      for (const roleKey of selectedRoles) {
+        const role = TEAM_ROLE_DEFINITIONS[roleKey];
+        if (!role) continue;
+
+        const name = role.nameTemplate.replace('{business}', businessName);
+        const charter = JSON.stringify({
+          schemaVersion: '1.0',
+          name,
+          purpose: role.purpose.replace('{business}', businessName),
+          canDo: role.canDo,
+          askFirst: role.askFirst,
+          neverDo: role.neverDo,
+          capabilities: role.capabilities,
+          schedule: role.schedule,
+          taskType: role.taskType,
+        });
+
+        const id = generateId('wrk');
+        const scheduleValue = role.schedule?.type === 'cron' ? role.schedule.value : 'on_demand';
+        const result = await pool.query(
+          `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'ready', $8, $8) RETURNING *`,
+          [id, tid, name, role.purpose.replace('{business}', businessName), charter,
+           scheduleValue, 'openai/gpt-4.1-mini', now]
+        );
+        workers.push({ ...result.rows[0], trustLevel: 'observing', role: roleKey });
+      }
+
+      return json(res, 201, {
+        team: workers,
+        industry,
+        businessName,
+        workerCount: workers.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'team generation failed'), true;
+    }
+  }
+
   return false; // Not handled
 }
+
+// Exported for testing
+export {
+  detectIndustryFromDescription,
+  extractBusinessName,
+  TEAM_INDUSTRY_TEMPLATES,
+  TEAM_ROLE_DEFINITIONS,
+};

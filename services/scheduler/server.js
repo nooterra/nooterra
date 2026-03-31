@@ -14,7 +14,7 @@
  *   POLL_INTERVAL_MS      - Scheduler poll interval (default 10000)
  */
 
-import { initTracing, withSpan, addSpanAttributes } from '../../src/core/tracing.js';
+import { initTracing, withSpan, addSpanAttributes } from './lib/tracing.js';
 initTracing({ serviceName: 'nooterra-scheduler' });
 
 import http from 'node:http';
@@ -24,6 +24,7 @@ import { chatCompletion, listModels } from './openrouter.js';
 import { chatCompletionForWorker } from './providers/index.js';
 import { handleChatRequest } from './chat.js';
 import { initChatGPTProvider } from './chatgpt-provider.js';
+import { decryptCredential } from './crypto-utils.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect, executeTool, getAvailableTools } from './integrations.js';
 import { getBuiltinTools, isBuiltinTool, executeBuiltinTool, setPool as setBuiltinToolsPool } from './builtin-tools.js';
 import { handleWorkerRoute } from './workers-api.js';
@@ -39,8 +40,17 @@ import {
   autoPauseWorker,
   createApprovalRecord,
 } from './charter-enforcement.js';
+import { createDefaultVerificationPlan, runVerification } from './verification-engine.js';
 import { pollApprovedActions } from './approval-resume.js';
 import { startReportScheduler } from './scheduled-reports.js';
+import { buildSignalsFromExecution, persistSignals } from './learning-signals.js';
+import { buildExecutionContextMessages } from './execution-context.js';
+import { getWorkerRuntimePolicy, getWorkerRuntimePolicyForTool } from './runtime-policy-store.js';
+import {
+  resolveApprovalEnforcementDecision,
+  resolveSideEffectEnforcementDecision,
+  resolveVerificationEnforcementDecision,
+} from './runtime-enforcement.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -272,12 +282,19 @@ async function loadWorkerMemory(workerId, tenantId) {
 
 async function saveWorkerMemory(workerId, tenantId, key, value, scope = 'worker') {
   try {
-    const conflictTarget = scope === 'team' ? 'tenant_id, key' : 'worker_id, key';
-    await pool.query(`
-      INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, now())
-      ON CONFLICT (worker_id, key) DO UPDATE SET value = $5, updated_at = now()
-    `, [generateId('mem'), workerId, tenantId, key, value, scope]);
+    if (scope === 'team') {
+      await pool.query(`
+        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, now())
+        ON CONFLICT (tenant_id, key) DO UPDATE SET value = $5, updated_at = now()
+      `, [generateId('mem'), workerId, tenantId, key, value, scope]);
+    } else {
+      await pool.query(`
+        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, now())
+        ON CONFLICT (worker_id, key) DO UPDATE SET value = $5, updated_at = now()
+      `, [generateId('mem'), workerId, tenantId, key, value, scope]);
+    }
   } catch (err) {
     log('warn', `Failed to save worker memory for ${workerId}: ${err.message}`);
   }
@@ -358,7 +375,8 @@ async function ensureWorkerMemoryTable() {
         scope TEXT NOT NULL DEFAULT 'worker',
         expires_at TIMESTAMPTZ,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (worker_id, key)
+        UNIQUE (worker_id, key),
+        UNIQUE (tenant_id, key)
       )
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_worker_memory_worker ON worker_memory (worker_id)`);
@@ -373,6 +391,18 @@ async function ensureWorkerMemoryTable() {
 // ---------------------------------------------------------------------------
 
 let activeExecutions = 0;
+
+function safeParseJson(value, fallback = null) {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+}
 
 /**
  * Build messages for a worker execution from its charter and worker metadata.
@@ -468,6 +498,359 @@ function buildMessages(charter, knowledge, worker, memory) {
   return messages;
 }
 
+function buildExecutionReceipt({
+  worker,
+  executionId,
+  finalResponse,
+  totalPromptTokens,
+  totalCompletionTokens,
+  totalCost,
+  startedAt,
+  rounds,
+  toolCallCount,
+  blockedActions = [],
+  approvalsPending = [],
+  toolResults = [],
+  verificationPlan,
+  interruption = null,
+}) {
+  const receipt = {
+    schemaVersion: 'WorkerExecutionReceipt.v1',
+    executionId,
+    workerId: worker.id,
+    workerName: worker.name,
+    model: worker.model,
+    promptTokens: totalPromptTokens,
+    completionTokens: totalCompletionTokens,
+    cost: totalCost,
+    durationMs: Date.now() - startedAt.getTime(),
+    rounds,
+    toolCallCount,
+    blockedActions,
+    approvalsPending,
+    interruption,
+    toolResults,
+    response: finalResponse?.slice(0, 50000) || '',
+  };
+
+  const report = runVerification(receipt, verificationPlan || createDefaultVerificationPlan());
+  receipt.verificationReport = report;
+  receipt.businessOutcome = report.businessOutcome;
+  receipt.success = report.businessOutcome === 'passed' || report.businessOutcome === 'partial';
+  return receipt;
+}
+
+function buildMetadataExecutionPolicy(executionMetadata = {}) {
+  if (!executionMetadata?.forceApprovalReentry) return null;
+  return {
+    forceApprovalForAllTools: true,
+    matchedRule: executionMetadata.webhookPolicyReason || 'Webhook anomaly approval re-entry',
+    reason: executionMetadata.webhookPolicyReason || 'Webhook anomaly policy requires tool approval re-entry',
+  };
+}
+
+function buildSideEffectExecutionPolicy(decision) {
+  if (!decision || decision.action === 'allow') return null;
+  const policy = {
+    blockedToolNames: Array.isArray(decision.blockedToolNames) ? [...decision.blockedToolNames] : [],
+    blockedToolReasons: { ...(decision.blockedToolReasons || {}) },
+    forceApprovalToolNames: Array.isArray(decision.forceApprovalToolNames) ? [...decision.forceApprovalToolNames] : [],
+    forceApprovalToolReasons: { ...(decision.forceApprovalToolReasons || {}) },
+  };
+  return policy.blockedToolNames.length > 0 || policy.forceApprovalToolNames.length > 0 ? policy : null;
+}
+
+function buildVerificationExecutionPolicy(decision) {
+  if (!decision?.forceApprovalForAllTools) return null;
+  return {
+    forceApprovalForAllTools: true,
+    matchedRule: decision.matchedRule || 'Verification regression approval re-entry',
+    reason: decision.reason || 'Verification regression policy requires tool approval re-entry',
+  };
+}
+
+function mergeExecutionPolicies(...policies) {
+  const merged = {
+    forceApprovalForAllTools: false,
+    blockedToolNames: [],
+    blockedToolReasons: {},
+    forceApprovalToolNames: [],
+    forceApprovalToolReasons: {},
+    matchedRule: null,
+    reason: null,
+  };
+
+  for (const policy of policies) {
+    if (!policy || typeof policy !== 'object') continue;
+    if (policy.forceApprovalForAllTools) merged.forceApprovalForAllTools = true;
+    if (Array.isArray(policy.blockedToolNames)) {
+      merged.blockedToolNames.push(...policy.blockedToolNames);
+    }
+    if (Array.isArray(policy.forceApprovalToolNames)) {
+      merged.forceApprovalToolNames.push(...policy.forceApprovalToolNames);
+    }
+    if (policy.blockedToolReasons && typeof policy.blockedToolReasons === 'object') {
+      Object.assign(merged.blockedToolReasons, policy.blockedToolReasons);
+    }
+    if (policy.forceApprovalToolReasons && typeof policy.forceApprovalToolReasons === 'object') {
+      Object.assign(merged.forceApprovalToolReasons, policy.forceApprovalToolReasons);
+    }
+    if (policy.matchedRule) merged.matchedRule = policy.matchedRule;
+    if (policy.reason) merged.reason = policy.reason;
+  }
+
+  merged.blockedToolNames = [...new Set(merged.blockedToolNames.filter(Boolean))];
+  merged.forceApprovalToolNames = [...new Set(merged.forceApprovalToolNames.filter(Boolean))];
+
+  if (!merged.forceApprovalForAllTools
+      && merged.blockedToolNames.length === 0
+      && merged.forceApprovalToolNames.length === 0) {
+    return null;
+  }
+
+  return merged;
+}
+
+function describeExecutionPolicy(policy) {
+  if (!policy) return '';
+  const parts = [];
+  if (policy.forceApprovalForAllTools) {
+    parts.push(policy.reason || policy.matchedRule || 'all tool calls require approval');
+  }
+  if (Array.isArray(policy.forceApprovalToolNames) && policy.forceApprovalToolNames.length > 0) {
+    parts.push(`approval re-entry for: ${policy.forceApprovalToolNames.join(', ')}`);
+  }
+  if (Array.isArray(policy.blockedToolNames) && policy.blockedToolNames.length > 0) {
+    parts.push(`temporary block for: ${policy.blockedToolNames.join(', ')}`);
+  }
+  return parts.join('; ');
+}
+
+async function loadRecentSideEffectFailuresForWorker(workerId, tenantId, { lookbackHours = 24, limit = 100 } = {}) {
+  const cutoffIso = new Date(Date.now() - (lookbackHours * 60 * 60 * 1000)).toISOString();
+  const result = await pool.query(
+    `SELECT tool_name, status, error_text, created_at, updated_at
+       FROM worker_tool_side_effects
+      WHERE worker_id = $1
+        AND tenant_id = $2
+        AND status = 'failed'
+        AND created_at >= $3
+      ORDER BY created_at DESC
+      LIMIT $4`,
+    [workerId, tenantId, cutoffIso, limit]
+  );
+  return result.rows;
+}
+
+async function loadRecentVerificationExecutionsForWorker(workerId, tenantId, {
+  excludeExecutionId = null,
+  lookbackHours = 24,
+  limit = 50,
+} = {}) {
+  const cutoffIso = new Date(Date.now() - (lookbackHours * 60 * 60 * 1000)).toISOString();
+  const params = [workerId, tenantId, cutoffIso];
+  let excludeSql = '';
+  if (excludeExecutionId) {
+    params.push(excludeExecutionId);
+    excludeSql = ` AND id <> $${params.length}`;
+  }
+  params.push(limit);
+  const result = await pool.query(
+    `SELECT id, status, receipt, started_at, completed_at
+       FROM worker_executions
+      WHERE worker_id = $1
+        AND tenant_id = $2
+        AND receipt IS NOT NULL
+        AND completed_at >= $3${excludeSql}
+      ORDER BY completed_at DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  return result.rows;
+}
+
+async function loadRecentApprovalDecisionsForWorker(workerId, tenantId, { lookbackHours = 24, limit = 100 } = {}) {
+  const cutoffIso = new Date(Date.now() - (lookbackHours * 60 * 60 * 1000)).toISOString();
+  const result = await pool.query(
+    `SELECT tool_name, matched_rule, status, decision, decided_at, created_at
+       FROM worker_approvals
+      WHERE worker_id = $1
+        AND tenant_id = $2
+        AND COALESCE(decision, status) IN ('denied', 'edited', 'timeout')
+        AND COALESCE(decided_at, created_at) >= $3
+      ORDER BY COALESCE(decided_at, created_at) DESC
+      LIMIT $4`,
+    [workerId, tenantId, cutoffIso, limit]
+  );
+  return result.rows;
+}
+
+function mergeScopedRuntimeDecisions(decisions = []) {
+  const merged = {
+    action: 'allow',
+    blockedToolNames: [],
+    blockedToolReasons: {},
+    forceApprovalToolNames: [],
+    forceApprovalToolReasons: {},
+    forceApprovalForAllTools: false,
+    matchedRule: null,
+    reason: null,
+    anomalies: [],
+    autoPauseReasons: [],
+  };
+
+  for (const decision of decisions) {
+    if (!decision || typeof decision !== 'object') continue;
+    if (decision.action === 'auto_pause') merged.action = 'auto_pause';
+    else if (merged.action === 'allow' && decision.action && decision.action !== 'allow') merged.action = decision.action;
+    if (Array.isArray(decision.blockedToolNames)) merged.blockedToolNames.push(...decision.blockedToolNames);
+    if (decision.blockedToolReasons && typeof decision.blockedToolReasons === 'object') {
+      Object.assign(merged.blockedToolReasons, decision.blockedToolReasons);
+    }
+    if (Array.isArray(decision.forceApprovalToolNames)) merged.forceApprovalToolNames.push(...decision.forceApprovalToolNames);
+    if (decision.forceApprovalToolReasons && typeof decision.forceApprovalToolReasons === 'object') {
+      Object.assign(merged.forceApprovalToolReasons, decision.forceApprovalToolReasons);
+    }
+    if (decision.forceApprovalForAllTools) merged.forceApprovalForAllTools = true;
+    if (!merged.matchedRule && decision.matchedRule) merged.matchedRule = decision.matchedRule;
+    if (!merged.reason && decision.reason) merged.reason = decision.reason;
+    if (Array.isArray(decision.anomalies)) merged.anomalies.push(...decision.anomalies);
+    if (Array.isArray(decision.autoPauseReasons)) merged.autoPauseReasons.push(...decision.autoPauseReasons);
+  }
+
+  merged.blockedToolNames = [...new Set(merged.blockedToolNames.filter(Boolean))];
+  merged.forceApprovalToolNames = [...new Set(merged.forceApprovalToolNames.filter(Boolean))];
+  merged.autoPauseReasons = [...new Set(merged.autoPauseReasons.filter(Boolean))];
+  if (merged.autoPauseReasons.length > 0) merged.action = 'auto_pause';
+  else if (
+    merged.forceApprovalForAllTools
+    || merged.blockedToolNames.length > 0
+    || merged.forceApprovalToolNames.length > 0
+  ) merged.action = 'restrict';
+  return merged;
+}
+
+function buildScopedSideEffectDecision(sideEffects = [], workerRuntimePolicyRecord = null) {
+  const grouped = new Map();
+  for (const sideEffect of sideEffects) {
+    const toolName = String(sideEffect?.tool_name || '').trim();
+    const key = toolName || '__global__';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(sideEffect);
+  }
+
+  const decisions = [];
+  for (const [toolName, rows] of grouped.entries()) {
+    const scopedPolicy = toolName === '__global__'
+      ? {
+        sideEffects: workerRuntimePolicyRecord?.effective?.sideEffects || {},
+        sources: { sideEffects: workerRuntimePolicyRecord?.sources?.sideEffects || 'default' },
+      }
+      : getWorkerRuntimePolicyForTool(workerRuntimePolicyRecord, toolName);
+    const decision = resolveSideEffectEnforcementDecision(rows, {
+      policy: scopedPolicy.sideEffects,
+    });
+    if (Array.isArray(decision.anomalies)) {
+      decision.anomalies = decision.anomalies.map((anomaly) => ({
+        policyScope: scopedPolicy.sources?.sideEffects || 'default',
+        ...anomaly,
+      }));
+    }
+    decisions.push(decision);
+  }
+  return mergeScopedRuntimeDecisions(decisions);
+}
+
+function buildScopedApprovalDecision(approvals = [], workerRuntimePolicyRecord = null) {
+  const byTool = new Map();
+  for (const approval of approvals) {
+    const toolName = String(approval?.tool_name || '').trim();
+    if (toolName) {
+      if (!byTool.has(toolName)) byTool.set(toolName, []);
+      byTool.get(toolName).push(approval);
+    }
+  }
+
+  const decisions = [];
+  if (approvals.length > 0) {
+    const baseDecision = resolveApprovalEnforcementDecision(approvals, {
+      policy: workerRuntimePolicyRecord?.effective?.approvals || {},
+    });
+    if (Array.isArray(baseDecision.anomalies)) {
+      baseDecision.anomalies = baseDecision.anomalies.map((anomaly) => ({
+        policyScope: workerRuntimePolicyRecord?.sources?.approvals || 'default',
+        ...anomaly,
+      }));
+    }
+    decisions.push(baseDecision);
+  }
+
+  for (const [toolName, rows] of byTool.entries()) {
+    if (!workerRuntimePolicyRecord?.effectiveTools?.[toolName]) continue;
+    const scopedPolicy = getWorkerRuntimePolicyForTool(workerRuntimePolicyRecord, toolName);
+    const decision = resolveApprovalEnforcementDecision(rows, {
+      policy: scopedPolicy.approvals,
+    });
+    if (Array.isArray(decision.anomalies)) {
+      decision.anomalies = decision.anomalies.map((anomaly) => ({
+        policyScope: scopedPolicy.sources?.approvals || 'default',
+        ...anomaly,
+      }));
+    }
+    decisions.push(decision);
+  }
+
+  return mergeScopedRuntimeDecisions(decisions);
+}
+
+async function resolveCurrentSideEffectPolicy(worker, workerRuntimePolicyRecord = null) {
+  const failures = await loadRecentSideEffectFailuresForWorker(worker.id, worker.tenant_id);
+  const decision = buildScopedSideEffectDecision(failures, workerRuntimePolicyRecord);
+  return {
+    decision,
+    policy: buildSideEffectExecutionPolicy(decision),
+    autoPauseReasons: Array.isArray(decision.autoPauseReasons) ? decision.autoPauseReasons : [],
+  };
+}
+
+async function resolveCurrentApprovalPolicy(worker, workerRuntimePolicyRecord = null) {
+  const approvals = await loadRecentApprovalDecisionsForWorker(worker.id, worker.tenant_id);
+  const decision = buildScopedApprovalDecision(approvals, workerRuntimePolicyRecord);
+  return {
+    decision,
+    policy: decision.action === 'allow'
+      ? null
+      : {
+        blockedToolNames: Array.isArray(decision.blockedToolNames) ? [...decision.blockedToolNames] : [],
+        blockedToolReasons: { ...(decision.blockedToolReasons || {}) },
+        forceApprovalForAllTools: decision.forceApprovalForAllTools === true,
+        matchedRule: decision.matchedRule || null,
+        reason: decision.reason || null,
+      },
+    autoPauseReasons: Array.isArray(decision.autoPauseReasons) ? decision.autoPauseReasons : [],
+  };
+}
+
+async function resolveCurrentVerificationPolicy(worker, workerRuntimePolicyRecord = null, { excludeExecutionId = null, currentReceipt = null } = {}) {
+  const executions = await loadRecentVerificationExecutionsForWorker(worker.id, worker.tenant_id, { excludeExecutionId });
+  if (currentReceipt) {
+    executions.unshift({
+      id: excludeExecutionId || 'current',
+      status: 'failed',
+      receipt: currentReceipt,
+      completed_at: new Date().toISOString(),
+    });
+  }
+  const decision = resolveVerificationEnforcementDecision(executions, {
+    policy: workerRuntimePolicyRecord?.effective?.verification || {},
+  });
+  return {
+    decision,
+    policy: buildVerificationExecutionPolicy(decision),
+    autoPauseReasons: decision.action === 'auto_pause' && decision.reason ? [decision.reason] : [],
+  };
+}
+
 /**
  * Smart polling gate — cheap check for new activity before running full LLM.
  * Returns true if the worker should proceed, false if nothing new detected.
@@ -543,7 +926,12 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     'trigger.type': triggerType,
   }, async () => {
   const startedAt = new Date();
-  const executionDeadline = Date.now() + 5 * 60 * 1000; // 5-minute per-execution timeout
+  const requestedDeadline = Number.isFinite(resumeContext?.executionDeadlineMs)
+    ? Number(resumeContext.executionDeadlineMs)
+    : null;
+  const executionDeadline = requestedDeadline && requestedDeadline > Date.now()
+    ? requestedDeadline
+    : Date.now() + 5 * 60 * 1000; // 5-minute per-execution timeout
   const activity = [];
   const isResume = triggerType === 'approval_resume' && resumeContext?.approvedToolCalls;
 
@@ -649,8 +1037,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         return;
       }
     } catch (err) {
-      log('warn', `Plan limit check failed for ${worker.tenant_id}: ${err.message}`);
-      // Don't block execution if the check fails — fail open
+      // fail-closed: skip execution when billing state is unknown
+      log('error', `Plan limit check failed for ${worker.tenant_id}: ${err.message}`);
+      addActivity('error', `Billing check failed — skipping execution (fail-closed)`);
+      await updateExecution(executionId, {
+        status: 'billing_error',
+        completedAt: new Date(),
+        error: `Billing check failed: ${err.message}`,
+        activity,
+      });
+      return;
     }
 
     // Check per-tenant rate limit
@@ -749,6 +1145,55 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
     }
 
+    let executionMetadata = {};
+    try {
+      const executionRow = await pool.query(
+        'SELECT metadata FROM worker_executions WHERE id = $1',
+        [executionId]
+      );
+      executionMetadata = safeParseJson(executionRow.rows[0]?.metadata, {}) || {};
+    } catch (err) {
+      log('warn', `Failed to load execution metadata for ${executionId}: ${err.message}`);
+    }
+    const workerRuntimePolicyRecord = await getWorkerRuntimePolicy(pool, worker.tenant_id, worker.id, { fresh: true });
+    const metadataExecutionPolicy = buildMetadataExecutionPolicy(executionMetadata);
+    let verificationPolicyState = { decision: { action: 'allow', anomalies: [] }, policy: null, autoPauseReasons: [] };
+    let approvalPolicyState = { decision: { action: 'allow', anomalies: [] }, policy: null, autoPauseReasons: [] };
+    let sideEffectPolicyState = { decision: { action: 'allow', anomalies: [] }, policy: null, autoPauseReasons: [] };
+    if (!isShadowMode) {
+      verificationPolicyState = await resolveCurrentVerificationPolicy(worker, workerRuntimePolicyRecord, { excludeExecutionId: executionId });
+      approvalPolicyState = await resolveCurrentApprovalPolicy(worker, workerRuntimePolicyRecord);
+      sideEffectPolicyState = await resolveCurrentSideEffectPolicy(worker, workerRuntimePolicyRecord);
+    }
+
+    const initialAutoPauseReasons = [
+      ...verificationPolicyState.autoPauseReasons,
+      ...approvalPolicyState.autoPauseReasons,
+      ...sideEffectPolicyState.autoPauseReasons,
+    ];
+    if (!isShadowMode && initialAutoPauseReasons.length > 0) {
+      addActivity('runtime_policy', initialAutoPauseReasons.join('; '));
+      await autoPauseWorker(pool, worker.id, executionId, initialAutoPauseReasons);
+      await updateExecution(executionId, {
+        status: 'auto_paused',
+        completedAt: new Date(),
+        error: `Auto-paused: ${initialAutoPauseReasons.join('; ')}`,
+        activity,
+      });
+      return;
+    }
+
+    const staticExecutionPolicy = mergeExecutionPolicies(
+      metadataExecutionPolicy,
+      verificationPolicyState.policy,
+      approvalPolicyState.policy,
+    );
+    let executionPolicy = mergeExecutionPolicies(
+      staticExecutionPolicy,
+      sideEffectPolicyState.policy,
+    );
+    let lastExecutionPolicySummary = describeExecutionPolicy(executionPolicy);
+
     // Load BYOK API key from tenant's stored providers (if applicable)
     if ((worker.provider_mode === 'openai' || worker.provider_mode === 'anthropic' || worker.provider_mode === 'byok') && !worker.byok_api_key) {
       try {
@@ -758,7 +1203,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           [`tenant:${worker.tenant_id}`, `provider_${providerKey}_key`]
         );
         if (keyResult.rowCount > 0) {
-          worker.byok_api_key = keyResult.rows[0].value;
+          worker.byok_api_key = decryptCredential(keyResult.rows[0].value);
           worker.provider_mode = 'byok';
           if (!worker.byok_provider) worker.byok_provider = providerKey;
           addActivity('provider', `Using BYOK ${providerKey} key`);
@@ -773,6 +1218,20 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     }
 
     const messages = buildMessages(charter, knowledge, worker, workerMemory);
+    const executionContextMessages = buildExecutionContextMessages({
+      triggerType,
+      metadata: executionMetadata,
+    });
+    if (executionContextMessages.length > 0) {
+      messages.push(...executionContextMessages);
+      addActivity('execution_context', `Loaded ${executionContextMessages.length} execution context message(s)`);
+    }
+    if (lastExecutionPolicySummary) {
+      addActivity('runtime_policy', lastExecutionPolicySummary);
+    }
+    if (executionPolicy?.forceApprovalForAllTools) {
+      addActivity('approval_gate', executionPolicy.reason);
+    }
 
     addActivity('llm_call', `Calling ${worker.model}${worker.provider_mode === 'byok' ? ' (BYOK ' + (worker.byok_provider || '') + ')' : ''}`);
 
@@ -792,32 +1251,51 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     addActivity('tools_loaded', `${builtinTools.length} built-in tool(s) available`);
     if (tools.length === 0) tools = undefined;
 
-    // Rate limit check before calling OpenRouter
-    if (!canCallOpenRouter()) {
-      addActivity('rate_limited', 'OpenRouter rate limit reached, skipping execution (will retry next poll)');
-      log('warn', `Rate limited: skipping execution ${executionId} for worker ${worker.name}`);
-      await updateExecution(executionId, {
-        status: 'queued',
-        completedAt: null,
-        error: null,
-        activity,
-      });
-      return;
+    let result;
+    let usage;
+    if (isResume) {
+      const approvedToolCalls = resumeContext.approvedToolCalls.map((tool, index) => ({
+        id: tool.id || `approved_${index + 1}`,
+        name: tool.name,
+        arguments: tool.args || {},
+        __charterVerdict: 'askFirst',
+        __approvalDecision: 'approved',
+        __matchedRule: tool.matchedRule || null,
+      }));
+      result = {
+        response: resumeContext.priorAssistantResponse || '',
+        toolCalls: approvedToolCalls,
+      };
+      usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cost: 0 };
+      addActivity('approval_resume', `Replaying ${approvedToolCalls.length} approved tool(s) without re-requesting approval`);
+    } else {
+      // Rate limit check before calling OpenRouter
+      if (!canCallOpenRouter()) {
+        addActivity('rate_limited', 'OpenRouter rate limit reached, skipping execution (will retry next poll)');
+        log('warn', `Rate limited: skipping execution ${executionId} for worker ${worker.name}`);
+        await updateExecution(executionId, {
+          status: 'queued',
+          completedAt: null,
+          error: null,
+          activity,
+        });
+        return;
+      }
+
+      // Execute via resolved provider (OpenRouter, Anthropic BYOK, or OpenAI BYOK)
+      result = await withSpan('llm.call', { model: worker.model, round: 1 }, () =>
+        chatCompletionForWorker(worker, {
+          model: worker.model,
+          messages,
+          tools,
+          maxTokens: charter.maxTokens || 4096,
+          temperature: charter.temperature ?? 0.2,
+        })
+      );
+
+      usage = result.usage;
+      addActivity('llm_response', `Received ${usage.totalTokens} tokens (cost: $${usage.cost.toFixed(6)})`);
     }
-
-    // Execute via resolved provider (OpenRouter, Anthropic BYOK, or OpenAI BYOK)
-    const result = await withSpan('llm.call', { model: worker.model, round: 1 }, () =>
-      chatCompletionForWorker(worker, {
-        model: worker.model,
-        messages,
-        tools,
-        maxTokens: charter.maxTokens || 4096,
-        temperature: charter.temperature ?? 0.2,
-      })
-    );
-
-    const { usage } = result;
-    addActivity('llm_response', `Received ${usage.totalTokens} tokens (cost: $${usage.cost.toFixed(6)})`);
 
     // Handle tool calls — single round for scheduled executions
     let finalResponse = result.response;
@@ -827,6 +1305,11 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     let rounds = 1;
     let toolCallCount = 0;
     const toolNames = [];
+    const blockedActions = [];
+    const approvalsPending = [];
+    const executedToolResults = [];
+    const verificationPlan = charter.verificationPlan || createDefaultVerificationPlan();
+    let interruption = null;
 
     if (result.toolCalls && result.toolCalls.length > 0) {
       toolCallCount = result.toolCalls.length;
@@ -839,14 +1322,17 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       for (const tc of result.toolCalls) {
         toolNames.push(tc.name);
         const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-        const validation = validateToolCall(charter, tc.name, args);
+        if (isResume) continue;
+        const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, executionPolicy);
 
         if (!validation.allowed) {
           if (validation.requiresApproval) {
-            approvalNeeded.push({ toolCall: tc, validation });
+            approvalNeeded.push({ toolCall: tc, args, validation });
+            approvalsPending.push({ tool: tc.name, args, rule: validation.matchedRule || validation.rule });
             addActivity('charter_approval', `Tool "${tc.name}" requires approval: ${validation.reason}`);
           } else {
             blockedTools.push({ toolCall: tc, validation });
+            blockedActions.push({ tool: tc.name, args, rule: validation.rule });
             addActivity('charter_block', `Tool "${tc.name}" blocked: ${validation.reason}`);
           }
         }
@@ -868,6 +1354,22 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           costUsd: totalCost,
           rounds,
           toolCalls: toolCallCount,
+          receipt: buildExecutionReceipt({
+            worker,
+            executionId,
+            finalResponse,
+            totalPromptTokens,
+            totalCompletionTokens,
+            totalCost,
+            startedAt,
+            rounds,
+            toolCallCount,
+            blockedActions,
+            approvalsPending,
+            toolResults: executedToolResults,
+            verificationPlan,
+            interruption: { code: 'charter_blocked', detail: blockReasons.join('; ') },
+          }),
         }, worker.tenant_id, totalCost);
         return;
       }
@@ -877,16 +1379,19 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         log('info', `Charter requires approval for worker ${worker.name}: ${approvalNeeded.map(a => a.toolCall.name).join(', ')}`);
 
         let approvalCount = 0;
-        for (const { toolCall, validation } of approvalNeeded) {
+        for (const { toolCall, args, validation } of approvalNeeded) {
           try {
-            await createApprovalRecord(pool, {
+            const approvalId = await createApprovalRecord(pool, {
               workerId: worker.id,
               tenantId: worker.tenant_id,
               executionId,
+              toolName: toolCall.name,
+              toolArgs: args,
               action: `Tool call: ${toolCall.name}`,
               matchedRule: validation.matchedRule || validation.rule,
             });
-            approvalCount++;
+            if (approvalId) approvalCount++;
+            else log('warn', `Approval record was not created for ${toolCall.name} on execution ${executionId}`);
           } catch (aprErr) {
             log('warn', `Failed to create approval record: ${aprErr.message}`);
           }
@@ -915,6 +1420,22 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           rounds,
           toolCalls: toolCallCount,
           result: result.response?.slice(0, 50000),
+          receipt: buildExecutionReceipt({
+            worker,
+            executionId,
+            finalResponse: result.response,
+            totalPromptTokens,
+            totalCompletionTokens,
+            totalCost,
+            startedAt,
+            rounds,
+            toolCallCount,
+            blockedActions,
+            approvalsPending,
+            toolResults: executedToolResults,
+            verificationPlan,
+            interruption: { code: 'awaiting_approval', detail: `${approvalCount} tool call(s) require approval` },
+          }),
         }, worker.tenant_id, totalCost);
 
         // Notify tenant that approval is needed
@@ -955,20 +1476,30 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         const toolPromises = toolCalls.map(async (tc) => {
           return withSpan('tool.execute', { 'tool.name': tc.name }, async () => {
             const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-            let toolResult;
-            if (isShadowMode) {
-              toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
-            } else {
-              const toolPromise = isBuiltinTool(tc.name)
-                ? executeBuiltinTool(tc.name, args, { execution_id: executionId, worker_id: worker.id, tenant_id: worker.tenant_id })
-                : executeTool(worker.tenant_id, tc.name, args);
+            try {
+              let toolResult;
+              if (isShadowMode) {
+                toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+              } else {
+                const toolPromise = isBuiltinTool(tc.name)
+                  ? executeBuiltinTool(tc.name, args, {
+                    execution_id: executionId,
+                    tool_call_id: tc.id || null,
+                    worker_id: worker.id,
+                    tenant_id: worker.tenant_id,
+                    charter,
+                  })
+                  : executeTool(worker.tenant_id, tc.name, args);
 
-              toolResult = await Promise.race([
-                toolPromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${tc.name} timed out after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS))
-              ]);
+                toolResult = await Promise.race([
+                  toolPromise,
+                  new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${tc.name} timed out after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS))
+                ]);
+              }
+              return { tc, toolResult, args };
+            } catch (err) {
+              throw { tc, args, error: err };
             }
-            return { tc, toolResult, args };
           });
         });
 
@@ -976,12 +1507,25 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         const toolResults = [];
         for (const settled of settledResults) {
           if (settled.status === 'rejected') {
-            const err = settled.reason;
-            toolResults.push({ role: 'tool', tool_call_id: 'unknown', name: 'error', content: `Tool execution failed: ${err?.message || String(err)}` });
-            addActivity('tool_error', `Tool execution failed: ${err?.message}`);
+            const rejected = settled.reason || {};
+            const tc = rejected.tc || { id: 'unknown', name: 'error' };
+            const args = rejected.args || {};
+            const err = rejected.error || rejected;
+            toolResults.push({ role: 'tool', tool_call_id: tc.id || tc.name || 'unknown', name: tc.name || 'error', content: `Tool execution failed: ${err?.message || String(err)}` });
+            executedToolResults.push({
+              round: rounds,
+              name: tc.name || 'error',
+              args,
+              success: false,
+              error: err?.message || String(err),
+              charterVerdict: tc.__charterVerdict || 'canDo',
+              approvalDecision: tc.__approvalDecision || null,
+              matchedRule: tc.__matchedRule || null,
+            });
+            addActivity('tool_error', `Tool execution failed: ${err?.message || String(err)}`);
             continue;
           }
-          const { tc, toolResult } = settled.value;
+          const { tc, toolResult, args } = settled.value;
           let resultStr;
           if (toolResult.success) {
             const raw = typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result);
@@ -996,12 +1540,70 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             name: tc.name,
             content: resultStr.slice(0, 20000), // Cap tool output
           });
+          executedToolResults.push({
+            round: rounds,
+            name: tc.name,
+            args,
+            success: Boolean(toolResult.success),
+            error: toolResult.success ? null : toolResult.error,
+            charterVerdict: tc.__charterVerdict || 'canDo',
+            approvalDecision: tc.__approvalDecision || null,
+            matchedRule: tc.__matchedRule || null,
+          });
 
           if (isShadowMode) {
             addActivity('shadow_tool', `Would execute: ${tc.name}`);
           } else {
             addActivity('tool_result', `${tc.name}: ${toolResult.success ? 'success' : 'error: ' + toolResult.error}`);
           }
+        }
+
+        if (!isShadowMode) {
+          sideEffectPolicyState = await resolveCurrentSideEffectPolicy(worker);
+          if (sideEffectPolicyState.autoPauseReasons.length > 0) {
+            addActivity('runtime_policy', sideEffectPolicyState.autoPauseReasons.join('; '));
+            await autoPauseWorker(pool, worker.id, executionId, sideEffectPolicyState.autoPauseReasons);
+            await finalizeExecution(executionId, {
+              status: 'auto_paused',
+              completedAt: new Date(),
+              error: `Auto-paused: ${sideEffectPolicyState.autoPauseReasons.join('; ')}`,
+              activity,
+              model: worker.model,
+              tokensIn: totalPromptTokens,
+              tokensOut: totalCompletionTokens,
+              costUsd: totalCost,
+              rounds,
+              toolCalls: toolCallCount,
+              result: finalResponse?.slice(0, 50000) || '',
+              receipt: buildExecutionReceipt({
+                worker,
+                executionId,
+                finalResponse,
+                totalPromptTokens,
+                totalCompletionTokens,
+                totalCost,
+                startedAt,
+                rounds,
+                toolCallCount,
+                blockedActions,
+                approvalsPending,
+                toolResults: executedToolResults,
+                verificationPlan,
+                interruption: {
+                  code: 'runtime_policy_auto_pause',
+                  detail: sideEffectPolicyState.autoPauseReasons.join('; '),
+                },
+              }),
+            }, worker.tenant_id, totalCost);
+            return;
+          }
+
+          executionPolicy = mergeExecutionPolicies(staticExecutionPolicy, sideEffectPolicyState.policy);
+          const refreshedExecutionPolicySummary = describeExecutionPolicy(executionPolicy);
+          if (refreshedExecutionPolicySummary && refreshedExecutionPolicySummary !== lastExecutionPolicySummary) {
+            addActivity('runtime_policy', refreshedExecutionPolicySummary);
+          }
+          lastExecutionPolicySummary = refreshedExecutionPolicySummary;
         }
 
         // Feed tool results back to LLM
@@ -1022,6 +1624,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         if (totalCost >= EXECUTION_COST_CAP) {
           addActivity('cost_cap', `Execution cost $${totalCost.toFixed(4)} exceeded cap $${EXECUTION_COST_CAP.toFixed(2)}, stopping`);
           log('warn', `Execution ${executionId} hit cost cap: $${totalCost.toFixed(4)} >= $${EXECUTION_COST_CAP}`);
+          interruption = {
+            code: 'cost_cap',
+            detail: `Execution cost $${totalCost.toFixed(4)} exceeded cap $${EXECUTION_COST_CAP.toFixed(2)}`,
+          };
           break;
         }
 
@@ -1041,6 +1647,22 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             rounds,
             toolCalls: toolCallCount,
             result: finalResponse?.slice(0, 50000),
+            receipt: buildExecutionReceipt({
+              worker,
+              executionId,
+              finalResponse,
+              totalPromptTokens,
+              totalCompletionTokens,
+              totalCost,
+              startedAt,
+              rounds,
+              toolCallCount,
+              blockedActions,
+              approvalsPending,
+              toolResults: executedToolResults,
+              verificationPlan,
+              interruption: { code: 'timeout', detail: 'Execution timeout exceeded' },
+            }),
           }, worker.tenant_id, totalCost);
           return;
         }
@@ -1055,6 +1677,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           if (currentBalance < MIN_BALANCE_THRESHOLD) {
             addActivity('error', 'Insufficient balance — execution stopped');
             log('warn', `Execution ${executionId} stopped: tenant ${worker.tenant_id} balance $${currentBalance.toFixed(4)} < $${MIN_BALANCE_THRESHOLD}`);
+            interruption = {
+              code: 'insufficient_balance',
+              detail: `Tenant balance $${currentBalance.toFixed(4)} dropped below $${MIN_BALANCE_THRESHOLD}`,
+            };
             break;
           }
         } catch (balErr) {
@@ -1066,6 +1692,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         if (!canCallOpenRouter()) {
           addActivity('rate_limited', `Round ${rounds}: rate limited, stopping agentic loop`);
           log('warn', `Rate limited during agentic loop round ${rounds} for execution ${executionId}`);
+          interruption = {
+            code: 'rate_limited',
+            detail: `Rate limited during agentic loop round ${rounds}`,
+          };
           break;
         }
 
@@ -1095,9 +1725,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           for (const tc of lastResult.toolCalls) {
             toolNames.push(tc.name);
             const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-            const validation = validateToolCall(charter, tc.name, args);
+            const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, executionPolicy);
             if (!validation.allowed && !validation.requiresApproval) {
               addActivity('charter_block', `Round ${rounds}: tool "${tc.name}" blocked: ${validation.reason}`);
+              blockedActions.push({ tool: tc.name, args, rule: validation.rule });
               lastResult.toolCalls = []; // Stop the loop
               break;
             }
@@ -1109,6 +1740,12 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
 
       if (rounds >= MAX_ROUNDS) {
         addActivity('loop_limit', `Agentic loop hit max rounds (${MAX_ROUNDS})`);
+        if (lastResult.toolCalls && lastResult.toolCalls.length > 0) {
+          interruption = interruption || {
+            code: 'max_rounds',
+            detail: `Agentic loop hit max rounds (${MAX_ROUNDS})`,
+          };
+        }
       }
     }
 
@@ -1151,20 +1788,137 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         result: finalResponse.slice(0, 50000),
         error: `Auto-paused: ${anomalyResult.reasons.join('; ')}`,
         activity,
-        receipt: {
-          model: worker.model,
-          promptTokens: totalPromptTokens,
-          completionTokens: totalCompletionTokens,
-          cost: totalCost,
-          duration: executionMs,
-        },
+        receipt: buildExecutionReceipt({
+          worker,
+          executionId,
+          finalResponse,
+          totalPromptTokens,
+          totalCompletionTokens,
+          totalCost,
+          startedAt,
+          rounds,
+          toolCallCount,
+          blockedActions,
+          approvalsPending,
+          toolResults: executedToolResults,
+          verificationPlan,
+          interruption: { code: 'auto_paused', detail: anomalyResult.reasons.join('; ') },
+        }),
       }, worker.tenant_id, totalCost);
+
+      // Emit learning signals from this execution (auto-pause path)
+      try {
+        const signals = buildSignalsFromExecution({
+          executionId,
+          workerId: worker.id,
+          tenantId: worker.tenant_id,
+          toolResults: executedToolResults.map(tr => ({
+            ...tr,
+            charterVerdict: tr.charterVerdict || 'canDo',
+            approvalDecision: tr.approvalDecision || null,
+            matchedRule: tr.matchedRule || null,
+          })),
+          blockedActions,
+          interruptionCode: 'auto_paused',
+          executionOutcome: 'failed',
+        });
+        await persistSignals(pool, signals);
+      } catch (sigErr) {
+        log('warn', `Failed to persist learning signals for ${executionId}: ${sigErr.message}`);
+      }
+
       return;
     }
 
+    const receipt = buildExecutionReceipt({
+      worker,
+      executionId,
+      finalResponse,
+      totalPromptTokens,
+      totalCompletionTokens,
+      totalCost,
+      startedAt,
+      rounds,
+      toolCallCount,
+      blockedActions,
+      approvalsPending,
+      toolResults: executedToolResults,
+      verificationPlan,
+      interruption,
+    });
+
+    let postRunVerificationPolicyState = { decision: { action: 'allow', anomalies: [] }, policy: null, autoPauseReasons: [] };
+    if (!isShadowMode) {
+      postRunVerificationPolicyState = await resolveCurrentVerificationPolicy(worker, workerRuntimePolicyRecord, {
+        excludeExecutionId: executionId,
+        currentReceipt: receipt,
+      });
+    }
+
+    const runtimeEnforcement = {
+      policyVersion: workerRuntimePolicyRecord.version,
+      policyContext: {
+        tenantUpdatedAt: workerRuntimePolicyRecord.scopes?.tenant?.updatedAt || null,
+        tenantUpdatedBy: workerRuntimePolicyRecord.scopes?.tenant?.updatedBy || null,
+        workerUpdatedAt: workerRuntimePolicyRecord.scopes?.worker?.updatedAt || null,
+        workerUpdatedBy: workerRuntimePolicyRecord.scopes?.worker?.updatedBy || null,
+        toolOverrideTools: Object.keys(workerRuntimePolicyRecord.effectiveTools || {}),
+      },
+      approvals: approvalPolicyState.decision,
+      verification: postRunVerificationPolicyState.decision,
+      sideEffects: sideEffectPolicyState.decision,
+    };
+    if (
+      approvalPolicyState.decision.action !== 'allow'
+      || postRunVerificationPolicyState.decision.action !== 'allow'
+      || sideEffectPolicyState.decision.action !== 'allow'
+    ) {
+      receipt.runtimeEnforcement = runtimeEnforcement;
+    }
+
+    if (!isShadowMode && postRunVerificationPolicyState.autoPauseReasons.length > 0) {
+      addActivity('runtime_policy', postRunVerificationPolicyState.autoPauseReasons.join('; '));
+      await autoPauseWorker(pool, worker.id, executionId, postRunVerificationPolicyState.autoPauseReasons);
+      receipt.interruption = {
+        code: 'verification_auto_pause',
+        detail: postRunVerificationPolicyState.autoPauseReasons.join('; '),
+      };
+      receipt.success = false;
+    }
+
+    // Emit learning signals from this execution
+    try {
+      const signals = buildSignalsFromExecution({
+        executionId,
+        workerId: worker.id,
+        tenantId: worker.tenant_id,
+        toolResults: executedToolResults.map(tr => ({
+          ...tr,
+          charterVerdict: tr.charterVerdict || 'canDo',
+          approvalDecision: tr.approvalDecision || null,
+          matchedRule: tr.matchedRule || null,
+        })),
+        blockedActions,
+        interruptionCode: receipt.interruption?.code || null,
+        executionOutcome: receipt.businessOutcome === 'passed' && !postRunVerificationPolicyState.autoPauseReasons.length ? 'success' : 'failed',
+      });
+      await persistSignals(pool, signals);
+    } catch (sigErr) {
+      log('warn', `Failed to persist learning signals for ${executionId}: ${sigErr.message}`);
+    }
+
+    const finalExecutionStatus = isShadowMode
+      ? 'shadow_completed'
+      : (postRunVerificationPolicyState.autoPauseReasons.length > 0
+        ? 'auto_paused'
+        : (receipt.success ? 'completed' : 'failed'));
+    const finalExecutionError = postRunVerificationPolicyState.autoPauseReasons.length > 0
+      ? `Auto-paused: ${postRunVerificationPolicyState.autoPauseReasons.join('; ')}`
+      : (receipt.success ? null : `Verification failed: ${receipt.businessOutcome}`);
+
     // Update execution record + deduct credits atomically
     await finalizeExecution(executionId, {
-      status: isShadowMode ? 'shadow_completed' : 'completed',
+      status: finalExecutionStatus,
       completedAt: new Date(),
       model: worker.model,
       tokensIn: totalPromptTokens,
@@ -1174,13 +1928,8 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       toolCalls: toolCallCount,
       result: finalResponse.slice(0, 50000), // cap stored result
       activity,
-      receipt: {
-        model: worker.model,
-        promptTokens: totalPromptTokens,
-        completionTokens: totalCompletionTokens,
-        cost: totalCost,
-        duration: Date.now() - startedAt.getTime(),
-      },
+      error: finalExecutionError,
+      receipt,
     }, worker.tenant_id, totalCost);
 
     // Extract and save memory entries from LLM response
@@ -1201,13 +1950,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       }
     }
 
+    const executionSucceeded = finalExecutionStatus === 'completed' || finalExecutionStatus === 'shadow_completed';
+
     // Update worker stats
     await pool.query(`
       UPDATE workers SET
         stats = jsonb_set(
           jsonb_set(
             jsonb_set(stats, '{totalRuns}', to_jsonb((stats->>'totalRuns')::int + 1)),
-            '{successfulRuns}', to_jsonb((stats->>'successfulRuns')::int + 1)
+            ${executionSucceeded ? "'{successfulRuns}'" : "'{failedRuns}'"},
+            to_jsonb((stats->>'${executionSucceeded ? 'successfulRuns' : 'failedRuns'}')::int + 1)
           ),
           '{lastRunAt}', to_jsonb($2::text)
         ),
@@ -1215,52 +1967,66 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       WHERE id = $1
     `, [worker.id, new Date().toISOString()]);
 
-    log('info', `Execution ${executionId} completed for worker ${worker.name} (${usage.totalTokens} tokens, $${totalCost.toFixed(6)})`);
+    log('info', `Execution ${executionId} ${executionSucceeded ? 'completed' : finalExecutionStatus} for worker ${worker.name} (${usage.totalTokens} tokens, $${totalCost.toFixed(6)})`);
 
-    // Deliver completion notification
-    try {
-      await deliverNotification({
-        pool, tenantId: worker.tenant_id,
-        event: 'execution.completed',
-        worker: { id: worker.id, name: worker.name },
-        execution: {
-          id: executionId,
-          summary: finalResponse.slice(0, 200),
-          costUsd: totalCost,
-          durationMs: Date.now() - startedAt.getTime(),
-        },
-        log,
-      });
-    } catch (notifErr) {
-      log('warn', `Notification delivery failed for ${executionId}: ${notifErr.message}`);
-    }
-
-    // Execution chaining: trigger the next worker if configured
-    try {
-      const chain = typeof worker.chain === 'string' ? JSON.parse(worker.chain) : worker.chain;
-      if (chain?.onComplete) {
-        const nextWorker = await pool.query(
-          'SELECT * FROM workers WHERE id = $1 AND tenant_id = $2',
-          [chain.onComplete, worker.tenant_id]
-        );
-        if (nextWorker.rows[0] && nextWorker.rows[0].status !== 'archived' && nextWorker.rows[0].status !== 'paused') {
-          const chainExecId = generateId('exec');
-          const chainActivity = chain.passResult
-            ? [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}`, data: finalResponse?.slice(0, 10000) }]
-            : [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}` }];
-          await pool.query(
-            `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity)
-             VALUES ($1, $2, $3, 'chain', 'queued', $4, $5, $6::jsonb)`,
-            [chainExecId, chain.onComplete, worker.tenant_id, nextWorker.rows[0].model, new Date().toISOString(), JSON.stringify(chainActivity)]
-          );
-          addActivity('chain', `Chained to worker "${nextWorker.rows[0].name}" (${chainExecId})`);
-          log('info', `Chain triggered: ${worker.name} -> ${nextWorker.rows[0].name} (${chainExecId})`);
-        } else if (!nextWorker.rows[0]) {
-          log('warn', `Chain target worker ${chain.onComplete} not found for worker ${worker.name}`);
-        }
+    if (executionSucceeded) {
+      // Deliver completion notification
+      try {
+        await deliverNotification({
+          pool, tenantId: worker.tenant_id,
+          event: 'execution.completed',
+          worker: { id: worker.id, name: worker.name },
+          execution: {
+            id: executionId,
+            summary: finalResponse.slice(0, 200),
+            costUsd: totalCost,
+            durationMs: Date.now() - startedAt.getTime(),
+          },
+          log,
+        });
+      } catch (notifErr) {
+        log('warn', `Notification delivery failed for ${executionId}: ${notifErr.message}`);
       }
-    } catch (chainErr) {
-      log('warn', `Chain execution failed for worker ${worker.name}: ${chainErr.message}`);
+
+      // Execution chaining: trigger the next worker if configured
+      try {
+        const chain = typeof worker.chain === 'string' ? JSON.parse(worker.chain) : worker.chain;
+        if (chain?.onComplete) {
+          const nextWorker = await pool.query(
+            'SELECT * FROM workers WHERE id = $1 AND tenant_id = $2',
+            [chain.onComplete, worker.tenant_id]
+          );
+          if (nextWorker.rows[0] && nextWorker.rows[0].status !== 'archived' && nextWorker.rows[0].status !== 'paused') {
+            const chainExecId = generateId('exec');
+            const chainActivity = chain.passResult
+              ? [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}`, data: finalResponse?.slice(0, 10000) }]
+              : [{ ts: new Date().toISOString(), type: 'chain_input', detail: `Chained from ${worker.name}` }];
+            await pool.query(
+              `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at, activity)
+               VALUES ($1, $2, $3, 'chain', 'queued', $4, $5, $6::jsonb)`,
+              [chainExecId, chain.onComplete, worker.tenant_id, nextWorker.rows[0].model, new Date().toISOString(), JSON.stringify(chainActivity)]
+            );
+            addActivity('chain', `Chained to worker "${nextWorker.rows[0].name}" (${chainExecId})`);
+            log('info', `Chain triggered: ${worker.name} -> ${nextWorker.rows[0].name} (${chainExecId})`);
+          } else if (!nextWorker.rows[0]) {
+            log('warn', `Chain target worker ${chain.onComplete} not found for worker ${worker.name}`);
+          }
+        }
+      } catch (chainErr) {
+        log('warn', `Chain execution failed for worker ${worker.name}: ${chainErr.message}`);
+      }
+    } else {
+      try {
+        await deliverNotification({
+          pool, tenantId: worker.tenant_id,
+          event: 'execution.failed',
+          worker: { id: worker.id, name: worker.name },
+          execution: { id: executionId, error: finalExecutionError?.slice(0, 500) || finalExecutionStatus },
+          log,
+        });
+      } catch (notifErr) {
+        log('warn', `Failure notification delivery failed for ${executionId}: ${notifErr.message}`);
+      }
     }
 
     // Check for low balance and send budget alert
@@ -1331,6 +2097,7 @@ async function updateExecution(executionId, data) {
   const sets = ['completed_at = $2', 'status = $3'];
   const values = [executionId, data.completedAt, data.status];
   let idx = 4;
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(data, key);
 
   if (data.model != null) { sets.push(`model = $${idx}`); values.push(data.model); idx++; }
   if (data.tokensIn != null) { sets.push(`tokens_in = $${idx}`); values.push(data.tokensIn); idx++; }
@@ -1338,10 +2105,10 @@ async function updateExecution(executionId, data) {
   if (data.costUsd != null) { sets.push(`cost_usd = $${idx}`); values.push(data.costUsd); idx++; }
   if (data.rounds != null) { sets.push(`rounds = $${idx}`); values.push(data.rounds); idx++; }
   if (data.toolCalls != null) { sets.push(`tool_calls = $${idx}`); values.push(data.toolCalls); idx++; }
-  if (data.result != null) { sets.push(`result = $${idx}`); values.push(data.result); idx++; }
-  if (data.activity != null) { sets.push(`activity = $${idx}::jsonb`); values.push(JSON.stringify(data.activity)); idx++; }
-  if (data.error != null) { sets.push(`error = $${idx}`); values.push(data.error); idx++; }
-  if (data.receipt != null) { sets.push(`receipt = $${idx}::jsonb`); values.push(JSON.stringify(data.receipt)); idx++; }
+  if (hasOwn('result')) { sets.push(`result = $${idx}`); values.push(data.result); idx++; }
+  if (hasOwn('activity')) { sets.push(`activity = $${idx}::jsonb`); values.push(JSON.stringify(data.activity)); idx++; }
+  if (hasOwn('error')) { sets.push(`error = $${idx}`); values.push(data.error); idx++; }
+  if (hasOwn('receipt')) { sets.push(`receipt = $${idx}::jsonb`); values.push(JSON.stringify(data.receipt)); idx++; }
 
   await pool.query(
     `UPDATE worker_executions SET ${sets.join(', ')} WHERE id = $1`,
@@ -1400,16 +2167,17 @@ async function finalizeExecution(executionId, data, tenantId, costUsd) {
     const sets = ['completed_at = $2', 'status = $3'];
     const values = [executionId, data.completedAt, data.status];
     let idx = 4;
+    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(data, key);
     if (data.model != null) { sets.push(`model = $${idx}`); values.push(data.model); idx++; }
     if (data.tokensIn != null) { sets.push(`tokens_in = $${idx}`); values.push(data.tokensIn); idx++; }
     if (data.tokensOut != null) { sets.push(`tokens_out = $${idx}`); values.push(data.tokensOut); idx++; }
     if (data.costUsd != null) { sets.push(`cost_usd = $${idx}`); values.push(data.costUsd); idx++; }
     if (data.rounds != null) { sets.push(`rounds = $${idx}`); values.push(data.rounds); idx++; }
     if (data.toolCalls != null) { sets.push(`tool_calls = $${idx}`); values.push(data.toolCalls); idx++; }
-    if (data.result != null) { sets.push(`result = $${idx}`); values.push(data.result); idx++; }
-    if (data.activity != null) { sets.push(`activity = $${idx}::jsonb`); values.push(JSON.stringify(data.activity)); idx++; }
-    if (data.error != null) { sets.push(`error = $${idx}`); values.push(data.error); idx++; }
-    if (data.receipt != null) { sets.push(`receipt = $${idx}::jsonb`); values.push(JSON.stringify(data.receipt)); idx++; }
+    if (hasOwn('result')) { sets.push(`result = $${idx}`); values.push(data.result); idx++; }
+    if (hasOwn('activity')) { sets.push(`activity = $${idx}::jsonb`); values.push(JSON.stringify(data.activity)); idx++; }
+    if (hasOwn('error')) { sets.push(`error = $${idx}`); values.push(data.error); idx++; }
+    if (hasOwn('receipt')) { sets.push(`receipt = $${idx}::jsonb`); values.push(JSON.stringify(data.receipt)); idx++; }
 
     await client.query(`UPDATE worker_executions SET ${sets.join(', ')} WHERE id = $1`, values);
 
@@ -1517,8 +2285,9 @@ async function pollCronWorkers() {
       }
 
       budgetFilteredWorkers.push(entry);
-    } catch {
-      budgetFilteredWorkers.push(entry); // fail open
+    } catch (err) {
+      // fail-closed: skip execution when billing state is unknown
+      log('error', `Budget check failed for ${entry.worker.tenant_id}: ${err?.message}`);
     }
   }
 
@@ -1772,7 +2541,13 @@ async function handleWorkerChat(req, res, workerId) {
         return;
       }
     }
-  } catch { /* fail open */ }
+  } catch (err) {
+    // fail-closed: skip execution when billing state is unknown
+    log('error', `Credit check failed for tenant ${tenantId}: ${err?.message}`);
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Billing check unavailable. Please try again.' }));
+    return;
+  }
 
   // Load BYOK API key for chat (same logic as execution)
   if ((worker.provider_mode === 'openai' || worker.provider_mode === 'anthropic' || worker.provider_mode === 'byok') && !worker.byok_api_key) {
@@ -1780,10 +2555,10 @@ async function handleWorkerChat(req, res, workerId) {
       const providerKey = worker.byok_provider || worker.provider_mode;
       const keyResult = await pool.query(
         `SELECT value FROM worker_memory WHERE worker_id = $1 AND scope = 'tenant' AND key = $2`,
-        ['__tenant__', `provider_${providerKey}_key`]
+        [`tenant:${tenantId}`, `provider_${providerKey}_key`]
       );
       if (keyResult.rowCount > 0) {
-        worker.byok_api_key = keyResult.rows[0].value;
+        worker.byok_api_key = decryptCredential(keyResult.rows[0].value);
         worker.provider_mode = 'byok';
         if (!worker.byok_provider) worker.byok_provider = providerKey;
       } else {
@@ -1998,6 +2773,11 @@ const server = http.createServer(async (req, res) => {
         if (!tenantId) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing tenant ID' }));
+          return;
+        }
+        if (!data.email) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing email' }));
           return;
         }
 
@@ -2272,6 +3052,7 @@ async function ensureTables() {
       matched_rule TEXT,
       action_hash TEXT,
       status TEXT DEFAULT 'pending',
+      decision TEXT,
       decided_by TEXT,
       decided_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
@@ -2288,6 +3069,28 @@ async function ensureTables() {
       UNIQUE(tenant_id, service)
     );
 
+    CREATE TABLE IF NOT EXISTS tenant_worker_runtime_policies (
+      tenant_id TEXT PRIMARY KEY,
+      policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT tenant_worker_runtime_policies_policy_object
+        CHECK (jsonb_typeof(policy) = 'object')
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_runtime_policy_overrides (
+      tenant_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, worker_id),
+      CONSTRAINT worker_runtime_policy_overrides_policy_object
+        CHECK (jsonb_typeof(policy) = 'object')
+    );
+
     CREATE INDEX IF NOT EXISTS idx_workers_tenant ON workers(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_workers_schedule ON workers(status) WHERE schedule IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_executions_worker ON worker_executions(worker_id);
@@ -2295,7 +3098,267 @@ async function ensureTables() {
     CREATE INDEX IF NOT EXISTS idx_executions_status ON worker_executions(status);
     CREATE INDEX IF NOT EXISTS idx_approvals_tenant_status ON worker_approvals(tenant_id, status);
     CREATE INDEX IF NOT EXISTS idx_approvals_worker ON worker_approvals(worker_id);
+    CREATE INDEX IF NOT EXISTS worker_approvals_execution_status ON worker_approvals(execution_id, status);
+    CREATE INDEX IF NOT EXISTS worker_approvals_worker_decision ON worker_approvals(worker_id, decision, decided_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_approvals_worker_matched_rule ON worker_approvals(worker_id, matched_rule, decided_at DESC);
     CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON tenant_integrations(tenant_id);
+    CREATE INDEX IF NOT EXISTS tenant_worker_runtime_policies_updated_at ON tenant_worker_runtime_policies(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_runtime_policy_overrides_worker_updated_at ON worker_runtime_policy_overrides(worker_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_runtime_policy_overrides_tenant_updated_at ON worker_runtime_policy_overrides(tenant_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS learning_signals (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      args_hash TEXT,
+      charter_verdict TEXT NOT NULL,
+      approval_decision TEXT,
+      matched_rule TEXT,
+      tool_success BOOLEAN,
+      interruption_code TEXT,
+      execution_outcome TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_tool_side_effects (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      worker_id TEXT,
+      execution_id TEXT,
+      tool_name TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      request_json JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      target TEXT,
+      amount_usd NUMERIC(12,6),
+      provider_ref TEXT,
+      response_json JSONB,
+      error_text TEXT,
+      replay_count INTEGER NOT NULL DEFAULT 0,
+      last_replayed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, tool_name, idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_webhook_ingress (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      execution_id TEXT,
+      provider TEXT NOT NULL DEFAULT 'generic',
+      dedupe_key TEXT NOT NULL,
+      request_path TEXT NOT NULL,
+      content_type TEXT,
+      signature_scheme TEXT,
+      signature_status TEXT NOT NULL DEFAULT 'not_required',
+      signature_error TEXT,
+      status TEXT NOT NULL DEFAULT 'accepted',
+      headers_json JSONB NOT NULL DEFAULT '{}',
+      payload_json JSONB,
+      raw_body TEXT,
+      replay_count INTEGER NOT NULL DEFAULT 0,
+      last_replayed_at TIMESTAMPTZ,
+      dead_letter_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMPTZ,
+      UNIQUE (tenant_id, worker_id, dedupe_key)
+    );
+
+    ALTER TABLE worker_tool_side_effects
+      ADD COLUMN IF NOT EXISTS replay_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE worker_tool_side_effects
+      ADD COLUMN IF NOT EXISTS last_replayed_at TIMESTAMPTZ;
+
+    CREATE INDEX IF NOT EXISTS learning_signals_worker_tool ON learning_signals(worker_id, tool_name, created_at DESC);
+    CREATE INDEX IF NOT EXISTS learning_signals_tenant_worker ON learning_signals(tenant_id, worker_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS learning_signals_worker_rule ON learning_signals(worker_id, matched_rule, created_at DESC);
+    CREATE INDEX IF NOT EXISTS learning_signals_worker_outcome ON learning_signals(worker_id, execution_outcome, created_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_tool_side_effects_worker_tool ON worker_tool_side_effects(worker_id, tool_name, created_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_tool_side_effects_tenant_tool ON worker_tool_side_effects(tenant_id, tool_name, created_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_tool_side_effects_status ON worker_tool_side_effects(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_tool_side_effects_replays ON worker_tool_side_effects(tenant_id, tool_name, replay_count DESC, last_replayed_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_webhook_ingress_worker_status ON worker_webhook_ingress(worker_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_webhook_ingress_tenant_status ON worker_webhook_ingress(tenant_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS worker_webhook_ingress_execution ON worker_webhook_ingress(execution_id);
+  `);
+
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION notify_approval_decided()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      effective_decision TEXT;
+    BEGIN
+      effective_decision := COALESCE(NEW.decision, CASE
+        WHEN NEW.status IN ('approved', 'denied', 'edited', 'timeout') THEN NEW.status
+        ELSE NULL
+      END);
+
+      IF effective_decision IS NOT NULL THEN
+        PERFORM pg_notify('approval_decided', json_build_object(
+          'id', NEW.id,
+          'worker_id', NEW.worker_id,
+          'tenant_id', NEW.tenant_id,
+          'decision', effective_decision
+        )::text);
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS trg_approval_decided ON worker_approvals;
+    CREATE TRIGGER trg_approval_decided
+      AFTER UPDATE OF decision, status ON worker_approvals
+      FOR EACH ROW
+      EXECUTE FUNCTION notify_approval_decided();
+
+    ALTER TABLE worker_executions
+      DROP CONSTRAINT IF EXISTS worker_executions_status_valid;
+    ALTER TABLE worker_executions
+      ADD CONSTRAINT worker_executions_status_valid
+      CHECK (status IN (
+        'queued',
+        'running',
+        'awaiting_approval',
+        'completed',
+        'shadow_completed',
+        'failed',
+        'charter_blocked',
+        'budget_exceeded',
+        'auto_paused',
+        'error',
+        'billing_error',
+        'rate_limited',
+        'skipped'
+      )) NOT VALID;
+
+    ALTER TABLE worker_approvals
+      DROP CONSTRAINT IF EXISTS worker_approvals_status_valid;
+    ALTER TABLE worker_approvals
+      ADD CONSTRAINT worker_approvals_status_valid
+      CHECK (status IN ('pending', 'approved', 'denied', 'resumed', 'edited', 'timeout')) NOT VALID;
+
+    ALTER TABLE worker_approvals
+      DROP CONSTRAINT IF EXISTS worker_approvals_decision_valid;
+    ALTER TABLE worker_approvals
+      ADD CONSTRAINT worker_approvals_decision_valid
+      CHECK (decision IS NULL OR decision IN ('approved', 'denied', 'edited', 'timeout')) NOT VALID;
+
+    ALTER TABLE worker_approvals
+      DROP CONSTRAINT IF EXISTS worker_approvals_status_decision_valid;
+    ALTER TABLE worker_approvals
+      ADD CONSTRAINT worker_approvals_status_decision_valid
+      CHECK (
+        (status = 'pending' AND decision IS NULL)
+        OR (status = 'approved' AND decision = 'approved')
+        OR (status = 'resumed' AND decision = 'approved')
+        OR (status = 'denied' AND decision = 'denied')
+        OR (status = 'edited' AND decision = 'edited')
+        OR (status = 'timeout' AND decision = 'timeout')
+      ) NOT VALID;
+
+    CREATE OR REPLACE FUNCTION guard_worker_execution_transition()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.status NOT IN ('queued', 'running') THEN
+          RAISE EXCEPTION 'invalid worker_executions insert status: %', NEW.status;
+        END IF;
+        RETURN NEW;
+      END IF;
+
+      IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.status = 'queued' AND NEW.status IN ('running', 'failed') THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.status = 'running' AND NEW.status IN (
+        'queued',
+        'awaiting_approval',
+        'completed',
+        'shadow_completed',
+        'failed',
+        'charter_blocked',
+        'budget_exceeded',
+        'auto_paused',
+        'error',
+        'billing_error',
+        'rate_limited',
+        'skipped'
+      ) THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.status = 'awaiting_approval' AND NEW.status IN ('running', 'failed', 'charter_blocked') THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION 'invalid worker_executions status transition: % -> %', OLD.status, NEW.status;
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS trg_guard_worker_execution_transition ON worker_executions;
+    CREATE TRIGGER trg_guard_worker_execution_transition
+      BEFORE INSERT OR UPDATE OF status ON worker_executions
+      FOR EACH ROW
+      EXECUTE FUNCTION guard_worker_execution_transition();
+
+    CREATE OR REPLACE FUNCTION guard_worker_approval_transition()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NOT (
+        (NEW.status = 'pending' AND NEW.decision IS NULL)
+        OR (NEW.status = 'approved' AND NEW.decision = 'approved')
+        OR (NEW.status = 'resumed' AND NEW.decision = 'approved')
+        OR (NEW.status = 'denied' AND NEW.decision = 'denied')
+        OR (NEW.status = 'edited' AND NEW.decision = 'edited')
+        OR (NEW.status = 'timeout' AND NEW.decision = 'timeout')
+      ) THEN
+        RAISE EXCEPTION 'invalid worker_approvals status/decision combination: status=%, decision=%', NEW.status, NEW.decision;
+      END IF;
+
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.status <> 'pending' THEN
+          RAISE EXCEPTION 'invalid worker_approvals insert status: %', NEW.status;
+        END IF;
+        RETURN NEW;
+      END IF;
+
+      IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.status = 'pending' AND NEW.status IN ('approved', 'denied', 'edited', 'timeout') THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.status = 'approved' AND NEW.status = 'resumed' THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION 'invalid worker_approvals status transition: % -> %', OLD.status, NEW.status;
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS trg_guard_worker_approval_transition ON worker_approvals;
+    CREATE TRIGGER trg_guard_worker_approval_transition
+      BEFORE INSERT OR UPDATE OF status, decision ON worker_approvals
+      FOR EACH ROW
+      EXECUTE FUNCTION guard_worker_approval_transition();
   `);
 
   log('info', 'Database tables created (bootstrap mode)');
