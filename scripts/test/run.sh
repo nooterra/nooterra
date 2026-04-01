@@ -49,11 +49,11 @@ done
 # `node --test` run (Node 18 test runner multi-file mode), while they pass when
 # run first in a fresh process. Running them first keeps `npm test` stable.
 for fp in "${PROBLEM_TESTS[@]}"; do
-  node --test "$fp"
+  npx tsx --test "$fp"
 done
 
 # Phase 2: bulk suite (fast).
-node --test "${SAFE_TESTS[@]}"
+npx tsx --test "${SAFE_TESTS[@]}"
 
 # Post-check: ensure we never accidentally track generated artifacts.
 bash scripts/test/check-no-generated-artifacts.sh

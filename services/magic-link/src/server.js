@@ -14,21 +14,21 @@ import { unzipToTempSafe } from "../../../packages/artifact-verify/src/safe-unzi
 import { computeSettlementDecisionReportHashV1 } from "../../../packages/artifact-verify/src/settlement-decision-report.js";
 import { readToolCommitBestEffort, readToolVersionBestEffort } from "../../../packages/artifact-verify/src/tool-provenance.js";
 import { buildInvoiceSummaryPdf, buildInvoiceSummaryPdfFromClaim } from "./pdf.js";
-import { buildDeterministicZipStore } from "../../../src/core/deterministic-zip.js";
-import { createMetrics } from "../../../src/core/metrics.js";
-import { logger } from "../../../src/core/log.js";
-import { signHashHexEd25519 } from "../../../src/core/crypto.js";
-import { SLA_POLICY_TEMPLATE_CATALOG_VERSION, listSlaPolicyTemplates, renderSlaPolicyTemplate } from "../../../src/core/sla-policy-templates.js";
+import { buildDeterministicZipStore } from "#core/deterministic-zip.js";
+import { createMetrics } from "#core/metrics.js";
+import { logger } from "#core/log.js";
+import { signHashHexEd25519 } from "#core/crypto.js";
+import { SLA_POLICY_TEMPLATE_CATALOG_VERSION, listSlaPolicyTemplates, renderSlaPolicyTemplate } from "#core/sla-policy-templates.js";
 import {
   computeSettlementPolicyHash,
   computeVerificationMethodHash,
   evaluateSettlementPolicy,
   normalizeSettlementPolicy,
   normalizeVerificationMethod
-} from "../../../src/core/settlement-policy.js";
-import { bootstrapWalletProvider, supportedWalletBootstrapProviders } from "../../../src/core/wallet-provider-bootstrap.js";
+} from "#core/settlement-policy.js";
+import { bootstrapWalletProvider, supportedWalletBootstrapProviders } from "#core/wallet-provider-bootstrap.js";
 import { createRemoteSignerClient } from "../../../packages/artifact-produce/src/signer/remote-client.js";
-import { readToolCommitBestEffort as readServiceCommitBestEffort, readToolVersionBestEffort as readServiceVersionBestEffort } from "../../../src/core/tool-provenance.js";
+import { readToolCommitBestEffort as readServiceCommitBestEffort, readToolVersionBestEffort as readServiceVersionBestEffort } from "#core/tool-provenance.js";
 import {
   applyTenantSettingsPatch,
   decryptStoredSecret,
@@ -122,15 +122,15 @@ import {
   startWebhookRetryWorker,
   webhookRetryQueueDepth
 } from "./webhook-retries.js";
-import { buildOnramperHostedUrls } from "../../../src/core/wallet-funding-hosted.js";
-import { buildCoinbaseHostedUrls } from "../../../src/core/wallet-funding-coinbase.js";
-import { applyCorsHeaders } from "../../../src/api/cors.js";
+import { buildOnramperHostedUrls } from "#core/wallet-funding-hosted.js";
+import { buildCoinbaseHostedUrls } from "#core/wallet-funding-coinbase.js";
+import { applyCorsHeaders } from "#api/cors.js";
 import {
   captureNodeSentryException,
   flushNodeSentry,
   initNodeSentry,
   installNodeSentryProcessHandlers
-} from "../../../src/core/sentry-node.js";
+} from "#core/sentry-node.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);

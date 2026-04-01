@@ -73,24 +73,48 @@ export default function ProductTour({ onComplete }) {
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track target element position
+  // Track target element position — event-driven, not a perpetual RAF loop
   const updatePosition = useCallback(() => {
     if (!visible) return;
     const currentStep = TOUR_STEPS[step];
     if (!currentStep) return;
-    const rect = getElementRect(currentStep);
-    setTargetRect(rect);
-    rafRef.current = requestAnimationFrame(updatePosition);
+    // Use a single RAF to batch with browser paint, then stop
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const rect = getElementRect(currentStep);
+      setTargetRect(rect);
+      rafRef.current = null;
+    });
   }, [step, visible]);
 
   useEffect(() => {
-    if (visible) {
-      rafRef.current = requestAnimationFrame(updatePosition);
+    if (!visible) return;
+    // Initial measurement
+    updatePosition();
+
+    // Recalculate on resize / scroll
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    // ResizeObserver on the target element if available
+    let observer = null;
+    const currentStep = TOUR_STEPS[step];
+    if (currentStep && typeof ResizeObserver !== "undefined") {
+      const el = document.querySelector(currentStep.selector)
+        || (currentStep.fallbackSelector && document.querySelector(currentStep.fallbackSelector));
+      if (el) {
+        observer = new ResizeObserver(updatePosition);
+        observer.observe(el);
+      }
     }
+
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      if (observer) observer.disconnect();
     };
-  }, [updatePosition, visible]);
+  }, [updatePosition, visible, step]);
 
   function completeTour() {
     try {

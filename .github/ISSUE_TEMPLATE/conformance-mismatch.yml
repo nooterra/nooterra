@@ -14,7 +14,7 @@ body:
     id: runner_output
     attributes:
       label: Runner output
-      description: Paste the output of `node conformance/v1/run.mjs ...` including FAIL lines.
+      description: "Paste the output of node conformance/v1/run.mjs including FAIL lines."
       render: text
     validations:
       required: true

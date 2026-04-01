@@ -4,45 +4,21 @@ function assertNonEmptyString(v, name) {
   if (typeof v !== "string" || v.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
 }
 
-// Shared waiter for "sync wait" on async child events.
-const WAIT_SAB = new SharedArrayBuffer(4);
-const WAIT_FLAG = new Int32Array(WAIT_SAB);
-
 function isPlainObject(v) {
   return Boolean(v && typeof v === "object" && !Array.isArray(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null));
 }
 
-function runJsonCommand({ command, args, inputJson, timeoutMs }) {
+async function runJsonCommand({ command, args, inputJson, timeoutMs }) {
   const input = JSON.stringify(inputJson ?? {});
   const proc = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
 
-  const stdout = [];
-  const stderr = [];
-  proc.stdout.on("data", (d) => stdout.push(d));
-  proc.stderr.on("data", (d) => stderr.push(d));
+  return new Promise((resolve, reject) => {
+    const stdout = [];
+    const stderr = [];
+    proc.stdout.on("data", (d) => stdout.push(d));
+    proc.stderr.on("data", (d) => stderr.push(d));
 
-  let done = false;
-  let exitCode = null;
-  let spawnErr = null;
-  proc.on("error", (e) => {
-    spawnErr = e;
-    done = true;
-    Atomics.store(WAIT_FLAG, 0, 1);
-    Atomics.notify(WAIT_FLAG, 0, 1);
-  });
-  proc.on("close", (code) => {
-    exitCode = code ?? 1;
-    done = true;
-    Atomics.store(WAIT_FLAG, 0, 1);
-    Atomics.notify(WAIT_FLAG, 0, 1);
-  });
-
-  proc.stdin.end(input);
-
-  const deadline = Date.now() + timeoutMs;
-  while (!done) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) {
+    const timer = setTimeout(() => {
       try {
         proc.kill("SIGKILL");
       } catch {
@@ -50,39 +26,46 @@ function runJsonCommand({ command, args, inputJson, timeoutMs }) {
       }
       const err = new Error("signer command timed out");
       err.code = "SIGNER_COMMAND_TIMEOUT";
-      throw err;
-    }
-    Atomics.wait(WAIT_FLAG, 0, 0, remaining);
-  }
+      reject(err);
+    }, timeoutMs);
 
-  if (spawnErr) {
-    const err = new Error("signer command failed to start");
-    err.code = "SIGNER_COMMAND_SPAWN_FAILED";
-    err.detail = spawnErr?.message ?? String(spawnErr);
-    throw err;
-  }
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      const err = new Error("signer command failed to start");
+      err.code = "SIGNER_COMMAND_SPAWN_FAILED";
+      err.detail = e?.message ?? String(e);
+      reject(err);
+    });
 
-  const outText = Buffer.concat(stdout).toString("utf8");
-  const errText = Buffer.concat(stderr).toString("utf8");
-  if (exitCode !== 0) {
-    const err = new Error("signer command failed");
-    err.code = "SIGNER_COMMAND_FAILED";
-    err.exitCode = exitCode;
-    err.stderr = errText.trim();
-    err.stdout = outText.trim();
-    throw err;
-  }
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      const exitCode = code ?? 1;
+      const outText = Buffer.concat(stdout).toString("utf8");
+      const errText = Buffer.concat(stderr).toString("utf8");
 
-  try {
-    return JSON.parse(outText || "null");
-  } catch (e) {
-    const err = new Error("signer command returned invalid JSON");
-    err.code = "SIGNER_COMMAND_BAD_JSON";
-    err.detail = e?.message ?? String(e);
-    err.stdout = outText;
-    err.stderr = errText;
-    throw err;
-  }
+      if (exitCode !== 0) {
+        const err = new Error("signer command failed");
+        err.code = "SIGNER_COMMAND_FAILED";
+        err.exitCode = exitCode;
+        err.stderr = errText.trim();
+        err.stdout = outText.trim();
+        return reject(err);
+      }
+
+      try {
+        resolve(JSON.parse(outText || "null"));
+      } catch (e) {
+        const err = new Error("signer command returned invalid JSON");
+        err.code = "SIGNER_COMMAND_BAD_JSON";
+        err.detail = e?.message ?? String(e);
+        err.stdout = outText;
+        err.stderr = errText;
+        reject(err);
+      }
+    });
+
+    proc.stdin.end(input);
+  });
 }
 
 export function createProcessSignerProvider({ command, args = [], timeoutMs = 30_000 } = {}) {
@@ -91,9 +74,9 @@ export function createProcessSignerProvider({ command, args = [], timeoutMs = 30
 
   return {
     kind: "process",
-    getPublicKeyPem({ keyId }) {
+    async getPublicKeyPem({ keyId }) {
       assertNonEmptyString(keyId, "keyId");
-      const parsed = runJsonCommand({ command, args, timeoutMs, inputJson: { op: "publicKey", keyId } });
+      const parsed = await runJsonCommand({ command, args, timeoutMs, inputJson: { op: "publicKey", keyId } });
       const returnedKeyId = typeof parsed?.keyId === "string" ? parsed.keyId : null;
       const publicKeyPem = typeof parsed?.publicKeyPem === "string" ? parsed.publicKeyPem : null;
       if (returnedKeyId !== keyId) {
@@ -110,7 +93,7 @@ export function createProcessSignerProvider({ command, args = [], timeoutMs = 30
       }
       return publicKeyPem;
     },
-    sign({ keyId, algorithm, messageBytes, purpose, context }) {
+    async sign({ keyId, algorithm, messageBytes, purpose, context }) {
       assertNonEmptyString(keyId, "keyId");
       assertNonEmptyString(algorithm, "algorithm");
       assertNonEmptyString(purpose, "purpose");
@@ -123,7 +106,7 @@ export function createProcessSignerProvider({ command, args = [], timeoutMs = 30
         purpose,
         context: isPlainObject(context) ? context : null
       };
-      const parsed = runJsonCommand({ command, args, timeoutMs, inputJson: { op: "sign", body } });
+      const parsed = await runJsonCommand({ command, args, timeoutMs, inputJson: { op: "sign", body } });
       const returnedKeyId = typeof parsed?.keyId === "string" ? parsed.keyId : null;
       const signatureBase64 = typeof parsed?.signatureBase64 === "string" ? parsed.signatureBase64 : null;
       if (returnedKeyId !== keyId) {

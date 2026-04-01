@@ -38,6 +38,40 @@ try {
   }
 } catch {}
 
+// Phase 1F: scrub any legacy privateKeyPem from sessionStorage bundles
+try {
+  const raw = sessionStorage.getItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      let dirty = false;
+      for (const key of Object.keys(parsed)) {
+        if (parsed[key]?.privateKeyPem) {
+          delete parsed[key].privateKeyPem;
+          dirty = true;
+        }
+      }
+      if (dirty) sessionStorage.setItem(PRODUCT_BUYER_PASSKEY_STORAGE_KEY, JSON.stringify(parsed));
+    }
+  }
+} catch {}
+
+/* ── In-memory private CryptoKey store (Phase 1F hardening) ──────────
+   Private keys are NEVER serialised or written to sessionStorage.
+   They live here as non-extractable CryptoKey handles and die with the tab. */
+const _privateKeyStore = new Map(); // credentialId → CryptoKey
+
+/** Store a non-extractable CryptoKey for a credential (in-memory only). */
+export function storePrivateCryptoKey(credentialId, cryptoKey) {
+  if (!credentialId || !cryptoKey) return;
+  _privateKeyStore.set(String(credentialId).trim(), cryptoKey);
+}
+
+/** Retrieve a non-extractable CryptoKey by credentialId (in-memory only). */
+export function getPrivateCryptoKey(credentialId) {
+  return _privateKeyStore.get(String(credentialId ?? "").trim()) ?? null;
+}
+
 function toBase64(bytes) {
   let binary = "";
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -191,19 +225,22 @@ function normalizeStoredBuyerPasskeyBundle(value) {
   const email = typeof value.email === "string" && value.email.trim() ? value.email.trim().toLowerCase() : "";
   const credentialId = typeof value.credentialId === "string" && value.credentialId.trim() ? value.credentialId.trim() : "";
   const publicKeyPem = typeof value.publicKeyPem === "string" && value.publicKeyPem.trim() ? value.publicKeyPem.trim() : "";
-  const privateKeyPem = typeof value.privateKeyPem === "string" && value.privateKeyPem.trim() ? value.privateKeyPem.trim() : "";
-  if (!tenantId || !email || !credentialId || !publicKeyPem || !privateKeyPem) return null;
-  return {
+  // Phase 1F: privateKeyPem is no longer required or stored — private keys live only
+  // as non-extractable CryptoKey handles in _privateKeyStore (in-memory).
+  if (!tenantId || !email || !credentialId || !publicKeyPem) return null;
+  const bundle = {
     tenantId,
     email,
     credentialId,
     publicKeyPem,
-    privateKeyPem,
     keyId: typeof value.keyId === "string" && value.keyId.trim() ? value.keyId.trim() : "",
     label: typeof value.label === "string" ? value.label.trim() : "",
     createdAt: typeof value.createdAt === "string" && value.createdAt.trim() ? value.createdAt : new Date().toISOString(),
     lastUsedAt: typeof value.lastUsedAt === "string" && value.lastUsedAt.trim() ? value.lastUsedAt : null
   };
+  // Strip any legacy privateKeyPem that may have leaked into storage
+  delete bundle.privateKeyPem;
+  return bundle;
 }
 
 function readStoredBuyerPasskeyMap() {
@@ -508,21 +545,32 @@ export function canonicalJsonStringify(value) {
 
 export async function generateBrowserEd25519KeypairPem() {
   if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is not available in this browser");
-  const keypair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  // Phase 1F: generate with extractable=false for the private key.
+  // We still need to export the public key as PEM for the server, so we
+  // generate with extractable=true, export public, then re-import private
+  // as non-extractable — OR use the split-usage approach.
+  // WebCrypto generateKey extractable flag applies to the private key for
+  // sign/verify pairs; the public key can always be exported.
+  // However, with extractable=false the public key export is still allowed.
+  const keypair = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
   const publicKeyPem = arrayBufferToPem(await crypto.subtle.exportKey("spki", keypair.publicKey), "PUBLIC KEY");
-  const privateKeyPem = arrayBufferToPem(await crypto.subtle.exportKey("pkcs8", keypair.privateKey), "PRIVATE KEY");
   const keyId = `key_${(await sha256HexUtf8(publicKeyPem)).slice(0, 24)}`;
-  return { publicKeyPem, privateKeyPem, keyId };
+  // Store the non-extractable private CryptoKey in memory
+  storePrivateCryptoKey(keyId, keypair.privateKey);
+  // Return public material only — NO privateKeyPem
+  return { publicKeyPem, keyId, privateCryptoKey: keypair.privateKey };
 }
 
-export async function signBrowserPasskeyChallengeBase64Url({ privateKeyPem, challenge } = {}) {
-  const normalizedPrivateKeyPem = String(privateKeyPem ?? "").trim();
+export async function signBrowserPasskeyChallengeBase64Url({ privateCryptoKey, credentialId, challenge } = {}) {
   const normalizedChallenge = String(challenge ?? "").trim();
-  if (!normalizedPrivateKeyPem) throw new Error("privateKeyPem is required");
   if (!normalizedChallenge) throw new Error("challenge is required");
   if (!globalThis.crypto?.subtle) throw new Error("Web Crypto is not available in this browser");
-  const importedKey = await crypto.subtle.importKey("pkcs8", pemToArrayBuffer(normalizedPrivateKeyPem), { name: "Ed25519" }, false, ["sign"]);
-  const signatureBytes = await crypto.subtle.sign("Ed25519", importedKey, new TextEncoder().encode(normalizedChallenge));
+  // Phase 1F: resolve the signing key from the in-memory CryptoKey store.
+  // Accepts either a direct CryptoKey or looks up by credentialId.
+  let key = privateCryptoKey ?? null;
+  if (!key && credentialId) key = getPrivateCryptoKey(credentialId);
+  if (!key) throw new Error("No private CryptoKey available — session may have expired (tab was closed)");
+  const signatureBytes = await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(normalizedChallenge));
   return toBase64Url(new Uint8Array(signatureBytes));
 }
 

@@ -139,7 +139,7 @@ export function isLaunchMetricCategory(categoryId) {
 
 export function loadSavedConfig() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;

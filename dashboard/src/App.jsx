@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { setFrontendSentryRoute } from "./sentry.jsx";
 import { initAnalytics, page } from "./product/analytics.js";
 

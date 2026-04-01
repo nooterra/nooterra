@@ -4,7 +4,7 @@ import {
   workerApiRequest, saveOnboardingState, loadOnboardingState,
 } from "../shared.js";
 import { loadRuntimeConfig } from "../api.js";
-import { AVAILABLE_INTEGRATIONS } from "../views/IntegrationsView.jsx";
+import { AVAILABLE_INTEGRATIONS } from "../integrations-catalog.js";
 
 /* ===================================================================
    Styles
@@ -218,11 +218,23 @@ function ConnectStep({ onDone, onBack }) {
       return;
     }
     if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
+    pollRef.current = setInterval(async () => {
       if (popup.closed) {
         clearInterval(pollRef.current);
         pollRef.current = null;
-        setConnected(prev => ({ ...prev, [key]: true }));
+        try {
+          const statusResult = await workerApiRequest({ pathname: '/v1/integrations/status' });
+          const isConnected = statusResult?.[key]?.connected;
+          if (isConnected) {
+            setConnected(prev => ({ ...prev, [key]: true }));
+          } else {
+            setConnected(prev => ({ ...prev, [key]: false }));
+            alert("Connection was not completed. Please try again.");
+          }
+        } catch {
+          setConnected(prev => ({ ...prev, [key]: false }));
+          alert("Connection was not completed. Please try again.");
+        }
       }
     }, 500);
   }

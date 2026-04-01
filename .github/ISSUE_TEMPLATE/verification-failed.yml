@@ -10,7 +10,7 @@ body:
   - type: textarea
     id: about
     attributes:
-      label: `nooterra-verify --about --format json`
+      label: "nooterra-verify --about --format json"
       description: Paste the exact JSON output from the verifier you ran.
       render: json
     validations:
@@ -18,7 +18,7 @@ body:
   - type: textarea
     id: verify_output
     attributes:
-      label: `VerifyCliOutput.v1` JSON
+      label: "VerifyCliOutput.v1 JSON"
       description: Paste the full `nooterra-verify --format json --strict ...` output.
       render: json
     validations:

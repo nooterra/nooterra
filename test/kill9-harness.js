@@ -9,7 +9,30 @@ import { createPgPool, quoteIdent } from "../src/db/pg.js";
 
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Get a free ephemeral port (legacy API — returns a bare number).
+ *
+ * NOTE: There is a TOCTOU race between this function closing the socket and
+ * the child process binding to the port. Another process can steal the port
+ * in between. Prefer `getFreePortHeld()` for new code.
+ */
 export async function getFreePort() {
+  const held = await getFreePortHeld();
+  await held.release();
+  return held.port;
+}
+
+/**
+ * Get a free ephemeral port while keeping the socket open until the caller
+ * is ready for the child to bind. Returns `{ port, release }`.
+ *
+ * Usage:
+ *   const { port, release } = await getFreePortHeld();
+ *   const srv = startApiServer({ port, ... });
+ *   await release();            // close the holder so child can bind
+ *   await waitForHealth(...);
+ */
+export async function getFreePortHeld() {
   return await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
@@ -17,7 +40,12 @@ export async function getFreePort() {
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       const port = addr && typeof addr === "object" ? addr.port : null;
-      server.close(() => resolve(Number(port)));
+      resolve({
+        port: Number(port),
+        release() {
+          return new Promise((res) => server.close(res));
+        }
+      });
     });
   });
 }

@@ -56,7 +56,7 @@ export default function OperatorDashboard() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(config));
     } catch {
       // ignore
     }
@@ -135,6 +135,7 @@ export default function OperatorDashboard() {
         <label>
           <span>API key (Bearer)</span>
           <input
+            type="password"
             value={config.apiKey}
             onChange={(event) => setConfig((prev) => ({ ...prev, apiKey: event.target.value }))}
             placeholder="sk_test_..."

@@ -1,12 +1,106 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { S, STATUS_COLORS, timeAgo, humanizeSchedule, workerApiRequest, WORKER_API_BASE } from "../shared.js";
+import React, { useState, useEffect, useRef } from "react";
+import { S, timeAgo, humanizeSchedule, workerApiRequest, WORKER_API_BASE } from "../shared.js";
 import { loadRuntimeConfig } from "../api.js";
 import ExecutionTraceViewer from "../components/ExecutionTraceViewer.jsx";
+import {
+  fetchLatestWorkerExecution,
+  fetchWorkerExecutionDrilldown,
+  fetchWorkerOpsSnapshot,
+  fetchWorkerSideEffectDetail,
+} from "../worker-ops.js";
+
+function PerformanceInsightCard({ title, subtitle, emptyText, children }) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg-400)",
+        padding: 18,
+        minHeight: 220,
+      }}
+    >
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+        {title}
+      </div>
+      {subtitle ? (
+        <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 14 }}>
+          {subtitle}
+        </div>
+      ) : null}
+      {children || (
+        <div style={{ fontSize: "13px", color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+          {emptyText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailActionButton({ children, ...props }) {
+  return (
+    <button
+      {...props}
+      style={{
+        background: "none",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        padding: "4px 10px",
+        fontSize: "11px",
+        fontWeight: 600,
+        color: "var(--text-secondary)",
+        cursor: props.disabled ? "not-allowed" : "pointer",
+        opacity: props.disabled ? 0.6 : 1,
+        transition: "border-color 0.15s, color 0.15s",
+        ...(props.style || {}),
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DrilldownCard({ title, children }) {
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-400)", padding: 16 }}>
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function JsonPreview({ value }) {
+  if (value == null) return <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>No payload recorded.</div>;
+  return (
+    <pre style={{
+      margin: 0,
+      padding: "12px 14px",
+      borderRadius: 10,
+      border: "1px solid var(--border)",
+      background: "var(--bg-300, var(--bg-hover))",
+      color: "var(--text-secondary)",
+      fontSize: "12px",
+      lineHeight: 1.5,
+      overflowX: "auto",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      maxHeight: 320,
+      overflowY: "auto",
+    }}>
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  );
+}
 
 function PerformanceView() {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [opsLoading, setOpsLoading] = useState(true);
+  const [opsSnapshot, setOpsSnapshot] = useState(null);
   const [selectedExecution, setSelectedExecution] = useState(null);
+  const [selectedSideEffect, setSelectedSideEffect] = useState(null);
   const [traceLoading, setTraceLoading] = useState(false);
   const fetchingRef = useRef(false);
 
@@ -14,13 +108,28 @@ function PerformanceView() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     try {
-      const result = await workerApiRequest({ pathname: "/v1/workers", method: "GET" });
-      setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
-    } catch {
-      setWorkers([]);
+      const [workersResult, opsResult] = await Promise.allSettled([
+        workerApiRequest({ pathname: "/v1/workers", method: "GET" }),
+        fetchWorkerOpsSnapshot({ request: workerApiRequest, days: 30, limit: 5 }),
+      ]);
+
+      if (workersResult.status === "fulfilled") {
+        const result = workersResult.value;
+        setWorkers(result?.workers || result?.items || (Array.isArray(result) ? result : []));
+      } else {
+        setWorkers([]);
+      }
+
+      if (opsResult.status === "fulfilled") {
+        setOpsSnapshot(opsResult.value);
+      } else {
+        setOpsSnapshot(null);
+      }
+    } finally {
+      setLoading(false);
+      setOpsLoading(false);
+      fetchingRef.current = false;
     }
-    setLoading(false);
-    fetchingRef.current = false;
   }
 
   useEffect(() => {
@@ -36,6 +145,13 @@ function PerformanceView() {
   useEffect(() => {
     return () => { if (abortRef.current) abortRef.current.abort(); };
   }, []);
+
+  function closeDrilldowns() {
+    if (abortRef.current) abortRef.current.abort();
+    setLiveStream(false);
+    setSelectedExecution(null);
+    setSelectedSideEffect(null);
+  }
 
   function startSSEStream(workerId, execId, workerName) {
     if (abortRef.current) abortRef.current.abort();
@@ -96,9 +212,9 @@ function PerformanceView() {
     setLiveStream(false);
     setTraceLoading(true);
     try {
-      const result = await workerApiRequest({
-        pathname: `/v1/workers/${worker.id}/executions/latest`,
-        method: "GET",
+      const result = await fetchLatestWorkerExecution({
+        request: workerApiRequest,
+        workerId: worker.id,
       });
       const activity = result?.activity || result?.events || [];
       const exec = {
@@ -106,6 +222,7 @@ function PerformanceView() {
         workerName: worker.name,
         activity,
       };
+      setSelectedSideEffect(null);
       setSelectedExecution(exec);
 
       // If worker is running and execution is in progress, open SSE stream
@@ -121,6 +238,114 @@ function PerformanceView() {
       });
     }
     setTraceLoading(false);
+  }
+
+  async function openExecutionDrilldown({ workerId, workerName, executionId, workerStatus = null }) {
+    if (!workerId || !executionId) return;
+    if (abortRef.current) abortRef.current.abort();
+    setLiveStream(false);
+    setTraceLoading(true);
+    try {
+      const result = await fetchWorkerExecutionDrilldown({
+        request: workerApiRequest,
+        workerId,
+        executionId,
+      });
+      const activity = result?.activity || result?.events || [];
+      setSelectedSideEffect(null);
+      setSelectedExecution({
+        ...result,
+        workerName: result?.workerName || workerName,
+        activity,
+      });
+
+      const lastEvent = activity[activity.length - 1];
+      const isTerminal = lastEvent?.type === "complete" || lastEvent?.type === "error";
+      if (workerStatus === "running" && result?.id && !isTerminal) {
+        startSSEStream(workerId, result.id, result?.workerName || workerName);
+      }
+    } catch {
+      setSelectedExecution({
+        workerName,
+        activity: [],
+      });
+    }
+    setTraceLoading(false);
+  }
+
+  async function openSideEffectDrilldown({ workerId, workerName, sideEffectId }) {
+    if (!workerId || !sideEffectId) return;
+    if (abortRef.current) abortRef.current.abort();
+    setLiveStream(false);
+    setTraceLoading(true);
+    try {
+      const result = await fetchWorkerSideEffectDetail({
+        request: workerApiRequest,
+        workerId,
+        sideEffectId,
+      });
+      setSelectedExecution(null);
+      setSelectedSideEffect({
+        ...result?.sideEffect,
+        workerId,
+        workerName: result?.workerName || workerName,
+      });
+    } catch {
+      setSelectedSideEffect({
+        workerId,
+        workerName,
+      });
+    }
+    setTraceLoading(false);
+  }
+
+  function findWorker(workerId) {
+    return workers.find((worker) => worker.id === workerId) || null;
+  }
+
+  async function handleInspectRiskWorker(item) {
+    const worker = findWorker(item.workerId) || { id: item.workerId, name: item.workerName, status: null };
+    if (item.latestExecutionId) {
+      return openExecutionDrilldown({
+        workerId: item.workerId,
+        workerName: item.workerName,
+        executionId: item.latestExecutionId,
+        workerStatus: worker.status,
+      });
+    }
+    return handleViewTrace(worker);
+  }
+
+  async function handleInspectVerifierFailure(failure) {
+    const worker = findWorker(failure.workerId) || { id: failure.workerId, name: failure.workerName, status: null };
+    if (failure.executionId) {
+      return openExecutionDrilldown({
+        workerId: failure.workerId,
+        workerName: failure.workerName,
+        executionId: failure.executionId,
+        workerStatus: worker.status,
+      });
+    }
+    return handleViewTrace(worker);
+  }
+
+  async function handleInspectReplay(replay) {
+    const worker = findWorker(replay.workerId) || { id: replay.workerId, name: replay.workerName, status: null };
+    if (replay.executionId) {
+      return openExecutionDrilldown({
+        workerId: replay.workerId,
+        workerName: replay.workerName,
+        executionId: replay.executionId,
+        workerStatus: worker.status,
+      });
+    }
+    if (replay.sideEffectId) {
+      return openSideEffectDrilldown({
+        workerId: replay.workerId,
+        workerName: replay.workerName,
+        sideEffectId: replay.sideEffectId,
+      });
+    }
   }
 
   if (loading) return (
@@ -155,16 +380,138 @@ function PerformanceView() {
         <p style={S.pageSub}>
           Execution trace for <strong>{selectedExecution.workerName}</strong>
         </p>
+        {(selectedExecution.verificationReport || selectedExecution.interruption || selectedExecution.approvals?.length || selectedExecution.sideEffects?.length) ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 20 }}>
+            <DrilldownCard title="Verification">
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>
+                {selectedExecution.verificationReport?.businessOutcome || "No verifier result"}
+              </div>
+              {selectedExecution.interruption?.code ? (
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 8 }}>
+                  Interruption: {selectedExecution.interruption.code}
+                  {selectedExecution.interruption?.detail ? ` · ${selectedExecution.interruption.detail}` : ""}
+                </div>
+              ) : null}
+              {Array.isArray(selectedExecution.verificationReport?.assertions) && selectedExecution.verificationReport.assertions.length > 0 ? (
+                <div style={{ marginTop: 10 }}>
+                  {selectedExecution.verificationReport.assertions
+                    .filter((assertion) => assertion && assertion.passed === false)
+                    .slice(0, 4)
+                    .map((assertion, index) => (
+                      <div key={`${assertion.type || "assertion"}:${index}`} style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: index === 0 ? 0 : 6 }}>
+                        {assertion.type || "failed_assertion"}
+                        {assertion.evidence ? ` · ${assertion.evidence}` : ""}
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 8 }}>
+                  No failed assertions recorded.
+                </div>
+              )}
+            </DrilldownCard>
+
+            <DrilldownCard title="Approvals">
+              {Array.isArray(selectedExecution.approvals) && selectedExecution.approvals.length > 0 ? (
+                selectedExecution.approvals.map((approval) => (
+                  <div key={approval.id || `${approval.toolName}:${approval.createdAt || "approval"}`} style={{ paddingTop: 8, marginTop: 8, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{approval.toolName || approval.action || "Approval"}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", textTransform: "uppercase" }}>{approval.status || "unknown"}</div>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>
+                      {approval.matchedRule || "No matched rule"}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                      {approval.decidedAt ? `Decided ${timeAgo(approval.decidedAt)}` : approval.createdAt ? `Requested ${timeAgo(approval.createdAt)}` : "No timestamp"}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>No approvals tied to this execution.</div>
+              )}
+            </DrilldownCard>
+
+            <DrilldownCard title="Side effects">
+              {Array.isArray(selectedExecution.sideEffects) && selectedExecution.sideEffects.length > 0 ? (
+                selectedExecution.sideEffects.map((sideEffect) => (
+                  <div key={sideEffect.id || `${sideEffect.toolName}:${sideEffect.target || "side-effect"}`} style={{ paddingTop: 8, marginTop: 8, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{sideEffect.toolName}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", textTransform: "uppercase" }}>{sideEffect.status || "unknown"}</div>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>
+                      {sideEffect.target || "No target"}{sideEffect.providerRef ? ` · ${sideEffect.providerRef}` : ""}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                      {Number(sideEffect.replayCount || 0) > 0 ? `${sideEffect.replayCount} replay${Number(sideEffect.replayCount) === 1 ? "" : "s"}` : "No replay"}
+                      {sideEffect.error ? ` · ${sideEffect.error}` : ""}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>No outbound side effects recorded for this execution.</div>
+              )}
+            </DrilldownCard>
+          </div>
+        ) : null}
         <ExecutionTraceViewer
           execution={selectedExecution}
           activity={selectedExecution.activity}
           live={liveStream}
-          onClose={() => {
-            if (abortRef.current) abortRef.current.abort();
-            setLiveStream(false);
-            setSelectedExecution(null);
-          }}
+          onClose={closeDrilldowns}
         />
+      </div>
+    );
+  }
+
+  if (selectedSideEffect) {
+    return (
+      <div>
+        <h1 style={S.pageTitle}>Performance</h1>
+        <p style={S.pageSub}>
+          Side-effect journal entry for <strong>{selectedSideEffect.workerName}</strong>
+        </p>
+        <div style={{ marginBottom: 16 }}>
+          <DetailActionButton onClick={closeDrilldowns}>
+            &larr; Back
+          </DetailActionButton>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+          <DrilldownCard title="Journal entry">
+            <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>
+              {selectedSideEffect.toolName || "Unknown tool"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: 8 }}>
+              Status: {selectedSideEffect.status || "unknown"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Target: {selectedSideEffect.target || "none"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Provider ref: {selectedSideEffect.providerRef || "none"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Idempotency key: {selectedSideEffect.idempotencyKey || "none"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Replay count: {Number(selectedSideEffect.replayCount || 0)}
+            </div>
+            {selectedSideEffect.error ? (
+              <div style={{ fontSize: "12px", color: "var(--red, #c43a3a)", lineHeight: 1.6, marginTop: 8 }}>
+                {selectedSideEffect.error}
+              </div>
+            ) : null}
+          </DrilldownCard>
+
+          <DrilldownCard title="Request payload">
+            <JsonPreview value={selectedSideEffect.requestJson} />
+          </DrilldownCard>
+
+          <DrilldownCard title="Provider response">
+            <JsonPreview value={selectedSideEffect.responseJson} />
+          </DrilldownCard>
+        </div>
       </div>
     );
   }
@@ -183,6 +530,22 @@ function PerformanceView() {
     { label: "Total cost", value: `$${totalCost.toFixed(2)}` },
     { label: "Errors", value: errorWorkers },
   ];
+
+  const operatorStats = [
+    { label: "At risk", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.atRiskWorkers ?? 0) },
+    { label: "Pending approvals", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.pendingApprovals ?? 0) },
+    { label: "Verifier failures", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.verifierFailures ?? 0) },
+    { label: "Replay count", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.replayCount ?? 0) },
+    { label: "Unstable rules", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.unstableRules ?? 0) },
+    { label: "Promotable", value: opsLoading ? "\u2014" : String(opsSnapshot?.summary?.promotionCandidates ?? 0) },
+  ];
+
+  const topRiskWorkers = Array.isArray(opsSnapshot?.topRiskWorkers) ? opsSnapshot.topRiskWorkers : [];
+  const verifierFailures = Array.isArray(opsSnapshot?.verifierFailures) ? opsSnapshot.verifierFailures : [];
+  const sideEffectReplays = Array.isArray(opsSnapshot?.sideEffectReplays) ? opsSnapshot.sideEffectReplays : [];
+  const topUnstableRules = Array.isArray(opsSnapshot?.topUnstableRules) ? opsSnapshot.topUnstableRules.slice(0, 4) : [];
+  const topPromotionCandidates = Array.isArray(opsSnapshot?.topPromotionCandidates) ? opsSnapshot.topPromotionCandidates.slice(0, 4) : [];
+  const operatorWarnings = Array.isArray(opsSnapshot?.warnings) ? opsSnapshot.warnings : [];
 
   const costSorted = [...workers].filter(w => typeof w.cost === "number" && w.cost > 0).sort((a, b) => b.cost - a.cost);
   const maxCost = costSorted.length > 0 ? costSorted[0].cost : 1;
@@ -208,6 +571,183 @@ function PerformanceView() {
           </div>
         ))}
       </div>
+
+      {(opsLoading || opsSnapshot?.available) && (
+        <div style={{ marginBottom: 40 }}>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+            Operator signals
+          </div>
+          <div style={{ display: "flex", gap: 1, background: "var(--border)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", marginBottom: 16, flexWrap: "wrap" }}>
+            {operatorStats.map((stat) => (
+              <div key={stat.label} style={{ flex: 1, minWidth: 140, padding: "16px 14px", background: "var(--bg-400)" }}>
+                <div style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+                  {stat.value}
+                </div>
+                <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
+                  {stat.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {operatorWarnings.length > 0 && (
+            <div style={{ marginBottom: 16, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-300, var(--bg-hover))", color: "var(--text-secondary)", fontSize: "13px", lineHeight: 1.5 }}>
+              Operator telemetry is partially degraded: {operatorWarnings.map((warning) => `${warning.source}: ${warning.message}`).join(" | ")}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+            <PerformanceInsightCard
+              title="Risk queue"
+              subtitle={`Workers that currently need attention across the last ${opsSnapshot?.lookbackDays ?? 30} days.`}
+              emptyText={opsLoading ? "Loading risk queue..." : "No workers currently need intervention."}
+            >
+              {topRiskWorkers.length > 0 ? (
+                <div>
+                  {topRiskWorkers.map((item) => (
+                    <div key={item.workerId} style={{ padding: "12px 0", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+                        <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{item.workerName}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>Risk {item.riskScore}</div>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>
+                        {Array.isArray(item.reasons) && item.reasons.length > 0 ? item.reasons.join(" · ") : "Needs operator review"}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                        {item.lastRunAt ? `Last run ${timeAgo(item.lastRunAt)}` : "No recent run"}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <DetailActionButton
+                          onClick={() => handleInspectRiskWorker(item)}
+                          disabled={traceLoading}
+                        >
+                          Inspect
+                        </DetailActionButton>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </PerformanceInsightCard>
+
+            <PerformanceInsightCard
+              title="Verifier failures"
+              subtitle="Recent executions whose verification receipts failed closed."
+              emptyText={opsLoading ? "Loading verifier failures..." : "No recent verifier failures."}
+            >
+              {verifierFailures.length > 0 ? (
+                <div>
+                  {verifierFailures.map((failure) => (
+                    <div key={`${failure.workerId}:${failure.executionId || failure.startedAt || "failure"}`} style={{ padding: "12px 0", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+                        <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{failure.workerName}</div>
+                        <div style={{ fontSize: "12px", color: "var(--red, #c43a3a)", textTransform: "uppercase" }}>{failure.businessOutcome || "failed"}</div>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>
+                        {Array.isArray(failure.failedAssertions) && failure.failedAssertions.length > 0
+                          ? failure.failedAssertions
+                              .slice(0, 2)
+                              .map((assertion) => assertion?.type || "failed_assertion")
+                              .join(" · ")
+                          : "Verification failed without assertion detail"}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                        {failure.startedAt ? `Started ${timeAgo(failure.startedAt)}` : "No execution timestamp"}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <DetailActionButton
+                          onClick={() => handleInspectVerifierFailure(failure)}
+                          disabled={traceLoading}
+                        >
+                          Inspect
+                        </DetailActionButton>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </PerformanceInsightCard>
+
+            <PerformanceInsightCard
+              title="Replay activity"
+              subtitle="Outbound actions deduplicated and replayed through the side-effect journal."
+              emptyText={opsLoading ? "Loading replay activity..." : "No recent replayed side effects."}
+            >
+              {sideEffectReplays.length > 0 ? (
+                <div>
+                  {sideEffectReplays.map((replay) => (
+                    <div key={`${replay.workerId}:${replay.toolName}:${replay.lastReplayedAt || "replay"}`} style={{ padding: "12px 0", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+                        <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{replay.workerName}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums" }}>{replay.replayCount} replay{Number(replay.replayCount) === 1 ? "" : "s"}</div>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>
+                        {replay.toolName}{replay.target ? ` · ${replay.target}` : ""}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                        {replay.lastReplayedAt ? `Last replay ${timeAgo(replay.lastReplayedAt)}` : "No replay timestamp"}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <DetailActionButton
+                          onClick={() => handleInspectReplay(replay)}
+                          disabled={traceLoading || (!replay.executionId && !replay.sideEffectId)}
+                        >
+                          Inspect
+                        </DetailActionButton>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </PerformanceInsightCard>
+
+            <PerformanceInsightCard
+              title="Charter drift"
+              subtitle="Rules trending unstable alongside the best autonomy-promotion candidates."
+              emptyText={opsLoading ? "Loading charter drift..." : "No unstable rules or promotion candidates right now."}
+            >
+              {topUnstableRules.length > 0 || topPromotionCandidates.length > 0 ? (
+                <div>
+                  {topUnstableRules.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+                        Unstable rules
+                      </div>
+                      {topUnstableRules.map((rule) => (
+                        <div key={`${rule.workerId}:${rule.rule}`} style={{ padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+                          <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{rule.workerName}</div>
+                          <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>{rule.rule}</div>
+                          <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: 6 }}>
+                            {Number(rule.denied || 0)} denied · {Number(rule.failedSignals || 0)} failed
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {topPromotionCandidates.length > 0 && (
+                    <div style={{ marginTop: topUnstableRules.length > 0 ? 16 : 0 }}>
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+                        Promotion candidates
+                      </div>
+                      {topPromotionCandidates.map((candidate) => (
+                        <div key={`${candidate.workerId}:${candidate.action}`} style={{ padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+                            <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{candidate.workerName}</div>
+                            <div style={{ fontSize: "12px", color: "var(--green, #2a9d6e)", fontVariantNumeric: "tabular-nums" }}>
+                              {Math.round(Number(candidate.confidence || 0) * 100)}%
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5, marginTop: 4 }}>{candidate.action}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </PerformanceInsightCard>
+          </div>
+        </div>
+      )}
 
       {/* Worker performance table */}
       <div style={{ marginBottom: 40 }}>

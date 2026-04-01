@@ -1,34 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { S, WORKER_API_BASE, workerApiRequest } from "../shared.js";
 import { loadRuntimeConfig } from "../api.js";
-import { ToggleSwitch } from "../components/SettingsModal.jsx";
-
+import { AI_PROVIDERS, AVAILABLE_INTEGRATIONS } from "../integrations-catalog.js";
 import { FocusInput } from "../components/shared.jsx";
 import FocusTrap from "../components/FocusTrap.jsx";
-
-/* ===================================================================
-   AI_PROVIDERS
-   =================================================================== */
-
-export const AI_PROVIDERS = [
-  { key: "openai", name: "OpenAI", description: "GPT-4o, GPT-4 Turbo, GPT-4o mini", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "sk-...", validateEndpoint: "/v1/providers/openai/validate" },
-  { key: "anthropic", name: "Anthropic", description: "Claude Opus, Sonnet, Haiku", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "sk-ant-...", validateEndpoint: "/v1/providers/anthropic/validate" },
-];
-
-/* ===================================================================
-   AVAILABLE_INTEGRATIONS
-   =================================================================== */
-
-export const AVAILABLE_INTEGRATIONS = [
-  { key: "gmail", name: "Gmail", description: "Read and send emails", authType: "oauth", oauthUrl: "/v1/integrations/gmail/authorize" },
-  { key: "slack", name: "Slack", description: "Send messages and get approvals", authType: "webhook", fieldLabel: "Webhook URL", fieldPlaceholder: "https://hooks.slack.com/services/..." },
-  { key: "github", name: "GitHub", description: "Repos, issues, PRs", authType: "oauth", oauthUrl: "/v1/integrations/github/authorize" },
-  { key: "google_calendar", name: "Google Calendar", description: "Schedule and manage events", authType: "oauth", oauthUrl: "/v1/integrations/google-calendar/authorize" },
-  { key: "stripe", name: "Stripe", description: "Payment and billing data", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "sk_live_..." },
-  { key: "notion", name: "Notion", description: "Notes and databases", authType: "oauth", oauthUrl: "/v1/integrations/notion/authorize" },
-  { key: "linear", name: "Linear", description: "Issue tracking", authType: "apikey", fieldLabel: "API Key", fieldPlaceholder: "lin_api_..." },
-  { key: "custom_webhook", name: "Custom Webhook", description: "Any HTTP endpoint", authType: "webhook", fieldLabel: "URL", fieldPlaceholder: "https://example.com/webhook", hasSecret: true },
-];
 
 /* ===================================================================
    IntegrationConnectModal
@@ -339,73 +314,6 @@ function IntegrationsView() {
           onSave={() => { setProviderModal(null); loadProviders(); }}
         />
       )}
-    </div>
-  );
-}
-
-/* ===================================================================
-   WorkerIntegrationsSection
-   =================================================================== */
-
-export function WorkerIntegrationsSection({ workerId }) {
-  const [connected, setConnected] = useState([]);
-  const [workerIntegrations, setWorkerIntegrations] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [allResult, workerResult] = await Promise.all([
-          workerApiRequest({ pathname: "/v1/integrations", method: "GET" }),
-          workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations`, method: "GET" }),
-        ]);
-        const allItems = allResult?.items || allResult || [];
-        setConnected(allItems);
-        const wItems = workerResult?.items || workerResult || [];
-        const map = {};
-        wItems.forEach(wi => { map[wi.service || wi.key || wi.integrationId] = true; });
-        setWorkerIntegrations(map);
-      } catch { setConnected([]); setWorkerIntegrations({}); }
-      setLoading(false);
-    })();
-  }, [workerId]);
-
-  async function handleToggle(integration) {
-    const serviceKey = integration.service || integration.key;
-    const currentlyEnabled = !!workerIntegrations[serviceKey];
-    setToggling(serviceKey);
-    try {
-      if (currentlyEnabled) {
-        await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations/${encodeURIComponent(serviceKey)}`, method: "DELETE" });
-      } else {
-        await workerApiRequest({ pathname: `/v1/workers/${encodeURIComponent(workerId)}/integrations`, method: "POST", body: { service: serviceKey, integrationId: integration.id } });
-      }
-      setWorkerIntegrations(prev => ({ ...prev, [serviceKey]: !currentlyEnabled }));
-    } catch { /* ignore */ }
-    setToggling(null);
-  }
-
-  if (loading) return <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Loading integrations...</div>;
-  if (connected.length === 0) return <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>No integrations connected yet. Go to Integrations to connect services.</div>;
-
-  return (
-    <div>
-      <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "1rem" }}>Choose which connected integrations this worker can access.</p>
-      {connected.map(integration => {
-        const serviceKey = integration.service || integration.key;
-        const info = AVAILABLE_INTEGRATIONS.find(a => a.key === serviceKey);
-        const enabled = !!workerIntegrations[serviceKey];
-        return (
-          <div key={serviceKey} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 0", borderBottom: "1px solid var(--border)" }}>
-            <div>
-              <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>{info?.name || serviceKey}</div>
-              <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{info?.description || ""}</div>
-            </div>
-            <ToggleSwitch on={enabled} onToggle={() => { if (toggling !== serviceKey) handleToggle(integration); }} />
-          </div>
-        );
-      })}
     </div>
   );
 }

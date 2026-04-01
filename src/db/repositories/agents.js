@@ -248,6 +248,7 @@ function agentRunSettlementRowToRecord(row) {
  */
 export function createAgentsRepository({
   pool,
+  commitTx = null,
   agentCards,
   agentCardAbuseReports,
   agentIdentities,
@@ -281,8 +282,6 @@ export function createAgentsRepository({
       return agentCards.get(makeScopedKey({ tenantId, id: normalizedAgentId })) ?? null;
     }
   }
-
-  // putAgentCardAbuseReport: TODO - depends on store.commitTx closure, left in store-pg.js
 
   async function getAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, reportId } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
@@ -990,8 +989,6 @@ export function createAgentsRepository({
     }
   }
 
-  // putAgentPassport: TODO - depends on store.commitTx closure, left in store-pg.js
-
   // -------------------------------------------------------------------------
   // Agent Wallets
   // -------------------------------------------------------------------------
@@ -1018,8 +1015,6 @@ export function createAgentsRepository({
       return agentWallets.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
     }
   }
-
-  // putAgentWallet: TODO - depends on store.commitTx closure, left in store-pg.js
 
   // -------------------------------------------------------------------------
   // Agent Runs
@@ -1262,9 +1257,56 @@ export function createAgentsRepository({
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Write operations (require commitTx)
+  // -------------------------------------------------------------------------
+
+  async function putAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, report, audit = null } = {}) {
+    if (!commitTx) throw new Error("putAgentCardAbuseReport requires commitTx to be provided to createAgentsRepository");
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const reportId = typeof report.reportId === "string" ? report.reportId.trim() : "";
+    if (!reportId) throw new TypeError("report.reportId is required");
+    const at = parseIsoOrNull(report.updatedAt) ?? parseIsoOrNull(report.createdAt) ?? new Date().toISOString();
+    await commitTx({
+      at,
+      ops: [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: { ...report, tenantId, reportId } }],
+      audit
+    });
+    return getAgentCardAbuseReport({ tenantId, reportId });
+  }
+
+  async function putAgentPassport({ tenantId = DEFAULT_TENANT_ID, agentPassport } = {}) {
+    if (!commitTx) throw new Error("putAgentPassport requires commitTx to be provided to createAgentsRepository");
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!agentPassport || typeof agentPassport !== "object" || Array.isArray(agentPassport)) {
+      throw new TypeError("agentPassport is required");
+    }
+    const agentId = typeof agentPassport.agentId === "string" ? agentPassport.agentId.trim() : "";
+    if (!agentId) throw new TypeError("agentPassport.agentId is required");
+    await commitTx({
+      at: agentPassport.updatedAt ?? agentPassport.createdAt ?? new Date().toISOString(),
+      ops: [{ kind: "AGENT_PASSPORT_UPSERT", tenantId, agentId, agentPassport: { ...agentPassport, tenantId, agentId } }]
+    });
+    return getAgentPassport({ tenantId, agentId });
+  }
+
+  async function putAgentWallet({ tenantId = DEFAULT_TENANT_ID, wallet } = {}) {
+    if (!commitTx) throw new Error("putAgentWallet requires commitTx to be provided to createAgentsRepository");
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) throw new TypeError("wallet is required");
+    const agentId = wallet.agentId ?? null;
+    assertNonEmptyString(agentId, "wallet.agentId");
+    await commitTx({
+      at: wallet.updatedAt ?? new Date().toISOString(),
+      ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId: String(agentId) } }]
+    });
+    return getAgentWallet({ tenantId, agentId: String(agentId) });
+  }
+
   return {
     getAgentCard,
-    // putAgentCardAbuseReport: TODO - depends on store.commitTx closure
+    putAgentCardAbuseReport,
     getAgentCardAbuseReport,
     listAgentCardAbuseReports,
     listAgentCards,
@@ -1272,9 +1314,9 @@ export function createAgentsRepository({
     getAgentIdentity,
     listAgentIdentities,
     getAgentPassport,
-    // putAgentPassport: TODO - depends on store.commitTx closure
+    putAgentPassport,
     getAgentWallet,
-    // putAgentWallet: TODO - depends on store.commitTx closure
+    putAgentWallet,
     getAgentRun,
     listAgentRuns,
     countAgentRuns,
