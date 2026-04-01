@@ -1,22 +1,69 @@
 import fs from "node:fs/promises";
+import { unlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const LOCK_PATH = path.join(os.tmpdir(), "nooterra-test-listen.lock");
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function removeStaleLock() {
+  try {
+    const content = await fs.readFile(LOCK_PATH, "utf8");
+    const pid = Number(content.trim());
+    if (Number.isFinite(pid) && pid > 0 && !isProcessRunning(pid)) {
+      await fs.unlink(LOCK_PATH).catch(() => {});
+    }
+  } catch {
+    // lock file doesn't exist or can't be read — nothing to do
+  }
+}
+
+function cleanupLockSync() {
+  try {
+    unlinkSync(LOCK_PATH);
+  } catch {
+    // ignore
+  }
+}
+
 async function acquireListenLock({ timeoutMs = 15_000, pollMs = 25 } = {}) {
-  const lockPath = path.join(os.tmpdir(), "nooterra-test-listen.lock");
   const deadline = Date.now() + timeoutMs;
+  // Remove stale lock from a previously crashed process before entering the poll loop
+  await removeStaleLock();
   while (Date.now() < deadline) {
     try {
-      const handle = await fs.open(lockPath, "wx");
+      const handle = await fs.open(LOCK_PATH, "wx");
+      // Write our PID so other processes can detect staleness
+      await handle.write(String(process.pid));
+      await handle.datasync();
+
+      // Register cleanup handlers so the lock is removed even on crash/signal
+      const onExit = () => cleanupLockSync();
+      const onSignal = () => { cleanupLockSync(); process.exit(1); };
+      process.on("exit", onExit);
+      process.on("SIGTERM", onSignal);
+      process.on("SIGINT", onSignal);
+
       return {
         async release() {
+          process.removeListener("exit", onExit);
+          process.removeListener("SIGTERM", onSignal);
+          process.removeListener("SIGINT", onSignal);
           try {
             await handle.close();
           } catch {
             // ignore
           }
           try {
-            await fs.unlink(lockPath);
+            await fs.unlink(LOCK_PATH);
           } catch {
             // ignore
           }
@@ -24,6 +71,8 @@ async function acquireListenLock({ timeoutMs = 15_000, pollMs = 25 } = {}) {
       };
     } catch (err) {
       if (err?.code !== "EEXIST") throw err;
+      // Check if the holder is still alive before waiting
+      await removeStaleLock();
       await new Promise((r) => setTimeout(r, pollMs));
     }
   }

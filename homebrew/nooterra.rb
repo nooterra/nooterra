@@ -5,31 +5,31 @@
 class Nooterra < Formula
   desc "Hire AI workers you can actually trust. Autonomous workers with built-in guardrails."
   homepage "https://nooterra.ai"
-  license "MIT"
+  license "Apache-2.0"
 
   # Version is pulled from package.json at release time
-  version "0.2.8"
+  version "0.3.0"
 
   # Binary releases will be hosted on GitHub Releases
   on_macos do
     on_arm do
       url "https://github.com/nooterra/nooterra/releases/download/v#{version}/nooterra-darwin-arm64.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_DARWIN_ARM64"
+      sha256 "PLACEHOLDER_SHA256_DARWIN_ARM64" # TODO: Compute from release tarball
     end
     on_intel do
       url "https://github.com/nooterra/nooterra/releases/download/v#{version}/nooterra-darwin-x64.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_DARWIN_X64"
+      sha256 "PLACEHOLDER_SHA256_DARWIN_X64" # TODO: Compute from release tarball
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/nooterra/nooterra/releases/download/v#{version}/nooterra-linux-arm64.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_LINUX_ARM64"
+      sha256 "PLACEHOLDER_SHA256_LINUX_ARM64" # TODO: Compute from release tarball
     end
     on_intel do
       url "https://github.com/nooterra/nooterra/releases/download/v#{version}/nooterra-linux-x64.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_LINUX_X64"
+      sha256 "PLACEHOLDER_SHA256_LINUX_X64" # TODO: Compute from release tarball
     end
   end
 

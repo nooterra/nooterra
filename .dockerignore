@@ -1,14 +1,28 @@
 .git
 .github
 node_modules
+dashboard/node_modules
 npm-debug.log
 acceptance_artifacts
 deploy
-docs
 test
+e2e
+coverage
+artifacts
+conformance
 scripts/load
 scripts/acceptance
 *.md
+*.png
+.cache
+.vercel-venv
+.venv
+.python
+mkdocs
+.env
+.env.*
+!.env.example
+.DS_Store
 
 # Verify Cloud security packet includes pilot-kit docs at runtime.
 !docs/

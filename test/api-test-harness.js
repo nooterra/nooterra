@@ -97,6 +97,14 @@ async function ensureTestAuth(api, tenantId, { scopes = DEFAULT_TEST_SCOPES } = 
   return auth;
 }
 
+/**
+ * Send a request with automatic broad auth injection (ops_write, finance_write,
+ * audit_read). This is convenient for most tests but silently masks permission
+ * bugs because the caller gets full scopes by default. For tests that need to
+ * verify authorization behavior, use `requestNoAuth()` or pass `auth: "none"`.
+ *
+ * Alias: `requestAuthed` (same function, explicit name).
+ */
 export async function request(api, { method, path, body, headers, auth = "auto" } = {}) {
   const reqHeaders = { ...(headers ?? {}) };
   if (body !== undefined) reqHeaders["content-type"] = "application/json";
@@ -117,6 +125,17 @@ export async function request(api, { method, path, body, headers, auth = "auto" 
   const isJson = contentType.includes("application/json") || contentType.includes("+json");
   const json = isJson && text ? JSON.parse(text) : null;
   return { statusCode: res.statusCode, json, body: text, headers: res.headers };
+}
+
+/** Explicit alias for `request` — makes the implicit broad auth visible at call sites. */
+export const requestAuthed = request;
+
+/**
+ * Send a request with NO automatic auth injection. Use this when testing
+ * authorization / permission behavior to avoid masking bugs.
+ */
+export async function requestNoAuth(api, opts = {}) {
+  return request(api, { ...opts, auth: "none" });
 }
 
 export function makeBookedPayload({

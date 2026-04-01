@@ -1,0 +1,23 @@
+{
+  "account_sid": "ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "api_version": "2010-04-01",
+  "body": "Hello from Nooterra",
+  "date_created": "Mon, 30 Mar 2026 21:00:00 +0000",
+  "date_updated": "Mon, 30 Mar 2026 21:00:00 +0000",
+  "date_sent": null,
+  "direction": "outbound-api",
+  "error_code": null,
+  "error_message": null,
+  "from": "+14155550199",
+  "num_media": "0",
+  "num_segments": "1",
+  "price": null,
+  "price_unit": "USD",
+  "sid": "SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "queued",
+  "subresource_uris": {
+    "media": "/2010-04-01/Accounts/ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Messages/SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Media.json"
+  },
+  "to": "+14155550100",
+  "uri": "/2010-04-01/Accounts/ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Messages/SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+}

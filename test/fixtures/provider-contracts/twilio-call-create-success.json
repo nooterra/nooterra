@@ -1,0 +1,20 @@
+{
+  "account_sid": "ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "annotation": null,
+  "answered_by": null,
+  "api_version": "2010-04-01",
+  "caller_name": null,
+  "date_created": "Mon, 30 Mar 2026 21:01:00 +0000",
+  "date_updated": "Mon, 30 Mar 2026 21:01:00 +0000",
+  "direction": "outbound-api",
+  "duration": null,
+  "end_time": null,
+  "from": "+14155550199",
+  "price": null,
+  "price_unit": "USD",
+  "sid": "CAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "start_time": null,
+  "status": "queued",
+  "to": "+14155550100",
+  "uri": "/2010-04-01/Accounts/ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Calls/CAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+}

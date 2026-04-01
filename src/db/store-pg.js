@@ -1772,7 +1772,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       checkpointId ? String(checkpointId) : relayState.checkpointId ? String(relayState.checkpointId) : null;
     if (!normalizedCheckpointId) throw new TypeError("checkpointId is required");
     const normalizedRelayState = { ...relayState, tenantId, checkpointId: normalizedCheckpointId };
-    await persistSnapshot(client, {
+    await persistSnapshotAggregate(client, {
       tenantId,
       aggregateType: "session_relay_state",
       aggregateId: normalizedCheckpointId,
@@ -2826,6 +2826,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
   const agentsRepo = createAgentsRepository({
     pool,
+    commitTx: (...args) => store.commitTx(...args),
     agentCards: store.agentCards,
     agentCardAbuseReports: store.agentCardAbuseReports,
     agentIdentities: store.agentIdentities,
@@ -2968,6 +2969,44 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     if (!known.has(kind)) throw new TypeError(`unsupported op kind for pg store: ${kind}`);
   }
 
+  // RLS enforcement: SET LOCAL sets a session parameter that PostgreSQL RLS policies
+  // check via current_setting('nooterra.current_tenant_id', true). This MUST be called
+  // within a transaction (SET LOCAL is transaction-scoped). Without this, RLS policies
+  // cannot filter rows by tenant.
+
+  /**
+   * Set the tenant scope on an existing transactional client.
+   * Call this after BEGIN and before any tenant-scoped queries.
+   */
+  async function setTenantScope(client, tenantId) {
+    if (tenantId) {
+      await client.query("SELECT set_config('nooterra.current_tenant_id', $1, true)", [String(tenantId)]);
+    }
+  }
+
+  /**
+   * Standalone helper: acquires a client, opens a transaction with tenant scope set,
+   * runs the callback, and commits. Rolls back on error. Suitable for ad-hoc
+   * tenant-scoped queries outside of commitTx.
+   */
+  async function withTenantScope(tenantId, callback) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await setTenantScope(client, tenantId);
+      const result = await callback(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (err) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async function withTx(arg1, arg2) {
     const options = typeof arg1 === "function" ? null : arg1;
     const fn = typeof arg1 === "function" ? arg1 : arg2;
@@ -2981,6 +3020,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         // Postgres does not allow parameter placeholders in `SET LOCAL ...`.
         // Use `set_config` which safely accepts bind parameters.
         await client.query("SELECT set_config('statement_timeout', $1, true)", [`${Math.floor(timeoutMs)}ms`]);
+      }
+      const tenantId = options?.tenantId ?? null;
+      if (tenantId) {
+        await setTenantScope(client, tenantId);
       }
       const out = await fn(client);
       await client.query("COMMIT");
@@ -3745,7 +3788,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
     const hasEventsAppended = ops.some((op) => typeof op?.kind === "string" && op.kind.endsWith("_EVENTS_APPENDED"));
 
-    await withTx(async (client) => {
+    // Extract tenant from ops for RLS scope. All ops in a commitTx call should share
+    // the same tenant; use the first one found. Falls back to audit.tenantId.
+    const txTenantId = normalizeTenantId(
+      ops.find((op) => op.tenantId)?.tenantId ?? audit?.tenantId ?? DEFAULT_TENANT_ID
+    );
+
+    await withTx({ tenantId: txTenantId }, async (client) => {
       for (const op of ops) {
         if (op.kind === "PUBLIC_KEY_PUT") {
           await persistPublicKey(client, { keyId: op.keyId, publicKeyPem: op.publicKeyPem });
@@ -4679,7 +4728,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
 
     if (!(store.opsRescueTriages instanceof Map)) store.opsRescueTriages = new Map();
-    store.opsRescueTriages.set(opsRescueTriageMapKey({ tenantId, rescueId }), normalized);
+    store.opsRescueTriages.set(makeScopedKey({ tenantId, id: rescueId }), normalized);
     return normalized;
   };
 
@@ -4910,19 +4959,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
-  store.putAgentCardAbuseReport = async function putAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, report, audit = null } = {}) {
-    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
-    const reportId = typeof report.reportId === "string" ? report.reportId.trim() : "";
-    if (!reportId) throw new TypeError("report.reportId is required");
-    const at = parseIsoOrNull(report.updatedAt) ?? parseIsoOrNull(report.createdAt) ?? new Date().toISOString();
-    await store.commitTx({
-      at,
-      ops: [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: { ...report, tenantId, reportId } }],
-      audit
-    });
-    return store.getAgentCardAbuseReport({ tenantId, reportId });
-  };
+  // putAgentCardAbuseReport: extracted to src/db/repositories/agents.js
 
   store.getIdempotencyRecord = async function getIdempotencyRecord({ key } = {}) {
     assertNonEmptyString(key, "key");
@@ -5567,31 +5604,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
   };
 
-  store.putAgentPassport = async function putAgentPassport({ tenantId = DEFAULT_TENANT_ID, agentPassport } = {}) {
-    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-    if (!agentPassport || typeof agentPassport !== "object" || Array.isArray(agentPassport)) {
-      throw new TypeError("agentPassport is required");
-    }
-    const agentId = typeof agentPassport.agentId === "string" ? agentPassport.agentId.trim() : "";
-    if (!agentId) throw new TypeError("agentPassport.agentId is required");
-    await store.commitTx({
-      at: agentPassport.updatedAt ?? agentPassport.createdAt ?? new Date().toISOString(),
-      ops: [{ kind: "AGENT_PASSPORT_UPSERT", tenantId, agentId, agentPassport: { ...agentPassport, tenantId, agentId } }]
-    });
-    return store.getAgentPassport({ tenantId, agentId });
-  };
-
-  store.putAgentWallet = async function putAgentWallet({ tenantId = DEFAULT_TENANT_ID, wallet } = {}) {
-    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) throw new TypeError("wallet is required");
-    const agentId = wallet.agentId ?? null;
-    assertNonEmptyString(agentId, "wallet.agentId");
-    await store.commitTx({
-      at: wallet.updatedAt ?? new Date().toISOString(),
-      ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId: String(agentId) } }]
-    });
-    return store.getAgentWallet({ tenantId, agentId: String(agentId) });
-  };
+  // putAgentPassport: extracted to src/db/repositories/agents.js
+  // putAgentWallet: extracted to src/db/repositories/agents.js
 
   store.sumWalletPolicySpendCentsForDay = async function sumWalletPolicySpendCentsForDay({
     tenantId = DEFAULT_TENANT_ID,
@@ -5935,7 +5949,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
   // --- Agents repository delegation ---
   store.getAgentCard = agentsRepo.getAgentCard;
-  // putAgentCardAbuseReport: TODO - depends on store.commitTx closure, left in store-pg.js
+  store.putAgentCardAbuseReport = agentsRepo.putAgentCardAbuseReport;
   store.getAgentCardAbuseReport = agentsRepo.getAgentCardAbuseReport;
   store.listAgentCardAbuseReports = agentsRepo.listAgentCardAbuseReports;
   store.listAgentCards = agentsRepo.listAgentCards;
@@ -5943,9 +5957,9 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   store.getAgentIdentity = agentsRepo.getAgentIdentity;
   store.listAgentIdentities = agentsRepo.listAgentIdentities;
   store.getAgentPassport = agentsRepo.getAgentPassport;
-  // putAgentPassport: TODO - depends on store.commitTx closure, left in store-pg.js
+  store.putAgentPassport = agentsRepo.putAgentPassport;
   store.getAgentWallet = agentsRepo.getAgentWallet;
-  // putAgentWallet: TODO - depends on store.commitTx closure, left in store-pg.js
+  store.putAgentWallet = agentsRepo.putAgentWallet;
   store.getAgentRun = agentsRepo.getAgentRun;
   store.listAgentRuns = agentsRepo.listAgentRuns;
   store.countAgentRuns = agentsRepo.countAgentRuns;
@@ -7807,6 +7821,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   } catch (err) {
     logger.warn("governance.bootstrap_server_key.failed", { err });
   }
+
+  // Expose RLS helpers so other modules can run ad-hoc tenant-scoped queries.
+  store.withTenantScope = (tenantId, callback) => withTenantScope(tenantId, callback);
+  store.setTenantScope = setTenantScope;
 
   return store;
 }

@@ -12,6 +12,7 @@ import {
   generateBrowserEd25519KeypairPem,
   saveStoredBuyerPasskeyBundle,
   updateTenantSettings,
+  getPrivateCryptoKey,
 } from "../api.js";
 
 /* ===================================================================
@@ -83,14 +84,19 @@ function AuthView({ onAuth }) {
         return;
       }
 
-      // Try passkey auto-login
+      // Try passkey auto-login (Phase 1F: private key is in-memory CryptoKey only)
       try {
         const stored = loadStoredBuyerPasskeyBundle({});
         if (!stored?.tenantId || !stored?.email) return;
+        if (!stored?.credentialId) return;
+        // Private key lives only in the in-memory CryptoKey store — if the tab
+        // was closed, it's gone and we fall through to OTP.
+        const privateCK = getPrivateCryptoKey(stored.credentialId) || getPrivateCryptoKey(stored.keyId);
+        if (!privateCK) return;
         const tid = stored.tenantId; const em = stored.email;
         const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: stored.privateKeyPem, challenge: optionsResp.challenge });
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateCryptoKey: privateCK, challenge: optionsResp.challenge });
           await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: stored.credentialId, publicKeyPem: stored.publicKeyPem, signature } });
           touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
           const principal = await fetchSessionPrincipal();
@@ -112,11 +118,12 @@ function AuthView({ onAuth }) {
       if (!tid) { setError("Couldn't sign you in. Check your email and try again."); setLoading(false); return; }
       setTenantId(tid);
       const storedPasskey = loadStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
-      if (storedPasskey) {
+      const storedPrivateCK = storedPasskey ? (getPrivateCryptoKey(storedPasskey.credentialId) || getPrivateCryptoKey(storedPasskey.keyId)) : null;
+      if (storedPasskey && storedPrivateCK) {
         try {
           const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em } });
           if (optionsResp?.challenge && optionsResp?.challengeId) {
-            const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: storedPasskey.privateKeyPem, challenge: optionsResp.challenge });
+            const signature = await signBrowserPasskeyChallengeBase64Url({ privateCryptoKey: storedPrivateCK, challenge: optionsResp.challenge });
             await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: storedPasskey.credentialId, publicKeyPem: storedPasskey.publicKeyPem, signature } });
             touchStoredBuyerPasskeyBundle({ tenantId: tid, email: em });
             const principal = await fetchSessionPrincipal();
@@ -153,11 +160,14 @@ function AuthView({ onAuth }) {
       }
       try {
         const keypair = await generateBrowserEd25519KeypairPem();
+        // keypair.privateCryptoKey is a non-extractable CryptoKey (already stored
+        // in the in-memory _privateKeyStore by generateBrowserEd25519KeypairPem)
         const optionsResp = await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey/options`, body: { email: em, company: em.split("@")[0] } });
         if (optionsResp?.challenge && optionsResp?.challengeId) {
-          const signature = await signBrowserPasskeyChallengeBase64Url({ privateKeyPem: keypair.privateKeyPem, challenge: optionsResp.challenge });
+          const signature = await signBrowserPasskeyChallengeBase64Url({ privateCryptoKey: keypair.privateCryptoKey, challenge: optionsResp.challenge });
           await authRequest({ pathname: `/v1/tenants/${encodeURIComponent(tid)}/buyer/login/passkey`, body: { challengeId: optionsResp.challengeId, challenge: optionsResp.challenge, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, signature, label: "Browser passkey" } });
-          saveStoredBuyerPasskeyBundle({ tenantId: tid, email: em, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, privateKeyPem: keypair.privateKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
+          // Phase 1F: only public material goes to sessionStorage — NO privateKeyPem
+          saveStoredBuyerPasskeyBundle({ tenantId: tid, email: em, credentialId: keypair.keyId, publicKeyPem: keypair.publicKeyPem, keyId: keypair.keyId, label: "Browser passkey", createdAt: new Date().toISOString() });
         }
       } catch { /* Passkey registration is optional */ }
       track("user.logged_in", { method: "otp" });
@@ -221,6 +231,11 @@ function AuthView({ onAuth }) {
         <div style={A.divider}><div style={A.dividerLine} /><span>OR</span><div style={A.dividerLine} /></div>
         <form onSubmit={handleContinue}>
           <AuthInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" required autoFocus />
+          {!email.trim() && (
+            <p style={{ fontSize: 13, color: "var(--text-300, #8a8a82)", margin: "-0.5rem 0 0.75rem", textAlign: "left" }}>
+              Enter your email to continue
+            </p>
+          )}
           <button type="submit" style={{ ...A.btn, opacity: loading || !email.trim() ? 0.5 : 1 }} disabled={loading || !email.trim()}>
             {loading ? "One moment..." : "Continue"}
           </button>

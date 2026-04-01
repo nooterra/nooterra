@@ -3,9 +3,9 @@ import { S, STATUS_COLORS, ALL_MODELS, MODEL_CATEGORIES, timeAgo, humanizeSchedu
 import { loadRuntimeConfig } from "../api.js";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
-import { WorkerIntegrationsSection } from "./IntegrationsView.jsx";
 import FileUploadZone from "../components/FileUploadZone.jsx";
 import NotificationQuickSetup from "../components/NotificationQuickSetup.jsx";
+import { WorkerIntegrationsSection } from "../components/WorkerIntegrationsSection.jsx";
 
 function WorkerDetailView({ workerId, onBack, isNewDeploy, addToast }) {
   const [worker, setWorker] = useState(null);

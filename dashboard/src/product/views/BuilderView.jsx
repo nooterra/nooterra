@@ -8,7 +8,7 @@ import { loadRuntimeConfig } from "../api.js";
 import ModelDropdown from "../components/ModelDropdown.jsx";
 import CharterDisplay from "../components/CharterDisplay.jsx";
 import InlineRuleAdder from "../components/InlineRuleAdder.jsx";
-import { AVAILABLE_INTEGRATIONS, AI_PROVIDERS } from "./IntegrationsView.jsx";
+import { AVAILABLE_INTEGRATIONS, AI_PROVIDERS } from "../integrations-catalog.js";
 
 import { SendArrow } from "../components/shared.jsx";
 import { track } from "../analytics.js";

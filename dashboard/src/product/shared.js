@@ -14,6 +14,8 @@ export const SIDEBAR_STORAGE_KEY = "nooterra_sidebar_collapsed";
 export const AUTH_BASE = "/__magic";
 export const WORKER_API_BASE = "/__nooterra";
 
+// TODO: Move ALL_MODELS to a server-side API endpoint (e.g. GET /api/models)
+// so the catalog stays current without frontend deploys.
 export const ALL_MODELS = [
   // Free — $0 cost, great for low-stakes tasks
   { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B", provider: "NVIDIA", price: "Free", category: "free" },
