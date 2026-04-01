@@ -51,6 +51,7 @@ import {
   resolveSideEffectEnforcementDecision,
   resolveVerificationEnforcementDecision,
 } from './runtime-enforcement.js';
+import { startEventRouter } from './event-router.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -2387,31 +2388,34 @@ async function pollCycle() {
     const tasks = [];
 
     // 1. Queued executions (manual/webhook triggers) — highest priority
-    const queued = await pollQueuedExecutions();
-    for (const row of queued) {
-      if (tasks.length >= available) break;
-      if (runningExecutions.has(row.execution_id)) continue;
-      if (runningWorkers.has(row.worker_id)) continue; // skip — worker already executing
+    // Skip when event router is healthy (it handles these via NOTIFY)
+    if (!global.__eventRouter?.healthy()) {
+      const queued = await pollQueuedExecutions();
+      for (const row of queued) {
+        if (tasks.length >= available) break;
+        if (runningExecutions.has(row.execution_id)) continue;
+        if (runningWorkers.has(row.worker_id)) continue; // skip — worker already executing
 
-      // Claim the execution by setting status to 'running'
-      const claimed = await pool.query(
-        `UPDATE worker_executions SET status = 'running', started_at = now() WHERE id = $1 AND status = 'queued' RETURNING id`,
-        [row.execution_id]
-      );
-      if (claimed.rowCount === 0) continue; // someone else claimed it
+        // Claim the execution by setting status to 'running'
+        const claimed = await pool.query(
+          `UPDATE worker_executions SET status = 'running', started_at = now() WHERE id = $1 AND status = 'queued' RETURNING id`,
+          [row.execution_id]
+        );
+        if (claimed.rowCount === 0) continue; // someone else claimed it
 
-      tasks.push({
-        executionId: row.execution_id,
-        worker: {
-          id: row.worker_id,
-          tenant_id: row.tenant_id,
-          name: row.name,
-          charter: row.charter,
-          model: row.model,
-          knowledge: row.knowledge,
-        },
-        triggerType: row.trigger_type,
-      });
+        tasks.push({
+          executionId: row.execution_id,
+          worker: {
+            id: row.worker_id,
+            tenant_id: row.tenant_id,
+            name: row.name,
+            charter: row.charter,
+            model: row.model,
+            knowledge: row.knowledge,
+          },
+          triggerType: row.trigger_type,
+        });
+      }
     }
 
     // 2. Cron-scheduled workers
@@ -3418,6 +3422,79 @@ async function start() {
   pollTimer = setInterval(pollCycle, POLL_INTERVAL_MS);
   log('info', `Poll loop started (every ${POLL_INTERVAL_MS}ms, max ${MAX_CONCURRENT} concurrent)`);
 
+  // Start event router for instant dispatch via NOTIFY
+  try {
+    const routerLog = {
+      info: (...args) => log('info', args.join(' ')),
+      warn: (...args) => log('warn', args.join(' ')),
+      error: (...args) => log('error', args.join(' ')),
+    };
+    global.__eventRouter = startEventRouter(process.env.DATABASE_URL, {
+      onExecutionQueued: async (payload) => {
+        if (shuttingDown) return;
+        if (activeExecutions >= MAX_CONCURRENT) return;
+        if (runningExecutions.has(payload.executionId)) return;
+        if (runningWorkers.has(payload.workerId)) return;
+
+        // Claim the execution
+        const claimed = await pool.query(
+          `UPDATE worker_executions SET status = 'running', started_at = now() WHERE id = $1 AND status = 'queued' RETURNING id`,
+          [payload.executionId]
+        );
+        if (claimed.rowCount === 0) return;
+
+        // Load worker
+        const wRes = await pool.query(
+          `SELECT id, tenant_id, name, description, charter, model, knowledge, provider_mode, byok_provider, status, shadow, trust_score, trust_level FROM workers WHERE id = $1`,
+          [payload.workerId]
+        );
+        if (wRes.rowCount === 0) {
+          log('warn', `Event router: worker ${payload.workerId} not found, skipping`);
+          return;
+        }
+        const worker = wRes.rows[0];
+        if (typeof worker.charter === 'string') {
+          try { worker.charter = JSON.parse(worker.charter); } catch {}
+        }
+        if (typeof worker.knowledge === 'string') {
+          try { worker.knowledge = JSON.parse(worker.knowledge); } catch {}
+        }
+
+        // Track
+        activeExecutions++;
+        runningExecutions.add(payload.executionId);
+        runningWorkers.add(payload.workerId);
+
+        try {
+          await executeWorker(worker, payload.executionId, payload.triggerType);
+        } catch (err) {
+          log('error', `Event router execution error for ${payload.executionId}: ${err.message}`);
+        } finally {
+          activeExecutions--;
+          runningExecutions.delete(payload.executionId);
+          runningWorkers.delete(payload.workerId);
+        }
+      },
+      onApprovalDecided: async (_payload) => {
+        try {
+          const resumed = await pollApprovedActions({
+            pool,
+            executeWorker,
+            log: (level, msg) => log(level, msg),
+          });
+          if (resumed > 0) {
+            log('info', `Event router: resumed ${resumed} execution(s) after approval`);
+          }
+        } catch (err) {
+          log('error', `Event router approval resume error: ${err.message}`);
+        }
+      },
+    }, routerLog);
+    log('info', 'Event router started');
+  } catch (err) {
+    log('warn', `Event router failed to start, falling back to poll-only: ${err.message}`);
+  }
+
   // Start daily report scheduler
   startReportScheduler(pool);
 
@@ -3438,6 +3515,14 @@ async function shutdown(signal) {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+
+  // Stop event router
+  if (global.__eventRouter) {
+    try {
+      await global.__eventRouter.stop();
+    } catch {}
+    log('info', 'Event router stopped');
   }
 
   // Wait for active executions to finish (up to 30 seconds)
