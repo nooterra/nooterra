@@ -26,6 +26,7 @@ const WorkersListView = React.lazy(() => import("./views/WorkersListView.jsx"));
 const InboxView = React.lazy(() => import("./views/InboxView.jsx"));
 const PerformanceView = React.lazy(() => import("./views/PerformanceView.jsx"));
 const IntegrationsView = React.lazy(() => import("./views/IntegrationsView.jsx"));
+const IntelligenceView = React.lazy(() => import("./views/IntelligenceView.jsx"));
 
 /* -- Eagerly-loaded components (small) ----------------------------- */
 import SettingsModal from "./components/SettingsModal.jsx";
@@ -345,8 +346,10 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     { key: "team", label: "Team", icon: iconPeople },
     { key: "activity", label: "Activity", icon: iconPulse },
   ];
+  const iconBrain = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a6 6 0 0 0-6 6c0 1.66.68 3.16 1.76 4.24L12 16l4.24-3.76A6 6 0 0 0 12 2z"/><path d="M12 16v6"/><path d="M8 22h8"/><path d="M9 6.5a2 2 0 0 1 3 0"/><path d="M12 6.5a2 2 0 0 1 3 0"/></svg>;
   const manageNav = [
     { key: "performance", label: "Performance", icon: iconChart },
+    { key: "intelligence", label: "Intelligence", icon: iconBrain },
     { key: "connections", label: "Integrations", icon: iconPlug },
     { key: "settings", label: "Settings", icon: iconGear, action: () => setSettingsOpen(true) },
   ];
@@ -420,6 +423,8 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     : view === "inbox" || view === "approvals" ? <div style={S.main}><ErrorBoundary name="InboxView" key="inbox"><InboxView /></ErrorBoundary></div>
     : view === "activity" || view === "receipts" ? <div style={S.main}><ErrorBoundary name="ReceiptsView" key="activity"><ReceiptsView /></ErrorBoundary></div>
     : view === "performance" ? <div style={S.main}><ErrorBoundary name="PerformanceView" key="performance"><PerformanceView /></ErrorBoundary></div>
+    : view === "intelligence" && selectedWorkerId ? <div style={S.main}><ErrorBoundary name="IntelligenceView" key="intelligence"><IntelligenceView workerId={selectedWorkerId} /></ErrorBoundary></div>
+    : view === "intelligence" ? <div style={S.main}><ErrorBoundary name="IntelligenceView" key="intelligence-pick"><div><h1 style={S.pageTitle}>Intelligence</h1><p style={S.pageSub}>Select a worker from the Team view to see intelligence data.</p></div></ErrorBoundary></div>
     : view === "connections" || view === "integrations" ? <div style={S.main}><ErrorBoundary name="IntegrationsView" key="connections"><IntegrationsView /></ErrorBoundary></div>
     : <div style={S.main}><ErrorBoundary name="WorkersListView" key="default"><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></ErrorBoundary></div>
   );
