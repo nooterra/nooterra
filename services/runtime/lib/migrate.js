@@ -19,8 +19,11 @@ const MIN_MIGRATION = "034_";
 const SKIP_MIGRATIONS = new Set([
   "035_outbox_listen_notify.sql",    // references outbox table
   "037_row_level_security.sql",      // references jobs, contracts, deliveries, agents, sessions
-  "042_complete_rls.sql",            // references old-API tables
-  "043_missing_indexes.sql",         // references old-API tables
+  "039_team_permissions.sql",        // references team_members table
+  "040_worker_files.sql",            // references tenants table
+  "041_scheduled_reports.sql",       // references tenants table
+  "042_complete_rls.sql",            // references dozens of old-API tables
+  "043_missing_indexes.sql",         // references auth_keys, signer_keys, artifacts
 ]);
 
 export async function runMigrations(pool, log) {
