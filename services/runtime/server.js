@@ -54,6 +54,7 @@ import {
 import { startEventRouter } from './event-router.ts';
 import { loadSessionMessages, updateSessionAfterExecution, extractSessionUpdates } from './sessions.ts';
 import { loadRelevantMemories, extractEpisodicMemories, storeEpisodicMemories } from './memory.ts';
+import { classifyTaskType, updateCompetence } from './competence.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -1992,6 +1993,20 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       log('warn', `Failed to extract episodic memories for ${executionId}: ${err.message}`);
     }
 
+    // Update competence index
+    try {
+      const taskType = classifyTaskType(charter, triggerType);
+      const durationMs = Date.now() - startedAt.getTime();
+      const costUsd = parseFloat(totalCost || 0);
+      await updateCompetence(pool, worker.id, worker.tenant_id, taskType, {
+        success: executionSucceeded,
+        durationMs,
+        costUsd,
+      });
+    } catch (compErr) {
+      log('warn', `Failed to update competence for ${worker.id}: ${compErr.message}`);
+    }
+
     // Extract and save memory entries from LLM response
     // REMEMBER: saves to this worker only
     // TEAM_NOTE: saves to shared team memory (all workers can see it)
@@ -2132,6 +2147,20 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       `, [worker.id]);
     } catch (statsErr) {
       log('error', `Failed to update stats for ${worker.id}: ${statsErr.message}`);
+    }
+
+    // Update competence index on failure
+    try {
+      const failCharter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : (worker.charter || {});
+      const taskType = classifyTaskType(failCharter, triggerType);
+      const durationMs = Date.now() - startedAt.getTime();
+      await updateCompetence(pool, worker.id, worker.tenant_id, taskType, {
+        success: false,
+        durationMs,
+        costUsd: 0,
+      });
+    } catch (compErr) {
+      log('warn', `Failed to update competence for ${worker.id}: ${compErr.message}`);
     }
 
     // Deliver failure notification

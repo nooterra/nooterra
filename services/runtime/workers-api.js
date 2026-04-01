@@ -3420,6 +3420,30 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return json(res, 200, { ok: true }), true;
   }
 
+  // GET /v1/workers/rank/:taskType — rank workers for a task type
+  const rankMatch = pathname.match(/^\/v1\/workers\/rank\/([^/]+)$/);
+  if (method === 'GET' && rankMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const taskType = decodeURIComponent(rankMatch[1]);
+    const { rankWorkersForTask } = await import('./competence.ts');
+    const entries = await rankWorkersForTask(pool, tid, taskType);
+    return json(res, 200, { rankings: entries }), true;
+  }
+
+  // GET /v1/workers/:id/competence — get worker competence entries
+  const competenceMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/competence$/);
+  if (method === 'GET' && competenceMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = competenceMatch[1];
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const { getWorkerCompetence } = await import('./competence.ts');
+    const entries = await getWorkerCompetence(pool, workerId);
+    return json(res, 200, { competence: entries }), true;
+  }
+
   return false; // Not handled
 }
 
