@@ -258,3 +258,25 @@ export interface Capability {
 }
 
 export type CapabilityMap = Record<string, Capability>;
+
+// ── Charter Evolution ───────────────────────────────────
+
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ProposalType = 'promote' | 'demote';
+
+export interface CharterProposal {
+  id: string;
+  worker_id: string;
+  tenant_id: string;
+  status: ProposalStatus;
+  proposal_type: ProposalType;
+  tool_name: string | null;
+  from_level: string;
+  to_level: string;
+  rule_text: string;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
