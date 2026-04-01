@@ -57,6 +57,7 @@ import { loadRelevantMemories, extractEpisodicMemories, storeEpisodicMemories } 
 import { classifyTaskType, updateCompetence } from './competence.ts';
 import { isMetaAgent, executeMetaAgentTool, getMetaAgentTools } from './meta-agent.ts';
 import { createDelegation, completeDelegation } from './delegation.ts';
+import { createTracer } from './traces.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -939,6 +940,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     ? requestedDeadline
     : Date.now() + 5 * 60 * 1000; // 5-minute per-execution timeout
   const activity = [];
+  const tracer = createTracer(pool, executionId, worker.id, worker.tenant_id);
   const isResume = triggerType === 'approval_resume' && resumeContext?.approvedToolCalls;
 
   function addActivity(type, detail) {
@@ -1157,6 +1159,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     }
     if (workerMemory.length > 0) {
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
+      tracer.trace('memory_load', { count: workerMemory.length });
     }
 
     let executionMetadata = {};
@@ -1243,6 +1246,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
         if (sessionMessages.length > 0) {
           messages.push(...sessionMessages);
           addActivity('session', 'Loaded session context');
+          tracer.trace('session_update', { sessionId, loaded: true, messageCount: sessionMessages.length });
         }
       }
     } catch (sessionErr) {
@@ -1352,7 +1356,9 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       );
 
       usage = result.usage;
+      const llmDurationMs = Date.now() - startedAt.getTime();
       addActivity('llm_response', `Received ${usage.totalTokens} tokens (cost: $${usage.cost.toFixed(6)})`);
+      tracer.trace('llm_call', { model: worker.model, tokens: usage.totalTokens, cost: usage.cost, round: 1 }, llmDurationMs);
     }
 
     // Handle tool calls — single round for scheduled executions
@@ -1391,10 +1397,12 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
             approvalNeeded.push({ toolCall: tc, args, validation });
             approvalsPending.push({ tool: tc.name, args, rule: validation.matchedRule || validation.rule });
             addActivity('charter_approval', `Tool "${tc.name}" requires approval: ${validation.reason}`);
+            tracer.trace('approval_gate', { tool: tc.name, reason: validation.reason, rule: validation.matchedRule || validation.rule });
           } else {
             blockedTools.push({ toolCall: tc, validation });
             blockedActions.push({ tool: tc.name, args, rule: validation.rule });
             addActivity('charter_block', `Tool "${tc.name}" blocked: ${validation.reason}`);
+            tracer.trace('charter_decision', { tool: tc.name, verdict: 'neverDo', reason: validation.reason });
           }
         }
       }
@@ -1637,6 +1645,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           } else {
             addActivity('tool_result', `${tc.name}: ${toolResult.success ? 'success' : 'error: ' + toolResult.error}`);
           }
+          tracer.trace('tool_exec', { tool: tc.name, success: Boolean(toolResult.success), round: rounds });
         }
 
         if (!isShadowMode) {
@@ -1998,6 +2007,9 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       ? `Auto-paused: ${postRunVerificationPolicyState.autoPauseReasons.join('; ')}`
       : (receipt.success ? null : `Verification failed: ${receipt.businessOutcome}`);
 
+    // Flush structured trace before finalizing
+    await tracer.flush().catch(() => {});
+
     // Update execution record + deduct credits atomically
     await finalizeExecution(executionId, {
       status: finalExecutionStatus,
@@ -2174,8 +2186,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     }
   } catch (err) {
     addActivity('error', err.message);
+    tracer.trace('error', { message: err.message });
     log('error', `Execution ${executionId} failed for worker ${worker.name}: ${err.message}`);
 
+    await tracer.flush().catch(() => {});
     await updateExecution(executionId, {
       status: 'failed',
       completedAt: new Date(),

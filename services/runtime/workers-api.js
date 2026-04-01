@@ -36,6 +36,7 @@ import {
   verifyWorkerWebhookRequest,
   WorkerWebhookIngressError,
 } from './webhook-ingress.js';
+import { getExecutionTrace } from './traces.ts';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -1804,6 +1805,28 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       }), true;
     } catch (e) {
       return err(res, 500, e?.message || 'failed to fetch execution approvals'), true;
+    }
+  }
+
+  // GET /v1/workers/:id/executions/:execId/trace — structured execution trace
+  const traceMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/trace$/);
+  if (method === 'GET' && traceMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const [, workerId, executionId] = traceMatch;
+      const worker = await fetchWorkerIdentity(pool, workerId, tid);
+      if (!worker) return err(res, 404, 'worker not found'), true;
+      const trace = await getExecutionTrace(pool, executionId);
+      return json(res, 200, {
+        workerId,
+        workerName: worker.name,
+        executionId,
+        trace,
+        count: trace.length,
+      }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch execution trace'), true;
     }
   }
 
