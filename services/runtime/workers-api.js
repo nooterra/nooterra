@@ -37,6 +37,7 @@ import {
   WorkerWebhookIngressError,
 } from './webhook-ingress.js';
 import { getExecutionTrace } from './traces.ts';
+import { generateTeam } from './team-generator.ts';
 
 function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -3302,7 +3303,70 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   }
 
   // =========================================================================
-  // Team Generation
+  // Generate Team (onboarding flow)
+  // =========================================================================
+
+  // POST /v1/workers/generate-team — onboarding: describe your business, get a team
+  if (method === 'POST' && pathname === '/v1/workers/generate-team') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const body = await readBody(req);
+    if (!body) return err(res, 400, 'JSON body required'), true;
+    if (typeof body.description !== 'string' || !body.description.trim()) {
+      return err(res, 400, 'description must be a non-empty string'), true;
+    }
+
+    try {
+      const team = generateTeam(body.description.trim());
+      const now = new Date().toISOString();
+      const createdWorkers = [];
+
+      for (const gw of team.workers) {
+        const id = generateId('wrk');
+        const charter = JSON.stringify({
+          schemaVersion: '1.0',
+          name: gw.name,
+          purpose: gw.charter.goal,
+          canDo: gw.charter.canDo,
+          askFirst: gw.charter.askFirst,
+          neverDo: gw.charter.neverDo,
+          role: gw.charter.role,
+        });
+        const scheduleValue = gw.schedule === 'continuous' ? 'on_demand' : (gw.schedule || 'on_demand');
+        const result = await pool.query(
+          `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'paused', $8, $8) RETURNING *`,
+          [id, tid, gw.name, gw.description, charter, scheduleValue, gw.model, now]
+        );
+        createdWorkers.push(result.rows[0]);
+      }
+
+      // Ensure meta-agent exists for this tenant
+      try {
+        const existing = await pool.query(
+          `SELECT id FROM workers WHERE tenant_id = $1 AND name = 'Meta-Agent'`,
+          [tid]
+        );
+        if (existing.rowCount === 0) {
+          const metaId = generateId('wrk');
+          await pool.query(
+            `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, status, created_at, updated_at)
+             VALUES ($1, $2, 'Meta-Agent', 'Oversees and coordinates all other workers', $3, 'on_demand', 'openai/gpt-4o-mini', 'ready', $4, $4)`,
+            [metaId, tid, JSON.stringify({ schemaVersion: '1.0', name: 'Meta-Agent', purpose: 'Coordinate and monitor all workers' }), now]
+          );
+        }
+      } catch (_metaErr) {
+        // Non-fatal: meta-agent creation failure should not block team generation
+      }
+
+      return json(res, 201, { team, workers: createdWorkers }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'team generation failed'), true;
+    }
+  }
+
+  // =========================================================================
+  // Team Generation (legacy)
   // =========================================================================
 
   // POST /v1/teams/generate — auto-generate a team of workers from a business description

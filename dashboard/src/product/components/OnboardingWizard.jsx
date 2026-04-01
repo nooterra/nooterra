@@ -1,10 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import {
-  WORKER_TEMPLATES, WORKER_API_BASE,
   workerApiRequest, saveOnboardingState, loadOnboardingState,
 } from "../shared.js";
-import { loadRuntimeConfig } from "../api.js";
-import { AVAILABLE_INTEGRATIONS } from "../integrations-catalog.js";
 
 /* ===================================================================
    Styles
@@ -18,7 +15,7 @@ const W = {
     fontFamily: "var(--font-body, 'Plus Jakarta Sans', system-ui, sans-serif)",
     WebkitFontSmoothing: "antialiased",
   },
-  inner: { width: "100%", maxWidth: 560 },
+  inner: { width: "100%", maxWidth: 620 },
   heading: {
     fontSize: 28, fontWeight: 700, color: "var(--text-100, #111110)",
     marginBottom: "0.5rem", lineHeight: 1.15, letterSpacing: "-0.02em",
@@ -29,17 +26,17 @@ const W = {
     marginBottom: "2rem", lineHeight: 1.5,
   },
   input: {
-    display: "block", width: "100%", padding: "14px 18px", fontSize: 15,
+    display: "block", width: "100%", padding: "18px 20px", fontSize: 16,
     background: "var(--bg-400, #ffffff)",
-    border: "1px solid var(--border, #e5e3dd)", borderRadius: 10,
-    color: "var(--text-100, #111110)", outline: "none", marginBottom: "1rem",
+    border: "1px solid var(--border, #e5e3dd)", borderRadius: 12,
+    color: "var(--text-100, #111110)", outline: "none", marginBottom: "1.25rem",
     fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s",
     boxSizing: "border-box",
   },
   btn: {
     display: "inline-flex", alignItems: "center", justifyContent: "center",
     padding: "12px 24px", fontSize: 15, fontWeight: 600,
-    background: "var(--text-100, #111110)", color: "var(--bg-100, #faf9f6)",
+    background: "var(--orange, #e8712a)", color: "#fff",
     border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "inherit",
     transition: "opacity 0.15s", letterSpacing: "0.01em",
   },
@@ -54,11 +51,7 @@ const W = {
     padding: "16px 18px", borderRadius: 12,
     border: "1px solid var(--border, #e5e3dd)",
     background: "var(--bg-400, #ffffff)",
-    cursor: "pointer", transition: "border-color 0.2s, box-shadow 0.2s",
-  },
-  cardSelected: {
-    borderColor: "var(--text-100, #111110)",
-    boxShadow: "0 0 0 1px var(--text-100, #111110)",
+    marginBottom: 10,
   },
   cardName: {
     fontSize: 15, fontWeight: 600, color: "var(--text-100, #111110)",
@@ -66,214 +59,122 @@ const W = {
   },
   cardDesc: {
     fontSize: 13, color: "var(--text-200, #4a4a45)", lineHeight: 1.45,
+    marginBottom: 8,
   },
+  pill: {
+    display: "inline-block", padding: "2px 8px", fontSize: 11, fontWeight: 500,
+    borderRadius: 6, marginRight: 4, marginBottom: 4, lineHeight: 1.6,
+  },
+  pillGreen: { background: "rgba(42,157,110,0.1)", color: "#2a9d6e" },
+  pillYellow: { background: "rgba(200,160,50,0.1)", color: "#a08020" },
+  pillRed: { background: "rgba(196,58,58,0.08)", color: "#c43a3a" },
   steps: {
     display: "flex", gap: 8, marginBottom: "2rem",
   },
   stepDot: (active) => ({
     width: 32, height: 4, borderRadius: 2,
-    background: active ? "var(--text-100, #111110)" : "var(--border, #e5e3dd)",
+    background: active ? "var(--orange, #e8712a)" : "var(--border, #e5e3dd)",
     transition: "background 0.2s",
   }),
   footer: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
     marginTop: "2rem", gap: 12,
   },
-  integrationBtn: (connected) => ({
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "14px 18px", borderRadius: 12, width: "100%",
-    border: connected ? "1px solid var(--text-100, #111110)" : "1px solid var(--border, #e5e3dd)",
-    background: connected ? "var(--bg-300, #f3f1ec)" : "var(--bg-400, #ffffff)",
-    cursor: "pointer", fontFamily: "inherit", fontSize: 15, fontWeight: 500,
-    color: "var(--text-100, #111110)", transition: "border-color 0.2s",
-  }),
+  error: {
+    padding: "10px 14px", marginBottom: 14, borderRadius: 8,
+    background: "rgba(196,58,58,0.08)", border: "1px solid var(--red, #c43a3a)",
+    color: "var(--red, #c43a3a)", fontSize: 14, lineHeight: 1.5,
+  },
 };
 
-const INTEGRATIONS = [
-  { key: "gmail", name: "Gmail", icon: "\u2709\uFE0F" },
-  { key: "slack", name: "Slack", icon: "\u{1F4AC}" },
-  { key: "github", name: "GitHub", icon: "\u{1F4BB}" },
-];
-
-/* Look up full integration config from IntegrationsView */
-function getIntegrationConfig(key) {
-  return AVAILABLE_INTEGRATIONS.find(i => i.key === key);
-}
-
 /* ===================================================================
-   Steps
+   Step 1: Describe your business
    =================================================================== */
 
-function WelcomeStep({ workspaceName, setWorkspaceName, onNext }) {
+function DescribeStep({ description, setDescription, onGenerate, generating, error }) {
   return (
     <div>
-      <h1 style={W.heading}>Welcome to Nooterra</h1>
-      <p style={W.sub}>Your AI workforce starts here. Give your workspace a name to get started.</p>
+      <h1 style={W.heading}>Describe your business in one sentence</h1>
+      <p style={W.sub}>We will generate a team of AI workers tailored to your industry.</p>
+      {error && <div style={W.error}>{error}</div>}
       <input
         type="text"
-        value={workspaceName}
-        onChange={e => setWorkspaceName(e.target.value)}
-        placeholder="e.g. Acme Corp"
+        value={description}
+        onChange={e => setDescription(e.target.value)}
+        placeholder="I run a plumbing company in Denver with 8 technicians"
         style={W.input}
         autoFocus
       />
       <div style={W.footer}>
         <div />
         <button
-          style={{ ...W.btn, opacity: !workspaceName.trim() ? 0.4 : 1 }}
-          disabled={!workspaceName.trim()}
-          onClick={onNext}
+          style={{ ...W.btn, opacity: !description.trim() || generating ? 0.4 : 1 }}
+          disabled={!description.trim() || generating}
+          onClick={onGenerate}
         >
-          Continue
+          {generating ? "Generating..." : "Generate My Team"}
         </button>
       </div>
     </div>
   );
 }
 
-function FirstWorkerStep({ selectedTemplate, setSelectedTemplate, onNext, onBack, onSkip, creating, error }) {
+/* ===================================================================
+   Step 2: Team preview
+   =================================================================== */
+
+function TeamPreviewStep({ team, onActivate, onBack, activating, error }) {
+  if (!team) return null;
   return (
     <div>
-      <h1 style={W.heading}>Create your first worker</h1>
-      <p style={W.sub}>Pick a template to start with. You can customize everything later.</p>
-      {error && (
-        <div style={{ padding: "10px 14px", marginBottom: 14, borderRadius: 8, background: "rgba(196,58,58,0.08)", border: "1px solid var(--red, #c43a3a)", color: "var(--red, #c43a3a)", fontSize: 14, lineHeight: 1.5 }}>
-          {error}
-        </div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {WORKER_TEMPLATES.map((tpl, i) => (
-          <div
-            key={tpl.name}
-            style={{
-              ...W.card,
-              ...(selectedTemplate === i ? W.cardSelected : {}),
-            }}
-            onClick={() => setSelectedTemplate(i)}
-            onMouseEnter={e => {
-              if (selectedTemplate !== i) e.currentTarget.style.borderColor = "var(--text-300, #8a8a82)";
-            }}
-            onMouseLeave={e => {
-              if (selectedTemplate !== i) e.currentTarget.style.borderColor = "var(--border, #e5e3dd)";
-            }}
-          >
-            <div style={W.cardName}>{tpl.name}</div>
-            <div style={W.cardDesc}>{tpl.description}</div>
+      <h1 style={W.heading}>Your team for {team.businessName}</h1>
+      <p style={W.sub}>
+        Industry: <strong>{team.industry.replace(/_/g, " ")}</strong> — {team.workers.length} workers generated. Review and activate.
+      </p>
+      {error && <div style={W.error}>{error}</div>}
+      <div>
+        {team.workers.map((w, i) => (
+          <div key={i} style={W.card}>
+            <div style={W.cardName}>{w.name}</div>
+            <div style={W.cardDesc}>{w.charter.goal}</div>
+            <div>
+              {w.charter.canDo.slice(0, 3).map((r, j) => (
+                <span key={`c${j}`} style={{ ...W.pill, ...W.pillGreen }}>{r}</span>
+              ))}
+              {w.charter.askFirst.slice(0, 2).map((r, j) => (
+                <span key={`a${j}`} style={{ ...W.pill, ...W.pillYellow }}>{r}</span>
+              ))}
+              {w.charter.neverDo.slice(0, 2).map((r, j) => (
+                <span key={`n${j}`} style={{ ...W.pill, ...W.pillRed }}>{r}</span>
+              ))}
+            </div>
           </div>
         ))}
       </div>
-      <button onClick={onSkip} style={{
-        background: "none", border: "none", cursor: "pointer",
-        color: "var(--product-ink-soft, #707b8d)", fontSize: "13px",
-        textDecoration: "underline", padding: "8px 0", marginTop: "0.5rem",
-      }}>
-        I'll create a worker later
-      </button>
       <div style={W.footer}>
         <button style={W.btnSecondary} onClick={onBack}>Back</button>
-        <div style={{ display: "flex", gap: 10 }}>
-          {error && (
-            <button style={W.btnSecondary} onClick={onNext}>
-              Retry
-            </button>
-          )}
-          <button
-            style={{ ...W.btn, opacity: selectedTemplate === null || creating ? 0.4 : 1 }}
-            disabled={selectedTemplate === null || creating}
-            onClick={onNext}
-          >
-            {creating ? "Creating..." : "Create worker"}
-          </button>
-        </div>
+        <button
+          style={{ ...W.btn, opacity: activating ? 0.4 : 1 }}
+          disabled={activating}
+          onClick={onActivate}
+        >
+          {activating ? "Activating..." : "Activate Team"}
+        </button>
       </div>
     </div>
   );
 }
 
-function ConnectStep({ onDone, onBack }) {
-  const [connected, setConnected] = useState({});
-  const pollRef = useRef(null);
+/* ===================================================================
+   Step 3: Success
+   =================================================================== */
 
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
-
-  function handleConnect(key) {
-    const config = getIntegrationConfig(key);
-    if (!config) return;
-
-    // Non-OAuth integrations (webhook, apikey) -- skip for onboarding
-    if (config.authType !== "oauth") {
-      setConnected(prev => ({ ...prev, [key]: "later" }));
-      return;
-    }
-
-    // Open OAuth popup (same pattern as IntegrationsView)
-    const runtime = loadRuntimeConfig();
-    const tenantId = runtime?.tenantId || "";
-    const oauthHref = WORKER_API_BASE + config.oauthUrl + "?tenantId=" + encodeURIComponent(tenantId);
-    const popup = window.open(oauthHref, "nooterra_oauth", "width=520,height=700,popup=yes");
-    if (!popup) {
-      window.location.href = oauthHref;
-      return;
-    }
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      if (popup.closed) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-        try {
-          const statusResult = await workerApiRequest({ pathname: '/v1/integrations/status' });
-          const isConnected = statusResult?.[key]?.connected;
-          if (isConnected) {
-            setConnected(prev => ({ ...prev, [key]: true }));
-          } else {
-            setConnected(prev => ({ ...prev, [key]: false }));
-            alert("Connection was not completed. Please try again.");
-          }
-        } catch {
-          setConnected(prev => ({ ...prev, [key]: false }));
-          alert("Connection was not completed. Please try again.");
-        }
-      }
-    }, 500);
-  }
-
+function SuccessStep({ onDone }) {
   return (
-    <div>
-      <h1 style={W.heading}>Connect your tools</h1>
-      <p style={W.sub}>Give your workers access to the tools they need. You can always add more later.</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {INTEGRATIONS.map(intg => (
-          <button
-            key={intg.key}
-            style={W.integrationBtn(connected[intg.key])}
-            onClick={() => handleConnect(intg.key)}
-            onMouseEnter={e => {
-              if (!connected[intg.key]) e.currentTarget.style.borderColor = "var(--text-300, #8a8a82)";
-            }}
-            onMouseLeave={e => {
-              if (!connected[intg.key]) e.currentTarget.style.borderColor = "var(--border, #e5e3dd)";
-            }}
-          >
-            <span style={{ fontSize: 20 }}>{intg.icon}</span>
-            <span style={{ flex: 1, textAlign: "left" }}>{intg.name}</span>
-            {connected[intg.key] === true && (
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--green, #2a9d6e)" }}>Connected</span>
-            )}
-            {connected[intg.key] === "later" && (
-              <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-300, #8a8a82)" }}>Configure later</span>
-            )}
-          </button>
-        ))}
-      </div>
-      <div style={W.footer}>
-        <button style={W.btnSecondary} onClick={onBack}>Back</button>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button style={W.btnSecondary} onClick={onDone}>Skip</button>
-          <button style={W.btn} onClick={onDone}>Done</button>
-        </div>
-      </div>
+    <div style={{ textAlign: "center" }}>
+      <h1 style={W.heading}>Your team is ready!</h1>
+      <p style={W.sub}>Your AI workers have been activated and are standing by. Head to the dashboard to manage them.</p>
+      <button style={W.btn} onClick={onDone}>Go to Dashboard</button>
     </div>
   );
 }
@@ -284,34 +185,51 @@ function ConnectStep({ onDone, onBack }) {
 
 function OnboardingWizard({ onComplete }) {
   const [step, setStep] = useState(0);
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState(null);
+  const [description, setDescription] = useState("");
+  const [team, setTeam] = useState(null);
+  const [createdWorkers, setCreatedWorkers] = useState([]);
+  const [generating, setGenerating] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [error, setError] = useState(null);
 
-  async function handleCreateWorker() {
-    if (selectedTemplate === null) return;
-    setCreating(true);
-    setCreateError(null);
-    const tpl = WORKER_TEMPLATES[selectedTemplate];
+  async function handleGenerate() {
+    if (!description.trim()) return;
+    setGenerating(true);
+    setError(null);
     try {
-      await workerApiRequest({
-        pathname: "/v1/workers",
+      const result = await workerApiRequest({
+        pathname: "/v1/workers/generate-team",
         method: "POST",
-        body: {
-          name: tpl.name,
-          description: tpl.description,
-          model: tpl.model,
-          schedule: tpl.schedule,
-          charter: tpl.charter,
-        },
+        body: { description: description.trim() },
       });
-      setCreating(false);
+      setTeam(result.team);
+      setCreatedWorkers(result.workers || []);
+      setStep(1);
+    } catch (e) {
+      console.error("Team generation failed:", e);
+      setError("Failed to generate team. Check your connection and try again.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleActivate() {
+    setActivating(true);
+    setError(null);
+    try {
+      for (const w of createdWorkers) {
+        await workerApiRequest({
+          pathname: `/v1/workers/${w.id}`,
+          method: "PATCH",
+          body: { status: "ready" },
+        });
+      }
       setStep(2);
-    } catch (err) {
-      console.error("Failed to create worker:", err);
-      setCreateError("Failed to create worker. Check your connection and try again.");
-      setCreating(false);
+    } catch (e) {
+      console.error("Activation failed:", e);
+      setError("Failed to activate workers. You can activate them from the dashboard.");
+    } finally {
+      setActivating(false);
     }
   }
 
@@ -324,7 +242,6 @@ function OnboardingWizard({ onComplete }) {
   return (
     <div style={W.wrap}>
       <div style={W.inner} className="lovable-fade">
-        {/* Progress dots */}
         <div style={W.steps}>
           {[0, 1, 2].map(i => (
             <div key={i} style={W.stepDot(i <= step)} />
@@ -332,28 +249,25 @@ function OnboardingWizard({ onComplete }) {
         </div>
 
         {step === 0 && (
-          <WelcomeStep
-            workspaceName={workspaceName}
-            setWorkspaceName={setWorkspaceName}
-            onNext={() => setStep(1)}
+          <DescribeStep
+            description={description}
+            setDescription={setDescription}
+            onGenerate={handleGenerate}
+            generating={generating}
+            error={error}
           />
         )}
         {step === 1 && (
-          <FirstWorkerStep
-            selectedTemplate={selectedTemplate}
-            setSelectedTemplate={setSelectedTemplate}
-            onNext={handleCreateWorker}
-            onBack={() => setStep(0)}
-            onSkip={() => setStep(2)}
-            creating={creating}
-            error={createError}
+          <TeamPreviewStep
+            team={team}
+            onActivate={handleActivate}
+            onBack={() => { setStep(0); setError(null); }}
+            activating={activating}
+            error={error}
           />
         )}
         {step === 2 && (
-          <ConnectStep
-            onDone={handleDone}
-            onBack={() => setStep(1)}
-          />
+          <SuccessStep onDone={handleDone} />
         )}
       </div>
     </div>
