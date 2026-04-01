@@ -2060,7 +2060,7 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       const durationMs = Date.now() - startedAt.getTime();
       const costUsd = parseFloat(totalCost || 0);
       await updateCompetence(pool, worker.id, worker.tenant_id, taskType, {
-        success: executionSucceeded,
+        success: true,
         durationMs,
         costUsd,
       });
@@ -2543,35 +2543,32 @@ async function pollCycle() {
 
     const tasks = [];
 
-    // 1. Queued executions (manual/webhook triggers) — highest priority
-    // Skip when event router is healthy (it handles these via NOTIFY)
-    if (!global.__eventRouter?.healthy()) {
-      const queued = await pollQueuedExecutions();
-      for (const row of queued) {
-        if (tasks.length >= available) break;
-        if (runningExecutions.has(row.execution_id)) continue;
-        if (runningWorkers.has(row.worker_id)) continue; // skip — worker already executing
+    // 1. Queued executions — event router handles these in real-time,
+    //    but poll as a safety net to catch any that were missed.
+    const queued = await pollQueuedExecutions();
+    for (const row of queued) {
+      if (tasks.length >= available) break;
+      if (runningExecutions.has(row.execution_id)) continue;
+      if (runningWorkers.has(row.worker_id)) continue;
 
-        // Claim the execution by setting status to 'running'
-        const claimed = await pool.query(
-          `UPDATE worker_executions SET status = 'running', started_at = now() WHERE id = $1 AND status = 'queued' RETURNING id`,
-          [row.execution_id]
-        );
-        if (claimed.rowCount === 0) continue; // someone else claimed it
+      const claimed = await pool.query(
+        `UPDATE worker_executions SET status = 'running', started_at = now() WHERE id = $1 AND status = 'queued' RETURNING id`,
+        [row.execution_id]
+      );
+      if (claimed.rowCount === 0) continue;
 
-        tasks.push({
-          executionId: row.execution_id,
-          worker: {
-            id: row.worker_id,
-            tenant_id: row.tenant_id,
-            name: row.name,
-            charter: row.charter,
-            model: row.model,
-            knowledge: row.knowledge,
-          },
-          triggerType: row.trigger_type,
-        });
-      }
+      tasks.push({
+        executionId: row.execution_id,
+        worker: {
+          id: row.worker_id,
+          tenant_id: row.tenant_id,
+          name: row.name,
+          charter: row.charter,
+          model: row.model,
+          knowledge: row.knowledge,
+        },
+        triggerType: row.trigger_type,
+      });
     }
 
     // 2. Cron-scheduled workers

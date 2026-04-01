@@ -6,7 +6,7 @@
  * in the runtime but has special management tools.
  */
 
-import { generateProposals } from "./charter-evolution.ts";
+import { generateProposals } from "./charter-evolution.js";
 import type { ToolDefinition } from "./types.ts";
 
 // ── Types ─────────────────────────────────────────────

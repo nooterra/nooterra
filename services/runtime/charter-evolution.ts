@@ -72,7 +72,7 @@ export async function generateProposals(
     charter,
     executions,
     approvals,
-  });
+  } as any);
 
   for (const candidate of candidates) {
     if (candidate.confidence < 0.7) continue;

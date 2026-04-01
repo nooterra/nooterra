@@ -1818,6 +1818,12 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
       const [, workerId, executionId] = traceMatch;
       const worker = await fetchWorkerIdentity(pool, workerId, tid);
       if (!worker) return err(res, 404, 'worker not found'), true;
+      // Verify execution belongs to this worker/tenant
+      const execCheck = await pool.query(
+        'SELECT id FROM worker_executions WHERE id = $1 AND worker_id = $2 AND tenant_id = $3',
+        [executionId, workerId, tid]
+      );
+      if (execCheck.rowCount === 0) return err(res, 404, 'Execution not found'), true;
       const trace = await getExecutionTrace(pool, executionId);
       return json(res, 200, {
         workerId,
@@ -2512,6 +2518,12 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const proposalId = proposalApproveMatch[2];
     const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    // Verify proposal belongs to this worker/tenant and is pending
+    const propCheck = await pool.query(
+      'SELECT id FROM charter_proposals WHERE id = $1 AND worker_id = $2 AND tenant_id = $3 AND status = $4',
+      [proposalId, workerId, tid, 'pending']
+    );
+    if (propCheck.rowCount === 0) return err(res, 404, 'Proposal not found'), true;
     const body = await readBody(req);
     try {
       const { applyProposal } = await import('./charter-evolution.ts');
@@ -2531,6 +2543,12 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const proposalId = proposalRejectMatch[2];
     const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    // Verify proposal belongs to this worker/tenant and is pending
+    const propCheck = await pool.query(
+      'SELECT id FROM charter_proposals WHERE id = $1 AND worker_id = $2 AND tenant_id = $3 AND status = $4',
+      [proposalId, workerId, tid, 'pending']
+    );
+    if (propCheck.rowCount === 0) return err(res, 404, 'Proposal not found'), true;
     const body = await readBody(req);
     try {
       const { rejectProposal } = await import('./charter-evolution.ts');
@@ -3343,18 +3361,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
       // Ensure meta-agent exists for this tenant
       try {
-        const existing = await pool.query(
-          `SELECT id FROM workers WHERE tenant_id = $1 AND name = 'Meta-Agent'`,
-          [tid]
-        );
-        if (existing.rowCount === 0) {
-          const metaId = generateId('wrk');
-          await pool.query(
-            `INSERT INTO workers (id, tenant_id, name, description, charter, schedule, model, status, created_at, updated_at)
-             VALUES ($1, $2, 'Meta-Agent', 'Oversees and coordinates all other workers', $3, 'on_demand', 'openai/gpt-4o-mini', 'ready', $4, $4)`,
-            [metaId, tid, JSON.stringify({ schemaVersion: '1.0', name: 'Meta-Agent', purpose: 'Coordinate and monitor all workers' }), now]
-          );
-        }
+        const { ensureMetaAgent } = await import('./meta-agent.ts');
+        await ensureMetaAgent(pool, tid);
       } catch (_metaErr) {
         // Non-fatal: meta-agent creation failure should not block team generation
       }
@@ -3502,6 +3510,12 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const [, workerId, sessionId] = sessionCompleteMatch;
     const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    // Verify session belongs to this worker/tenant
+    const sessCheck = await pool.query(
+      'SELECT id FROM worker_sessions WHERE id = $1 AND worker_id = $2 AND tenant_id = $3',
+      [sessionId, workerId, tid]
+    );
+    if (sessCheck.rowCount === 0) return err(res, 404, 'Session not found'), true;
     const { completeSession } = await import('./sessions.ts');
     await completeSession(pool, sessionId);
     return json(res, 200, { ok: true }), true;
@@ -3573,6 +3587,12 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     if (!tid) return err(res, 401, 'tenant identification required'), true;
     const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    // Verify grant belongs to this tenant
+    const grantCheck = await pool.query(
+      'SELECT id FROM delegation_grants WHERE id = $1 AND tenant_id = $2',
+      [grantId, tid]
+    );
+    if (grantCheck.rowCount === 0) return err(res, 404, 'Grant not found'), true;
     try {
       const { revokeDelegation } = await import('./delegation.ts');
       await revokeDelegation(pool, grantId);
