@@ -19,7 +19,7 @@ console.log("[runtime-hardening] running runtime test pack");
 runShell("npx tsx --test test/runtime-*.test.js");
 
 console.log("[runtime-hardening] running runtime lint pack");
-runShell("npx eslint services/runtime/*.js test/runtime-*.test.js");
+runShell("npx eslint services/runtime/*.{js,ts} test/runtime-*.test.js");
 
 console.log("[runtime-hardening] running type check");
 runShell("npx tsc --noEmit");
