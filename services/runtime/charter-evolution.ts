@@ -72,7 +72,7 @@ export async function generateProposals(
     charter,
     executions,
     approvals,
-  });
+  } as any);
 
   for (const candidate of candidates) {
     if (candidate.confidence < 0.7) continue;
@@ -180,6 +180,23 @@ export async function applyProposal(
     charter.canDo = canDo.filter((r: string) => r !== proposal.rule_text);
     if (!askFirst.includes(proposal.rule_text)) askFirst.push(proposal.rule_text);
     charter.askFirst = askFirst;
+  }
+
+  // Also update typed capabilities if they exist
+  if (charter.capabilities && typeof charter.capabilities === "object") {
+    for (const [toolName, cap] of Object.entries(charter.capabilities)) {
+      const capObj = cap as Record<string, unknown>;
+      if (proposal.proposal_type === "promote" && capObj.allow === "askFirst") {
+        if (toolName === proposal.tool_name || proposal.rule_text?.toLowerCase().includes(toolName.replace(/_/g, " "))) {
+          (charter.capabilities as Record<string, any>)[toolName].allow = "canDo";
+        }
+      }
+      if (proposal.proposal_type === "demote" && capObj.allow === "canDo") {
+        if (toolName === proposal.tool_name || proposal.rule_text?.toLowerCase().includes(toolName.replace(/_/g, " "))) {
+          (charter.capabilities as Record<string, any>)[toolName].allow = "askFirst";
+        }
+      }
+    }
   }
 
   // 5. Persist

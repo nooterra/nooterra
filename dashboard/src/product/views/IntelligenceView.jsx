@@ -58,8 +58,8 @@ function ProposalsTab({ workerId }) {
   const fetchProposals = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await workerApiRequest({ pathname: `/v1/workers/${workerId}/proposals` });
-      setProposals(res?.items || res || []);
+      const data = await workerApiRequest({ pathname: `/v1/workers/${workerId}/proposals` });
+      setProposals(data?.proposals || data || []);
     } catch { setProposals([]); }
     setLoading(false);
   }, [workerId]);
@@ -138,8 +138,8 @@ function CompetenceTab({ workerId }) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await workerApiRequest({ pathname: `/v1/workers/${workerId}/competence` });
-        const items = res?.items || res || [];
+        const data = await workerApiRequest({ pathname: `/v1/workers/${workerId}/competence` });
+        const items = data?.competence || data?.entries || data || [];
         items.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
         setRows(items);
       } catch { setRows([]); }
@@ -177,8 +177,8 @@ function CompetenceTab({ workerId }) {
                 </td>
                 <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{r.total_runs ?? 0}</td>
                 <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{successRate}%</td>
-                <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{r.avg_duration ? `${(r.avg_duration / 1000).toFixed(1)}s` : "--"}</td>
-                <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{r.avg_cost != null ? `$${r.avg_cost.toFixed(3)}` : "--"}</td>
+                <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{(r.avg_duration_ms ?? r.avg_duration) ? `${((r.avg_duration_ms ?? r.avg_duration) / 1000).toFixed(1)}s` : "--"}</td>
+                <td style={{ padding: "10px", color: "var(--text-secondary)" }}>{(r.avg_cost_usd ?? r.avg_cost) != null ? `$${(r.avg_cost_usd ?? r.avg_cost).toFixed(3)}` : "--"}</td>
               </tr>
             );
           })}
@@ -201,8 +201,8 @@ function SessionsTab({ workerId }) {
   const fetchSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await workerApiRequest({ pathname: `/v1/workers/${workerId}/sessions` });
-      setSessions(res?.items || res || []);
+      const data = await workerApiRequest({ pathname: `/v1/workers/${workerId}/sessions` });
+      setSessions(data?.sessions || data || []);
     } catch { setSessions([]); }
     setLoading(false);
   }, [workerId]);
@@ -271,8 +271,8 @@ function TraceTab({ workerId }) {
         const eid = latest?.id || latest?.execution_id;
         if (eid) {
           setExecId(eid);
-          const res = await workerApiRequest({ pathname: `/v1/workers/${workerId}/executions/${eid}/trace` });
-          setTrace(res?.items || res || []);
+          const data = await workerApiRequest({ pathname: `/v1/workers/${workerId}/executions/${eid}/trace` });
+          setTrace(data?.trace || data || []);
         }
       } catch { setTrace([]); }
       setLoading(false);
