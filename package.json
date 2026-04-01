@@ -139,7 +139,8 @@
     "@composio/core": "^0.6.7",
     "@sentry/node": "^10.16.0",
     "ioredis": "^5.10.1",
-    "pg": "^8.19.0"
+    "pg": "^8.19.0",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -149,7 +150,6 @@
     "ajv-formats": "^3.0.1",
     "eslint": "^10.0.2",
     "globals": "^17.3.0",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "overrides": {

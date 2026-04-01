@@ -40,5 +40,5 @@ COPY services ./services
 
 EXPOSE 3000
 
-# Distroless node image uses "node" as the entrypoint.
-CMD ["src/api/server.js"]
+# Use tsx to handle .ts imports at runtime.
+CMD ["node_modules/.bin/tsx", "services/runtime/server.js"]

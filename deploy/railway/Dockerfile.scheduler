@@ -12,4 +12,4 @@ WORKDIR /app
 COPY --from=build --chown=65532:65532 /app /app
 ENV NODE_ENV=production
 EXPOSE 8080
-CMD ["services/runtime/server.js"]
+CMD ["node_modules/.bin/tsx", "services/runtime/server.js"]
