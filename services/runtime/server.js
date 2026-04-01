@@ -53,6 +53,7 @@ import {
 } from './runtime-enforcement.js';
 import { startEventRouter } from './event-router.ts';
 import { loadSessionMessages, updateSessionAfterExecution, extractSessionUpdates } from './sessions.ts';
+import { loadRelevantMemories, extractEpisodicMemories, storeEpisodicMemories } from './memory.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -286,14 +287,14 @@ async function saveWorkerMemory(workerId, tenantId, key, value, scope = 'worker'
   try {
     if (scope === 'team') {
       await pool.query(`
-        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, now())
+        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, memory_type, source, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'semantic', 'agent', now())
         ON CONFLICT (tenant_id, key) DO UPDATE SET value = $5, updated_at = now()
       `, [generateId('mem'), workerId, tenantId, key, value, scope]);
     } else {
       await pool.query(`
-        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, now())
+        INSERT INTO worker_memory (id, worker_id, tenant_id, key, value, scope, memory_type, source, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'semantic', 'agent', now())
         ON CONFLICT (worker_id, key) DO UPDATE SET value = $5, updated_at = now()
       `, [generateId('mem'), workerId, tenantId, key, value, scope]);
     }
@@ -1141,8 +1142,16 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       }
     }
 
-    // Load persistent memory from previous runs + team-wide shared memory
-    const workerMemory = await loadWorkerMemory(worker.id, worker.tenant_id);
+    // Load relevant memories (scored by recency, frequency, and keyword overlap)
+    const taskContext = charter.task || charter.prompt || charter.goal || worker.description || '';
+    let workerMemory = [];
+    try {
+      workerMemory = await loadRelevantMemories(pool, worker.id, worker.tenant_id, taskContext, 20);
+    } catch (err) {
+      log('warn', `Failed to load memories for worker ${worker.id}: ${err.message}`);
+      // Fallback to old method
+      workerMemory = await loadWorkerMemory(worker.id, worker.tenant_id);
+    }
     if (workerMemory.length > 0) {
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
     }
@@ -1966,6 +1975,17 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       } catch (sessionErr) {
         log('warn', `Failed to update session ${sessionId} after execution ${executionId}: ${sessionErr.message}`);
       }
+    }
+
+    // Auto-extract and store episodic memories from this execution
+    try {
+      const episodicMemories = extractEpisodicMemories(activity, finalResponse || '');
+      if (episodicMemories.length > 0) {
+        await storeEpisodicMemories(pool, worker.id, worker.tenant_id, executionId, episodicMemories);
+        addActivity('memory', `Auto-extracted ${episodicMemories.length} episodic memory/memories`);
+      }
+    } catch (err) {
+      log('warn', `Failed to extract episodic memories for ${executionId}: ${err.message}`);
     }
 
     // Extract and save memory entries from LLM response
