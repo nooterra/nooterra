@@ -1100,6 +1100,31 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     const charter = typeof worker.charter === 'string' ? JSON.parse(worker.charter) : worker.charter;
     const knowledge = typeof worker.knowledge === 'string' ? JSON.parse(worker.knowledge) : worker.knowledge;
 
+    // Load delegation grant constraints if this execution was delegated
+    let delegationGrant = null;
+    try {
+      const execRow = await pool.query('SELECT grant_id FROM worker_executions WHERE id = $1', [executionId]);
+      const grantId = execRow.rows[0]?.grant_id;
+      if (grantId) {
+        const grantRow = await pool.query('SELECT * FROM delegation_grants WHERE id = $1 AND status = $2', [grantId, 'active']);
+        delegationGrant = grantRow.rows[0] || null;
+        if (delegationGrant) {
+          addActivity('delegation', `Running under delegation grant ${grantId} from worker ${delegationGrant.parent_worker_id}`);
+          // Restrict charter to only granted capabilities
+          const grantedCaps = delegationGrant.granted_capabilities || [];
+          if (grantedCaps.length > 0 && charter.capabilities) {
+            const restricted = {};
+            for (const cap of grantedCaps) {
+              if (charter.capabilities[cap]) restricted[cap] = charter.capabilities[cap];
+            }
+            charter.capabilities = restricted;
+          }
+        }
+      }
+    } catch (err) {
+      log('warn', `Failed to load delegation grant for ${executionId}: ${err.message}`);
+    }
+
     const isShadowMode = worker.shadow === true || worker.status === 'shadow' || triggerType === 'shadow';
     if (isShadowMode) {
       addActivity('shadow', 'Running in shadow mode — no real actions will be taken');
@@ -2087,6 +2112,19 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     }
 
     const executionSucceeded = finalExecutionStatus === 'completed' || finalExecutionStatus === 'shadow_completed';
+
+    // Complete delegation grant if this was a delegated execution
+    if (delegationGrant) {
+      try {
+        const { completeDelegation } = await import('./delegation.ts');
+        await completeDelegation(pool, delegationGrant.id, {
+          status: executionSucceeded ? 'completed' : 'failed',
+          result: finalResponse || '',
+        });
+      } catch (err) {
+        log('warn', `Failed to complete delegation ${delegationGrant.id}: ${err.message}`);
+      }
+    }
 
     // Update worker stats
     await pool.query(`

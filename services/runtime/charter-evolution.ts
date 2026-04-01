@@ -182,6 +182,23 @@ export async function applyProposal(
     charter.askFirst = askFirst;
   }
 
+  // Also update typed capabilities if they exist
+  if (charter.capabilities && typeof charter.capabilities === "object") {
+    for (const [toolName, cap] of Object.entries(charter.capabilities)) {
+      const capObj = cap as Record<string, unknown>;
+      if (proposal.proposal_type === "promote" && capObj.allow === "askFirst") {
+        if (toolName === proposal.tool_name || proposal.rule_text?.toLowerCase().includes(toolName.replace(/_/g, " "))) {
+          (charter.capabilities as Record<string, any>)[toolName].allow = "canDo";
+        }
+      }
+      if (proposal.proposal_type === "demote" && capObj.allow === "canDo") {
+        if (toolName === proposal.tool_name || proposal.rule_text?.toLowerCase().includes(toolName.replace(/_/g, " "))) {
+          (charter.capabilities as Record<string, any>)[toolName].allow = "askFirst";
+        }
+      }
+    }
+  }
+
   // 5. Persist
   await pool.query(
     "UPDATE workers SET charter = $2, updated_at = now() WHERE id = $1",
