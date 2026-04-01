@@ -46,6 +46,7 @@
     "dev:magic-link": "node services/magic-link/src/server.js",
     "setup:onboard": "node scripts/setup/onboard.mjs",
     "start:runtime": "NODE_ENV=production npx tsx services/runtime/server.js",
+    "start:scheduler": "NODE_ENV=production npx tsx services/runtime/server.js",
     "dev:runtime": "npx tsx services/runtime/server.js",
     "start:magic-link": "NODE_ENV=production node services/magic-link/src/server.js",
     "load:ingest": "k6 run scripts/load/ingest-burst.k6.js",
