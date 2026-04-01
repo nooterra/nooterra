@@ -45,8 +45,8 @@
     "postinstall": "node scripts/init/postinstall-sanity.mjs",
     "dev:magic-link": "node services/magic-link/src/server.js",
     "setup:onboard": "node scripts/setup/onboard.mjs",
-    "start:runtime": "NODE_ENV=production node services/runtime/server.js",
-    "dev:runtime": "node services/runtime/server.js",
+    "start:runtime": "NODE_ENV=production npx tsx services/runtime/server.js",
+    "dev:runtime": "npx tsx services/runtime/server.js",
     "start:magic-link": "NODE_ENV=production node services/magic-link/src/server.js",
     "load:ingest": "k6 run scripts/load/ingest-burst.k6.js",
     "load:deliveries": "node scripts/load/run-delivery-load.js",
@@ -82,6 +82,7 @@
     "dev:billing:doctor": "bash scripts/dev/billing-doctor.sh",
     "dev:billing:webhook:replay": "bash scripts/dev/billing-webhook-replay.sh",
     "dev:billing:smoke:prod": "bash scripts/dev/billing-smoke-prod.sh",
+    "type-check": "tsc --noEmit",
     "lint": "npm run -s lint:syntax && npm run -s lint:eslint",
     "lint:syntax": "node scripts/ci/run-syntax-lint.mjs",
     "lint:eslint": "eslint bin services/runtime services/magic-link src/db src/product test/runtime-*.test.js dashboard/src --cache --cache-location .cache/eslint",
@@ -142,10 +143,14 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "eslint": "^10.0.2",
-    "globals": "^17.3.0"
+    "globals": "^17.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   },
   "overrides": {
     "minimatch": "^10.2.2"

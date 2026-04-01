@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createDefaultVerificationPlan, runVerification } from "../services/runtime/verification-engine.js";
+import { createDefaultVerificationPlan, runVerification } from "../services/runtime/verification-engine.ts";
 
 test("scheduler verification: default plan fails closed on pending approvals and interruptions", () => {
   const report = runVerification(

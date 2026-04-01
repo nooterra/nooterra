@@ -1,6 +1,52 @@
 import crypto from 'node:crypto';
+import type { Pool } from 'pg';
 
-export function buildSignalId(executionId, toolName, args) {
+interface ToolResult {
+  name: string;
+  args?: Record<string, unknown>;
+  charterVerdict?: string;
+  approvalDecision?: string | null;
+  matchedRule?: string | null;
+  success?: boolean;
+}
+
+interface BlockedAction {
+  tool: string;
+  args?: Record<string, unknown>;
+  rule?: string | null;
+}
+
+interface BuildSignalsInput {
+  executionId: string;
+  workerId: string;
+  tenantId: string;
+  toolResults?: ToolResult[];
+  blockedActions?: BlockedAction[];
+  executionOutcome?: string;
+  interruptionCode?: string | null;
+}
+
+interface Signal {
+  id: string;
+  tenant_id: string;
+  worker_id: string;
+  execution_id: string;
+  tool_name: string;
+  args_hash: string | null;
+  charter_verdict: string;
+  approval_decision: string | null;
+  matched_rule: string | null;
+  tool_success: boolean;
+  interruption_code: string | null;
+  execution_outcome: string;
+}
+
+interface QueryOptions {
+  limit?: number;
+  lookbackDays?: number;
+}
+
+export function buildSignalId(executionId: string, toolName: string, args: unknown): string {
   const hash = crypto.createHash('sha256')
     .update(JSON.stringify({ executionId, toolName, args }))
     .digest('hex')
@@ -8,7 +54,7 @@ export function buildSignalId(executionId, toolName, args) {
   return `sig_${hash}`;
 }
 
-function hashArgs(args) {
+function hashArgs(args: unknown): string | null {
   if (!args || typeof args !== 'object') return null;
   return crypto.createHash('sha256')
     .update(JSON.stringify(args))
@@ -21,8 +67,8 @@ export function buildSignalsFromExecution({
   toolResults = [], blockedActions = [],
   executionOutcome = 'success',
   interruptionCode = null,
-}) {
-  const signals = [];
+}: BuildSignalsInput): Signal[] {
+  const signals: Signal[] = [];
 
   for (const tr of toolResults) {
     signals.push({
@@ -61,10 +107,10 @@ export function buildSignalsFromExecution({
   return signals;
 }
 
-export async function persistSignals(pool, signals) {
+export async function persistSignals(pool: Pool, signals: Signal[]): Promise<void> {
   if (!signals.length) return;
-  const values = [];
-  const params = [];
+  const values: string[] = [];
+  const params: unknown[] = [];
   for (let i = 0; i < signals.length; i++) {
     const s = signals[i];
     const offset = i * 13;
@@ -81,7 +127,7 @@ export async function persistSignals(pool, signals) {
   );
 }
 
-export async function querySignalsForWorker(pool, workerId, tenantId, { limit = 500, lookbackDays = 30 } = {}) {
+export async function querySignalsForWorker(pool: Pool, workerId: string, tenantId: string, { limit = 500, lookbackDays = 30 }: QueryOptions = {}): Promise<Record<string, unknown>[]> {
   const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const result = await pool.query(
     `SELECT tool_name, args_hash, charter_verdict, approval_decision, matched_rule, tool_success, interruption_code, execution_outcome, created_at

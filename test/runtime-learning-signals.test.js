@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSignalsFromExecution, buildSignalId } from '../services/runtime/learning-signals.js';
+import { buildSignalsFromExecution, buildSignalId } from '../services/runtime/learning-signals.ts';
 
 describe('learning signals', () => {
   it('extracts one signal per tool call with charter verdicts', () => {

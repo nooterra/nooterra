@@ -8,7 +8,7 @@ import {
   isValidApprovalStatusDecision,
   isValidApprovalTransition,
   isValidExecutionTransition,
-} from "../services/runtime/state-machine.js";
+} from "../services/runtime/state-machine.ts";
 
 test("scheduler state machine: execution transitions allow only legal runtime paths", () => {
   assert.equal(isKnownExecutionStatus("awaiting_approval"), true);

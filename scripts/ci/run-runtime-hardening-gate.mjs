@@ -16,9 +16,12 @@ function runShell(command) {
 }
 
 console.log("[runtime-hardening] running runtime test pack");
-runShell("node --test test/runtime-*.test.js");
+runShell("npx tsx --test test/runtime-*.test.js");
 
 console.log("[runtime-hardening] running runtime lint pack");
 runShell("npx eslint services/runtime/*.js test/runtime-*.test.js");
+
+console.log("[runtime-hardening] running type check");
+runShell("npx tsc --noEmit");
 
 console.log("[runtime-hardening] gate passed");
