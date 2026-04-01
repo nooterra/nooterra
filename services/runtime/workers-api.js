@@ -1710,10 +1710,25 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     const isShadow = searchParams.get('shadow') === 'true' || body?.shadow === true;
     const triggerType = isShadow ? 'shadow' : 'manual';
 
+    // Resolve session_id: use provided session_id, or create one from goal
+    let sessionId = body?.session_id || null;
+    if (!sessionId && body?.goal) {
+      const { getOrCreateSession } = await import('./sessions.ts');
+      const session = await getOrCreateSession(pool, runMatch[1], tid, { goal: body.goal.trim() });
+      if (session) sessionId = session.id;
+    }
+
     const execId = generateId('exec');
+    const insertCols = ['id', 'worker_id', 'tenant_id', 'trigger_type', 'status', 'model', 'started_at'];
+    const insertVals = [execId, runMatch[1], tid, triggerType, 'queued', wr.rows[0].model, new Date().toISOString()];
+    if (sessionId) {
+      insertCols.push('session_id');
+      insertVals.push(sessionId);
+    }
+    const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(',');
     const result = await pool.query(
-      `INSERT INTO worker_executions (id, worker_id, tenant_id, trigger_type, status, model, started_at) VALUES ($1,$2,$3,$4,'queued',$5,$6) RETURNING *`,
-      [execId, runMatch[1], tid, triggerType, wr.rows[0].model, new Date().toISOString()]
+      `INSERT INTO worker_executions (${insertCols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+      insertVals
     );
     return json(res, 202, { execution: result.rows[0] }), true;
   }
@@ -3266,6 +3281,71 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     } catch (e) {
       return err(res, 500, e?.message || 'team generation failed'), true;
     }
+  }
+
+  // GET /v1/workers/:id/sessions — list active sessions
+  const sessionsListMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/sessions$/);
+  if (method === 'GET' && sessionsListMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = sessionsListMatch[1];
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const { listActiveSessions } = await import('./sessions.ts');
+    const sessions = await listActiveSessions(pool, workerId);
+    return json(res, 200, { sessions }), true;
+  }
+
+  // POST /v1/workers/:id/sessions — create session
+  if (method === 'POST' && sessionsListMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = sessionsListMatch[1];
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const body = await readBody(req);
+    if (!body?.goal?.trim()) return err(res, 400, 'goal is required'), true;
+    const { getOrCreateSession } = await import('./sessions.ts');
+    const session = await getOrCreateSession(pool, workerId, tid, { goal: body.goal.trim() });
+    return json(res, 201, { session }), true;
+  }
+
+  // GET /v1/workers/:id/sessions/:sessionId — session detail with executions
+  const sessionDetailMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/sessions\/([^/]+)$/);
+  if (method === 'GET' && sessionDetailMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const [, workerId, sessionId] = sessionDetailMatch;
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const result = await pool.query(
+      `SELECT s.*,
+        COALESCE(json_agg(json_build_object(
+          'id', e.id, 'status', e.status, 'trigger_type', e.trigger_type,
+          'started_at', e.started_at, 'completed_at', e.completed_at,
+          'cost_usd', e.cost_usd
+        ) ORDER BY e.started_at) FILTER (WHERE e.id IS NOT NULL), '[]') AS executions
+      FROM worker_sessions s
+      LEFT JOIN worker_executions e ON e.session_id = s.id
+      WHERE s.id = $1 AND s.worker_id = $2
+      GROUP BY s.id`,
+      [sessionId, workerId]
+    );
+    if (result.rowCount === 0) return err(res, 404, 'session not found'), true;
+    return json(res, 200, { session: result.rows[0] }), true;
+  }
+
+  // POST /v1/workers/:id/sessions/:sessionId/complete — complete session
+  const sessionCompleteMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/sessions\/([^/]+)\/complete$/);
+  if (method === 'POST' && sessionCompleteMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const [, workerId, sessionId] = sessionCompleteMatch;
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const { completeSession } = await import('./sessions.ts');
+    await completeSession(pool, sessionId);
+    return json(res, 200, { ok: true }), true;
   }
 
   return false; // Not handled
