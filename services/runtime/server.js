@@ -1335,6 +1335,8 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     const toolNames = [];
     const blockedActions = [];
     const approvalsPending = [];
+    // Track daily tool call counts for capability constraints
+    const dailyToolCounts = {};
     const executedToolResults = [];
     const verificationPlan = charter.verificationPlan || createDefaultVerificationPlan();
     let interruption = null;
@@ -1349,9 +1351,10 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
 
       for (const tc of result.toolCalls) {
         toolNames.push(tc.name);
+        dailyToolCounts[tc.name] = (dailyToolCounts[tc.name] || 0) + 1;
         const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
         if (isResume) continue;
-        const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, executionPolicy);
+        const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, { ...executionPolicy, dailyCounts: dailyToolCounts });
 
         if (!validation.allowed) {
           if (validation.requiresApproval) {
@@ -1752,8 +1755,9 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           toolCallCount += lastResult.toolCalls.length;
           for (const tc of lastResult.toolCalls) {
             toolNames.push(tc.name);
+            dailyToolCounts[tc.name] = (dailyToolCounts[tc.name] || 0) + 1;
             const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments || '{}') : (tc.arguments || {});
-            const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, executionPolicy);
+            const validation = validateToolCall(charter, tc.name, args, charter.worldModel || null, { ...executionPolicy, dailyCounts: dailyToolCounts });
             if (!validation.allowed && !validation.requiresApproval) {
               addActivity('charter_block', `Round ${rounds}: tool "${tc.name}" blocked: ${validation.reason}`);
               blockedActions.push({ tool: tc.name, args, rule: validation.rule });

@@ -35,6 +35,7 @@ export interface Charter {
   prompt?: string;
   tools?: ToolDefinition[];
   maxDailyRuns?: number;
+  capabilities?: CapabilityMap;
 }
 
 export interface ToolDefinition {
@@ -236,3 +237,24 @@ export interface MemoryEntry {
   updated_at: string;
   expires_at: string | null;
 }
+
+// ── Capabilities ────────────────────────────────────────
+
+export type CapabilityAllow = 'canDo' | 'askFirst' | 'neverDo';
+
+export interface CapabilityConstraints {
+  to_domains?: string[];
+  max_amount_usd?: number;
+  max_per_day?: number;
+  allowed_values?: Record<string, string[]>;
+  blocked_values?: Record<string, string[]>;
+  max_length?: Record<string, number>;
+  pattern?: Record<string, string>;
+}
+
+export interface Capability {
+  allow: CapabilityAllow;
+  constraints?: CapabilityConstraints;
+}
+
+export type CapabilityMap = Record<string, Capability>;
