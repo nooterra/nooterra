@@ -280,3 +280,20 @@ export interface CharterProposal {
   decided_at: string | null;
   created_at: string;
 }
+
+// ── Competence ──────────────────────────────────────────
+
+export interface CompetenceEntry {
+  id: string;
+  worker_id: string;
+  tenant_id: string;
+  task_type: string;
+  total_runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  avg_duration_ms: number;
+  avg_cost_usd: number;
+  last_run_at: string | null;
+  score: number;
+  updated_at: string;
+}
