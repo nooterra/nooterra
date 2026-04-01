@@ -52,6 +52,7 @@ import {
   resolveVerificationEnforcementDecision,
 } from './runtime-enforcement.js';
 import { startEventRouter } from './event-router.ts';
+import { loadSessionMessages, updateSessionAfterExecution, extractSessionUpdates } from './sessions.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -1219,6 +1220,23 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     }
 
     const messages = buildMessages(charter, knowledge, worker, workerMemory);
+
+    // Load session context if this execution belongs to a session
+    let sessionId = null;
+    try {
+      const sessionRow = await pool.query('SELECT session_id FROM worker_executions WHERE id = $1', [executionId]);
+      sessionId = sessionRow.rows[0]?.session_id || null;
+      if (sessionId) {
+        const sessionMessages = await loadSessionMessages(pool, sessionId);
+        if (sessionMessages.length > 0) {
+          messages.push(...sessionMessages);
+          addActivity('session', 'Loaded session context');
+        }
+      }
+    } catch (sessionErr) {
+      log('warn', `Failed to load session context for execution ${executionId}: ${sessionErr.message}`);
+    }
+
     const executionContextMessages = buildExecutionContextMessages({
       triggerType,
       metadata: executionMetadata,
@@ -1932,6 +1950,23 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       error: finalExecutionError,
       receipt,
     }, worker.tenant_id, totalCost);
+
+    // Update session after execution
+    if (sessionId) {
+      try {
+        await updateSessionAfterExecution(pool, sessionId, {
+          id: executionId,
+          result: finalResponse || '',
+          activity,
+        });
+        const { sessionComplete } = extractSessionUpdates(finalResponse || '');
+        if (sessionComplete) {
+          log('info', `Session ${sessionId} marked complete by execution ${executionId}`);
+        }
+      } catch (sessionErr) {
+        log('warn', `Failed to update session ${sessionId} after execution ${executionId}: ${sessionErr.message}`);
+      }
+    }
 
     // Extract and save memory entries from LLM response
     // REMEMBER: saves to this worker only
