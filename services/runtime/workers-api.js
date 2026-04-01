@@ -2445,6 +2445,78 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
   }
 
+  // GET /v1/workers/:id/proposals — list pending charter change proposals
+  const proposalsListMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/proposals$/);
+  if (method === 'GET' && proposalsListMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = proposalsListMatch[1];
+    const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    try {
+      const { listPendingProposals } = await import('./charter-evolution.ts');
+      const proposals = await listPendingProposals(pool, workerId);
+      return json(res, 200, { proposals }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to list proposals'), true;
+    }
+  }
+
+  // POST /v1/workers/:id/proposals/generate — trigger charter change proposal generation
+  const proposalsGenerateMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/proposals\/generate$/);
+  if (method === 'POST' && proposalsGenerateMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = proposalsGenerateMatch[1];
+    const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    try {
+      const { generateProposals } = await import('./charter-evolution.ts');
+      const proposals = await generateProposals(pool, workerId, tid);
+      return json(res, 200, { generated: proposals.length, proposals }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to generate proposals'), true;
+    }
+  }
+
+  // POST /v1/workers/:id/proposals/:proposalId/approve — approve and apply a charter change
+  const proposalApproveMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/proposals\/([^/]+)\/approve$/);
+  if (method === 'POST' && proposalApproveMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = proposalApproveMatch[1];
+    const proposalId = proposalApproveMatch[2];
+    const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const body = await readBody(req);
+    try {
+      const { applyProposal } = await import('./charter-evolution.ts');
+      const result = await applyProposal(pool, proposalId, body?.decided_by || 'dashboard');
+      return json(res, 200, result), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to approve proposal'), true;
+    }
+  }
+
+  // POST /v1/workers/:id/proposals/:proposalId/reject — reject a charter change proposal
+  const proposalRejectMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/proposals\/([^/]+)\/reject$/);
+  if (method === 'POST' && proposalRejectMatch) {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const workerId = proposalRejectMatch[1];
+    const proposalId = proposalRejectMatch[2];
+    const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    const body = await readBody(req);
+    try {
+      const { rejectProposal } = await import('./charter-evolution.ts');
+      await rejectProposal(pool, proposalId, body?.decided_by || 'dashboard');
+      return json(res, 200, { status: 'rejected' }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to reject proposal'), true;
+    }
+  }
+
   // GET /v1/workers/:id/feed — SSE activity feed (uses header auth for SSE compatibility)
   const feedMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/feed$/);
   if (method === 'GET' && feedMatch) {
