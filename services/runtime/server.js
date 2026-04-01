@@ -2379,7 +2379,12 @@ async function pollCronWorkers() {
 
   const dueWorkers = [];
   for (const worker of result.rows) {
-    const schedule = typeof worker.schedule === 'string' ? JSON.parse(worker.schedule) : worker.schedule;
+    let schedule;
+    try {
+      schedule = typeof worker.schedule === 'string' ? JSON.parse(worker.schedule) : worker.schedule;
+    } catch {
+      continue; // skip workers with non-JSON schedule values (e.g. "continuous")
+    }
     if (!schedule) continue;
 
     const cronExpr = extractCronExpr(schedule);
