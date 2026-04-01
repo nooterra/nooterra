@@ -301,6 +301,32 @@ export interface CompetenceEntry {
   updated_at: string;
 }
 
+// ── Execution Traces ──────────────────────────────────
+
+export type TraceType =
+  | 'llm_call'
+  | 'tool_check'
+  | 'tool_exec'
+  | 'charter_decision'
+  | 'approval_gate'
+  | 'verification'
+  | 'memory_load'
+  | 'session_update'
+  | 'delegation'
+  | 'error';
+
+export interface TraceEntry {
+  id: string;
+  execution_id: string;
+  worker_id: string;
+  tenant_id: string;
+  seq: number;
+  trace_type: TraceType;
+  payload: Record<string, unknown>;
+  duration_ms: number | null;
+  created_at: string;
+}
+
 // ── Delegation ─────────────────────────────────────────
 
 export interface DelegationGrant {
