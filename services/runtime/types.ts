@@ -215,3 +215,24 @@ export interface SessionHistoryEntry {
   ts: string;
   summary: string;
 }
+
+// ── Memory ──────────────────────────────────────────────
+
+export type MemoryType = 'semantic' | 'episodic' | 'procedural';
+export type MemorySource = 'agent' | 'system';
+
+export interface MemoryEntry {
+  id: string;
+  worker_id: string;
+  tenant_id: string | null;
+  key: string;
+  value: string;
+  scope: 'worker' | 'team';
+  memory_type: MemoryType;
+  source: MemorySource;
+  metadata: Record<string, unknown>;
+  access_count: number;
+  last_accessed_at: string | null;
+  updated_at: string;
+  expires_at: string | null;
+}
