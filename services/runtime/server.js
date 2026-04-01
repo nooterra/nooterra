@@ -1112,12 +1112,34 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
           addActivity('delegation', `Running under delegation grant ${grantId} from worker ${delegationGrant.parent_worker_id}`);
           // Restrict charter to only granted capabilities
           const grantedCaps = delegationGrant.granted_capabilities || [];
-          if (grantedCaps.length > 0 && charter.capabilities) {
-            const restricted = {};
-            for (const cap of grantedCaps) {
-              if (charter.capabilities[cap]) restricted[cap] = charter.capabilities[cap];
+          if (grantedCaps.length > 0) {
+            // Restrict typed capabilities
+            if (charter.capabilities) {
+              const restricted = {};
+              for (const cap of grantedCaps) {
+                if (charter.capabilities[cap]) restricted[cap] = charter.capabilities[cap];
+              }
+              charter.capabilities = restricted;
             }
-            charter.capabilities = restricted;
+            // Also restrict string canDo rules to only those matching granted capabilities.
+            // If a canDo rule doesn't match any granted capability name, demote it to askFirst.
+            if (Array.isArray(charter.canDo)) {
+              const demoted = [];
+              charter.canDo = charter.canDo.filter(rule => {
+                const ruleNorm = rule.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const matched = grantedCaps.some(cap => {
+                  const capNorm = cap.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  return ruleNorm.includes(capNorm) || capNorm.includes(ruleNorm);
+                });
+                if (!matched) demoted.push(rule);
+                return matched;
+              });
+              // Demoted rules become askFirst (require approval)
+              if (demoted.length > 0) {
+                charter.askFirst = [...(charter.askFirst || []), ...demoted];
+                addActivity('delegation', `Demoted ${demoted.length} canDo rule(s) to askFirst (not in granted capabilities)`);
+              }
+            }
           }
         }
       }

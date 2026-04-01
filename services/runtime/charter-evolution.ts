@@ -134,6 +134,70 @@ export async function generateProposals(
     created.push({ id, proposal_type: "demote", rule_text: ruleText, confidence });
   }
 
+  // ── Typed capability promotion / demotion ─────────────
+  if (charter.capabilities && typeof charter.capabilities === "object") {
+    for (const [toolName, cap] of Object.entries(charter.capabilities as Record<string, any>)) {
+      if (cap.allow === "askFirst") {
+        // Check approval history for this specific tool
+        const toolApprovals = approvals.filter((a: any) =>
+          a.tool_name === toolName || (a.matched_rule && a.matched_rule.toLowerCase().includes(toolName.replace(/_/g, " ")))
+        );
+        const approved = toolApprovals.filter((a: any) => {
+          const d = String(a.decision || a.status || "").toLowerCase();
+          return d === "approved" || d === "resumed";
+        }).length;
+        const denied = toolApprovals.filter((a: any) => {
+          const d = String(a.decision || a.status || "").toLowerCase();
+          return d === "denied";
+        }).length;
+
+        if (approved >= 5 && denied === 0) {
+          const confidence = Math.min(0.99, 0.55 + Math.min(approved, 10) * 0.03 + 0.15);
+          if (confidence >= 0.7) {
+            const { rows: existing } = await pool.query(
+              "SELECT id FROM charter_proposals WHERE worker_id = $1 AND rule_text = $2 AND status = $3",
+              [workerId, toolName, "pending"],
+            );
+            if (existing.length === 0) {
+              const id = makeId();
+              await pool.query(
+                `INSERT INTO charter_proposals
+                   (id, worker_id, tenant_id, status, proposal_type, tool_name,
+                    from_level, to_level, rule_text, confidence, evidence)
+                 VALUES ($1,$2,$3,'pending','promote',$4,'askFirst','canDo',$4,$5,$6)`,
+                [id, workerId, tenantId, toolName, confidence, JSON.stringify({ approved, denied, source: "typed_capability" })],
+              );
+              created.push({ id, tool_name: toolName, proposal_type: "promote", confidence });
+            }
+          }
+        }
+      }
+
+      if (cap.allow === "canDo") {
+        // Check for demotion: tools with repeated failures
+        const toolSignals = signals.filter((s: any) => s.tool_name === toolName);
+        const failures = toolSignals.filter((s: any) => s.tool_success === false).length;
+        if (failures >= 3) {
+          const { rows: existing } = await pool.query(
+            "SELECT id FROM charter_proposals WHERE worker_id = $1 AND rule_text = $2 AND status = $3",
+            [workerId, toolName, "pending"],
+          );
+          if (existing.length === 0) {
+            const id = makeId();
+            await pool.query(
+              `INSERT INTO charter_proposals
+                 (id, worker_id, tenant_id, status, proposal_type, tool_name,
+                  from_level, to_level, rule_text, confidence, evidence)
+               VALUES ($1,$2,$3,'pending','demote',$4,'canDo','askFirst',$4,$5,$6)`,
+              [id, workerId, tenantId, toolName, 0.8, JSON.stringify({ failures, source: "typed_capability" })],
+            );
+            created.push({ id, tool_name: toolName, proposal_type: "demote", confidence: 0.8 });
+          }
+        }
+      }
+    }
+  }
+
   return created;
 }
 
