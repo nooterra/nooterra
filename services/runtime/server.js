@@ -55,6 +55,7 @@ import { startEventRouter } from './event-router.ts';
 import { loadSessionMessages, updateSessionAfterExecution, extractSessionUpdates } from './sessions.ts';
 import { loadRelevantMemories, extractEpisodicMemories, storeEpisodicMemories } from './memory.ts';
 import { classifyTaskType, updateCompetence } from './competence.ts';
+import { isMetaAgent, executeMetaAgentTool, getMetaAgentTools } from './meta-agent.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -1278,6 +1279,13 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     const builtinTools = getBuiltinTools();
     tools.push(...builtinTools);
     addActivity('tools_loaded', `${builtinTools.length} built-in tool(s) available`);
+
+    // Add meta-agent management tools if this is the meta-agent
+    if (isMetaAgent(worker)) {
+      const metaTools = getMetaAgentTools(pool, worker.tenant_id);
+      tools.push(...metaTools);
+      addActivity('meta_agent', `Loaded ${metaTools.length} fleet management tools`);
+    }
     if (tools.length === 0) tools = undefined;
 
     let result;
@@ -1512,6 +1520,9 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
               let toolResult;
               if (isShadowMode) {
                 toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+              } else if (tc.name.startsWith('__') && isMetaAgent(worker)) {
+                const metaResult = await executeMetaAgentTool(pool, worker.tenant_id, tc.name, args);
+                toolResult = metaResult;
               } else {
                 const toolPromise = isBuiltinTool(tc.name)
                   ? executeBuiltinTool(tc.name, args, {

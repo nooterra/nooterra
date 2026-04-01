@@ -28,6 +28,9 @@ export interface KnowledgeEntry {
 // ── Charter ─────────────────────────────────────────────
 
 export interface Charter {
+  role?: string;
+  goal?: string;
+  instructions?: string;
   canDo?: string[];
   askFirst?: string[];
   neverDo?: string[];

@@ -3444,6 +3444,19 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return json(res, 200, { competence: entries }), true;
   }
 
+  // POST /v1/workers/meta-agent/ensure — create or get the meta-agent for this tenant
+  if (method === 'POST' && pathname === '/v1/workers/meta-agent/ensure') {
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    try {
+      const { ensureMetaAgent } = await import('./meta-agent.ts');
+      const metaAgentId = await ensureMetaAgent(pool, tid);
+      return json(res, 200, { meta_agent_id: metaAgentId }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to ensure meta-agent'), true;
+    }
+  }
+
   return false; // Not handled
 }
 
