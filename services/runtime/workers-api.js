@@ -3457,6 +3457,44 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     }
   }
 
+  // GET /v1/workers/:id/delegations — list delegations from/to this worker
+  const delegationsMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/delegations$/);
+  if (method === 'GET' && delegationsMatch) {
+    const workerId = delegationsMatch[1];
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    try {
+      const { getActiveDelegationsFrom, getActiveDelegationsTo } = await import('./delegation.ts');
+      const [from, to] = await Promise.all([
+        getActiveDelegationsFrom(pool, workerId),
+        getActiveDelegationsTo(pool, workerId),
+      ]);
+      return json(res, 200, { delegated_from: from, delegated_to: to }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to fetch delegations'), true;
+    }
+  }
+
+  // POST /v1/workers/:id/delegations/:grantId/revoke — revoke a delegation
+  const revokeMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/delegations\/([^/]+)\/revoke$/);
+  if (method === 'POST' && revokeMatch) {
+    const workerId = revokeMatch[1];
+    const grantId = revokeMatch[2];
+    const tid = await getAuthenticatedTenantId(req);
+    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const wr = await pool.query('SELECT id FROM workers WHERE id = $1 AND tenant_id = $2', [workerId, tid]);
+    if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
+    try {
+      const { revokeDelegation } = await import('./delegation.ts');
+      await revokeDelegation(pool, grantId);
+      return json(res, 200, { revoked: true, grant_id: grantId }), true;
+    } catch (e) {
+      return err(res, 500, e?.message || 'failed to revoke delegation'), true;
+    }
+  }
+
   return false; // Not handled
 }
 

@@ -56,6 +56,7 @@ import { loadSessionMessages, updateSessionAfterExecution, extractSessionUpdates
 import { loadRelevantMemories, extractEpisodicMemories, storeEpisodicMemories } from './memory.ts';
 import { classifyTaskType, updateCompetence } from './competence.ts';
 import { isMetaAgent, executeMetaAgentTool, getMetaAgentTools } from './meta-agent.ts';
+import { createDelegation, completeDelegation } from './delegation.ts';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -1286,6 +1287,26 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       tools.push(...metaTools);
       addActivity('meta_agent', `Loaded ${metaTools.length} fleet management tools`);
     }
+
+    // Add delegation tool — available to any worker with canDo capabilities
+    tools.push({
+      type: 'function',
+      function: {
+        name: '__delegate_task',
+        description: 'Delegate a subtask to another worker. The child worker gets a subset of your capabilities.',
+        parameters: {
+          type: 'object',
+          properties: {
+            child_worker_id: { type: 'string', description: 'ID of the worker to delegate to' },
+            task_description: { type: 'string', description: 'What the child worker should do' },
+            capabilities: { type: 'array', items: { type: 'string' }, description: 'Capabilities to grant' },
+            max_cost_usd: { type: 'number', description: 'Maximum cost budget' },
+          },
+          required: ['child_worker_id', 'task_description', 'capabilities'],
+        },
+      },
+    });
+
     if (tools.length === 0) tools = undefined;
 
     let result;
@@ -1520,6 +1541,23 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
               let toolResult;
               if (isShadowMode) {
                 toolResult = { success: true, result: { shadow: true, message: `[Shadow] Would execute ${tc.name} with args: ${JSON.stringify(args).slice(0, 200)}` } };
+              } else if (tc.name === '__delegate_task') {
+                try {
+                  const grant = await createDelegation(
+                    pool,
+                    worker.id,
+                    args.child_worker_id,
+                    worker.tenant_id,
+                    {
+                      capabilities: args.capabilities || [],
+                      taskDescription: args.task_description,
+                      maxCostUsd: args.max_cost_usd,
+                    },
+                  );
+                  toolResult = { success: true, result: { grant_id: grant.id, granted_capabilities: grant.granted_capabilities, status: grant.status } };
+                } catch (delegationErr) {
+                  toolResult = { success: false, result: `Delegation failed: ${delegationErr.message}` };
+                }
               } else if (tc.name.startsWith('__') && isMetaAgent(worker)) {
                 const metaResult = await executeMetaAgentTool(pool, worker.tenant_id, tc.name, args);
                 toolResult = metaResult;

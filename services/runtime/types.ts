@@ -300,3 +300,21 @@ export interface CompetenceEntry {
   score: number;
   updated_at: string;
 }
+
+// ── Delegation ─────────────────────────────────────────
+
+export interface DelegationGrant {
+  id: string;
+  parent_worker_id: string;
+  child_worker_id: string;
+  tenant_id: string;
+  status: 'active' | 'revoked' | 'expired' | 'completed';
+  granted_capabilities: string[];
+  max_depth: number;
+  max_cost_usd: number | null;
+  expires_at: string | null;
+  task_description: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string;
+  completed_at: string | null;
+}
