@@ -10,6 +10,11 @@ const LOCK_KEY = "nooterra:migrations:v1";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, "../../../src/db/migrations");
 
+// Only run migrations 034+ (worker/runtime schema).
+// Migrations 001-033 were for the old API and reference tables (jobs, contracts,
+// deliveries, agents, sessions) that don't exist in the runtime database.
+const MIN_MIGRATION = "034_";
+
 export async function runMigrations(pool, log) {
   const lockClient = await pool.connect();
   try {
@@ -29,7 +34,10 @@ export async function runMigrations(pool, log) {
     }
 
     const entries = await fs.readdir(MIGRATIONS_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith(".sql")).map(e => e.name).sort();
+    const files = entries
+      .filter(e => e.isFile() && e.name.endsWith(".sql") && e.name >= MIN_MIGRATION)
+      .map(e => e.name)
+      .sort();
 
     let count = 0;
     for (const filename of files) {
