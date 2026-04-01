@@ -193,3 +193,25 @@ export interface RuntimePolicy {
     signatureFailureThreshold?: number;
   };
 }
+
+// ── Sessions ────────────────────────────────────────────
+
+export type SessionStatus = 'active' | 'paused' | 'completed' | 'failed';
+
+export interface Session {
+  id: string;
+  worker_id: string;
+  tenant_id: string;
+  status: SessionStatus;
+  goal: string | null;
+  context: Record<string, unknown>;
+  history: SessionHistoryEntry[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionHistoryEntry {
+  execution_id: string;
+  ts: string;
+  summary: string;
+}
