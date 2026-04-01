@@ -3550,6 +3550,15 @@ async function start() {
     process.exit(1);
   }
 
+  // Run database migrations (advisory-locked, safe for concurrent deploys)
+  try {
+    const { runMigrations } = await import('./lib/migrate.js');
+    await runMigrations(pool, log);
+  } catch (err) {
+    log('error', `Migration failed: ${err.message}`);
+    process.exit(1);
+  }
+
   // Ensure tables exist (safe to run repeatedly — uses IF NOT EXISTS)
   try {
     await ensureTables();
