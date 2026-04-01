@@ -15,6 +15,14 @@ const MIGRATIONS_DIR = path.resolve(__dirname, "../../../src/db/migrations");
 // deliveries, agents, sessions) that don't exist in the runtime database.
 const MIN_MIGRATION = "034_";
 
+// These migrations reference old-API tables that don't exist in the runtime DB.
+const SKIP_MIGRATIONS = new Set([
+  "035_outbox_listen_notify.sql",    // references outbox table
+  "037_row_level_security.sql",      // references jobs, contracts, deliveries, agents, sessions
+  "042_complete_rls.sql",            // references old-API tables
+  "043_missing_indexes.sql",         // references old-API tables
+]);
+
 export async function runMigrations(pool, log) {
   const lockClient = await pool.connect();
   try {
@@ -42,6 +50,7 @@ export async function runMigrations(pool, log) {
     let count = 0;
     for (const filename of files) {
       if (applied.has(filename)) continue;
+      if (SKIP_MIGRATIONS.has(filename)) continue;
       const full = path.join(MIGRATIONS_DIR, filename);
       const sql = await fs.readFile(full, "utf8");
 
