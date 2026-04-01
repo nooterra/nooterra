@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 import { classifyWithPredicates } from './world-model-predicates.js';
+import { getCapabilityVerdict } from './capabilities.ts';
 
 function logCharterEnforcementDbError(operation, err, context = {}) {
   const payload = {
@@ -368,6 +369,42 @@ export function validateToolCall(charter, toolName, toolArgs, worldModel = null,
       matchedRule,
     };
   }
+
+  // --- Capability type check (deterministic, parameterized) ---
+  // If the charter defines a typed capability for this tool, use it instead of string matching.
+  const capVerdict = getCapabilityVerdict(charter, toolName, toolArgs || {}, policyOverrides?.dailyCounts || {});
+  if (capVerdict !== null) {
+    if (capVerdict.verdict === 'neverDo') {
+      return {
+        allowed: false,
+        reason: capVerdict.reason,
+        rule: capVerdict.reason,
+        ruleType: 'neverDo',
+      };
+    }
+    if (capVerdict.requiresApproval || capVerdict.verdict === 'askFirst') {
+      return {
+        allowed: false,
+        requiresApproval: true,
+        reason: capVerdict.reason,
+        rule: capVerdict.reason,
+        ruleType: 'askFirst',
+        matchedRule: capVerdict.reason,
+      };
+    }
+    if (!capVerdict.allowed) {
+      // Constraint failed — block even if allow was canDo
+      return {
+        allowed: false,
+        reason: capVerdict.reason,
+        rule: capVerdict.failedConstraints?.join(', ') || capVerdict.reason,
+        ruleType: 'capability_constraint',
+      };
+    }
+    // Capability says allowed
+    return { allowed: true, reason: capVerdict.reason, ruleType: 'capability' };
+  }
+  // --- End capability check, fall through to string matching ---
 
   const predicateResult = classifyWithPredicates(toolName, toolArgs, worldModel || charter.worldModel || null);
   if (predicateResult?.verdict === 'neverDo') {
