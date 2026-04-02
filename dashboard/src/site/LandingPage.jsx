@@ -265,7 +265,7 @@ export default function LandingPage() {
               color: T.teal, letterSpacing: '0.1em', textTransform: 'uppercase',
               marginBottom: 20,
             }}>
-              Enterprise World Runtime
+              AI agents for business operations
             </p>
             <h1 style={{
               fontSize: 'clamp(40px, 4.5vw, 64px)',
@@ -292,7 +292,7 @@ export default function LandingPage() {
                 color: T.ivory, background: T.ink, padding: '13px 28px',
                 borderRadius: 2, textDecoration: 'none',
               }}>
-                Start free <ArrowRight size={14} />
+                Request access <ArrowRight size={14} />
               </a>
               <a href="#how" style={{
                 fontSize: 13, color: T.iron, textDecoration: 'none',
@@ -309,9 +309,9 @@ export default function LandingPage() {
               display: 'flex', gap: 32,
             }}>
               {[
-                { label: 'Powered by', value: 'Anthropic + OpenAI' },
-                { label: 'Payments via', value: 'Stripe' },
-                { label: 'Infrastructure', value: 'Railway' },
+                { label: 'Models', value: 'OpenAI, Anthropic, Google' },
+                { label: 'Integrations', value: '250+ via Composio' },
+                { label: 'Infrastructure', value: 'Railway + Postgres' },
               ].map(({ label, value }) => (
                 <div key={label}>
                   <span style={{ fontSize: 10, fontFamily: font.mono, color: T.stone, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block' }}>
@@ -340,13 +340,14 @@ export default function LandingPage() {
             fontSize: 18, fontFamily: font.display, fontStyle: 'italic',
             lineHeight: 1.55, color: T.ink, margin: 0,
           }}>
-            "We replaced three Zapier automations and a part-time VA.
-            The agent caught a $12K invoice we'd missed for two weeks."
+            Nooterra is in private beta. We're building the infrastructure
+            for AI agents that operate inside real businesses — with real data,
+            real actions, and real accountability.
           </p>
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
             <span style={{ fontSize: 12, fontFamily: font.body, fontWeight: 500, color: T.iron }}>
-              Early access design partner — B2B SaaS, 40 employees
+              Accepting early access applications
             </span>
           </div>
         </div>
@@ -466,13 +467,13 @@ export default function LandingPage() {
           </thead>
           <tbody>
             {[
-              ['Knows your business data', '—', '—', '✓'],
-              ['Predicts outcomes', '—', '—', '✓'],
+              ['Connects to your business tools', '—', '✓', '✓'],
+              ['Builds a live data model', '—', '—', '✓'],
               ['Takes real actions', '—', '✓', '✓'],
               ['Governed by policy', '—', '—', '✓'],
               ['Earns autonomy over time', '—', '—', '✓'],
               ['Evidence trail on every action', '—', '—', '✓'],
-              ['Gets smarter from outcomes', '—', '—', '✓'],
+              ['Learns from outcomes', '—', '—', 'Soon'],
             ].map(([cap, chatgpt, zapier, nooterra], i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${T.ruleLight}` }}>
                 <td style={{ padding: '12px 16px 12px 0', color: T.ink }}>{cap}</td>
@@ -506,9 +507,9 @@ export default function LandingPage() {
           {/* Horizontal progression */}
           <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
             {[
-              { phase: 'Shadow', range: 'Week 1–2', desc: 'Agent proposes actions. Nothing executes. You see every decision it would make.', score: '0 executions', color: T.gold },
-              { phase: 'Supervised', range: 'Week 3–4', desc: 'Agent drafts actions. You approve with one click. The system tracks your approval patterns.', score: '38/40 approved', color: T.teal },
-              { phase: 'Autonomous', range: 'Week 5+', desc: 'Proven action types run automatically. Still logged, still auditable, still governed. One incident demotes immediately.', score: '94% procedural', color: T.sage },
+              { phase: 'Shadow', range: 'Week 1–2', desc: 'Agent proposes actions. Nothing executes. You see every decision it would make.', score: 'Observe only', color: T.gold },
+              { phase: 'Supervised', range: 'Week 3–4', desc: 'Agent drafts actions. You approve with one click. The system tracks your approval patterns.', score: 'Human-in-the-loop', color: T.teal },
+              { phase: 'Autonomous', range: 'Week 5+', desc: 'Proven action types execute automatically. Still logged, still auditable, still governed. One incident demotes immediately.', score: 'Earned autonomy', color: T.sage },
             ].map(({ phase, range, desc, score, color }, i) => (
               <div key={phase} style={{
                 flex: 1, padding: '28px 24px',
@@ -555,9 +556,9 @@ export default function LandingPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {[
-              { name: 'Starter', price: '$149', desc: 'See your business as a live model. One agent in shadow mode.', highlight: false },
-              { name: 'Business', price: '$499', desc: 'Full autonomy progression. Predictions. Policy editor. The system runs itself.', highlight: true },
-              { name: 'Enterprise', price: 'Custom', desc: 'Unlimited agents. What-if simulator. SSO. SLA. SOC 2.', highlight: false },
+              { name: 'Beta', price: 'Free', desc: 'Full platform access during private beta. Connect tools, deploy agents, write policies.', highlight: true },
+              { name: 'Pro', price: 'TBD', desc: 'Usage-based pricing after beta. We\'ll announce pricing before any charges.', highlight: false },
+              { name: 'Enterprise', price: 'Contact us', desc: 'Custom deployment, dedicated support, SLAs. Available after general release.', highlight: false },
             ].map(({ name, price, desc, highlight }) => (
               <div key={name} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -583,7 +584,7 @@ export default function LandingPage() {
                     border: highlight ? 'none' : `1px solid ${T.rule}`,
                     padding: '8px 16px', borderRadius: 2, textDecoration: 'none',
                   }}>
-                    {price === 'Custom' ? 'Contact us' : 'Start free'}
+                    {name === 'Enterprise' ? 'Contact us' : name === 'Pro' ? 'Notify me' : 'Request access'}
                   </a>
                 </div>
               </div>
@@ -601,8 +602,8 @@ export default function LandingPage() {
           padding: '20px 0',
         }}>
           {[
-            'Currently in early access with 5 design partners',
-            'Processing live business data since March 2026',
+            'Private beta — accepting applications',
+            'Open source architecture documentation coming soon',
           ].map((text, i) => (
             <span key={i} style={{
               fontSize: 12, fontFamily: font.body, color: T.stone,
@@ -625,12 +626,12 @@ export default function LandingPage() {
           fontSize: 40, fontFamily: font.display, fontWeight: 400,
           lineHeight: 1.1, color: T.ink, marginBottom: 16,
         }}>
-          The most advanced way<br />
-          to deploy AI to your business.
+          AI agents that understand<br />
+          your business. Not just your prompts.
         </h2>
         <p style={{ fontSize: 15, fontFamily: font.body, color: T.iron, maxWidth: 400, margin: '0 auto' }}>
-          Five minutes to connect. One hour to predict.<br />
-          One week to trust. Then it runs itself.
+          Connect your tools. Build a live model.<br />
+          Deploy agents that earn your trust over time.
         </p>
         <a href="/setup" style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -638,7 +639,7 @@ export default function LandingPage() {
           color: T.ivory, background: T.ink, padding: '14px 32px',
           borderRadius: 2, textDecoration: 'none', marginTop: 32,
         }}>
-          Get started free <ArrowRight size={14} />
+          Request early access <ArrowRight size={14} />
         </a>
       </section>
 
