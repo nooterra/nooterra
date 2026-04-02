@@ -265,7 +265,7 @@ export default function LandingPage() {
               color: T.teal, letterSpacing: '0.1em', textTransform: 'uppercase',
               marginBottom: 20,
             }}>
-              AI agents for business operations
+              The world model runtime
             </p>
             <h1 style={{
               fontSize: 'clamp(40px, 4.5vw, 64px)',
@@ -281,9 +281,10 @@ export default function LandingPage() {
               fontFamily: font.body, fontWeight: 400,
               marginTop: 24, maxWidth: 440,
             }}>
-              AI agents that see your entire business, predict what's coming,
-              and handle the work you don't have time for — governed by your
-              rules, earning trust from real results.
+              Most AI agents are stateless — they forget everything between
+              runs. Nooterra gives agents a persistent world model of your
+              business: every customer, invoice, and conversation, linked
+              and updating in real time. Agents don't guess. They know.
             </p>
             <div style={{ marginTop: 36, display: 'flex', alignItems: 'center', gap: 16 }}>
               <a href="/setup" style={{
@@ -292,7 +293,7 @@ export default function LandingPage() {
                 color: T.ivory, background: T.ink, padding: '13px 28px',
                 borderRadius: 2, textDecoration: 'none',
               }}>
-                Request access <ArrowRight size={14} />
+                Get started <ArrowRight size={14} />
               </a>
               <a href="#how" style={{
                 fontSize: 13, color: T.iron, textDecoration: 'none',
@@ -340,14 +341,14 @@ export default function LandingPage() {
             fontSize: 18, fontFamily: font.display, fontStyle: 'italic',
             lineHeight: 1.55, color: T.ink, margin: 0,
           }}>
-            Nooterra is in private beta. We're building the infrastructure
-            for AI agents that operate inside real businesses — with real data,
-            real actions, and real accountability.
+            Other platforms give you chatbots. We give you an autonomous
+            business layer — a live object graph, a policy engine, a trust
+            framework, and agents that earn the right to act on your behalf.
           </p>
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
             <span style={{ fontSize: 12, fontFamily: font.body, fontWeight: 500, color: T.iron }}>
-              Accepting early access applications
+              Now in private beta
             </span>
           </div>
         </div>
@@ -365,9 +366,10 @@ export default function LandingPage() {
           fontSize: 21, fontFamily: font.display, fontStyle: 'italic',
           lineHeight: 1.5, color: T.ink,
         }}>
-          Every morning you check Stripe, cross-reference Gmail, update QuickBooks,
-          draft follow-up emails, and hope you didn't miss one from last week.
-          Your business isn't short on tools. It's short on you.
+          Your business runs on 12 different apps. None of them talk to each
+          other. AI chatbots can't help — they don't know your customers, your
+          invoices, or your history. Your business doesn't need another tool.
+          It needs a brain.
         </p>
         <p style={{
           fontSize: 15, fontFamily: font.body, lineHeight: 1.7, color: T.iron,
@@ -396,8 +398,8 @@ export default function LandingPage() {
             fontSize: 36, fontFamily: font.display, fontWeight: 400,
             lineHeight: 1.15, color: T.ink, marginBottom: 48, maxWidth: 500,
           }}>
-            Connect your tools.<br />
-            We build the brain.
+            From zero to autonomous<br />
+            in five steps.
           </h2>
 
           {/* Timeline */}
@@ -450,7 +452,7 @@ export default function LandingPage() {
           fontSize: 32, fontFamily: font.display, fontWeight: 400,
           lineHeight: 1.15, color: T.ink, marginBottom: 40,
         }}>
-          Not another AI tool.<br />A different category entirely.
+          Why a world model changes<br />everything.
         </h2>
 
         <table style={{
@@ -467,13 +469,13 @@ export default function LandingPage() {
           </thead>
           <tbody>
             {[
-              ['Connects to your business tools', '—', '✓', '✓'],
-              ['Builds a live data model', '—', '—', '✓'],
+              ['Persistent world model', '—', '—', '✓'],
+              ['Cross-system entity graph', '—', '—', '✓'],
               ['Takes real actions', '—', '✓', '✓'],
-              ['Governed by policy', '—', '—', '✓'],
-              ['Earns autonomy over time', '—', '—', '✓'],
-              ['Evidence trail on every action', '—', '—', '✓'],
-              ['Learns from outcomes', '—', '—', 'Soon'],
+              ['Policy-governed execution', '—', '—', '✓'],
+              ['Earned autonomy (not configured)', '—', '—', '✓'],
+              ['Full evidence trail per action', '—', '—', '✓'],
+              ['Closed-loop learning', '—', '—', '✓'],
             ].map(([cap, chatgpt, zapier, nooterra], i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${T.ruleLight}` }}>
                 <td style={{ padding: '12px 16px 12px 0', color: T.ink }}>{cap}</td>
@@ -496,12 +498,12 @@ export default function LandingPage() {
             fontSize: 32, fontFamily: font.display, fontWeight: 400,
             lineHeight: 1.15, color: T.ink, marginBottom: 12, maxWidth: 440,
           }}>
-            Trust isn't a setting.<br />
-            It's a track record.
+            Autonomy isn't granted.<br />
+            It's earned.
           </h2>
           <p style={{ fontSize: 14, fontFamily: font.body, color: T.iron, maxWidth: 480, lineHeight: 1.6, marginBottom: 48 }}>
-            Every action is graded on two dimensions: did it follow the right process,
-            and did it achieve the goal. Autonomy expands when both scores are consistently high.
+            Every agent action is scored on process and outcome. Trust expands only
+            when both are consistently high. One incident and the system tightens automatically.
           </p>
 
           {/* Horizontal progression */}
@@ -556,9 +558,9 @@ export default function LandingPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {[
-              { name: 'Beta', price: 'Free', desc: 'Full platform access during private beta. Connect tools, deploy agents, write policies.', highlight: true },
-              { name: 'Pro', price: 'TBD', desc: 'Usage-based pricing after beta. We\'ll announce pricing before any charges.', highlight: false },
-              { name: 'Enterprise', price: 'Contact us', desc: 'Custom deployment, dedicated support, SLAs. Available after general release.', highlight: false },
+              { name: 'Starter', price: 'Free', desc: 'World model, one agent, shadow mode. See everything before you commit.', highlight: false },
+              { name: 'Business', price: 'Free during beta', desc: 'Full autonomy progression. Policy engine. Unlimited integrations. The whole platform.', highlight: true },
+              { name: 'Enterprise', price: 'Contact us', desc: 'Dedicated infrastructure, custom integrations, priority support, SLAs.', highlight: false },
             ].map(({ name, price, desc, highlight }) => (
               <div key={name} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -584,7 +586,7 @@ export default function LandingPage() {
                     border: highlight ? 'none' : `1px solid ${T.rule}`,
                     padding: '8px 16px', borderRadius: 2, textDecoration: 'none',
                   }}>
-                    {name === 'Enterprise' ? 'Contact us' : name === 'Pro' ? 'Notify me' : 'Request access'}
+                    {name === 'Enterprise' ? 'Contact us' : 'Get started'}
                   </a>
                 </div>
               </div>
@@ -602,8 +604,8 @@ export default function LandingPage() {
           padding: '20px 0',
         }}>
           {[
-            'Private beta — accepting applications',
-            'Open source architecture documentation coming soon',
+            '250+ integrations via OAuth',
+            'Free during beta — no credit card required',
           ].map((text, i) => (
             <span key={i} style={{
               fontSize: 12, fontFamily: font.body, color: T.stone,
@@ -626,12 +628,12 @@ export default function LandingPage() {
           fontSize: 40, fontFamily: font.display, fontWeight: 400,
           lineHeight: 1.1, color: T.ink, marginBottom: 16,
         }}>
-          AI agents that understand<br />
-          your business. Not just your prompts.
+          The first AI runtime that<br />
+          actually understands your business.
         </h2>
         <p style={{ fontSize: 15, fontFamily: font.body, color: T.iron, maxWidth: 400, margin: '0 auto' }}>
-          Connect your tools. Build a live model.<br />
-          Deploy agents that earn your trust over time.
+          A live world model. Policy-governed agents.<br />
+          Autonomy earned from evidence, not settings.
         </p>
         <a href="/setup" style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -639,7 +641,7 @@ export default function LandingPage() {
           color: T.ivory, background: T.ink, padding: '14px 32px',
           borderRadius: 2, textDecoration: 'none', marginTop: 32,
         }}>
-          Request early access <ArrowRight size={14} />
+          Get started free <ArrowRight size={14} />
         </a>
       </section>
 
