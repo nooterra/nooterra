@@ -287,7 +287,7 @@ export default function ApprovalQueue() {
   };
 
   return (
-    <div className="min-h-screen bg-surface-0 overflow-y-auto">
+    <div className="h-full bg-surface-0 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-5 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">

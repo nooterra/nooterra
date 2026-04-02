@@ -46,6 +46,7 @@ function HealthIndicator({ label, status, value, trend, detail }) {
   );
 }
 
+
 function ActivityItem({ type, time, agent, description, status, objectId }) {
   const icons = {
     'action.executed': <Zap size={12} className="text-status-healthy" />,
@@ -125,6 +126,7 @@ function AttentionItem({ priority, title, description, action, type }) {
   );
 }
 
+
 // ---------------------------------------------------------------------------
 // Command Center
 // ---------------------------------------------------------------------------
@@ -173,31 +175,7 @@ export default function CommandCenter() {
   ];
 
   return (
-    <div className="min-h-screen bg-surface-0">
-      {/* Top bar */}
-      <header className="h-12 border-b border-edge-subtle flex items-center justify-between px-5">
-        <div className="flex items-center gap-4">
-          <span className="text-md font-semibold tracking-tight text-text-primary">nooterra</span>
-          <nav className="hidden md:flex items-center gap-0.5 text-sm">
-            {['Command Center', 'Company State', 'Predictions', 'Autonomy', 'Policies', 'Approvals'].map((label, i) => (
-              <button key={label} className={`px-3 py-1 rounded text-sm transition-colors
-                ${i === 0 ? 'text-text-primary bg-surface-2' : 'text-text-secondary hover:text-text-primary hover:bg-surface-2'}`}>
-                {label}
-              </button>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <kbd className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded border border-edge text-2xs text-text-tertiary font-mono">
-            <span>⌘</span>K
-          </kbd>
-          <div className="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center text-xs text-text-secondary font-medium">
-            A
-          </div>
-        </div>
-      </header>
-
-      {/* Main content */}
+    <div className="h-full bg-surface-0 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-5 py-6">
         {/* Health indicators — live data when available, mock otherwise */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -257,3 +235,6 @@ export default function CommandCenter() {
     </div>
   );
 }
+
+// Re-export for shell lazy loading
+export { CommandCenter };

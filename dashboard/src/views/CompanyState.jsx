@@ -303,7 +303,7 @@ export default function CompanyState() {
   }, [search, typeFilter]);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)]">
+    <div className="flex h-full">
       {/* Object list */}
       <div className="w-[400px] flex-shrink-0 border-r border-edge flex flex-col bg-surface-0">
         {/* Search */}

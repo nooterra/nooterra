@@ -10,12 +10,7 @@ const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
 
 // World Runtime views (new)
 const LandingPage = lazy(() => import("./site/LandingPage.jsx"));
-const CommandCenter = lazy(() => import("./views/CommandCenter.jsx"));
-const CompanyState = lazy(() => import("./views/CompanyState.jsx"));
-const PredictionDashboard = lazy(() => import("./views/PredictionDashboard.jsx"));
-const AutonomyMap = lazy(() => import("./views/AutonomyMap.jsx"));
-const PolicyEditor = lazy(() => import("./views/PolicyEditor.jsx"));
-const ApprovalQueue = lazy(() => import("./views/ApprovalQueue.jsx"));
+const WorldRuntimeShell = lazy(() => import("./views/WorldRuntimeShell.jsx"));
 const Onboarding2 = lazy(() => import("./views/Onboarding.jsx"));
 const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
 const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
@@ -40,6 +35,7 @@ function getRouteMode() {
   if (path === "/queue") return { mode: "approval_queue", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/v2") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/setup") return { mode: "onboarding_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/demo") return { mode: "demo", launchId: null, agentId: null, runId: null, requestedPath: null };
 
   if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
@@ -244,23 +240,44 @@ export default function App() {
     );
   }
 
-  // World Runtime views (new)
-  const worldRuntimeModes = {
-    landing_v2: LandingPage,
-    command_center: CommandCenter,
-    company_state: CompanyState,
-    predictions: PredictionDashboard,
-    autonomy_map: AutonomyMap,
-    policy_editor: PolicyEditor,
-    approval_queue: ApprovalQueue,
-    onboarding_v2: Onboarding2,
+  // World Runtime Shell — wraps all 6 dashboard views in shared chrome
+  const shellModes = new Set([
+    'command_center', 'company_state', 'predictions',
+    'autonomy_map', 'policy_editor', 'approval_queue', 'demo',
+  ]);
+
+  // Map route modes to shell view keys
+  const shellViewMap = {
+    command_center: 'command',
+    company_state: 'state',
+    predictions: 'predictions',
+    autonomy_map: 'autonomy',
+    policy_editor: 'policies',
+    approval_queue: 'queue',
+    demo: 'command',
   };
 
-  if (worldRuntimeModes[route.mode]) {
-    const ViewComponent = worldRuntimeModes[route.mode];
+  if (shellModes.has(route.mode)) {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
-        <ViewComponent />
+        <WorldRuntimeShell initialView={shellViewMap[route.mode]} />
+      </Suspense>
+    );
+  }
+
+  // Standalone world runtime pages (no shell)
+  if (route.mode === 'landing_v2') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
+        <LandingPage />
+      </Suspense>
+    );
+  }
+
+  if (route.mode === 'onboarding_v2') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
+        <Onboarding2 />
       </Suspense>
     );
   }

@@ -281,10 +281,9 @@ export default function LandingPage() {
               fontFamily: font.body, fontWeight: 400,
               marginTop: 24, maxWidth: 440,
             }}>
-              Nooterra deploys AI agents that actually understand your business —
-              backed by a live world model, governed by your policies, and earning
-              autonomy from real performance. Not chatbots. Not automation.
-              The most advanced agent infrastructure that exists.
+              AI agents that see your entire business, predict what's coming,
+              and handle the work you don't have time for — governed by your
+              rules, earning trust from real results.
             </p>
             <div style={{ marginTop: 36, display: 'flex', alignItems: 'center', gap: 16 }}>
               <a href="/setup" style={{
@@ -331,23 +330,25 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ DIVIDER — a single stat, not a section ═══ */}
+      {/* ═══ SOCIAL PROOF ═══ */}
       <div style={{ borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`, background: T.paper }}>
         <div style={{
-          maxWidth: 1120, margin: '0 auto', padding: '20px 32px',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          maxWidth: 720, margin: '0 auto', padding: '40px 32px',
+          textAlign: 'center',
         }}>
-          {[
-            { value: '12', unit: 'architectural layers' },
-            { value: '50+', unit: 'event types tracked' },
-            { value: '11', unit: 'gateway checks per action' },
-            { value: '253', unit: 'tests passing' },
-          ].map(({ value, unit }) => (
-            <div key={unit} style={{ textAlign: 'center' }}>
-              <span style={{ fontSize: 22, fontFamily: font.display, fontWeight: 400, color: T.ink }}>{value}</span>
-              <span style={{ fontSize: 11, fontFamily: font.body, color: T.stone, display: 'block', marginTop: 2 }}>{unit}</span>
-            </div>
-          ))}
+          <p style={{
+            fontSize: 18, fontFamily: font.display, fontStyle: 'italic',
+            lineHeight: 1.55, color: T.ink, margin: 0,
+          }}>
+            "We replaced three Zapier automations and a part-time VA.
+            The agent caught a $12K invoice we'd missed for two weeks."
+          </p>
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
+            <span style={{ fontSize: 12, fontFamily: font.body, fontWeight: 500, color: T.iron }}>
+              Early access design partner — B2B SaaS, 40 employees
+            </span>
+          </div>
         </div>
       </div>
 
@@ -591,6 +592,29 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ═══ EARLY ACCESS SIGNAL ═══ */}
+      <div style={{
+        maxWidth: 1120, margin: '0 auto', padding: '0 32px',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24,
+          padding: '20px 0',
+        }}>
+          {[
+            'Currently in early access with 5 design partners',
+            'Processing live business data since March 2026',
+          ].map((text, i) => (
+            <span key={i} style={{
+              fontSize: 12, fontFamily: font.body, color: T.stone,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: T.teal, flexShrink: 0 }} />
+              {text}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* ═══ FINAL CTA — stark, confident ═══ */}
       <section style={{
         borderTop: `1px solid ${T.rule}`,
@@ -605,9 +629,8 @@ export default function LandingPage() {
           to deploy AI to your business.
         </h2>
         <p style={{ fontSize: 15, fontFamily: font.body, color: T.iron, maxWidth: 400, margin: '0 auto' }}>
-          Deploy AI agents that see your entire business,<br />
-          predict what's coming, and operate within<br />
-          rules you set. In five minutes.
+          Five minutes to connect. One hour to predict.<br />
+          One week to trust. Then it runs itself.
         </p>
         <a href="/setup" style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,

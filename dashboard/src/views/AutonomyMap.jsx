@@ -233,7 +233,7 @@ export default function AutonomyMap() {
   const shortActionClass = (ac) => ac.split('.').pop();
 
   return (
-    <div className="flex h-[calc(100vh-3rem)]">
+    <div className="flex h-full">
       <div className="flex-1 overflow-auto p-5">
         <div className="flex items-center justify-between mb-6">
           <div>
