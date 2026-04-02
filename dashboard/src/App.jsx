@@ -29,8 +29,7 @@ function getRouteMode() {
   const searchParams = new URLSearchParams(window.location.search);
   const wantsManagedOnboarding = searchParams.get("experience") === "app";
 
-  if (path === "/" || path === "") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/legacy") return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/" || path === "") return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
 
   // World Runtime routes (new dashboard)
   if (path === "/command") return { mode: "command_center", launchId: null, agentId: null, runId: null, requestedPath: null };
