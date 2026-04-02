@@ -305,7 +305,7 @@ function HomePage() {
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                   fontFamily: "var(--font-display, 'Fraunces', serif)",
                 }}>
-                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em", textDecorationSkipInk: "auto" }}>Deploy AI agents.</span>
+                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em", textDecorationSkipInk: "auto" }}>Hire AI.</span>
                 </h1>
               </InView>
               <InView delay={0.1}>
