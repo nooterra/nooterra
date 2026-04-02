@@ -577,7 +577,7 @@ export default function LandingPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
                   <span style={{ fontSize: 20, fontFamily: font.display, fontWeight: 400, color: T.ink }}>
-                    {price}<span style={{ fontSize: 13, color: T.stone }}>{price !== 'Custom' ? '/mo' : ''}</span>
+                    {price}<span style={{ fontSize: 13, color: T.stone }}>{price.startsWith('$') ? '/mo' : ''}</span>
                   </span>
                   <a href="/setup" style={{
                     fontSize: 12, fontWeight: 600, fontFamily: font.body,
