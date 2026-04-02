@@ -403,15 +403,15 @@ function HomePage() {
                 </div>
                 {/* Industry examples merged here */}
                 <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", lineHeight: 1.8 }}>
-                  <div style={{ fontWeight: 600, color: "var(--text-200)", marginBottom: 8 }}>Works for any business:</div>
-                  Plumbers, law firms, e-commerce, dental, salons, restaurants, trucking, consulting&mdash;if you run a business, you get a governed team.
+                  <div style={{ fontWeight: 600, color: "var(--text-200)", marginBottom: 8 }}>Backed by a live world model:</div>
+                  Every decision is informed by your full business context&mdash;customer history, payment patterns, conversation sentiment, and predicted outcomes. Not a prompt. A model.
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {[
-                  { color: "var(--green)", bg: "var(--green-bg)", label: "Handles autonomously", items: ["Read emails", "Draft replies", "Search knowledge base"] },
-                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Asks you first", items: ["Issue refunds", "Send external emails", "Modify account data"] },
-                  { color: "var(--red)", bg: "var(--red-bg)", label: "Never does", items: ["Delete customer data", "Share PII externally", "Exceed budget limits"] },
+                  { color: "var(--green)", bg: "var(--green-bg)", label: "Autonomous", items: ["Read and classify emails", "Generate predictions", "Draft collection reminders"] },
+                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Supervised", items: ["Send emails to customers", "Create escalation tasks", "Update payment records"] },
+                  { color: "var(--red)", bg: "var(--red-bg)", label: "Forbidden", items: ["Initiate payments", "Delete any data", "Exceed budget limits"] },
                 ].map((rule, i) => (
                   <InView key={rule.label} delay={i * 0.08}>
                     <div style={{ padding: "20px 24px", borderRadius: 12, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
@@ -441,10 +441,10 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
-              60 seconds to your first team.
+              Three steps to intelligent operations.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              No code. No configuration. No AI expertise required.
+              Connect your tools. The world model builds itself. Agents start operating.
             </p>
           </InView>
 
@@ -452,18 +452,18 @@ function HomePage() {
             {[
               {
                 step: "01",
-                title: "Tell us what you do",
-                desc: "\"I run a plumbing company in Denver with 5 techs.\" One sentence is all it takes. Nooterra designs the team.",
+                title: "Connect your systems",
+                desc: "Stripe, Gmail, QuickBooks, Calendar\u2014one click each. Nooterra starts building a live world model of your business: every customer, invoice, payment, and conversation, linked and versioned.",
               },
               {
                 step: "02",
-                title: "Review your team",
-                desc: "Collections. Support. Scheduling. Operations. Each agent comes with authority grants, integrations, and a clear policy. Adjust anything before activating.",
+                title: "See your business as a model",
+                desc: "The system predicts what\u2019s coming\u2014which invoices will default, which customers are at risk, what needs attention now. Every prediction shows its confidence and evidence.",
               },
               {
                 step: "03",
-                title: "They earn your trust",
-                desc: "Agents start in shadow mode. Every sensitive action routes to you for approval. As evidence builds, they earn autonomy. Trust from traced performance, not faith.",
+                title: "Agents operate, you govern",
+                desc: "AI agents take action within your policies: sending reminders, escalating disputes, scheduling follow-ups. Every action goes through an 11-step gateway with a full evidence trail. Trust earned from performance, not faith.",
               },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
@@ -486,10 +486,10 @@ function HomePage() {
               color: "var(--text-100)", margin: "0 0 20px",
               fontFamily: "var(--font-display, 'Fraunces', serif)",
             }}>
-              Your team is waiting.
+              Give your business a mind.
             </h2>
             <p style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", maxWidth: 440, margin: "0 auto 40px", lineHeight: 1.7 }}>
-              60 seconds from now, you could have an AI team handling the work you don't have time for.
+              Connect your tools. See predictions on every customer and invoice. Let governed agents handle the rest.
             </p>
           </InView>
           <InView delay={0.08}>
@@ -504,7 +504,7 @@ function HomePage() {
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
               >
-                Start hiring &rarr;
+                Get started &rarr;
               </a>
             </div>
           </InView>
