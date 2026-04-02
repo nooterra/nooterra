@@ -200,7 +200,7 @@ export default function PolicyEditor() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h1 className="text-lg font-semibold text-text-primary">{selected.name}</h1>
+                <h2 className="text-md font-semibold text-text-primary">{selected.name}</h2>
                 <div className="flex items-center gap-3 mt-1 text-2xs text-text-tertiary">
                   <span>{selected.domain}</span>
                   <span>Modified {selected.lastModified}</span>

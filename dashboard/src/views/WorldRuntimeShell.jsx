@@ -81,7 +81,16 @@ function SystemPulse() {
 // ---------------------------------------------------------------------------
 
 export default function WorldRuntimeShell({ initialView }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('nooterra_sidebar_collapsed') === 'true'; } catch { return false; }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('nooterra_sidebar_collapsed', String(next)); } catch {}
+      return next;
+    });
+  };
   const [activeKey, setActiveKey] = useState(initialView || 'command');
 
   // Sync with URL
@@ -166,7 +175,7 @@ export default function WorldRuntimeShell({ initialView }) {
         {/* Bottom section */}
         <div className="border-t border-edge-subtle px-2 py-2 space-y-0.5">
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={toggleCollapsed}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-text-tertiary hover:text-text-secondary hover:bg-surface-2 transition-colors"
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}

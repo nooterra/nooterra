@@ -98,8 +98,7 @@ function Cell({ agentId, actionClass, onSelect }) {
   }
 
   const config = LEVEL_CONFIG[data.level];
-  // Brightness based on evidence strength
-  const opacity = Math.max(0.3, data.strength);
+  const strengthPct = Math.max(10, Math.round(data.strength * 100));
 
   return (
     <td className="p-1">
@@ -107,12 +106,13 @@ function Cell({ agentId, actionClass, onSelect }) {
         onClick={() => onSelect({ agentId, actionClass, ...data })}
         className={`w-full h-10 rounded border ${config.bg} ${config.border}
           hover:ring-1 hover:ring-accent/30 transition-all duration-100
-          flex items-center justify-center gap-1.5 group`}
-        style={{ opacity }}
+          flex items-center justify-center gap-1.5 group relative overflow-hidden`}
         title={`${config.label} — ${data.executions} executions, ${(data.procedural * 100).toFixed(0)}% procedural`}
       >
-        <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-        <span className={`text-2xs font-mono font-medium ${config.text}`}>
+        {/* Evidence strength fill */}
+        <div className={`absolute inset-y-0 left-0 ${config.dot} opacity-20 transition-all`} style={{ width: `${strengthPct}%` }} />
+        <span className={`relative w-1.5 h-1.5 rounded-full ${config.dot}`} />
+        <span className={`relative text-2xs font-mono font-medium ${config.text}`}>
           {data.executions > 0 ? data.executions : '—'}
         </span>
         {data.recommended && data.recommended !== data.level && (
@@ -236,12 +236,9 @@ export default function AutonomyMap() {
     <div className="flex h-full">
       <div className="flex-1 overflow-auto p-5">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-semibold text-text-primary">Autonomy Map</h1>
-            <p className="text-sm text-text-secondary mt-0.5">
-              Trust earned from evidence. Click any cell for details.
-            </p>
-          </div>
+          <p className="text-sm text-text-secondary">
+            Trust earned from evidence. Click any cell for details.
+          </p>
           <div className="flex items-center gap-4">
             {Object.entries(LEVEL_CONFIG).map(([level, config]) => (
               <div key={level} className="flex items-center gap-1.5">

@@ -276,11 +276,11 @@ function DetailPanel({ obj, onClose }) {
 // ---------------------------------------------------------------------------
 
 const TYPE_FILTERS = [
-  { key: 'all', label: 'All', count: 7 },
-  { key: 'party', label: 'Customers', count: 2 },
-  { key: 'invoice', label: 'Invoices', count: 3 },
-  { key: 'payment', label: 'Payments', count: 1 },
-  { key: 'conversation', label: 'Conversations', count: 1 },
+  { key: 'all', label: 'All', count: MOCK_OBJECTS.length },
+  { key: 'party', label: 'Customers', count: MOCK_OBJECTS.filter(o => o.type === 'party').length },
+  { key: 'invoice', label: 'Invoices', count: MOCK_OBJECTS.filter(o => o.type === 'invoice').length },
+  { key: 'payment', label: 'Payments', count: MOCK_OBJECTS.filter(o => o.type === 'payment').length },
+  { key: 'conversation', label: 'Conversations', count: MOCK_OBJECTS.filter(o => o.type === 'conversation').length },
 ];
 
 export default function CompanyState() {

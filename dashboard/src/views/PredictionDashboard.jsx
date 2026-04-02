@@ -213,14 +213,8 @@ export default function PredictionDashboard() {
   return (
     <div className="h-full bg-surface-0 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-5 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-semibold text-text-primary">Predictions</h1>
-            <p className="text-sm text-text-secondary mt-0.5">
-              Every prediction is calibrated. Confidence bands on everything.
-            </p>
-          </div>
+        {/* Calibration indicator */}
+        <div className="flex items-center justify-end mb-4">
           <div className="flex items-center gap-2">
             <Eye size={14} className="text-status-predicted" />
             <span className="text-xs text-text-secondary">

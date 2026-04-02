@@ -180,24 +180,24 @@ export default function CommandCenter() {
         {/* Health indicators — live data when available, mock otherwise */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <HealthIndicator
-            label="Objects Tracked"
+            label="World Model"
             status="healthy"
-            value={liveStats ? liveStats.objectCount.toLocaleString() : '$187K'}
-            detail={liveStats ? `${liveStats.eventCount} events in ledger` : 'Outstanding AR'}
-            trend={liveStats ? `${liveStats.coverageCells} coverage cells` : 'DSO 34d ↓'}
+            value={liveStats ? liveStats.objectCount.toLocaleString() : '847'}
+            detail={liveStats ? `${liveStats.eventCount} events in ledger` : 'Objects tracked across systems'}
+            trend={liveStats ? `${liveStats.coverageCells} coverage cells` : '2,341 events ↑'}
           />
           <HealthIndicator
-            label="Operational Health"
+            label="Agent Performance"
             status={liveStats?.autonomousCells > 0 ? 'healthy' : 'attention'}
             value={liveStats ? `${liveStats.totalExecutionsTracked}` : '94.2%'}
-            detail={liveStats ? 'Executions tracked' : 'Agent success rate (7d)'}
+            detail={liveStats ? 'Executions tracked' : 'Procedural score (7d)'}
             trend={liveStats ? `${liveStats.autonomousCells} autonomous` : '168 actions ↑'}
           />
           <HealthIndicator
-            label="Risk"
+            label="Attention Queue"
             status={liveEscrow?.length > 0 ? 'attention' : 'healthy'}
             value={liveEscrow ? String(liveEscrow.length) : '3'}
-            detail={liveEscrow ? 'Actions pending approval' : 'Items need attention'}
+            detail={liveEscrow ? 'Actions pending approval' : 'Items awaiting decision'}
             trend={liveEscrow?.length > 0 ? `${liveEscrow.length} in queue` : '1 high priority'}
           />
         </div>
@@ -212,7 +212,7 @@ export default function CommandCenter() {
               </button>
             </div>
             <div className="space-y-0.5">
-              {mockActivity.map((item, i) => (
+              {(liveEvents ?? mockActivity).map((item, i) => (
                 <ActivityItem key={i} {...item} />
               ))}
             </div>

@@ -277,13 +277,26 @@ function EscrowCard({ action, onApprove, onReject }) {
 
 export default function ApprovalQueue() {
   const [actions, setActions] = useState(MOCK_ESCROW);
+  const [confirming, setConfirming] = useState(null); // { id, action: 'approve'|'reject' }
 
   const handleApprove = (id) => {
+    const action = actions.find(a => a.id === id);
+    if (action?.risk === 'high') {
+      setConfirming({ id, decision: 'approve' });
+      return;
+    }
     setActions(prev => prev.filter(a => a.id !== id));
   };
 
   const handleReject = (id) => {
-    setActions(prev => prev.filter(a => a.id !== id));
+    setConfirming({ id, decision: 'reject' });
+  };
+
+  const confirmAction = () => {
+    if (confirming) {
+      setActions(prev => prev.filter(a => a.id !== confirming.id));
+      setConfirming(null);
+    }
   };
 
   return (
@@ -291,12 +304,9 @@ export default function ApprovalQueue() {
       <div className="max-w-4xl mx-auto px-5 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-semibold text-text-primary">Approval Queue</h1>
-            <p className="text-sm text-text-secondary mt-0.5">
-              {actions.length} action{actions.length !== 1 ? 's' : ''} waiting for your decision.
-            </p>
-          </div>
+          <p className="text-sm text-text-secondary">
+            {actions.length} action{actions.length !== 1 ? 's' : ''} waiting for your decision.
+          </p>
           {actions.length > 1 && (
             <button className="text-xs text-accent hover:text-accent-hover transition-colors">
               Batch approve similar
@@ -343,6 +353,40 @@ export default function ApprovalQueue() {
           </div>
         )}
       </div>
+
+      {/* Confirmation overlay */}
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/80 backdrop-blur-sm">
+          <div className="bg-surface-2 border border-edge rounded-lg p-5 w-80 shadow-lg animate-fade-in">
+            <p className="text-sm font-medium text-text-primary mb-2">
+              {confirming.decision === 'approve' ? 'Confirm approval' : 'Confirm rejection'}
+            </p>
+            <p className="text-xs text-text-secondary mb-4">
+              {confirming.decision === 'approve'
+                ? 'This is a high-risk action. Are you sure you want to approve it?'
+                : 'This will reject the proposed action. The agent will be notified.'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={confirmAction}
+                className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                  confirming.decision === 'approve'
+                    ? 'bg-status-healthy/20 text-status-healthy hover:bg-status-healthy/30'
+                    : 'bg-status-blocked/20 text-status-blocked hover:bg-status-blocked/30'
+                }`}
+              >
+                {confirming.decision === 'approve' ? 'Yes, approve' : 'Yes, reject'}
+              </button>
+              <button
+                onClick={() => setConfirming(null)}
+                className="flex-1 px-3 py-1.5 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-3 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
