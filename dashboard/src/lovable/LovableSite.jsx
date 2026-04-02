@@ -148,7 +148,7 @@ function SiteFooter() {
               <img src="/nooterra-logo.png" alt="nooterra" loading="lazy" style={{ height: 20 }} />
             </div>
             <p style={{ fontSize: "0.75rem", color: "var(--text-300)", lineHeight: 1.6, maxWidth: 260, margin: 0 }}>
-              The operating system for autonomous businesses.
+              The most advanced AI agent infrastructure for business.
             </p>
           </div>
           <div>
@@ -536,9 +536,9 @@ function SecurityPage() {
       <section style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "0 24px 6rem" }}>
         <div style={{ marginTop: 40 }}>
           {[
-            { title: "Fail closed", desc: "Ambiguous situations halt execution and ask. Missing context, unclear scope, or expired approvals all stop the worker." },
-            { title: "Least privilege", desc: "Workers only access tools and data explicitly granted in their charter. Nothing more." },
-            { title: "Human in the loop", desc: "Consequential actions always route through human approval. The threshold is configurable per worker." },
+            { title: "Fail closed", desc: "Ambiguous situations halt execution and escalate. Missing context, unclear scope, or expired authority all stop the agent." },
+            { title: "Least privilege", desc: "Agents only access tools and data explicitly granted in their authority. Nothing more." },
+            { title: "Human in the loop", desc: "Consequential actions always route through human approval. The threshold is configurable per agent and action class." },
             { title: "Full audit trail", desc: "Every action, approval, and decision logged with timestamps and context. Export anytime." },
           ].map((item, i) => (
             <FadeIn key={item.title} delay={i * 0.06}>
@@ -554,7 +554,7 @@ function SecurityPage() {
           {[
             { label: "Encryption", desc: "All data encrypted in transit (TLS 1.3) and at rest (AES-256). API keys are encrypted with per-tenant keys." },
             { label: "Hosting", desc: "Deployed on Railway with automatic SSL. No data leaves your configured region." },
-            { label: "Access control", desc: "Role-based access with per-worker permission scoping. OAuth tokens are scoped to minimum required permissions." },
+            { label: "Access control", desc: "Authority-grant-based access with per-agent permission scoping. OAuth tokens are scoped to minimum required permissions." },
             { label: "Incident response", desc: "Automated alerting with manual escalation. Security issues can be reported to security@nooterra.ai." },
           ].map((item, i) => (
             <div key={i} style={{ marginBottom: 20 }}>
@@ -592,7 +592,7 @@ function PrivacyPage() {
         {[
           { title: "Your keys, your providers", desc: "API keys are encrypted at rest and never leave your account boundary. Free tier runs entirely on your machine." },
           { title: "No training on your data", desc: "We never train models on your data. Audit logs are yours\u2014exportable and deletable." },
-          { title: "Data portability", desc: "Export workers, charters, and logs at any time. Cancel and your data is deleted within 30 days." },
+          { title: "Data portability", desc: "Export agents, authority grants, and logs at any time. Cancel and your data is deleted within 30 days." },
         ].map((item, i) => (
           <div key={item.title} style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
             <h3 style={{ fontSize: "var(--text-base)", fontWeight: 600, color: "var(--text-100)" }}>{item.title}</h3>
@@ -609,8 +609,8 @@ function TermsPage() {
     <SimplePage title="Terms">
       <div>
         {[
-          { title: "Your workers, your responsibility", desc: "You define the charter, grant approvals, and control what workers do. Nooterra enforces the boundaries you set." },
-          { title: "Fair use", desc: "Workers should perform legitimate business tasks. Do not use for spam, fraud, or harassment." },
+          { title: "Your agents, your responsibility", desc: "You define the authority grants, approve actions, and control what agents do. Nooterra enforces the boundaries you set." },
+          { title: "Fair use", desc: "Agents should perform legitimate business tasks. Do not use for spam, fraud, or harassment." },
           { title: "Service availability", desc: "Free tier runs locally with no uptime guarantee. Paid tiers include SLAs." },
         ].map((item, i) => (
           <div key={item.title} style={{ padding: "32px 0", borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
@@ -783,9 +783,10 @@ function NotFoundPage() {
 
 function ChangelogPage() {
   const entries = [
-    { date: "March 2026", title: "Charter Rules & Approval Inbox", items: ["Three-tier charter system: canDo, askFirst, neverDo", "Real-time approval inbox with decision history", "Keyboard shortcuts (Cmd+K, 1/2/3 navigation)", "Skeleton loading screens across all views"] },
-    { date: "February 2026", title: "Agent Builder", items: ["Natural language agent configuration — describe your business, get governed operators", "24+ model selection with cost-based categories", "Staged progress feedback during team creation", "Mobile bottom navigation and responsive settings"] },
-    { date: "January 2026", title: "Platform Launch", items: ["Worker deployment with scheduling (continuous, hourly, daily, cron)", "Gmail, Slack, GitHub, and Stripe integrations via OAuth", "Dark mode with full CSS variable theming", "Open source under Apache 2.0"] },
+    { date: "April 2026", title: "Enterprise World Runtime", items: ["12-layer architecture: event ledger, object graph, world model, action gateway", "AR Collections agent with 3-stage governed playbook", "Autonomy coverage map — trust earned from evidence", "Interactive system trace on landing page"] },
+    { date: "March 2026", title: "Authority Grants & Approval Inbox", items: ["Typed authority grant system: autonomous, supervised, forbidden", "Real-time approval inbox with evidence bundles", "Keyboard shortcuts (Cmd+K, 1/2/3 navigation)", "Skeleton loading screens across all views"] },
+    { date: "February 2026", title: "Agent Builder", items: ["Natural language agent configuration — describe your business, get governed operators", "24+ model selection with cost-based categories", "Staged progress feedback during agent creation", "Mobile bottom navigation and responsive settings"] },
+    { date: "January 2026", title: "Platform Launch", items: ["Agent deployment with scheduling (continuous, hourly, daily, cron)", "Gmail, Slack, GitHub, and Stripe integrations via OAuth", "Dark mode with full CSS variable theming", "Open source under Apache 2.0"] },
   ];
   return (
     <SiteLayout>
@@ -816,25 +817,25 @@ const PRICING_TIERS = [
   {
     name: "Free", price: "$0", period: "",
     description: "See what Nooterra builds for your business. Shadow mode only.",
-    features: ["Team proposal", "Shadow mode preview", "1 worker", "50 executions/mo", "Gemini Flash model"],
+    features: ["Agent proposal", "Shadow mode preview", "1 agent", "50 executions/mo", "Gemini Flash model"],
     cta: "Start free", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },
   {
     name: "Starter", price: "$29", period: "/mo",
     description: "Your first governed agents. Real actions, real integrations, real evidence trails.",
-    features: ["3 workers", "500 executions/mo", "Email + calendar integrations", "Approval inbox", "GPT, Gemini, Haiku models", "Activity feed"],
+    features: ["3 agents", "500 executions/mo", "Email + calendar integrations", "Approval inbox", "GPT, Gemini, Haiku models", "Activity feed"],
     cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },
   {
     name: "Pro", price: "$99", period: "/mo",
-    description: "Run your operations with a full AI team.",
-    features: ["10 workers", "5,000 executions/mo", "All integrations", "All AI models", "Audit trail export", "Priority support"],
+    description: "Run your operations with governed AI agents.",
+    features: ["10 agents", "5,000 executions/mo", "All integrations", "All AI models", "Audit trail export", "Priority support"],
     cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: true,
   },
   {
     name: "Scale", price: "$249", period: "/mo",
     description: "For businesses that run on Nooterra.",
-    features: ["Unlimited workers", "25,000 executions/mo", "All integrations + custom", "All AI models", "SLA guarantee", "Dedicated support"],
+    features: ["Unlimited agents", "25,000 executions/mo", "All integrations + custom", "All AI models", "SLA guarantee", "Dedicated support"],
     cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
   },
 ];
@@ -910,9 +911,9 @@ function PricingPage() {
           <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--text-100)", marginBottom: 32, letterSpacing: "-0.02em" }}>Common questions</h2>
         </InView>
         {[
-          { q: "What counts as a worker run?", a: "Each time a worker executes its task — whether triggered by schedule, API call, or manual run — counts as one run. Failed runs that error before taking action don't count." },
+          { q: "What counts as an agent execution?", a: "Each time an agent executes its task — whether triggered by schedule, API call, or manual run — counts as one execution. Failed runs that error before taking action don't count." },
           { q: "Can I change plans later?", a: "Yes. Upgrade or downgrade anytime. When you upgrade, you're charged pro-rata for the remainder of the billing period. Downgrades take effect at the next billing cycle." },
-          { q: "What happens when I hit my limits?", a: "Workers pause and you'll get a notification. No surprise charges. You can upgrade your plan or wait for the next cycle." },
+          { q: "What happens when I hit my limits?", a: "Agents pause and you'll get a notification. No surprise charges. You can upgrade your plan or wait for the next cycle." },
           { q: "Do I need my own API keys?", a: "On the Free tier, yes — you bring your own model API keys. On paid tiers, model access is included in the price." },
           { q: "Is my data used to train models?", a: "No. Your data is never used for model training. See our privacy policy for details." },
         ].map((faq, i) => (
