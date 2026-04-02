@@ -106,6 +106,9 @@ function generateId(prefix = 'exec') {
 // ---------------------------------------------------------------------------
 
 let activeExecutions = 0;
+let shuttingDown = false;
+const runningExecutions = new Set();
+const runningWorkers = new Set();
 
 // Execution policy helpers moved to execution-policy.ts
 
