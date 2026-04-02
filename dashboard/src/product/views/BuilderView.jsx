@@ -915,7 +915,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             {builderMode === "team" ? "What are we terraforming?" : "Activate a worker"}
           </h1>
           <p style={{ fontSize: "15px", color: "var(--text-300)", marginBottom: 40 }}>
-            {builderMode === "team" ? "Describe your business. We'll do the rest." : "Describe what this worker should do."}
+            {builderMode === "team" ? "Describe your business. We'll configure your agents." : "Describe what this agent should do."}
           </p>
 
           {hasDraft && !description.trim() && (
@@ -941,7 +941,7 @@ function BuilderView({ onComplete, onViewWorker, userName, isFirstTime }) {
             }}
             placeholder={builderMode === "team" ? "e.g. We're a plumbing company in Denver with 8 technicians..." : "e.g. Monitor our Stripe dashboard and alert me about failed payments..."}
             rows={3}
-            aria-label="Describe your business"
+            aria-label="Describe your business or agent"
             style={{
               display: "block", width: "100%", padding: "16px 18px",
               fontSize: "16px", lineHeight: 1.6, fontFamily: "inherit",

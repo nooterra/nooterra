@@ -239,7 +239,7 @@ function WorkerCard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", backgroundColor: "var(--bg-200)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div className="lovable-pulse" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "var(--green)" }} />
-          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-100)" }}>Customer Support Worker</span>
+          <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-100)" }}>Collections Agent</span>
         </div>
         <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--text-300)", fontFamily: "var(--font-mono)" }}>running</span>
       </div>
@@ -277,9 +277,9 @@ function WorkerCard() {
 
       {/* Footer */}
       <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: 16, backgroundColor: "var(--bg-200)" }}>
-        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--green)", fontFamily: "var(--font-mono)" }}>4 canDo</span>
-        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>3 askFirst</span>
-        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--red)", fontFamily: "var(--font-mono)" }}>2 neverDo</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--green)", fontFamily: "var(--font-mono)" }}>4 autonomous</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--amber)", fontFamily: "var(--font-mono)" }}>3 supervised</span>
+        <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--red)", fontFamily: "var(--font-mono)" }}>2 forbidden</span>
         <span className="tabular-nums" style={{ fontSize: "0.6875rem", color: "var(--text-300)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>$0.003 this run</span>
       </div>
     </div>
@@ -305,7 +305,7 @@ function HomePage() {
                   fontWeight: 800, color: "var(--text-100)", margin: 0,
                   fontFamily: "var(--font-display, 'Fraunces', serif)",
                 }}>
-                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em", textDecorationSkipInk: "auto" }}>Hire AI.</span>
+                  <span style={{ textDecoration: "underline", textDecorationColor: "var(--accent)", textUnderlineOffset: "0.1em", textDecorationThickness: "0.08em", textDecorationSkipInk: "auto" }}>Run autonomously.</span>
                 </h1>
               </InView>
               <InView delay={0.1}>
@@ -313,7 +313,7 @@ function HomePage() {
                   marginTop: 28, maxWidth: 460,
                   fontSize: "var(--text-sm)", lineHeight: 1.7, color: "var(--text-300)",
                 }}>
-                  Describe your business in one sentence. Get a team of AI workers that handle emails, schedule appointments, and manage your reputation&mdash;while you do the real work.
+                  Connect your systems. Get a live model of your business that observes, predicts, and operates&mdash;through governed agents that earn autonomy from traced performance.
                 </p>
               </InView>
               <InView delay={0.15}>
@@ -328,7 +328,7 @@ function HomePage() {
                     onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                     onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
                   >
-                    Start hiring &rarr;
+                    Get started &rarr;
                   </a>
                   <a href="#how-it-works" style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "14px 36px",
@@ -389,7 +389,7 @@ function HomePage() {
                 Rules they can't break.
               </h2>
               <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 0 }}>
-                Every worker operates under a charter&mdash;hard limits enforced at runtime, before every action. Not prompt instructions. Not guidelines. If it's not in the charter, it doesn't happen.
+                Every agent operates under an authority grant&mdash;hard limits enforced at runtime, before every action. Not prompt instructions. Not guidelines. If it's not in the grant, it doesn't happen.
               </p>
             </InView>
 
@@ -399,7 +399,7 @@ function HomePage() {
                   fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.7,
                   borderLeft: "2px solid var(--accent)", paddingLeft: 20,
                 }}>
-                  You define what each worker can do autonomously, what needs your approval, and what's permanently off-limits. The system enforces it&mdash;regardless of what the AI model tries to do.
+                  You define what each agent can do autonomously, what needs your approval, and what's permanently forbidden. The system enforces it&mdash;every action passes through an 11-step gateway before touching the real world.
                 </div>
                 {/* Industry examples merged here */}
                 <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", lineHeight: 1.8 }}>
@@ -458,12 +458,12 @@ function HomePage() {
               {
                 step: "02",
                 title: "Review your team",
-                desc: "Reception. Dispatch. Billing. Reviews. Each worker comes with rules, integrations, and a clear charter. Adjust anything before activating.",
+                desc: "Collections. Support. Scheduling. Operations. Each agent comes with authority grants, integrations, and a clear policy. Adjust anything before activating.",
               },
               {
                 step: "03",
                 title: "They earn your trust",
-                desc: "Workers start careful. Every sensitive action routes to you for approval. As you approve, they earn autonomy. You stay in control.",
+                desc: "Agents start in shadow mode. Every sensitive action routes to you for approval. As evidence builds, they earn autonomy. Trust from traced performance, not faith.",
               },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
@@ -529,7 +529,7 @@ function SecurityPage() {
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Security</h1>
           <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
-            Workers cannot exceed their charter. Every action is logged. Every escalation requires human approval. Every boundary is enforced at runtime.
+            Agents cannot exceed their authority grants. Every action is logged with evidence bundles. Every escalation requires human approval. Every boundary is enforced at runtime.
           </p>
         </FadeIn>
       </section>
@@ -784,7 +784,7 @@ function NotFoundPage() {
 function ChangelogPage() {
   const entries = [
     { date: "March 2026", title: "Charter Rules & Approval Inbox", items: ["Three-tier charter system: canDo, askFirst, neverDo", "Real-time approval inbox with decision history", "Keyboard shortcuts (Cmd+K, 1/2/3 navigation)", "Skeleton loading screens across all views"] },
-    { date: "February 2026", title: "AI Team Builder", items: ["Natural language team generation — describe your business, get workers", "24+ model selection with cost-based categories", "Staged progress feedback during team creation", "Mobile bottom navigation and responsive settings"] },
+    { date: "February 2026", title: "Agent Builder", items: ["Natural language agent configuration — describe your business, get governed operators", "24+ model selection with cost-based categories", "Staged progress feedback during team creation", "Mobile bottom navigation and responsive settings"] },
     { date: "January 2026", title: "Platform Launch", items: ["Worker deployment with scheduling (continuous, hourly, daily, cron)", "Gmail, Slack, GitHub, and Stripe integrations via OAuth", "Dark mode with full CSS variable theming", "Open source under Apache 2.0"] },
   ];
   return (
@@ -821,7 +821,7 @@ const PRICING_TIERS = [
   },
   {
     name: "Starter", price: "$29", period: "/mo",
-    description: "Your first live AI workers. Real actions, real integrations.",
+    description: "Your first governed agents. Real actions, real integrations, real evidence trails.",
     features: ["3 workers", "500 executions/mo", "Email + calendar integrations", "Approval inbox", "GPT, Gemini, Haiku models", "Activity feed"],
     cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: false,
   },

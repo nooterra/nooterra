@@ -13,7 +13,7 @@ const TOUR_STEPS = [
   {
     key: "builder",
     title: "Worker Builder",
-    description: "Create AI workers here. Describe what you need and we'll build it.",
+    description: "Create governed agents here. Connect your systems and they'll start observing your business.",
     selector: '[data-tour="builder"]',
     fallbackSelector: ".app-sidebar button",
     position: "right",
@@ -21,7 +21,7 @@ const TOUR_STEPS = [
   {
     key: "team",
     title: "Your Team",
-    description: "Your workers appear here. Monitor their status and manage them.",
+    description: "Your agents appear here. Monitor their status, performance, and autonomy levels.",
     selector: '[data-tour="team"]',
     position: "right",
   },

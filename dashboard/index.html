@@ -1,18 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" style="background:#faf9f6">
+<html lang="en" class="dark" style="background:#0a0a0f">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#faf9f6" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)" />
-    <title>Nooterra — Describe your business. We staff it.</title>
-    <meta name="description" content="One sentence turns into a team of AI workers that handle emails, scheduling, billing, and reputation — 24/7, with rules they can't break." />
+    <meta name="theme-color" content="#0a0a0f" />
+    <title>Nooterra — The Enterprise World Runtime</title>
+    <meta name="description" content="The first executable company. A live model of your business that observes, predicts, and operates — governed, auditable, earning trust with every action." />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://nooterra.ai" />
-    <meta property="og:title" content="Nooterra — Describe your business. We staff it." />
-    <meta property="og:description" content="One sentence turns into a team of AI workers that handle emails, scheduling, billing, and reputation — 24/7, with rules they can't break." />
+    <meta property="og:title" content="Nooterra — The Enterprise World Runtime" />
+    <meta property="og:description" content="The first executable company. A live model of your business that observes, predicts, and operates." />
     <meta property="og:site_name" content="Nooterra" />
     <meta property="og:image" content="https://nooterra.ai/logo.png" />
     <meta property="og:image:width" content="1200" />
@@ -20,20 +19,29 @@
 
     <!-- Twitter / iMessage -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Nooterra — Describe your business. We staff it." />
-    <meta name="twitter:description" content="One sentence → a full AI team. Emails, scheduling, billing, reputation. Rules they can't break." />
+    <meta name="twitter:title" content="Nooterra — The Enterprise World Runtime" />
+    <meta name="twitter:description" content="The first executable company. Observe. Predict. Operate." />
     <meta name="twitter:site" content="@nooterra" />
     <meta name="twitter:image" content="https://nooterra.ai/logo.png" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Geist font family -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
     <style>
-      /* Prevent flash of unstyled content — matches CSS variables */
-      html, body { margin: 0; background: #faf9f6; }
-      @media (prefers-color-scheme: dark) { html, body { background: #141413; } }
-      html[data-theme="dark"], html[data-theme="dark"] body { background: #141413; }
+      html, body { margin: 0; background: #0a0a0f; color: #e8e9ed; }
+      * { box-sizing: border-box; }
+      ::selection { background: #4f8ff740; color: #e8e9ed; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #2a2d3d; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #3d4155; }
     </style>
   </head>
-  <body>
+  <body class="antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

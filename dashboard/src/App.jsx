@@ -7,6 +7,16 @@ initAnalytics();
 const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
 const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
+
+// World Runtime views (new)
+const LandingPage = lazy(() => import("./site/LandingPage.jsx"));
+const CommandCenter = lazy(() => import("./views/CommandCenter.jsx"));
+const CompanyState = lazy(() => import("./views/CompanyState.jsx"));
+const PredictionDashboard = lazy(() => import("./views/PredictionDashboard.jsx"));
+const AutonomyMap = lazy(() => import("./views/AutonomyMap.jsx"));
+const PolicyEditor = lazy(() => import("./views/PolicyEditor.jsx"));
+const ApprovalQueue = lazy(() => import("./views/ApprovalQueue.jsx"));
+const Onboarding2 = lazy(() => import("./views/Onboarding.jsx"));
 const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
 const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
 
@@ -19,7 +29,19 @@ function getRouteMode() {
   const searchParams = new URLSearchParams(window.location.search);
   const wantsManagedOnboarding = searchParams.get("experience") === "app";
 
-  if (path === "/" || path === "") return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/" || path === "") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/legacy") return { mode: "home", launchId: null, agentId: null, runId: null, requestedPath: null };
+
+  // World Runtime routes (new dashboard)
+  if (path === "/command") return { mode: "command_center", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/state") return { mode: "company_state", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/predictions") return { mode: "predictions", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/autonomy") return { mode: "autonomy_map", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/policies") return { mode: "policy_editor", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/queue") return { mode: "approval_queue", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/v2") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/setup") return { mode: "onboarding_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
+
   if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/network" || path === "/app") return { mode: "legacy", launchId: null, agentId: null, runId: null, requestedPath: path };
   if (path === "/inbox") return { mode: "inbox", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -223,6 +245,27 @@ export default function App() {
     );
   }
 
+  // World Runtime views (new)
+  const worldRuntimeModes = {
+    landing_v2: LandingPage,
+    command_center: CommandCenter,
+    company_state: CompanyState,
+    predictions: PredictionDashboard,
+    autonomy_map: AutonomyMap,
+    policy_editor: PolicyEditor,
+    approval_queue: ApprovalQueue,
+    onboarding_v2: Onboarding2,
+  };
+
+  if (worldRuntimeModes[route.mode]) {
+    const ViewComponent = worldRuntimeModes[route.mode];
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
+        <ViewComponent />
+      </Suspense>
+    );
+  }
+
   if (route.mode === "operator") {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
@@ -261,19 +304,19 @@ function RouteLoadingScreen({ label }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "var(--bg-100, #faf9f6)",
-        color: "var(--text-100, #111110)",
+        background: "#0a0a0f",
+        color: "#e8e9ed",
       }}
     >
       <div style={{ textAlign: "center" }}>
         <div style={{
-          width: 40, height: 40, margin: "0 auto 16px",
+          width: 32, height: 32, margin: "0 auto 12px",
           borderRadius: "50%",
-          border: "3px solid var(--border, #e5e3dd)",
-          borderTopColor: "var(--accent, #c4613a)",
+          border: "2px solid #2a2d3d",
+          borderTopColor: "#4f8ff7",
           animation: "spin 0.8s linear infinite",
         }} />
-        <div style={{ fontSize: "14px", color: "var(--text-300, #74746d)" }}>{label}</div>
+        <div style={{ fontSize: "13px", color: "#8b8fa3" }}>{label}</div>
       </div>
     </main>
   );

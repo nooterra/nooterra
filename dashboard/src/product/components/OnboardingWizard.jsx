@@ -95,7 +95,7 @@ function DescribeStep({ description, setDescription, onGenerate, generating, err
   return (
     <div>
       <h1 style={W.heading}>Describe your business in one sentence</h1>
-      <p style={W.sub}>We will generate a team of AI workers tailored to your industry.</p>
+      <p style={W.sub}>We'll configure governed agents tailored to your industry and connect your systems.</p>
       {error && <div style={W.error}>{error}</div>}
       <input
         type="text"
@@ -173,7 +173,7 @@ function SuccessStep({ onDone }) {
   return (
     <div style={{ textAlign: "center" }}>
       <h1 style={W.heading}>Your team is ready!</h1>
-      <p style={W.sub}>Your AI workers have been activated and are standing by. Head to the dashboard to manage them.</p>
+      <p style={W.sub}>Your agents are active and operating in shadow mode. Head to the dashboard to review their proposals and govern their autonomy.</p>
       <button style={W.btn} onClick={onDone}>Go to Dashboard</button>
     </div>
   );

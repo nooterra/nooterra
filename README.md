@@ -6,11 +6,11 @@
   </picture>
 </p>
 
-<h3 align="center">AI employees for your business</h3>
+<h3 align="center">The Enterprise World Runtime</h3>
 
 <p align="center">
-  Governed, auditable, self-improving.<br>
-  Every action is classified, every decision is traced, every tool call is enforced.
+  The first executable company. A live model of your business that observes, predicts, and operates<br>
+  through governed agents — earning autonomy from traced performance, not trust on faith.
 </p>
 
 <p align="center">
