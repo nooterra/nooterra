@@ -380,58 +380,94 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ═══ RULES / CHARTER — the differentiator, shown early ═══ */}
+      {/* ═══ THE WORLD MODEL — the big idea ═══ */}
       <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 48 }} className="rules-layout">
-            <InView>
-              <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
-                Rules they can't break.
-              </h2>
-              <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 0 }}>
-                Every agent operates under an authority grant&mdash;hard limits enforced at runtime, before every action. Not prompt instructions. Not guidelines. If it's not in the grant, it doesn't happen.
-              </p>
-            </InView>
+          <InView>
+            <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+              A live model of your business.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 560, marginBottom: 40 }}>
+              Nooterra connects to your tools and builds a real-time model of your entire operation&mdash;every customer, invoice, payment, and conversation, linked and versioned. Then it predicts what&rsquo;s coming.
+            </p>
+          </InView>
 
-            <div className="rules-content" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                <div style={{
-                  fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.7,
-                  borderLeft: "2px solid var(--accent)", paddingLeft: 20,
-                }}>
-                  You define what each agent can do autonomously, what needs your approval, and what's permanently forbidden. The system enforces it&mdash;every action passes through an 11-step gateway before touching the real world.
+          <div className="rules-content" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, alignItems: "start" }}>
+            {[
+              { title: "Observe everything", desc: "Stripe invoices, Gmail threads, QuickBooks payments, calendar events\u2014flowing into one unified model in real time. No manual data entry.", icon: "\u{1F441}" },
+              { title: "Predict outcomes", desc: "Payment probability for every invoice. Churn risk for every customer. Dispute detection from conversation sentiment. Confidence scores on everything.", icon: "\u{1F52E}" },
+              { title: "Act with evidence", desc: "Every agent action comes with an evidence bundle: which facts it relied on, which policies it satisfied, and what the world model predicted would happen.", icon: "\u26A1" },
+              { title: "Learn from results", desc: "Did the customer pay? Did the prediction hold? Every outcome updates the model. The system gets measurably smarter with every interaction.", icon: "\u{1F9E0}" },
+            ].map((item, i) => (
+              <InView key={item.title} delay={i * 0.06}>
+                <div style={{ padding: "28px", borderRadius: 12, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 24, marginBottom: 12 }}>{item.icon}</div>
+                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", marginBottom: 8 }}>{item.title}</h3>
+                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
                 </div>
-                {/* Industry examples merged here */}
-                <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", lineHeight: 1.8 }}>
-                  <div style={{ fontWeight: 600, color: "var(--text-200)", marginBottom: 8 }}>Backed by a live world model:</div>
-                  Every decision is informed by your full business context&mdash;customer history, payment patterns, conversation sentiment, and predicted outcomes. Not a prompt. A model.
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ WHAT AGENTS DO — concrete, not abstract ═══ */}
+      <section>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+              Real work. Real results.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 40 }}>
+              Your AI agents don&rsquo;t just answer questions. They take action on the things that grow your business.
+            </p>
+          </InView>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2 }} className="steps-grid">
+            {[
+              { title: "Collect overdue invoices", desc: "Personalized follow-ups based on each customer\u2019s history, payment patterns, and conversation context. Not template blasts.", accent: "var(--green)" },
+              { title: "Predict which invoices will default", desc: "72% payment probability in 7 days. 8% dispute risk. Every prediction calibrated against real outcomes.", accent: "var(--accent)" },
+              { title: "Escalate before it\u2019s too late", desc: "Customer mentioned \u201Ccash flow\u201D in an email? Dispute risk rising? The system flags it before you\u2019d notice.", accent: "var(--amber)" },
+              { title: "Follow up on every lead", desc: "No prospect falls through the cracks. Every conversation tracked, every follow-up scheduled, every opportunity surfaced.", accent: "var(--green)" },
+              { title: "Schedule and coordinate", desc: "Appointments, reminders, handoffs between team members\u2014managed by agents that see your full calendar and workload.", accent: "var(--accent)" },
+              { title: "Full audit trail on everything", desc: "Every action logged with evidence: what the agent saw, why it acted, which policies it satisfied. Export anytime.", accent: "var(--amber)" },
+            ].map((item, i) => (
+              <InView key={item.title} delay={i * 0.05}>
+                <div style={{ padding: "28px", backgroundColor: "var(--bg-200)", borderRadius: 0, height: "100%" }}>
+                  <div style={{ width: 32, height: 3, backgroundColor: item.accent, borderRadius: 2, marginBottom: 16 }} />
+                  <h3 style={{ fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-100)", marginBottom: 8 }}>{item.title}</h3>
+                  <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
                 </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {[
-                  { color: "var(--green)", bg: "var(--green-bg)", label: "Autonomous", items: ["Read and classify emails", "Generate predictions", "Draft collection reminders"] },
-                  { color: "var(--amber)", bg: "var(--amber-bg)", label: "Supervised", items: ["Send emails to customers", "Create escalation tasks", "Update payment records"] },
-                  { color: "var(--red)", bg: "var(--red-bg)", label: "Forbidden", items: ["Initiate payments", "Delete any data", "Exceed budget limits"] },
-                ].map((rule, i) => (
-                  <InView key={rule.label} delay={i * 0.08}>
-                    <div style={{ padding: "20px 24px", borderRadius: 12, backgroundColor: "var(--bg-400)", border: "1px solid var(--border)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: "0.9375rem", fontWeight: 700, color: "var(--text-100)" }}>{rule.label}</span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {rule.items.map(item => (
-                          <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 6, backgroundColor: rule.bg }}>
-                            <div style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: rule.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: "0.8125rem", color: "var(--text-100)", fontWeight: 500 }}>{item}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </InView>
-                ))}
-              </div>
-            </div>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ GOVERNANCE — trust earned, not given ═══ */}
+      <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
+          <InView>
+            <h2 style={{ fontSize: "var(--text-3xl)", letterSpacing: "-0.035em", fontWeight: 800, color: "var(--text-100)", margin: "0 0 16px", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
+              You don&rsquo;t trust it. It earns your trust.
+            </h2>
+            <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", lineHeight: 1.6, maxWidth: 520, marginBottom: 40 }}>
+              Every other AI product asks for blind faith. Nooterra agents start with zero autonomy and earn more through demonstrated performance.
+            </p>
+          </InView>
+
+          <div className="steps-grid">
+            {[
+              { step: "Week 1", title: "Shadow mode", desc: "Agents propose actions but nothing executes. You review every proposal. The system tracks quality scores.", color: "var(--amber)" },
+              { step: "Week 3", title: "Supervised", desc: "Agents draft actions, you approve with one click. 38 of 40 approved. Zero incidents. 94% quality score.", color: "var(--accent)" },
+              { step: "Week 5", title: "Autonomous", desc: "Proven action types run automatically. Still logged. Still auditable. Still governed. One mistake and it stops immediately.", color: "var(--green)" },
+            ].map((item, i) => (
+              <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px", borderTop: `3px solid ${item.color}` }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: item.color, fontFamily: "var(--font-mono)", marginBottom: 12, display: "block", textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.step}</span>
+                <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 10px" }}>{item.title}</h3>
+                <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
+              </InView>
+            ))}
           </div>
         </div>
       </section>
@@ -441,35 +477,42 @@ function HomePage() {
         <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "var(--section-pad) 24px" }}>
           <InView>
             <h2 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)", margin: 0, marginBottom: 16, fontFamily: "var(--font-display, 'Fraunces', serif)" }}>
-              Three steps to intelligent operations.
+              Up and running in minutes.
             </h2>
             <p style={{ fontSize: "var(--text-base)", color: "var(--text-200)", maxWidth: 520, lineHeight: 1.6, marginBottom: 48 }}>
-              Connect your tools. The world model builds itself. Agents start operating.
+              No code. No configuration files. No AI expertise required.
             </p>
           </InView>
 
           <div className="steps-grid">
             {[
-              {
-                step: "01",
-                title: "Connect your systems",
-                desc: "Stripe, Gmail, QuickBooks, Calendar\u2014one click each. Nooterra starts building a live world model of your business: every customer, invoice, payment, and conversation, linked and versioned.",
-              },
-              {
-                step: "02",
-                title: "See your business as a model",
-                desc: "The system predicts what\u2019s coming\u2014which invoices will default, which customers are at risk, what needs attention now. Every prediction shows its confidence and evidence.",
-              },
-              {
-                step: "03",
-                title: "Agents operate, you govern",
-                desc: "AI agents take action within your policies: sending reminders, escalating disputes, scheduling follow-ups. Every action goes through an 11-step gateway with a full evidence trail. Trust earned from performance, not faith.",
-              },
+              { step: "01", title: "Connect your tools", desc: "Stripe, Gmail, QuickBooks, Google Calendar\u2014one click each. OAuth handles everything. Your data stays in your systems." },
+              { step: "02", title: "Watch the model build", desc: "Every customer, invoice, payment, and conversation appears in a live, linked model. Predictions start generating within minutes." },
+              { step: "03", title: "Agents start working", desc: "Your first agent launches in shadow mode\u2014proposing actions for your review. Approve the ones you like. The system learns your standards." },
             ].map((item, i) => (
               <InView key={item.step} delay={i * 0.08} style={{ backgroundColor: "var(--bg-400)", padding: "32px 28px" }}>
                 <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-mono)", marginBottom: 16, display: "block" }}>{item.step}</span>
                 <h3 style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-100)", margin: "0 0 10px" }}>{item.title}</h3>
                 <p style={{ fontSize: "var(--text-sm)", color: "var(--text-200)", lineHeight: 1.65, margin: 0 }}>{item.desc}</p>
+              </InView>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ BY THE NUMBERS ═══ */}
+      <section style={{ backgroundColor: "var(--bg-200)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: "var(--max-w)", margin: "0 auto", padding: "clamp(3rem, 6vh, 5rem) 24px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 32, textAlign: "center" }} className="steps-grid">
+            {[
+              { value: "12", label: "Architectural layers" },
+              { value: "250+", label: "App integrations" },
+              { value: "11", label: "Security checks per action" },
+              { value: "< 1 min", label: "To your first agent" },
+            ].map((stat, i) => (
+              <InView key={stat.label} delay={i * 0.06}>
+                <div style={{ fontSize: "var(--text-2xl)", fontWeight: 800, color: "var(--text-100)", fontFamily: "var(--font-display, 'Fraunces', serif)" }}>{stat.value}</div>
+                <div style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", marginTop: 4 }}>{stat.label}</div>
               </InView>
             ))}
           </div>
@@ -489,7 +532,7 @@ function HomePage() {
               Give your business a mind.
             </h2>
             <p style={{ fontSize: "var(--text-sm)", color: "var(--text-300)", maxWidth: 440, margin: "0 auto 40px", lineHeight: 1.7 }}>
-              Connect your tools. See predictions on every customer and invoice. Let governed agents handle the rest.
+              The most advanced AI agent platform for business. Connect your systems, deploy governed agents, and watch your operations run themselves&mdash;with evidence on every decision.
             </p>
           </InView>
           <InView delay={0.08}>
@@ -504,7 +547,7 @@ function HomePage() {
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "var(--shadow-lg)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
               >
-                Get started &rarr;
+                Get started free &rarr;
               </a>
             </div>
           </InView>
