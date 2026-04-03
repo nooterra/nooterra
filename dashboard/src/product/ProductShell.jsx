@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   fetchApprovalInbox,
+  fetchBillingStatus,
   fetchTenantSettings,
   fetchWorkOrderReceipts,
   fetchWorkOrderReceiptDetail,
@@ -13,7 +14,7 @@ import {
   S, STATUS_COLORS, ONBOARDING_STORAGE_KEY,
   navigate, getGreeting, getInitials, tierLabel, tierColor,
   workerApiRequest, saveRuntime, saveOnboardingState, loadOnboardingState,
-  loadTheme, saveTheme, applyTheme, fetchSessionPrincipal,
+  loadTheme, saveTheme, applyTheme, fetchSessionPrincipal, logoutSession,
   humanizeSchedule, ALL_MODELS,
 } from "./shared.js";
 import "./product.css";
@@ -27,6 +28,7 @@ const InboxView = React.lazy(() => import("./views/InboxView.jsx"));
 const PerformanceView = React.lazy(() => import("./views/PerformanceView.jsx"));
 const IntegrationsView = React.lazy(() => import("./views/IntegrationsView.jsx"));
 const IntelligenceView = React.lazy(() => import("./views/IntelligenceView.jsx"));
+const OperatorScorecard = React.lazy(() => import("../views/OperatorScorecard.jsx"));
 
 /* -- Eagerly-loaded components (small) ----------------------------- */
 import SettingsModal from "./components/SettingsModal.jsx";
@@ -115,14 +117,15 @@ function ReceiptsView() {
 
 function PricingView() {
   const tiers = [
-    { name: "Free", price: "Free forever", features: ["Local CLI workers", "Any AI provider (bring your own key)", "Unlimited workers and runs", "Charter-based governance", "Full activity logs"], cta: "Install CLI", ctaHref: "https://docs.nooterra.ai", primary: false },
-    { name: "Pro", price: "$29 / month", features: ["Everything in Free", "Cloud-hosted workers", "Web dashboard", "Slack approval integration", "Email notifications", "Priority support"], cta: "Start free trial", ctaAction: () => navigate("/signup"), primary: true },
-    { name: "Team", price: "$99 / month", features: ["Everything in Pro", "Shared team dashboard", "SSO / SAML", "Audit log export", "Custom worker templates", "Dedicated support"], cta: "Contact us", ctaHref: "mailto:team@nooterra.ai", primary: false },
+    { name: "Sandbox", price: "14-30 day trial", features: ["Stripe-first world model", "One governed runtime", "Shadow mode only", "No-card activation", "Approval queue + policy runtime"], cta: "Start setup", ctaAction: () => navigate("/setup"), primary: false },
+    { name: "Starter", price: "$99 / month", features: ["Stripe company state", "Collections runtime", "Predictions + gateway", "Single finance owner workflow", "Managed onboarding"], cta: "Start setup", ctaAction: () => navigate("/setup"), primary: true },
+    { name: "Growth", price: "$299 / month", features: ["Higher invoice volume", "Multiple operators", "Autonomy progression", "Slack/email approvals", "Exports + reporting"], cta: "Talk to us", ctaHref: "mailto:team@nooterra.ai", primary: false },
+    { name: "Finance Ops", price: "$799+ / month", features: ["Policy-heavy workflows", "Audit export", "Custom rollout support", "Priority support", "Partner enablement"], cta: "Contact us", ctaHref: "mailto:team@nooterra.ai", primary: false },
   ];
   return (
     <div style={S.pricingWrap} className="lovable-fade">
       <h1 style={S.pricingTitle}>Simple, honest pricing</h1>
-      <p style={{ fontSize: "1.05rem", color: "var(--text-secondary)", marginBottom: "3rem", maxWidth: 520, lineHeight: 1.6 }}>Start free with local workers. Upgrade when you want cloud hosting and team features.</p>
+      <p style={{ fontSize: "1.05rem", color: "var(--text-secondary)", marginBottom: "3rem", maxWidth: 560, lineHeight: 1.6 }}>Design partners start with a Stripe-first shadow-mode runtime. Pricing scales with governed AR usage, not token trivia.</p>
       {tiers.map((tier, i) => (
         <div key={tier.name} style={{ ...S.tier, borderBottom: i < tiers.length - 1 ? S.tier.borderBottom : "none" }}>
           <div>
@@ -167,7 +170,7 @@ function UserMenu({ onClose, onNavigate, onOpenSettings, userEmail, userTier, co
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={() => { onClose(); onOpenSettings(); }}>Settings</button>
       <a href="https://docs.nooterra.ai" target="_blank" rel="noopener noreferrer" style={{ ...itemStyle, textDecoration: "none" }} onMouseEnter={hover} onMouseLeave={unhover} onClick={onClose}>Help & docs</a>
       {sep}
-      <a href="/pricing" style={{ ...itemStyle, textDecoration: "none", color: "var(--accent)", fontWeight: 600 }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade to Pro</a>
+      <a href="/pricing" style={{ ...itemStyle, textDecoration: "none", color: "var(--accent)", fontWeight: 600 }} onMouseEnter={hover} onMouseLeave={unhover} onClick={(e) => { e.preventDefault(); onClose(); navigate("/pricing"); }}>Upgrade plan</a>
       {sep}
       <button style={itemStyle} onMouseEnter={hover} onMouseLeave={unhover} onClick={async () => { onClose(); await logoutSession(); try { localStorage.removeItem(PRODUCT_RUNTIME_STORAGE_KEY); } catch { /* ignore */ } try { localStorage.removeItem(ONBOARDING_STORAGE_KEY); } catch { /* ignore */ } navigate("/login"); }}>Log out</button>
     </div>
@@ -196,7 +199,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
   const [workers, setWorkers] = useState([]);
   const [creditBalance, setCreditBalance] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [userTier, setUserTier] = useState("free");
+  const [userTier, setUserTier] = useState("sandbox");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [tourComplete, setTourComplete] = useState(() => {
@@ -245,8 +248,26 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
       }
     })();
     (async () => { try { const result = await workerApiRequest({ pathname: "/v1/credits", method: "GET" }); if (result?.balance != null) setCreditBalance(result.balance); else if (result?.remaining != null) setCreditBalance(result.remaining); } catch { /* ignore */ } })();
-    (async () => { try { const runtime = loadRuntimeConfig(); const settings = await fetchTenantSettings(runtime); if (settings?.tier) setUserTier(settings.tier); else if (settings?.plan) setUserTier(settings.plan); } catch { /* ignore */ } })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    (async () => {
+      const runtime = loadRuntimeConfig();
+      try {
+        const billing = await fetchBillingStatus(runtime);
+        if (billing?.tier) {
+          setUserTier(billing.tier);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const settings = await fetchTenantSettings(runtime);
+        if (settings?.tier) setUserTier(settings.tier);
+        else if (settings?.plan) setUserTier(settings.plan);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   // Toast notification system
   const [toasts, addToast, removeToast] = useToasts();
@@ -312,7 +333,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     // Seed current state so the first back press has somewhere to go
     window.history.replaceState({ view: view || "team", workerId: selectedWorkerId }, "", window.location.pathname);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleNavigate(dest, workerId) {
     if (dest === "workerDetail" && workerId) { setSelectedWorkerId(workerId); setIsNewDeploy(false); setView("workerDetail"); pushView("workerDetail", workerId); }
@@ -347,9 +368,11 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     { key: "activity", label: "Activity", icon: iconPulse },
   ];
   const iconBrain = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a6 6 0 0 0-6 6c0 1.66.68 3.16 1.76 4.24L12 16l4.24-3.76A6 6 0 0 0 12 2z"/><path d="M12 16v6"/><path d="M8 22h8"/><path d="M9 6.5a2 2 0 0 1 3 0"/><path d="M12 6.5a2 2 0 0 1 3 0"/></svg>;
+  const iconJudgment = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>;
   const manageNav = [
     { key: "performance", label: "Performance", icon: iconChart },
     { key: "intelligence", label: "Intelligence", icon: iconBrain },
+    { key: "scorecard", label: "Judgment", icon: iconJudgment },
     { key: "connections", label: "Integrations", icon: iconPlug },
     { key: "settings", label: "Settings", icon: iconGear, action: () => setSettingsOpen(true) },
   ];
@@ -426,6 +449,7 @@ function AppShell({ initialView = "home", userEmail, isFirstTime }) {
     : view === "intelligence" && selectedWorkerId ? <div style={S.main}><ErrorBoundary name="IntelligenceView" key="intelligence"><IntelligenceView workerId={selectedWorkerId} /></ErrorBoundary></div>
     : view === "intelligence" ? <div style={S.main}><ErrorBoundary name="IntelligenceView" key="intelligence-pick"><div><h1 style={S.pageTitle}>Intelligence</h1><p style={S.pageSub}>Select a worker from the Team view to see intelligence data.</p></div></ErrorBoundary></div>
     : view === "connections" || view === "integrations" ? <div style={S.main}><ErrorBoundary name="IntegrationsView" key="connections"><IntegrationsView /></ErrorBoundary></div>
+    : view === "scorecard" ? <div style={S.main}><ErrorBoundary name="OperatorScorecard" key="scorecard"><OperatorScorecard /></ErrorBoundary></div>
     : <div style={S.main}><ErrorBoundary name="WorkersListView" key="default"><WorkersListView onSelect={handleSelectWorker} onCreate={() => setView("builder")} /></ErrorBoundary></div>
   );
 
