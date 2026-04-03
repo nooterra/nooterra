@@ -71,3 +71,9 @@ test('strategic.hold materializes relationship preservation effect', () => {
   assert.ok(relationshipEffect, 'must have relationship preservation effect');
   assert.ok(relationshipEffect.delta > 0, 'hold should improve relationship preservation');
 });
+
+test('buildComparativeActionVariants includes strategic hold variant', async () => {
+  const actionType = getActionType('strategic.hold');
+  assert.ok(actionType, 'strategic.hold must be registered for planner to use it');
+  assert.equal(actionType.externalEffect, false, 'hold has no external effect');
+});
