@@ -1,0 +1,9 @@
+services:
+  ml-sidecar:
+    build: .
+    ports:
+      - "8100:8100"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ML_SIDECAR_PORT=8100
+    restart: unless-stopped

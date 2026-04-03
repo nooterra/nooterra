@@ -11,12 +11,59 @@
  */
 
 import type pg from 'pg';
-import { ulid } from 'ulid';
 import type { WorldObject } from '../core/objects.js';
 import { getObject, queryObjects } from '../objects/graph.js';
 import { applyInvoiceRules, applyObligationRules, type StateTransition } from './rules/accounting.js';
 import { checkDeadlines, type DeadlineCheck } from './rules/deadlines.js';
-import { calibrationTracker, type Prediction } from './calibration.js';
+import { getCalibrationReport } from './calibration.js';
+
+// ---------------------------------------------------------------------------
+// ML Sidecar client
+// ---------------------------------------------------------------------------
+
+const ML_SIDECAR_URL = process.env.ML_SIDECAR_URL ?? 'http://localhost:8100';
+
+interface SidecarPredictResponse {
+  value: number;
+  confidence: number;
+  interval: { lower: number; upper: number; coverage: number };
+  model_id: string;
+  calibration: { score: number; method: string; ece: number; n_outcomes: number };
+  drift: { detected: boolean; adwin_value: number };
+  ood: { in_distribution: boolean; kl_divergence: number };
+}
+
+async function callSidecar(
+  tenantId: string,
+  objectId: string,
+  predictionType: string,
+  features: Record<string, number>,
+): Promise<SidecarPredictResponse | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    const res = await fetch(`${ML_SIDECAR_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        object_id: objectId,
+        prediction_type: predictionType,
+        features,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    return (await res.json()) as SidecarPredictResponse;
+  } catch {
+    // Sidecar unavailable — fall back to local prediction
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,14 +76,23 @@ export interface PredictionRequest {
   horizon?: 'short' | 'medium' | 'long'; // 7d / 30d / 90d
 }
 
+export interface PredictionInterval {
+  lower: number;
+  upper: number;
+  coverage: number;
+}
+
 export interface PredictionResult {
   objectId: string;
   predictionType: string;
   value: number;
   confidence: number;
+  interval?: PredictionInterval;
   modelId: string;
   reasoning: string[];
   calibrationScore: number;
+  driftDetected?: boolean;
+  inDistribution?: boolean;
 }
 
 export interface InterventionRequest {
@@ -75,38 +131,62 @@ export async function predict(
 
   const estimated = obj.estimated as Record<string, number>;
 
-  // Check if we already have this estimate from the state estimator
-  if (estimated[request.predictionType] !== undefined) {
-    const value = estimated[request.predictionType]!;
-    const modelId = 'rule_inference';
+  // Check if we have this estimate from the state estimator
+  if (estimated[request.predictionType] === undefined) {
+    return null; // No model can predict this yet
+  }
 
-    // Log prediction
-    const prediction: Prediction = {
-      id: ulid(),
-      tenantId: request.tenantId,
-      objectId: request.objectId,
-      predictionType: request.predictionType,
-      predictedValue: value,
-      confidence: 0.6,
-      modelId,
-      predictedAt: new Date(),
-    };
-    calibrationTracker.recordPrediction(prediction);
+  const value = estimated[request.predictionType]!;
 
-    const calibration = calibrationTracker.getCalibration(modelId, request.predictionType);
+  // Build feature vector from object state for the sidecar
+  const state = obj.state as Record<string, unknown>;
+  const features: Record<string, number> = {
+    ...estimated,
+    amountCents: Number(state.amountCents ?? 0),
+    daysOverdue: state.dueAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(state.dueAt as string).getTime()) / 86400000))
+      : 0,
+  };
 
+  // Try ML sidecar for enhanced prediction (intervals, calibration, drift, OOD)
+  const sidecarResult = await callSidecar(
+    request.tenantId,
+    request.objectId,
+    request.predictionType,
+    features,
+  );
+
+  if (sidecarResult) {
     return {
       objectId: request.objectId,
       predictionType: request.predictionType,
-      value,
-      confidence: 0.6,
-      modelId,
-      reasoning: [`Estimated by ${modelId} from object state and related context`],
-      calibrationScore: calibration.calibrationScore,
+      value: sidecarResult.value,
+      confidence: sidecarResult.confidence,
+      interval: sidecarResult.interval,
+      modelId: sidecarResult.model_id,
+      reasoning: [`Enhanced prediction via ML sidecar (${sidecarResult.calibration.method} calibration)`],
+      calibrationScore: sidecarResult.calibration.score,
+      driftDetected: sidecarResult.drift.detected,
+      inDistribution: sidecarResult.ood.in_distribution,
     };
   }
 
-  return null; // No model can predict this yet
+  // Fallback: local prediction without sidecar
+  const calibration = await getCalibrationReport(pool, {
+    modelId: 'rule_inference',
+    predictionType: request.predictionType,
+    tenantId: request.tenantId,
+  });
+
+  return {
+    objectId: request.objectId,
+    predictionType: request.predictionType,
+    value,
+    confidence: 0.6,
+    modelId: 'rule_inference',
+    reasoning: ['Estimated by rule_inference from object state (sidecar unavailable)'],
+    calibrationScore: calibration.calibrationScore,
+  };
 }
 
 /**
@@ -120,20 +200,17 @@ export async function predictAll(
   const obj = await getObject(pool, objectId);
   if (!obj) return [];
 
-  const results: PredictionResult[] = [];
   const estimated = obj.estimated as Record<string, number>;
+  const fields = Object.entries(estimated).filter(([, v]) => typeof v === 'number');
 
-  for (const [field, value] of Object.entries(estimated)) {
-    if (typeof value !== 'number') continue;
-    results.push({
+  const results: PredictionResult[] = [];
+  for (const [field] of fields) {
+    const result = await predict(pool, {
+      tenantId,
       objectId,
       predictionType: field,
-      value,
-      confidence: 0.6,
-      modelId: 'rule_inference',
-      reasoning: ['From state estimator rule-based inference'],
-      calibrationScore: calibrationTracker.getCalibration('rule_inference', field).calibrationScore,
     });
+    if (result) results.push(result);
   }
 
   return results;

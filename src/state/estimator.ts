@@ -7,18 +7,90 @@
  */
 
 import type pg from 'pg';
+import { ulid } from 'ulid';
 import type { WorldEvent } from '../core/events.js';
 import type { WorldObject } from '../core/objects.js';
 import { getObject, updateObject, getRelated, queryObjects } from '../objects/graph.js';
 import { queryEvents } from '../ledger/event-store.js';
-import { BeliefStore, type Belief } from './beliefs.js';
+import { BeliefStore, beliefsToEstimatedFields, batchPersistBeliefs, type Belief } from './beliefs.js';
 import { estimateInvoice, estimateParty, type InvoiceContext, type PartyContext } from './inference/rules.js';
+import { batchRecordPredictions, recordObjectOutcome, type PersistentPredictionRecord } from '../world-model/calibration.js';
 
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
 
 const beliefStore = new BeliefStore();
+
+function inferHorizon(field: string): 'short' | 'medium' | 'long' | null {
+  if (field.endsWith('7d')) return 'short';
+  if (field.endsWith('30d')) return 'medium';
+  if (field.endsWith('90d')) return 'long';
+  return null;
+}
+
+async function persistDerivedBeliefs(
+  pool: pg.Pool,
+  tenantId: string,
+  beliefs: Belief[],
+): Promise<void> {
+  if (beliefs.length === 0) return;
+
+  const predictions: PersistentPredictionRecord[] = [];
+
+  for (const belief of beliefs) {
+    beliefStore.setBelief(belief);
+    predictions.push({
+      id: ulid(),
+      tenantId,
+      objectId: belief.objectId,
+      predictionType: belief.field,
+      predictedValue: belief.value,
+      confidence: belief.confidence,
+      modelId: belief.method,
+      predictedAt: belief.estimatedAt,
+      evidence: belief.evidence,
+      reasoning: [`Derived from ${belief.method} over observed world state`],
+      horizon: inferHorizon(belief.field),
+      calibrationScore: belief.calibration,
+    });
+  }
+
+  await batchPersistBeliefs(pool, tenantId, beliefs);
+  await batchRecordPredictions(pool, predictions);
+}
+
+async function persistObservedOutcomes(pool: pg.Pool, obj: WorldObject): Promise<void> {
+  if (obj.type !== 'invoice') return;
+  const status = String((obj.state as Record<string, unknown>).status ?? '').trim().toLowerCase();
+  if (!status) return;
+
+  type OutcomeEntry = { tenantId: string; objectId: string; predictionType: string; outcomeValue: number };
+  const outcomes: OutcomeEntry[] = [];
+
+  if (status === 'paid') {
+    outcomes.push(
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'paymentProbability7d', outcomeValue: 1 },
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'paymentProbability30d', outcomeValue: 1 },
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'disputeRisk', outcomeValue: 0 },
+    );
+  } else if (status === 'voided' || status === 'written_off' || status === 'marked_uncollectible' || status === 'uncollectible') {
+    outcomes.push(
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'paymentProbability7d', outcomeValue: 0 },
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'paymentProbability30d', outcomeValue: 0 },
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'disputeRisk', outcomeValue: 0 },
+    );
+  } else if (status === 'disputed') {
+    outcomes.push(
+      { tenantId: obj.tenantId, objectId: obj.id, predictionType: 'disputeRisk', outcomeValue: 1 },
+    );
+  }
+
+  // recordObjectOutcome uses a SELECT...INSERT that references the predictions table,
+  // so each outcome type needs its own query (can't trivially batch into one INSERT).
+  // Use Promise.all to run them concurrently instead of sequentially.
+  await Promise.all(outcomes.map(o => recordObjectOutcome(pool, o)));
+}
 
 // ---------------------------------------------------------------------------
 // Main estimation entry point
@@ -51,18 +123,17 @@ export async function processEvents(pool: pg.Pool, events: WorldEvent[]): Promis
     const beliefs = await estimateObject(pool, obj);
     if (beliefs.length === 0) continue;
 
-    // Store beliefs
-    for (const belief of beliefs) {
-      beliefStore.setBelief(belief);
-      beliefsGenerated++;
-    }
+    await persistDerivedBeliefs(pool, obj.tenantId, beliefs);
+    beliefsGenerated += beliefs.length;
 
     // Update the object's estimated fields
-    const estimated = beliefStore.toEstimatedFields(objectId);
+    const estimated = beliefsToEstimatedFields(beliefs);
     if (Object.keys(estimated).length > 0) {
       await updateObject(pool, objectId, { estimated });
       objectsUpdated++;
     }
+
+    await persistObservedOutcomes(pool, obj);
   }
 
   return { objectsUpdated, beliefsGenerated };
@@ -220,16 +291,16 @@ export async function reestimateAll(
 
   for (const obj of objects) {
     const beliefs = await estimateObject(pool, obj);
-    for (const belief of beliefs) {
-      beliefStore.setBelief(belief);
-      beliefsGenerated++;
-    }
+    await persistDerivedBeliefs(pool, obj.tenantId, beliefs);
+    beliefsGenerated += beliefs.length;
 
-    const estimated = beliefStore.toEstimatedFields(obj.id);
+    const estimated = beliefsToEstimatedFields(beliefs);
     if (Object.keys(estimated).length > 0) {
       await updateObject(pool, obj.id, { estimated });
       objectsUpdated++;
     }
+
+    await persistObservedOutcomes(pool, obj);
   }
 
   return { objectsUpdated, beliefsGenerated };
