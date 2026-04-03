@@ -34,10 +34,22 @@ app = FastAPI(title="Nooterra ML Sidecar", version="0.1.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
+    from .drift import drift_monitor
+
     pool = await get_pool()
+    monitor_count = len(drift_monitor._monitors)
+    stale_monitors = 0
+    now = datetime.now(timezone.utc)
+    for key, ts in drift_monitor._last_checked.items():
+        checked = datetime.fromisoformat(ts)
+        if (now - checked).total_seconds() > 3600:
+            stale_monitors += 1
+
     return {
         "status": "ok",
         "db_connected": pool is not None,
+        "drift_monitors_active": monitor_count,
+        "drift_monitors_stale": stale_monitors,
     }
 
 
