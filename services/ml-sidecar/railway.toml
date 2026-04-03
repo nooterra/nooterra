@@ -1,5 +1,5 @@
 [build]
-dockerfilePath = "Dockerfile"
+dockerfilePath = "services/ml-sidecar/Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
