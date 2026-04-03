@@ -510,6 +510,31 @@ function learnedRolloutBlockReason(
 // ---------------------------------------------------------------------------
 
 /**
+ * Deduplicate outreach actions so each customer gets at most one
+ * external communication per planning cycle. Strategic holds and
+ * non-outreach actions are not subject to deduplication.
+ *
+ * Input must be sorted by priority (highest first).
+ */
+export function deduplicateByCustomer<T extends {
+  targetObjectId: string;
+  priority: number;
+  parameters: { partyId?: string | null; [key: string]: unknown };
+  actionClass: string;
+}>(actions: T[]): T[] {
+  const outreachClasses = new Set(['communicate.email']);
+  const seenCustomers = new Set<string>();
+  return actions.filter((action) => {
+    if (!outreachClasses.has(action.actionClass)) return true;
+    const partyId = action.parameters.partyId;
+    if (!partyId) return true;
+    if (seenCustomers.has(partyId)) return false;
+    seenCustomers.add(partyId);
+    return true;
+  });
+}
+
+/**
  * Generate a plan for a tenant based on current state.
  * Scans for actionable items and produces prioritized actions.
  */
@@ -783,11 +808,14 @@ export async function generateReactivePlan(
     || a.targetObjectId.localeCompare(b.targetObjectId)
   );
 
+  // Deduplicate: one outreach per customer per planning cycle
+  const deduplicatedActions = deduplicateByCustomer(actions);
+
   return {
     tenantId,
     generatedAt: now,
-    actions,
-    summary: `Generated ${actions.length} action(s): ${actions.filter(a => a.actionClass === 'communicate.email').length} emails, ${actions.filter(a => a.actionClass === 'task.create').length} escalations`,
+    actions: deduplicatedActions,
+    summary: `Generated ${deduplicatedActions.length} action(s) from ${actions.length} candidate(s): ${deduplicatedActions.filter(a => a.actionClass === 'communicate.email').length} emails, ${deduplicatedActions.filter(a => a.actionClass === 'task.create').length} escalations, ${deduplicatedActions.filter(a => a.actionClass === 'strategic.hold').length} holds`,
   };
 }
 
