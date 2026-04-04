@@ -111,7 +111,7 @@ export function createRequestHandler(deps: RouterDeps) {
         }));
       } catch (err: any) {
         res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'unhealthy', db: { ok: false, error: err.message } }));
+        res.end(JSON.stringify({ status: 'unhealthy', db: { ok: false, error: 'Database connection failed' } }));
       }
       return;
     }
@@ -158,7 +158,7 @@ export function createRequestHandler(deps: RouterDeps) {
           result = await createCheckoutSession({
             tenantId,
             email: data.email,
-            plan: data.plan || 'pro',
+            plan: data.plan || 'starter',
             successUrl: data.successUrl,
             cancelUrl: data.cancelUrl,
           }, pool);
